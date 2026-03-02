@@ -2817,7 +2817,7 @@ function autoSuggestTopics(suggestedTopics) {
         });
         
         if (matchedTopic && !isTopicSelected(matchedTopic.id)) {
-            addTopic(matchedTopic);
+            addTopic(matchedTopic.id, matchedTopic.name);
         }
     });
 }
