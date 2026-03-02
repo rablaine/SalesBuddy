@@ -38,6 +38,8 @@ On subsequent runs, the script detects the existing venv and `.env`, installs an
 
 > **What the script does NOT do:** It does not set up an Azure OpenAI service principal, GPT deployment, or fill in AI credentials in `.env`. Those are optional steps you can do later — see [AI Features](#ai-features-optional) for instructions.
 
+> **Next steps:** Once the server is running, check out [Initial Setup (First Run)](#initial-setup-first-run) to import your accounts and milestones, then optionally [AI Features](#ai-features-optional) to enable auto-tagging and meeting summaries.
+
 ### Manual Setup
 
 If you prefer to set things up yourself:

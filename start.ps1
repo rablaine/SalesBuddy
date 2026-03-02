@@ -41,8 +41,8 @@ function Install-WithWinget {
     )
     if ($Force) { return $false }
     if ($HasWinget) {
-        $response = Read-Host "         Install $Name automatically via winget? (Y/N)"
-        if ($response -eq 'Y' -or $response -eq 'y') {
+        $response = Read-Host "         Install $Name automatically via winget? (Y/n)"
+        if ($response -eq '' -or $response -eq 'Y' -or $response -eq 'y') {
             Write-Host ""
             Write-Host "  [SETUP] Installing $Name via winget..." -ForegroundColor Yellow
             winget install $PackageId --source winget --accept-package-agreements --accept-source-agreements
@@ -451,5 +451,8 @@ if ($hasUpdates) {
 # Start server
 Start-Server -Port $Port
 Write-Host ""
-Write-Host "  NoteHelper is running! You can close this window." -ForegroundColor Green
-Pause-WithMessage "Press any key to close..."
+Write-Host "  NoteHelper is running! Open in your browser:" -ForegroundColor Green
+Write-Host ""
+Write-Host "  http://localhost:$Port" -ForegroundColor Cyan
+Write-Host ""
+Pause-WithMessage "Press any key to close this window..."
