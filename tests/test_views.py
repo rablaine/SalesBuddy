@@ -259,3 +259,36 @@ def test_customers_list_filters_without_calls(client, sample_data):
     assert response.status_code == 200
     assert b'Empty Customer' in response.data
     assert b'Dark Mode' in response.data
+
+
+def test_admin_shutdown_returns_success(client):
+    """Test that the shutdown endpoint returns success and schedules a shutdown."""
+    from unittest.mock import patch, MagicMock
+
+    with patch('app.routes.admin.threading.Timer') as mock_timer:
+        mock_instance = MagicMock()
+        mock_timer.return_value = mock_instance
+
+        response = client.post('/api/admin/shutdown')
+        assert response.status_code == 200
+        data = response.get_json()
+        assert data['success'] is True
+        assert 'shutting down' in data['message']
+
+        # Verify a timer was started to kill the process
+        mock_timer.assert_called_once()
+        mock_instance.start.assert_called_once()
+
+
+def test_admin_shutdown_rejects_get(client):
+    """Test that GET requests to shutdown endpoint are rejected."""
+    response = client.get('/api/admin/shutdown')
+    assert response.status_code == 405
+
+
+def test_admin_panel_has_shutdown_button(client):
+    """Test that the admin panel includes the shutdown button."""
+    response = client.get('/admin')
+    assert response.status_code == 200
+    assert b'shutdownServerBtn' in response.data
+    assert b'Shut Down Server' in response.data

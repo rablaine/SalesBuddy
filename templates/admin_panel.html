@@ -313,6 +313,17 @@
             </div>
             <div class="collapse" id="dangerZoneCollapse">
                 <div class="card-body">
+                    <!-- Server Control -->
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <h6><i class="bi bi-power"></i> Shut Down Server</h6>
+                            <p class="small text-muted mb-2">Stop the NoteHelper server. You will need to restart it manually (double-click <code>start.bat</code>).</p>
+                            <button class="btn btn-sm btn-danger" id="shutdownServerBtn">
+                                <i class="bi bi-power"></i> Shut Down Server
+                            </button>
+                        </div>
+                    </div>
+                    <hr>
                     <!-- Delete Operations -->
                     <div class="row">
                         <div class="col-md-6 mb-3">
@@ -348,6 +359,27 @@
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {
+
+// Shut Down Server
+document.getElementById('shutdownServerBtn').addEventListener('click', function() {
+    if (!confirm('Are you sure you want to shut down the server?\n\nYou will need to restart it manually by running start.bat.')) return;
+    this.disabled = true;
+    this.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Shutting down...';
+    fetch('/api/admin/shutdown', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            document.body.innerHTML = '<div class="d-flex justify-content-center align-items-center" style="height:100vh"><div class="text-center"><h2 class="text-muted mb-3"><i class="bi bi-power"></i></h2><h4 class="text-muted">Server has been shut down</h4><p class="text-muted">Run <code>start.bat</code> to restart.</p></div></div>';
+        }
+    })
+    .catch(() => {
+        // Server probably already died, which is fine
+        document.body.innerHTML = '<div class="d-flex justify-content-center align-items-center" style="height:100vh"><div class="text-center"><h2 class="text-muted mb-3"><i class="bi bi-power"></i></h2><h4 class="text-muted">Server has been shut down</h4><p class="text-muted">Run <code>start.bat</code> to restart.</p></div></div>';
+    });
+});
 
 // Clear Revenue Data
 document.getElementById('clearRevenueBtn').addEventListener('click', function() {

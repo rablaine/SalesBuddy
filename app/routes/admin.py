@@ -2,6 +2,10 @@
 Admin routes for NoteHelper.
 Handles admin panel, user management, and domain whitelisting.
 """
+import os
+import signal
+import threading
+
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, g
 
 from app.models import (
@@ -193,6 +197,25 @@ def api_update_check():
     state['show_badge'] = state.get('available', False) and not state['dismissed']
     
     return jsonify(state)
+
+
+@admin_bp.route('/api/admin/shutdown', methods=['POST'])
+def api_shutdown_server():
+    """Shut down the running server process.
+
+    Sends the response first, then terminates the process after a short
+    delay so the client receives a clean JSON reply.
+    """
+    port = os.environ.get('PORT', '5000')
+
+    def _shutdown():
+        os.kill(os.getpid(), signal.SIGTERM)
+
+    threading.Timer(1.0, _shutdown).start()
+    return jsonify({
+        'success': True,
+        'message': f'Server on port {port} is shutting down...'
+    })
 
 
 @admin_bp.route('/api/admin/update-dismiss', methods=['POST'])
