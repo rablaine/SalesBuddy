@@ -1963,15 +1963,63 @@ window.addEventListener('beforeunload', function(e) {
 });
 
 // Clear draft only after successful form submission
-document.getElementById('callLogForm').addEventListener('submit', function(e) {
+document.getElementById('callLogForm').addEventListener('submit', async function(e) {
     e.preventDefault(); // Prevent default form submission
     
     const form = e.target;
-    const formData = new FormData(form);
     const submitButton = form.querySelector('button[type="submit"]');
     
     // Disable submit button to prevent double submission
     submitButton.disabled = true;
+    submitButton.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Saving...';
+    
+    // Auto-create task in MSX if task fields are filled but task wasn't created via the button
+    const taskSubject = document.getElementById('task_subject').value.trim();
+    const taskCategory = document.getElementById('task_category').value;
+    const createdTaskId = document.getElementById('created_task_id').value.trim();
+    const milestoneId = document.querySelector('input[name="milestone_msx_id"]')?.value;
+    
+    if (milestoneId && taskSubject && taskCategory && !createdTaskId) {
+        // Task fields are filled but task hasn't been created yet - create it now
+        submitButton.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Creating task...';
+        
+        const taskDescription = document.getElementById('task_description').value.trim();
+        const taskDueDate = document.getElementById('task_due_date').value;
+        const categoryInfo = taskCategories.find(c => c.value == taskCategory) || {label: 'Unknown', is_hok: false};
+        
+        try {
+            const taskResponse = await fetch('/api/msx/tasks', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    milestone_id: milestoneId,
+                    subject: taskSubject,
+                    task_category: parseInt(taskCategory),
+                    description: taskDescription || null,
+                    due_date: taskDueDate ? taskDueDate + 'T23:59:59Z' : null
+                })
+            });
+            const taskResult = await taskResponse.json();
+            
+            if (taskResult.success && taskResult.task_id) {
+                // Store task info in hidden fields so the backend can link it
+                document.getElementById('created_task_id').value = taskResult.task_id;
+                document.getElementById('created_task_url').value = taskResult.task_url || '';
+                document.getElementById('created_task_category_name').value = categoryInfo.label;
+                document.getElementById('created_task_is_hok').value = categoryInfo.is_hok ? '1' : '0';
+                console.log('Task auto-created before save:', taskResult.task_id);
+            } else {
+                console.warn('Task auto-creation failed, will fall back to server-side:', taskResult.error || 'No task_id');
+                // Don't block the save - the server-side create-on-save will try too
+            }
+        } catch (taskError) {
+            console.warn('Task auto-creation network error, will fall back to server-side:', taskError);
+            // Don't block the save - the server-side create-on-save will try too
+        }
+    }
+    
+    // Build FormData AFTER potential task creation so hidden fields are up to date
+    const formData = new FormData(form);
     submitButton.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Saving...';
     
     // Submit via fetch so we can wait for response
