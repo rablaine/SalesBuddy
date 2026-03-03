@@ -101,7 +101,7 @@ def _tracker_milestone_dict(milestone_id=1, on_my_team=False, msx_milestone_id='
 class TestJoinMilestoneTeam:
     """Tests for POST /api/msx/join-milestone-team."""
 
-    @patch('app.services.msx_api.add_user_to_milestone_team')
+    @patch('app.routes.msx.add_user_to_milestone_team')
     def test_join_milestone_team_success(self, mock_join, app, client, db_session, sample_user):
         """Successful join sets on_my_team=True and returns success."""
         with app.app_context():
@@ -123,7 +123,7 @@ class TestJoinMilestoneTeam:
             updated = Milestone.query.get(ms_id)
             assert updated.on_my_team is True
 
-    @patch('app.services.msx_api.add_user_to_milestone_team')
+    @patch('app.routes.msx.add_user_to_milestone_team')
     def test_join_milestone_team_already_member(self, mock_join, app, client, db_session, sample_user):
         """Already-on-team response still returns success and sets flag."""
         with app.app_context():
@@ -144,7 +144,7 @@ class TestJoinMilestoneTeam:
             from app.models import Milestone
             assert Milestone.query.get(ms_id).on_my_team is True
 
-    @patch('app.services.msx_api.add_user_to_milestone_team')
+    @patch('app.routes.msx.add_user_to_milestone_team')
     def test_join_milestone_team_api_error(self, mock_join, app, client, db_session, sample_user):
         """API failure returns error and does NOT set the flag."""
         with app.app_context():

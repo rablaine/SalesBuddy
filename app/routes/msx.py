@@ -38,6 +38,7 @@ from app.services.msx_api import (
     get_my_milestone_team_ids,
     extract_account_id_from_url,
     create_task,
+    add_user_to_milestone_team,
     TASK_CATEGORIES,
     query_entity,
     get_current_user,
@@ -443,6 +444,27 @@ def create_msx_task():
         due_date=due_date
     )
     
+    # Auto-join the milestone team if task creation succeeded
+    if result.get('success'):
+        try:
+            join_result = add_user_to_milestone_team(milestone_id)
+            if join_result.get('success'):
+                # Update local milestone record if it exists
+                local_ms = Milestone.query.filter_by(msx_milestone_id=milestone_id).first()
+                if local_ms:
+                    local_ms.on_my_team = True
+                    db.session.commit()
+                result['joined_team'] = True
+                logger.info(f'Auto-joined milestone team for {milestone_id}')
+            elif 'already' in join_result.get('error', '').lower():
+                result['joined_team'] = True  # Already on team
+            else:
+                result['joined_team'] = False
+                logger.debug(f'Could not auto-join milestone team: {join_result.get("error")}')
+        except Exception as e:
+            result['joined_team'] = False
+            logger.debug(f'Auto-join milestone team failed (non-blocking): {e}')
+    
     return jsonify(result)
 
 
@@ -464,7 +486,6 @@ def join_milestone_team():
         return jsonify({"success": False, "error": "JSON body required"}), 400
 
     from app.models import db, Milestone
-    from app.services.msx_api import add_user_to_milestone_team
 
     milestone_id = request.json.get("milestone_id")
     if not milestone_id:
