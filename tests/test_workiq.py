@@ -8,6 +8,7 @@ from app.services.workiq_service import (
     fuzzy_match_score,
     _parse_meetings_response,
     _parse_summary_response,
+    _clean_ai_preamble,
     find_best_customer_match
 )
 
@@ -271,3 +272,147 @@ class TestMeetingImportAPI:
         assert response.status_code == 400
         data = response.get_json()
         assert 'error' in data
+
+
+class TestCleanAiPreamble:
+    """Test stripping of conversational AI preamble and footer from WorkIQ responses."""
+
+    def test_strips_preamble_and_footer_with_dividers(self):
+        """Test the exact pattern from the user's real WorkIQ response."""
+        response = (
+            "Here's what I can summarize **based strictly on the meeting records "
+            "available**. Please note an important limitation up front: **there is "
+            "no meeting transcript**.\n"
+            "\n---\n\n"
+            "Meeting Summary (Discovery Call - 2026-03-02)\n\n"
+            "The Discovery Call was a 45-minute meeting. The stated purpose was to "
+            "conduct a discovery discussion.\n"
+            "\n---\n\n"
+            "\n---\n\n"
+            "If you'd like, I can also:\n"
+            "- Draft a **post-meeting recap email**\n"
+            "- Create a **discovery findings template**\n"
+        )
+        result = _clean_ai_preamble(response)
+        assert "Here's what I can summarize" not in result
+        assert "Please note" not in result
+        assert "If you'd like" not in result
+        assert "Draft a" not in result
+        assert "Discovery Call was a 45-minute meeting" in result
+
+    def test_strips_heres_what_opener(self):
+        """Test removal of 'Here's what...' openers without dividers."""
+        response = (
+            "Here's a summary of the meeting:\n\n"
+            "The team discussed the migration timeline."
+        )
+        result = _clean_ai_preamble(response)
+        assert "Here's a summary" not in result
+        assert "migration timeline" in result
+
+    def test_strips_please_note_disclaimer(self):
+        """Test removal of 'Please note...' disclaimers."""
+        response = (
+            "Please note that no transcript was available.\n\n"
+            "The meeting covered data strategy."
+        )
+        result = _clean_ai_preamble(response)
+        assert "Please note" not in result
+        assert "data strategy" in result
+
+    def test_strips_if_youd_like_footer(self):
+        """Test removal of follow-up offers."""
+        response = (
+            "The meeting was productive.\n\n"
+            "If you'd like, I can also:\n"
+            "- Draft a recap email\n"
+            "- Create action items\n"
+        )
+        result = _clean_ai_preamble(response)
+        assert "meeting was productive" in result
+        assert "If you'd like" not in result
+        assert "Draft a recap" not in result
+
+    def test_strips_let_me_know_footer(self):
+        """Test removal of 'Let me know if...' footer."""
+        response = (
+            "Key discussion points included Azure migration.\n\n"
+            "Let me know if you'd like more detail on any of these areas."
+        )
+        result = _clean_ai_preamble(response)
+        assert "Azure migration" in result
+        assert "Let me know" not in result
+
+    def test_strips_would_you_like_footer(self):
+        """Test removal of 'Would you like me to...' footer."""
+        response = (
+            "The call focused on Fabric adoption.\n\n"
+            "Would you like me to draft a follow-up email?"
+        )
+        result = _clean_ai_preamble(response)
+        assert "Fabric adoption" in result
+        assert "Would you like" not in result
+
+    def test_strips_based_on_meeting_preamble(self):
+        """Test removal of 'Based on the meeting...' caveats."""
+        response = (
+            "Based on the meeting invitation and metadata:\n\n"
+            "The team reviewed Q1 performance."
+        )
+        result = _clean_ai_preamble(response)
+        assert "Based on the meeting" not in result
+        assert "Q1 performance" in result
+
+    def test_strips_footnote_markers(self):
+        """Test removal of orphaned footnote reference numbers."""
+        response = "The meeting was about data migration. 1\nNext steps were discussed. 2"
+        result = _clean_ai_preamble(response)
+        # Footnote numbers (" 1", " 2") are stripped but periods remain
+        assert "migration. 1" not in result
+        assert "discussed. 2" not in result
+        assert "data migration." in result
+        assert "were discussed." in result
+
+    def test_preserves_clean_content(self):
+        """Test that clean content without preamble is not modified."""
+        response = (
+            "Meeting Summary\n\n"
+            "The team discussed three main topics: Azure migration, "
+            "cost optimization, and timeline adjustments."
+        )
+        result = _clean_ai_preamble(response)
+        assert "three main topics" in result
+        assert "Azure migration" in result
+
+    def test_handles_empty_string(self):
+        """Test that empty string returns empty."""
+        assert _clean_ai_preamble("") == ""
+
+    def test_handles_none(self):
+        """Test that None returns None."""
+        assert _clean_ai_preamble(None) is None
+
+    def test_strips_trailing_dividers(self):
+        """Test removal of trailing --- dividers."""
+        response = "The meeting covered Azure strategy.\n\n---\n"
+        result = _clean_ai_preamble(response)
+        assert result.rstrip().endswith("strategy.")
+
+    def test_end_to_end_through_parse_summary(self):
+        """Test that preamble cleanup flows through _parse_summary_response."""
+        response = (
+            "Here's what I can summarize based on the meeting records.\n"
+            "\n---\n\n"
+            "The WPCU Discovery Call was a 45-minute meeting organized by Greg. "
+            "The stated purpose was to conduct a discovery discussion about "
+            "Azure Data Factory and Microsoft Fabric.\n"
+            "\n---\n\n"
+            "If you'd like, I can also:\n"
+            "- Draft a recap email\n"
+        )
+        result = _parse_summary_response(response)
+        assert "Here's what I can summarize" not in result['summary']
+        assert "If you'd like" not in result['summary']
+        assert "Discovery Call" in result['summary']
+        # Should also extract topics from the cleaned content
+        assert any("Fabric" in t for t in result['topics'])

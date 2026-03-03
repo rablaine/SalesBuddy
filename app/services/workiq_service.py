@@ -18,7 +18,9 @@ logger = logging.getLogger(__name__)
 # Users can customize this in Settings. Use {title} and {date} as placeholders.
 DEFAULT_SUMMARY_PROMPT = (
     'Summarize the meeting called {title} {date} in approximately 250 words. '
-    'Include key discussion points, technologies mentioned, and any action items.'
+    'Include key discussion points, technologies mentioned, and any action items. '
+    'Start directly with the summary content. Do not include introductory disclaimers, '
+    'caveats about missing transcripts, or follow-up offers.'
 )
 
 # Task suggestion suffix - always appended server-side after the user's prompt.
@@ -28,6 +30,101 @@ _TASK_PROMPT_SUFFIX = (
     'task description that captures the main follow-up action from this meeting. '
     'Format the task suggestion on separate lines starting with TASK_TITLE: and TASK_DESCRIPTION:'
 )
+
+
+# Patterns that indicate conversational AI preamble/footer to strip
+_PREAMBLE_PATTERNS = [
+    # "Here's what I can summarize..." style openers
+    re.compile(r"^Here'?s\s+(?:what|a|the|my)\b.+?(?:\n|$)", re.IGNORECASE | re.MULTILINE),
+    # "Please note an important limitation" disclaimers
+    re.compile(r'^Please\s+note\b.+?(?:\n|$)', re.IGNORECASE | re.MULTILINE),
+    # "Based on the meeting records/invitation/metadata" caveats
+    re.compile(r'^Based\s+(?:strictly\s+)?on\s+(?:the\s+)?meeting\b.+?(?:\n|$)', re.IGNORECASE | re.MULTILINE),
+    # "I don't have access to a transcript" disclaimers
+    re.compile(r"^I\s+(?:don'?t|do\s+not)\s+have\s+access\b.+?(?:\n|$)", re.IGNORECASE | re.MULTILINE),
+    # "Note:" or "Important:" disclaimers at start
+    re.compile(r'^(?:Note|Important|Disclaimer|Caveat)\s*:.+?(?:\n|$)', re.IGNORECASE | re.MULTILINE),
+]
+
+_FOOTER_PATTERNS = [
+    # "Let me know if you'd like" (must be before generic "If you'd like" to avoid partial match)
+    re.compile(r"Let\s+me\s+know\s+if\b.+", re.IGNORECASE | re.DOTALL),
+    # "If you'd like, I can also:" and everything after
+    re.compile(r"If\s+you'?d?\s+like\b.+", re.IGNORECASE | re.DOTALL),
+    # "I can also:" offers and everything after
+    re.compile(r"I\s+can\s+also\s*:.+", re.IGNORECASE | re.DOTALL),
+    # "Would you like me to" offers and everything after
+    re.compile(r"Would\s+you\s+like\s+me\s+to\b.+", re.IGNORECASE | re.DOTALL),
+]
+
+
+def _clean_ai_preamble(text: str) -> str:
+    """Strip conversational AI preamble, disclaimers, and follow-up offers.
+
+    WorkIQ responses often include:
+    - Opening disclaimers about missing transcripts
+    - "Here's what I can summarize..." introductions
+    - "If you'd like, I can also..." footers
+
+    These are appropriate for conversational AI but not for structured notes.
+    The actual meeting summary content is preserved.
+    """
+    if not text:
+        return text
+
+    # Strategy 1: If the response has --- dividers with content between them,
+    # extract just the content between the first and last divider.
+    divider_sections = re.split(r'\n---+\n', text)
+    if len(divider_sections) >= 3:
+        # Content is in the middle section(s), skip first (preamble) and last (footer)
+        # But only if the first section looks like preamble
+        first = divider_sections[0].strip()
+        last = divider_sections[-1].strip()
+        first_is_preamble = any(p.search(first) for p in _PREAMBLE_PATTERNS)
+        last_is_footer = any(p.search(last) for p in _FOOTER_PATTERNS) or not last
+
+        if first_is_preamble or last_is_footer:
+            middle = divider_sections[1:-1] if last_is_footer else divider_sections[1:]
+            if first_is_preamble:
+                pass  # already slicing from [1:]
+            else:
+                middle = divider_sections[:-1] if last_is_footer else divider_sections
+            # Re-join just the content sections
+            if first_is_preamble and last_is_footer:
+                text = '\n---\n'.join(divider_sections[1:-1]).strip()
+            elif first_is_preamble:
+                text = '\n---\n'.join(divider_sections[1:]).strip()
+            elif last_is_footer:
+                text = '\n---\n'.join(divider_sections[:-1]).strip()
+
+    # Strategy 2: Line-by-line preamble removal at the start of text.
+    # Remove leading blank lines and preamble-matching lines.
+    lines = text.split('\n')
+    start_idx = 0
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if not stripped:
+            start_idx = i + 1
+            continue
+        if any(p.match(stripped) for p in _PREAMBLE_PATTERNS):
+            start_idx = i + 1
+            continue
+        break  # Hit real content
+    if start_idx > 0:
+        text = '\n'.join(lines[start_idx:])
+
+    # Strategy 3: Remove footer patterns ("If you'd like..." and everything after)
+    for pattern in _FOOTER_PATTERNS:
+        text = pattern.sub('', text)
+
+    # Clean up: remove trailing --- dividers and whitespace
+    text = re.sub(r'\n---+\s*$', '', text).strip()
+
+    # Remove orphaned footnote reference numbers (e.g. " 1" at end of paragraphs)
+    # These are WorkIQ citation markers that have no corresponding footnote
+    text = re.sub(r'\s+\d+\s*$', '', text, flags=re.MULTILINE)
+
+    return text
 
 
 def _clean_meeting_title(title: str) -> str:
@@ -521,6 +618,9 @@ def _parse_summary_response(response: str) -> Dict[str, Any]:
     
     if not has_structured:
         # Use natural language parsing
+        # First, strip conversational AI preamble and follow-up offers
+        cleaned_response = _clean_ai_preamble(cleaned_response)
+        
         # Remove markdown links [text](url) but keep the text
         clean_response = re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', cleaned_response)
         
