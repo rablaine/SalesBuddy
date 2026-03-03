@@ -8,6 +8,7 @@
 # Entry points:
 #   start.bat             Double-click launcher for users (calls this script)
 #   deploy.bat            Admin-elevated deploy (calls this script with -Force)
+#   stop.bat              Stop the server (self-contained, no dependency on start.ps1)
 
 param(
     [switch]$Force  # Force full deploy cycle regardless of current state
