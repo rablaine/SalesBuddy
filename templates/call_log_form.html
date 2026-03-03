@@ -1242,6 +1242,7 @@ function renderMilestoneDropdown() {
                     <i class="bi bi-flag"></i> <strong>${name}</strong>
                     ${number ? '<span class="text-muted small">(' + number + ')</span>' : ''}
                     <span class="badge ${statusClass} ms-1">${status}</span>
+                    ${milestone.on_my_team ? '<span class="badge bg-primary ms-1" title="On my team"><i class="bi bi-people-fill"></i> On Team</span>' : ''}
                     ${usedIn > 0 ? '<span class="badge bg-info ms-1" title="Used in ' + usedIn + ' call log(s)"><i class="bi bi-journal-text"></i> ' + usedIn + '</span>' : ''}
                 </div>
                 ${usageDisplay ? '<span class="badge bg-success">' + usageDisplay + '/mo</span>' : ''}
@@ -1294,6 +1295,7 @@ function selectMilestone(milestone) {
                         </strong>
                         ${number ? '<span class="text-muted small">(' + number + ')</span>' : ''}
                         <span class="badge ${statusClass} ms-1">${status}</span>
+                        ${milestone.on_my_team ? '<span class="badge bg-primary ms-1" title="On my team"><i class="bi bi-people-fill"></i> On Team</span>' : ''}
                         ${usageDisplay ? '<span class="badge bg-success ms-1">' + usageDisplay + '</span>' : ''}
                         ${oppName ? '<br><small class="text-muted">' + oppName + '</small>' : ''}
                         ${workload ? '<br><small class="text-info"><i class="bi bi-cpu"></i> ' + workload + '</small>' : ''}

@@ -35,6 +35,7 @@ from app.services.msx_api import (
     test_connection,
     lookup_account_by_tpid,
     get_milestones_by_account,
+    get_my_milestone_team_ids,
     extract_account_id_from_url,
     create_task,
     TASK_CATEGORIES,
@@ -352,7 +353,16 @@ def get_milestones_for_customer(customer_id: int):
     if not result.get("success"):
         return jsonify(result)
     
-    # Check which milestones are already used in call logs
+    # Get live team membership from MSX (best-effort, fall back to local DB)
+    my_team_ids: set = set()
+    try:
+        team_result = get_my_milestone_team_ids()
+        if team_result.get("success"):
+            my_team_ids = team_result.get("milestone_ids", set())
+    except Exception:
+        logger.debug("Could not fetch live team membership, falling back to local DB")
+    
+    # Enrich milestones with local metadata and team membership
     milestones = result.get("milestones", [])
     for milestone_data in milestones:
         msx_milestone_id = milestone_data.get("id")
@@ -364,6 +374,11 @@ def get_milestones_for_customer(customer_id: int):
             else:
                 milestone_data["used_in_call_logs"] = 0
                 milestone_data["local_milestone_id"] = existing.id if existing else None
+            # Use live MSX team membership if available, fall back to local record
+            if my_team_ids:
+                milestone_data["on_my_team"] = msx_milestone_id.lower() in my_team_ids
+            else:
+                milestone_data["on_my_team"] = existing.on_my_team if existing else False
     
     return jsonify(result)
 

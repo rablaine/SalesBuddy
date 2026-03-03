@@ -263,6 +263,71 @@ class TestMsxRoutes:
         assert len(data['milestones']) == 1
         assert data['milestones'][0]['msp_name'] == 'Test Milestone'
     
+    @patch('app.routes.msx.get_my_milestone_team_ids')
+    @patch('app.routes.msx.get_milestones_by_account')
+    def test_milestones_for_customer_on_my_team_from_msx(
+        self, mock_get_milestones, mock_get_team_ids, client, app, db_session, sample_customer
+    ):
+        """Test milestone dropdown shows on_my_team from live MSX team membership."""
+        with app.app_context():
+            customer = db.session.get(Customer, sample_customer.id)
+            customer.tpid_url = 'https://microsoftsales.crm.dynamics.com/main.aspx?id=12345678-1234-1234-1234-123456789abc'
+            db.session.commit()
+        
+        ms_id_on_team = 'aaaa1111-2222-3333-4444-555566667777'
+        ms_id_not_on_team = 'bbbb1111-2222-3333-4444-555566667777'
+        
+        mock_get_milestones.return_value = {
+            'success': True,
+            'milestones': [
+                {'id': ms_id_on_team, 'name': 'Fabric F64 SKU', 'status': 'On Track'},
+                {'id': ms_id_not_on_team, 'name': 'Other Milestone', 'status': 'Completed'},
+            ]
+        }
+        mock_get_team_ids.return_value = {
+            'success': True,
+            'milestone_ids': {ms_id_on_team},
+        }
+        
+        response = client.get(f'/api/msx/milestones-for-customer/{sample_customer.id}')
+        data = response.get_json()
+        
+        assert data['success'] is True
+        assert len(data['milestones']) == 2
+        assert data['milestones'][0]['on_my_team'] is True
+        assert data['milestones'][1]['on_my_team'] is False
+    
+    @patch('app.routes.msx.get_my_milestone_team_ids')
+    @patch('app.routes.msx.get_milestones_by_account')
+    def test_milestones_for_customer_team_check_failure_falls_back(
+        self, mock_get_milestones, mock_get_team_ids, client, app, db_session, sample_customer
+    ):
+        """Test that if MSX team check fails, it falls back to local DB record."""
+        with app.app_context():
+            customer = db.session.get(Customer, sample_customer.id)
+            customer.tpid_url = 'https://microsoftsales.crm.dynamics.com/main.aspx?id=12345678-1234-1234-1234-123456789abc'
+            db.session.commit()
+        
+        mock_get_milestones.return_value = {
+            'success': True,
+            'milestones': [
+                {'id': 'ms-no-local-record', 'name': 'New Milestone', 'status': 'On Track'},
+            ]
+        }
+        # Simulate team check failure
+        mock_get_team_ids.return_value = {
+            'success': False,
+            'error': 'Request timed out',
+            'milestone_ids': set(),
+        }
+        
+        response = client.get(f'/api/msx/milestones-for-customer/{sample_customer.id}')
+        data = response.get_json()
+        
+        assert data['success'] is True
+        # No local record + team check failed = on_my_team should be False
+        assert data['milestones'][0]['on_my_team'] is False
+
     def test_create_task_requires_json(self, client, app):
         """Test POST /api/msx/tasks requires JSON body."""
         response = client.post('/api/msx/tasks', data='not json')
