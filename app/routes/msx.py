@@ -40,6 +40,7 @@ from app.services.msx_api import (
     extract_account_id_from_url,
     create_task,
     add_user_to_milestone_team,
+    remove_user_from_milestone_team,
     TASK_CATEGORIES,
     query_entity,
     get_current_user,
@@ -503,6 +504,41 @@ def join_milestone_team():
 
     if result.get("success"):
         milestone.on_my_team = True
+        db.session.commit()
+
+    return jsonify(result)
+
+
+@msx_bp.route('/leave-milestone-team', methods=['POST'])
+def leave_milestone_team():
+    """
+    Remove the current user from a milestone's access team in MSX.
+
+    Expected JSON body:
+        milestone_id: local milestone ID (integer)
+
+    Updates the local on_my_team flag on success.
+    """
+    if not request.is_json:
+        return jsonify({"success": False, "error": "JSON body required"}), 400
+
+    from app.models import db, Milestone
+
+    milestone_id = request.json.get("milestone_id")
+    if not milestone_id:
+        return jsonify({"success": False, "error": "milestone_id required"}), 400
+
+    milestone = Milestone.query.get(milestone_id)
+    if not milestone:
+        return jsonify({"success": False, "error": "Milestone not found"}), 404
+
+    if not milestone.msx_milestone_id:
+        return jsonify({"success": False, "error": "Milestone has no MSX ID"}), 400
+
+    result = remove_user_from_milestone_team(milestone.msx_milestone_id)
+
+    if result.get("success"):
+        milestone.on_my_team = False
         db.session.commit()
 
     return jsonify(result)

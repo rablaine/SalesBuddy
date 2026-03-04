@@ -204,6 +204,113 @@ class TestJoinMilestoneTeam:
 
 
 # =============================================================================
+# Route Tests — Leave Milestone Team
+# =============================================================================
+
+class TestLeaveMilestoneTeam:
+    """Tests for POST /api/msx/leave-milestone-team."""
+
+    @patch('app.routes.msx.remove_user_from_milestone_team')
+    def test_leave_milestone_team_success(self, mock_leave, app, client, db_session, sample_user):
+        """Successful leave sets on_my_team=False and returns success."""
+        with app.app_context():
+            ms = _create_milestone(db_session, sample_user, on_my_team=True)
+            ms_id = ms.id
+
+            mock_leave.return_value = {"success": True}
+
+            resp = client.post(
+                '/api/msx/leave-milestone-team',
+                json={"milestone_id": ms_id},
+            )
+            assert resp.status_code == 200
+            data = resp.get_json()
+            assert data["success"] is True
+
+            from app.models import Milestone
+            updated = Milestone.query.get(ms_id)
+            assert updated.on_my_team is False
+
+    @patch('app.routes.msx.remove_user_from_milestone_team')
+    def test_leave_milestone_team_not_on_team(self, mock_leave, app, client, db_session, sample_user):
+        """Not-on-team response still returns success and clears flag."""
+        with app.app_context():
+            ms = _create_milestone(db_session, sample_user, on_my_team=True)
+            ms_id = ms.id
+
+            mock_leave.return_value = {"success": True, "not_on_team": True}
+
+            resp = client.post(
+                '/api/msx/leave-milestone-team',
+                json={"milestone_id": ms_id},
+            )
+            assert resp.status_code == 200
+            data = resp.get_json()
+            assert data["success"] is True
+
+            from app.models import Milestone
+            assert Milestone.query.get(ms_id).on_my_team is False
+
+    @patch('app.routes.msx.remove_user_from_milestone_team')
+    def test_leave_milestone_team_api_error(self, mock_leave, app, client, db_session, sample_user):
+        """API failure returns error and does NOT clear the flag."""
+        with app.app_context():
+            ms = _create_milestone(db_session, sample_user, on_my_team=True)
+            ms_id = ms.id
+
+            mock_leave.return_value = {"success": False, "error": "CRM error"}
+
+            resp = client.post(
+                '/api/msx/leave-milestone-team',
+                json={"milestone_id": ms_id},
+            )
+            data = resp.get_json()
+            assert data["success"] is False
+            assert "CRM error" in data["error"]
+
+            from app.models import Milestone
+            assert Milestone.query.get(ms_id).on_my_team is True
+
+    def test_leave_milestone_team_not_found(self, app, client):
+        """Non-existent milestone returns 404."""
+        resp = client.post(
+            '/api/msx/leave-milestone-team',
+            json={"milestone_id": 99999},
+        )
+        assert resp.status_code == 404
+
+    def test_leave_milestone_team_no_msx_id(self, app, client, db_session, sample_user):
+        """Milestone without msx_milestone_id returns 400."""
+        with app.app_context():
+            ms = _create_milestone(db_session, sample_user, msx_milestone_id=None, on_my_team=True)
+            ms_id = ms.id
+
+            resp = client.post(
+                '/api/msx/leave-milestone-team',
+                json={"milestone_id": ms_id},
+            )
+            assert resp.status_code == 400
+            assert "no MSX ID" in resp.get_json()["error"]
+
+    def test_leave_milestone_team_missing_id(self, app, client):
+        """Missing milestone_id in body returns 400."""
+        resp = client.post(
+            '/api/msx/leave-milestone-team',
+            json={},
+        )
+        assert resp.status_code == 400
+
+    def test_leave_milestone_team_no_json(self, app, client):
+        """Non-JSON request returns 400."""
+        resp = client.post(
+            '/api/msx/leave-milestone-team',
+            data="not json",
+            content_type='text/plain',
+        )
+        assert resp.status_code == 400
+
+
+# =============================================================================
 # Route Tests — Join Deal Team
 # =============================================================================
 
@@ -330,7 +437,7 @@ class TestMilestoneViewTeamIndicator:
     """Team indicator on the milestone detail page."""
 
     def test_milestone_view_shows_on_team_badge(self, app, client, db_session, sample_user):
-        """When on_my_team is True, page shows 'On Team' badge."""
+        """When on_my_team is True, page shows 'On Team' badge and Leave button."""
         with app.app_context():
             ms = _create_milestone(db_session, sample_user, on_my_team=True)
             resp = client.get(f'/milestone/{ms.id}')
@@ -338,6 +445,8 @@ class TestMilestoneViewTeamIndicator:
             html = resp.data.decode()
             assert 'On Team' in html
             assert 'bg-success' in html
+            assert 'leaveMilestoneTeam' in html
+            assert 'Leave' in html
 
     def test_milestone_view_shows_join_button(self, app, client, db_session, sample_user):
         """When on_my_team is False and has MSX ID, page shows Join button."""

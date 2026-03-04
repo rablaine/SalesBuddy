@@ -1141,6 +1141,63 @@ def add_user_to_milestone_team(milestone_msx_id: str) -> Dict[str, Any]:
         return {"success": False, "error": str(e)}
 
 
+def remove_user_from_milestone_team(milestone_msx_id: str) -> Dict[str, Any]:
+    """
+    Remove the current user from a milestone's access team in MSX.
+
+    Args:
+        milestone_msx_id: The MSX GUID of the milestone.
+
+    Returns:
+        Dict with success: bool and optional error message.
+    """
+    try:
+        user_id = get_current_user_id()
+        if not user_id:
+            return {"success": False, "error": "Could not get current user ID"}
+
+        url = (
+            f"{CRM_BASE_URL}/systemusers({user_id})"
+            f"/Microsoft.Dynamics.CRM.RemoveUserFromRecordTeam"
+        )
+        payload = {
+            "Record": {
+                "@odata.type": "Microsoft.Dynamics.CRM.msp_engagementmilestone",
+                "msp_engagementmilestoneid": milestone_msx_id,
+            },
+            "TeamTemplate": {
+                "@odata.type": "Microsoft.Dynamics.CRM.teamtemplate",
+                "teamtemplateid": MILESTONE_TEAM_TEMPLATE_ID,
+            },
+        }
+
+        response = _msx_request('POST', url, json_data=payload)
+
+        if response.status_code in (200, 204):
+            logger.info(f"Removed user from milestone team: {milestone_msx_id}")
+            return {"success": True}
+        else:
+            error_text = response.text[:300]
+            if "not a member" in error_text.lower() or response.status_code == 409:
+                return {"success": True, "not_on_team": True}
+            logger.warning(
+                f"Failed to remove user from milestone team {milestone_msx_id}: "
+                f"HTTP {response.status_code} -- {error_text}"
+            )
+            return {
+                "success": False,
+                "error": f"MSX returned HTTP {response.status_code}",
+            }
+
+    except requests.exceptions.Timeout:
+        return {"success": False, "error": "Request timed out. Check VPN connection."}
+    except requests.exceptions.ConnectionError as e:
+        return {"success": False, "error": f"Connection error (VPN?): {str(e)[:100]}"}
+    except Exception as e:
+        logger.exception(f"Error removing user from milestone team {milestone_msx_id}")
+        return {"success": False, "error": str(e)}
+
+
 def add_user_to_deal_team(opportunity_msx_id: str) -> Dict[str, Any]:
     """
     Add the current user to an opportunity's deal team in MSX.

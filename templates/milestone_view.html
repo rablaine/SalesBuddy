@@ -106,7 +106,12 @@
                 <li class="list-group-item d-flex justify-content-between align-items-center" id="milestoneTeamRow">
                     <span class="text-muted">Milestone Team</span>
                     {% if milestone.on_my_team %}
-                    <span class="badge bg-success"><i class="bi bi-people-fill"></i> On Team</span>
+                    <span>
+                        <span class="badge bg-success me-1"><i class="bi bi-people-fill"></i> On Team</span>
+                        <button class="btn btn-outline-danger btn-sm" id="leaveMilestoneTeamBtn" onclick="leaveMilestoneTeam({{ milestone.id }})">
+                            <i class="bi bi-person-dash"></i> Leave
+                        </button>
+                    </span>
                     {% else %}
                     <button class="btn btn-outline-primary btn-sm" id="joinMilestoneTeamBtn" onclick="joinMilestoneTeam({{ milestone.id }})">
                         <i class="bi bi-person-plus"></i> Join Team
@@ -291,14 +296,20 @@
 <script>
 let taskCategories = [];
 
-// Disable join-team button when VPN is blocked
+// Disable team buttons when VPN is blocked
 fetch('/api/msx/vpn-status').then(r => r.json()).then(data => {
     if (data.blocked) {
-        const btn = document.getElementById('joinMilestoneTeamBtn');
-        if (btn) {
-            btn.disabled = true;
-            btn.classList.replace('btn-outline-primary', 'btn-outline-secondary');
-            btn.title = 'VPN required — connect to corpnet first';
+        const joinBtn = document.getElementById('joinMilestoneTeamBtn');
+        if (joinBtn) {
+            joinBtn.disabled = true;
+            joinBtn.classList.replace('btn-outline-primary', 'btn-outline-secondary');
+            joinBtn.title = 'VPN required -- connect to corpnet first';
+        }
+        const leaveBtn = document.getElementById('leaveMilestoneTeamBtn');
+        if (leaveBtn) {
+            leaveBtn.disabled = true;
+            leaveBtn.classList.replace('btn-outline-danger', 'btn-outline-secondary');
+            leaveBtn.title = 'VPN required -- connect to corpnet first';
         }
     }
 }).catch(() => {});
@@ -323,10 +334,18 @@ async function joinMilestoneTeam(milestoneId) {
         const data = await resp.json();
         if (data.success) {
             const row = document.getElementById('milestoneTeamRow');
+            const wrapper = document.createElement('span');
             const badge = document.createElement('span');
-            badge.className = 'badge bg-success';
+            badge.className = 'badge bg-success me-1';
             badge.innerHTML = '<i class="bi bi-people-fill"></i> On Team';
-            btn.replaceWith(badge);
+            const leaveBtn = document.createElement('button');
+            leaveBtn.className = 'btn btn-outline-danger btn-sm';
+            leaveBtn.id = 'leaveMilestoneTeamBtn';
+            leaveBtn.innerHTML = '<i class="bi bi-person-dash"></i> Leave';
+            leaveBtn.onclick = () => leaveMilestoneTeam(milestoneId);
+            wrapper.appendChild(badge);
+            wrapper.appendChild(leaveBtn);
+            btn.replaceWith(wrapper);
         } else {
             btn.innerHTML = originalHtml;
             btn.disabled = false;
@@ -336,6 +355,45 @@ async function joinMilestoneTeam(milestoneId) {
         btn.innerHTML = originalHtml;
         btn.disabled = false;
         alert('Failed to join team: ' + err.message);
+    }
+}
+
+async function leaveMilestoneTeam(milestoneId) {
+    const btn = document.getElementById('leaveMilestoneTeamBtn');
+    if (!btn) return;
+    if (window.isVpnBlocked && window.isVpnBlocked()) {
+        window.showVpnBanner();
+        return;
+    }
+    if (!confirm('Leave this milestone team? You can rejoin later.')) return;
+    const originalHtml = btn.innerHTML;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+    btn.disabled = true;
+    try {
+        const resp = await fetch('/api/msx/leave-milestone-team', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ milestone_id: milestoneId })
+        });
+        const data = await resp.json();
+        if (data.success) {
+            const row = document.getElementById('milestoneTeamRow');
+            // Replace badge + leave button with join button
+            const joinBtn = document.createElement('button');
+            joinBtn.className = 'btn btn-outline-primary btn-sm';
+            joinBtn.id = 'joinMilestoneTeamBtn';
+            joinBtn.innerHTML = '<i class="bi bi-person-plus"></i> Join Team';
+            joinBtn.onclick = () => joinMilestoneTeam(milestoneId);
+            btn.parentElement.replaceWith(joinBtn);
+        } else {
+            btn.innerHTML = originalHtml;
+            btn.disabled = false;
+            alert('Failed to leave team: ' + (data.error || 'Unknown error'));
+        }
+    } catch (err) {
+        btn.innerHTML = originalHtml;
+        btn.disabled = false;
+        alert('Failed to leave team: ' + err.message);
     }
 }
 
