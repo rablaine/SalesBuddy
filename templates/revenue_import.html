@@ -166,7 +166,7 @@ fileInput.addEventListener('change', async function() {
     
     const formData = new FormData();
     formData.append('file', file);
-    formData.append('run_analysis', 'y');
+    formData.append('run_analysis', 'on');
     
     try {
         const response = await fetch('{{ url_for("revenue.revenue_import_stream") }}', {

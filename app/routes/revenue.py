@@ -113,7 +113,7 @@ def revenue_import_stream():
     
     filename = secure_filename(file.filename)
     content = file.read()
-    run_analysis = request.form.get('run_analysis', 'on') == 'on'
+    run_analysis = request.form.get('run_analysis', 'on') not in ('off', 'no', '0', '')
     user_id = g.user.id
     
     def generate():
