@@ -475,6 +475,23 @@ Write-Host "  NoteHelper Backup" -ForegroundColor Cyan
 Write-Host "  =================" -ForegroundColor Cyan
 Write-Host ""
 
+# If not configured, offer to run setup instead of just erroring
+$config = Get-BackupConfig
+if (-not $config.backup_dir -and -not $Silent) {
+    Write-Host "  Backups are not configured yet." -ForegroundColor Yellow
+    Write-Host ""
+    $response = Read-Host "  Would you like to set up automatic backups now? (Y/n)"
+    if ($response -eq '' -or $response -eq 'Y' -or $response -eq 'y') {
+        & $PSCommandPath -Setup
+        exit $LASTEXITCODE
+    } else {
+        Write-Host "  [SKIP] Run with -Setup when you're ready." -ForegroundColor Gray
+        Write-Host ""
+        Read-Host "  Press Enter to close"
+        exit 0
+    }
+}
+
 $success = Run-Backup
 
 if (-not $Silent) {

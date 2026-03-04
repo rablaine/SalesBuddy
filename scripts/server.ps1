@@ -398,18 +398,25 @@ if ($isGitRepo) {
 
 # -- Step 11: Check backup configuration --------------------------------------
 $backupConfigFile = Join-Path $RepoRoot 'data\backup_config.json'
-$backupConfigured = $false
-if (Test-Path $backupConfigFile) {
+$backupConfigExists = Test-Path $backupConfigFile
+$backupEnabled = $false
+if ($backupConfigExists) {
     try {
         $backupConfig = Get-Content $backupConfigFile -Raw | ConvertFrom-Json
         if ($backupConfig.enabled -eq $true -and $backupConfig.backup_dir) {
-            $backupConfigured = $true
+            $backupEnabled = $true
             Write-Host "  [OK] Backups enabled -> $($backupConfig.backup_dir)" -ForegroundColor Green
+        } else {
+            Write-Host "  [INFO] Backups disabled. Run backup.bat to set up." -ForegroundColor Gray
         }
-    } catch {}
+    } catch {
+        Write-Host "  [INFO] Backups disabled. Run backup.bat to set up." -ForegroundColor Gray
+    }
 }
 
-if (-not $backupConfigured -and -not $Force) {
+# Only prompt if the config file doesn't exist at all (never been asked).
+# If the file exists with enabled=false, the user explicitly declined - don't nag.
+if (-not $backupConfigExists -and -not $Force) {
     Write-Host ""
     Write-Host "  Automatic backups are not configured." -ForegroundColor Yellow
     Write-Host "  Backups copy your database to OneDrive daily." -ForegroundColor Gray
@@ -418,9 +425,14 @@ if (-not $backupConfigured -and -not $Force) {
         $backupScript = Join-Path $PSScriptRoot 'backup.ps1'
         & $backupScript -Setup
     } else {
+        # Create config with enabled=false so we don't ask again
+        $declinedConfig = @{ enabled = $false } | ConvertTo-Json
+        $dataDir = Join-Path $RepoRoot 'data'
+        if (-not (Test-Path $dataDir)) { New-Item -ItemType Directory -Path $dataDir -Force | Out-Null }
+        Set-Content -Path $backupConfigFile -Value $declinedConfig
         Write-Host "  [SKIP] You can set up backups later with: backup.bat" -ForegroundColor Gray
     }
-} elseif (-not $backupConfigured -and $Force) {
+} elseif (-not $backupConfigExists -and $Force) {
     Write-Host "  [INFO] Backups not configured. Run backup.bat to set up." -ForegroundColor Gray
 }
 
