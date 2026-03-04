@@ -2,6 +2,9 @@
 Tests for view routes (pages that display data).
 These tests verify that pages load correctly and handle eager-loaded relationships.
 """
+import os
+from unittest.mock import patch
+
 import pytest
 
 
@@ -292,3 +295,88 @@ def test_admin_panel_has_shutdown_button(client):
     assert response.status_code == 200
     assert b'shutdownServerBtn' in response.data
     assert b'Shut Down Server' in response.data
+
+
+# =============================================================================
+# Admin Panel AI Integration Card
+# =============================================================================
+
+def test_admin_ai_not_configured_shows_disabled_test(client):
+    """Admin AI card shows 'Not configured' with disabled test button when no env vars."""
+    env_clear = {
+        'AZURE_OPENAI_ENDPOINT': '',
+        'AZURE_OPENAI_DEPLOYMENT': '',
+        'AZURE_CLIENT_ID': '',
+        'AZURE_CLIENT_SECRET': '',
+        'AZURE_TENANT_ID': '',
+    }
+    with patch.dict(os.environ, env_clear):
+        os.environ.pop('AZURE_OPENAI_ENDPOINT', None)
+        os.environ.pop('AZURE_OPENAI_DEPLOYMENT', None)
+        os.environ.pop('AZURE_CLIENT_ID', None)
+        os.environ.pop('AZURE_CLIENT_SECRET', None)
+        os.environ.pop('AZURE_TENANT_ID', None)
+        response = client.get('/admin')
+        html = response.data.decode()
+
+    assert 'Not configured' in html
+    assert 'Setup guide' in html
+    # Test button should be disabled, not clickable
+    assert 'id="aiTestBtn"' not in html
+    assert 'disabled' in html
+
+
+def test_admin_ai_configured_shows_test_button(client):
+    """Admin AI card shows green check and enabled test button when fully configured."""
+    env_vars = {
+        'AZURE_OPENAI_ENDPOINT': 'https://test.openai.azure.com/',
+        'AZURE_OPENAI_DEPLOYMENT': 'gpt-4o-mini',
+        'AZURE_CLIENT_ID': 'test-client-id',
+        'AZURE_CLIENT_SECRET': 'test-secret',
+        'AZURE_TENANT_ID': 'test-tenant-id',
+    }
+    with patch.dict(os.environ, env_vars):
+        response = client.get('/admin')
+        html = response.data.decode()
+
+    assert 'Configured' in html
+    assert 'gpt-4o-mini' in html
+    assert 'id="aiTestBtn"' in html
+    # AI card should not show "Not configured" messaging - check the AI section specifically
+    assert 'Set Azure OpenAI environment variables' not in html
+
+
+def test_admin_ai_missing_credentials_shows_warning(client):
+    """Admin AI card shows credential warning when endpoint set but no service principal."""
+    env_vars = {
+        'AZURE_OPENAI_ENDPOINT': 'https://test.openai.azure.com/',
+        'AZURE_OPENAI_DEPLOYMENT': 'gpt-4o-mini',
+    }
+    with patch.dict(os.environ, env_vars, clear=False):
+        os.environ.pop('AZURE_CLIENT_ID', None)
+        os.environ.pop('AZURE_CLIENT_SECRET', None)
+        os.environ.pop('AZURE_TENANT_ID', None)
+        response = client.get('/admin')
+        html = response.data.decode()
+
+    assert 'Missing credentials' in html
+    assert 'AZURE_CLIENT_ID' in html
+    assert 'id="aiTestBtn"' not in html
+
+
+def test_admin_ai_missing_deployment_shows_warning(client):
+    """Admin AI card shows deployment warning when endpoint set but no deployment."""
+    env_vars = {
+        'AZURE_OPENAI_ENDPOINT': 'https://test.openai.azure.com/',
+        'AZURE_CLIENT_ID': 'test-client-id',
+        'AZURE_CLIENT_SECRET': 'test-secret',
+        'AZURE_TENANT_ID': 'test-tenant-id',
+    }
+    with patch.dict(os.environ, env_vars, clear=False):
+        os.environ.pop('AZURE_OPENAI_DEPLOYMENT', None)
+        response = client.get('/admin')
+        html = response.data.decode()
+
+    assert 'Missing deployment' in html
+    assert 'AZURE_OPENAI_DEPLOYMENT' in html
+    assert 'id="aiTestBtn"' not in html

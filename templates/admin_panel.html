@@ -113,9 +113,41 @@
                         </div>
                         <div id="aiTestResult" class="mt-2"></div>
                         {% elif not ai_config.endpoint %}
-                        <span class="text-muted small"><i class="bi bi-info-circle"></i> Not configured. Set <code>AZURE_OPENAI_ENDPOINT</code> in <code>.env</code> to enable. <a href="https://github.com/rablaine/NoteHelper#ai-features-optional" target="_blank">Docs</a></span>
+                        <div class="d-flex align-items-center gap-3">
+                            <div class="flex-grow-1">
+                                <i class="bi bi-dash-circle text-muted"></i> <span class="text-muted">Not configured</span>
+                            </div>
+                            <button class="btn btn-outline-secondary btn-sm" disabled>
+                                <i class="bi bi-lightning"></i> Test
+                            </button>
+                        </div>
+                        <div class="mt-2">
+                            <span class="text-muted small">Set Azure OpenAI environment variables in <code>.env</code> to enable AI features. <a href="https://github.com/rablaine/NoteHelper#ai-features-optional" target="_blank">Setup guide</a></span>
+                        </div>
                         {% elif not ai_config.has_credentials %}
-                        <span class="text-muted small"><i class="bi bi-exclamation-circle"></i> Endpoint set, but missing service principal credentials in <code>.env</code>.</span>
+                        <div class="d-flex align-items-center gap-3">
+                            <div class="flex-grow-1">
+                                <i class="bi bi-exclamation-triangle text-warning"></i> <span class="text-muted">Missing credentials</span>
+                            </div>
+                            <button class="btn btn-outline-secondary btn-sm" disabled>
+                                <i class="bi bi-lightning"></i> Test
+                            </button>
+                        </div>
+                        <div class="mt-2">
+                            <span class="text-muted small">Endpoint set but service principal credentials (<code>AZURE_CLIENT_ID</code>, <code>AZURE_CLIENT_SECRET</code>, <code>AZURE_TENANT_ID</code>) are missing. <a href="https://github.com/rablaine/NoteHelper#ai-features-optional" target="_blank">Setup guide</a></span>
+                        </div>
+                        {% elif not ai_config.deployment %}
+                        <div class="d-flex align-items-center gap-3">
+                            <div class="flex-grow-1">
+                                <i class="bi bi-exclamation-triangle text-warning"></i> <span class="text-muted">Missing deployment</span>
+                            </div>
+                            <button class="btn btn-outline-secondary btn-sm" disabled>
+                                <i class="bi bi-lightning"></i> Test
+                            </button>
+                        </div>
+                        <div class="mt-2">
+                            <span class="text-muted small">Endpoint set but <code>AZURE_OPENAI_DEPLOYMENT</code> is missing. <a href="https://github.com/rablaine/NoteHelper#ai-features-optional" target="_blank">Setup guide</a></span>
+                        </div>
                         {% endif %}
                     </div>
                 </div>
