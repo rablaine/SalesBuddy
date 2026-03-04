@@ -187,8 +187,8 @@ if ($backups.Count -eq 0) {
 # Display backup list with stats
 Write-Host "  Available backups:" -ForegroundColor White
 Write-Host ""
-Write-Host "  {0,-4} {1,-22} {2,-9} {3,-8} {4}" -f '#', 'Date', 'Size', 'Source', 'Contents'
-Write-Host "  {0,-4} {1,-22} {2,-9} {3,-8} {4}" -f '---', '----', '----', '------', '--------'
+Write-Host ("  {0,-4} {1,-22} {2,-9} {3,-8} {4}" -f '#', 'Date', 'Size', 'Source', 'Contents')
+Write-Host ("  {0,-4} {1,-22} {2,-9} {3,-8} {4}" -f '---', '----', '----', '------', '--------')
 
 $displayBackups = $backups | Select-Object -First 20
 
