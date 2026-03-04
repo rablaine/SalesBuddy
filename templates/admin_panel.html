@@ -102,72 +102,72 @@
                     </div>
                     <div class="card-body">
                         <!-- Config checklist -->
-                        <table class="table table-sm table-borderless mb-2">
+                        <table class="table-sm mb-2 w-100" style="border-collapse: collapse;">
                             <tbody>
                                 <tr>
-                                    <td class="ps-0" style="width: 24px;">
+                                    <td class="ps-0 py-1" style="width: 24px;">
                                         <i class="bi bi-{{ 'check-circle-fill text-success' if ai_config.endpoint_ok else 'x-circle-fill text-danger' }}"></i>
                                     </td>
-                                    <td><code>AZURE_OPENAI_ENDPOINT</code></td>
-                                    <td class="text-end text-muted small">
+                                    <td class="py-1"><small class="text-muted">AZURE_OPENAI_ENDPOINT</small></td>
+                                    <td class="text-end text-muted small py-1">
                                         {% if ai_config.endpoint_ok %}
                                             {{ ai_config.endpoint | truncate(35, True) }}
                                         {% elif ai_config.endpoint %}
                                             <span class="text-danger">placeholder</span>
                                         {% else %}
-                                            <span class="text-muted">not set</span>
+                                            not set
                                         {% endif %}
                                     </td>
                                 </tr>
                                 <tr>
-                                    <td class="ps-0">
+                                    <td class="ps-0 py-1">
                                         <i class="bi bi-{{ 'check-circle-fill text-success' if ai_config.deployment_ok else 'x-circle-fill text-danger' }}"></i>
                                     </td>
-                                    <td><code>AZURE_OPENAI_DEPLOYMENT</code></td>
-                                    <td class="text-end text-muted small">
+                                    <td class="py-1"><small class="text-muted">AZURE_OPENAI_DEPLOYMENT</small></td>
+                                    <td class="text-end text-muted small py-1">
                                         {% if ai_config.deployment_ok %}
                                             {{ ai_config.deployment }}
                                         {% elif ai_config.deployment %}
                                             <span class="text-danger">placeholder</span>
                                         {% else %}
-                                            <span class="text-muted">not set</span>
+                                            not set
                                         {% endif %}
                                     </td>
                                 </tr>
                                 <tr>
-                                    <td class="ps-0">
+                                    <td class="ps-0 py-1">
                                         <i class="bi bi-{{ 'check-circle-fill text-success' if ai_config.client_id_ok else 'x-circle-fill text-danger' }}"></i>
                                     </td>
-                                    <td><code>AZURE_CLIENT_ID</code></td>
-                                    <td class="text-end text-muted small">
+                                    <td class="py-1"><small class="text-muted">AZURE_CLIENT_ID</small></td>
+                                    <td class="text-end text-muted small py-1">
                                         {% if ai_config.client_id_ok %}
-                                            <span class="text-success">set</span>
+                                            set
                                         {% else %}
                                             <span class="text-danger">{{ 'invalid' if ai_config.endpoint else 'not set' }}</span>
                                         {% endif %}
                                     </td>
                                 </tr>
                                 <tr>
-                                    <td class="ps-0">
+                                    <td class="ps-0 py-1">
                                         <i class="bi bi-{{ 'check-circle-fill text-success' if ai_config.client_secret_ok else 'x-circle-fill text-danger' }}"></i>
                                     </td>
-                                    <td><code>AZURE_CLIENT_SECRET</code></td>
-                                    <td class="text-end text-muted small">
+                                    <td class="py-1"><small class="text-muted">AZURE_CLIENT_SECRET</small></td>
+                                    <td class="text-end text-muted small py-1">
                                         {% if ai_config.client_secret_ok %}
-                                            <span class="text-success">set</span>
+                                            set
                                         {% else %}
                                             <span class="text-danger">{{ 'invalid' if ai_config.endpoint else 'not set' }}</span>
                                         {% endif %}
                                     </td>
                                 </tr>
                                 <tr>
-                                    <td class="ps-0">
+                                    <td class="ps-0 py-1">
                                         <i class="bi bi-{{ 'check-circle-fill text-success' if ai_config.tenant_id_ok else 'x-circle-fill text-danger' }}"></i>
                                     </td>
-                                    <td><code>AZURE_TENANT_ID</code></td>
-                                    <td class="text-end text-muted small">
+                                    <td class="py-1"><small class="text-muted">AZURE_TENANT_ID</small></td>
+                                    <td class="text-end text-muted small py-1">
                                         {% if ai_config.tenant_id_ok %}
-                                            <span class="text-success">set</span>
+                                            set
                                         {% else %}
                                             <span class="text-danger">{{ 'invalid' if ai_config.endpoint else 'not set' }}</span>
                                         {% endif %}
