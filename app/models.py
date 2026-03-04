@@ -649,6 +649,7 @@ class UserPreference(db.Model):
     guided_tour_completed = db.Column(db.Boolean, default=False, nullable=False)  # Track if product tour has been shown
     dismissed_update_commit = db.Column(db.String(7), nullable=True)  # Last dismissed update commit hash (short)
     workiq_summary_prompt = db.Column(db.Text, nullable=True)  # Custom WorkIQ meeting summary prompt (null = use default)
+    workiq_connect_impact = db.Column(db.Boolean, default=True, nullable=False)  # Extract Connect impact signals from WorkIQ summaries
     created_at = db.Column(db.DateTime, default=utc_now, nullable=False)
     updated_at = db.Column(db.DateTime, default=utc_now, onupdate=utc_now, nullable=False)
     

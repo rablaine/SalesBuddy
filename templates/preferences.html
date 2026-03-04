@@ -153,6 +153,15 @@
             </div>
             <div class="card-body">
                 <div class="mb-3">
+                    <div class="form-check form-switch mb-3">
+                        <input class="form-check-input" type="checkbox" id="connectImpactSwitch" {% if workiq_connect_impact %}checked{% endif %}>
+                        <label class="form-check-label" for="connectImpactSwitch">
+                            <strong>Extract Connect Impact Signals</strong>
+                        </label>
+                        <div><small class="text-muted">When enabled, WorkIQ summaries include customer impact signals useful for Connect self-evaluations.</small></div>
+                    </div>
+                </div>
+                <div class="mb-3">
                     <div class="d-flex justify-content-between align-items-center mb-2">
                         <div>
                             <h6 class="mb-1">Meeting Summary Prompt</h6>
@@ -341,6 +350,27 @@ document.addEventListener('DOMContentLoaded', function() {
     const workiqPrompt = document.getElementById('workiqPrompt');
     const promptStatus = document.getElementById('promptStatus');
     const defaultPrompt = {{ default_workiq_prompt|tojson }};
+    
+    // Connect impact toggle
+    const connectImpactSwitch = document.getElementById('connectImpactSwitch');
+    if (connectImpactSwitch) {
+        connectImpactSwitch.addEventListener('change', function() {
+            fetch('/api/preferences/workiq-connect-impact', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ workiq_connect_impact: this.checked })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showSuccess();
+                }
+            })
+            .catch(error => {
+                console.error('Error saving Connect impact preference:', error);
+            });
+        });
+    }
     
     if (savePromptBtn) {
         savePromptBtn.addEventListener('click', function() {

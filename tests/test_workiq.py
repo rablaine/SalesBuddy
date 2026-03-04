@@ -416,3 +416,63 @@ class TestCleanAiPreamble:
         assert "Discovery Call" in result['summary']
         # Should also extract topics from the cleaned content
         assert any("Fabric" in t for t in result['topics'])
+
+
+class TestCitationStripping:
+    """Test stripping of citation markers from WorkIQ/Copilot responses."""
+
+    def test_strips_citation_links(self):
+        """Citation-style markdown links [1](url) should be removed entirely."""
+        response = (
+            "The customer discussed Azure migration plans. [1](https://ref)\n\n"
+            "Key topics included AKS and DevOps. [1](https://ref2)\n"
+        )
+        result = _parse_summary_response(response)
+        assert '1' not in result['summary'].replace('AKS', '').replace('DevOps', '')
+        assert '[1]' not in result['summary']
+
+    def test_strips_plain_citation_brackets(self):
+        """Plain citation references [1] without URL should be removed."""
+        response = "The team reviewed the migration plan. [1] Next steps were discussed. [2]"
+        result = _parse_summary_response(response)
+        assert '[1]' not in result['summary']
+        assert '[2]' not in result['summary']
+        # The numbers themselves should be gone
+        assert not result['summary'].rstrip().endswith('1')
+        assert not result['summary'].rstrip().endswith('2')
+
+    def test_preserves_regular_markdown_links(self):
+        """Regular markdown links [text](url) should keep the text."""
+        response = "Check the [Azure Portal](https://portal.azure.com) for details."
+        result = _parse_summary_response(response)
+        assert 'Azure Portal' in result['summary']
+        assert '](https' not in result['summary']
+
+    def test_strips_numbered_citations_in_real_summary(self):
+        """Test with a realistic WorkIQ response containing citation markers."""
+        response = (
+            "The meeting focused on EdgeConnex's urgent requirement to migrate "
+            "a large Oracle database to Azure SQL Managed Instance. [1]\n\n"
+            "Key discussion centered on the limitations of first-party tooling. "
+            "Azure Data Factory was discussed as a possible approach. [1]\n\n"
+            "Given these constraints, the conversation shifted to Striim. [1]\n\n"
+            "Action items included following up internally. [1]\n"
+        )
+        result = _parse_summary_response(response)
+        # No paragraph should end with a bare "1"
+        paragraphs = [p.strip() for p in result['summary'].split('\n\n') if p.strip()]
+        for para in paragraphs:
+            assert not para.endswith(' 1'), f"Paragraph ends with citation marker: ...{para[-20:]}"
+            assert '[1]' not in para
+
+    def test_multiple_different_citation_numbers(self):
+        """Different citation numbers [1], [2], [3] should all be stripped."""
+        response = (
+            "First point about Azure. [1]\n"
+            "Second point about migration. [2]\n"
+            "Third point about Striim. [3]\n"
+        )
+        result = _parse_summary_response(response)
+        assert '[1]' not in result['summary']
+        assert '[2]' not in result['summary']
+        assert '[3]' not in result['summary']

@@ -31,6 +31,17 @@ _TASK_PROMPT_SUFFIX = (
     'Format the task suggestion on separate lines starting with TASK_TITLE: and TASK_DESCRIPTION:'
 )
 
+# Connect impact extraction suffix - appended when user has the preference enabled.
+# Asks WorkIQ to identify customer impact signals useful for Connect self-evaluations.
+_CONNECT_IMPACT_SUFFIX = (
+    ' Additionally, identify any customer impact signals from this meeting that would '
+    'be relevant for a Microsoft Connect self-evaluation. List concrete examples of '
+    'customer outcomes, adoption milestones, technical wins, or business value delivered. '
+    'Format each signal on its own line in a block starting with CONNECT_IMPACT: '
+    'Use a dash (-) prefix for each signal. If there are no clear impact signals, '
+    'omit the CONNECT_IMPACT block entirely.'
+)
+
 
 # Patterns that indicate conversational AI preamble/footer to strip
 _PREAMBLE_PATTERNS = [
@@ -521,7 +532,8 @@ def find_best_customer_match(meetings: List[Dict[str, Any]], customer_name: str)
 
 
 def get_meeting_summary(meeting_title: str, date_str: str = None,
-                        custom_prompt: str = None) -> Dict[str, Any]:
+                        custom_prompt: str = None,
+                        extract_impact: bool = False) -> Dict[str, Any]:
     """
     Get a detailed 250-word summary for a specific meeting.
     
@@ -530,12 +542,14 @@ def get_meeting_summary(meeting_title: str, date_str: str = None,
         date_str: Optional date for context (YYYY-MM-DD)
         custom_prompt: Optional custom prompt template. Use {title} and {date}
                       as placeholders. Falls back to DEFAULT_SUMMARY_PROMPT.
+        extract_impact: If True, append Connect impact extraction suffix to prompt
         
     Returns:
         Dict with:
         - summary: The 250-word summary text
         - topics: List of technologies/topics discussed
         - action_items: List of follow-up items
+        - connect_impact: List of impact signal strings (if extract_impact was True)
     """
     date_context = f"on {date_str}" if date_str else ""
     
@@ -557,6 +571,10 @@ def get_meeting_summary(meeting_title: str, date_str: str = None,
     # Always append task suggestion instructions (not user-editable)
     question += _TASK_PROMPT_SUFFIX
     
+    # Conditionally append Connect impact extraction
+    if extract_impact:
+        question += _CONNECT_IMPACT_SUFFIX
+    
     try:
         response = query_workiq(question, timeout=120)
         return _parse_summary_response(response)
@@ -567,7 +585,8 @@ def get_meeting_summary(meeting_title: str, date_str: str = None,
             'topics': [],
             'action_items': [],
             'task_subject': '',
-            'task_description': ''
+            'task_description': '',
+            'connect_impact': []
         }
     except Exception as e:
         logger.error(f"Failed to get meeting summary: {e}")
@@ -576,7 +595,8 @@ def get_meeting_summary(meeting_title: str, date_str: str = None,
             'topics': [],
             'action_items': [],
             'task_subject': '',
-            'task_description': ''
+            'task_description': '',
+            'connect_impact': []
         }
 
 
@@ -592,8 +612,29 @@ def _parse_summary_response(response: str) -> Dict[str, Any]:
         'action_items': [],
         'task_subject': '',
         'task_description': '',
+        'connect_impact': [],
         'raw_response': response
     }
+    
+    # Extract CONNECT_IMPACT block before other parsing
+    # Matches "CONNECT_IMPACT:" followed by dash-prefixed lines
+    impact_match = re.search(
+        r'CONNECT[_\s]IMPACT:\s*\n((?:\s*[-*]\s*.+\n?)+)',
+        response, re.IGNORECASE
+    )
+    if impact_match:
+        impact_lines = impact_match.group(1).strip().split('\n')
+        result['connect_impact'] = [
+            re.sub(r'^\s*[-*]\s*', '', line).strip()
+            for line in impact_lines
+            if line.strip() and re.sub(r'^\s*[-*]\s*', '', line).strip()
+        ]
+    
+    # Remove CONNECT_IMPACT block from response before further parsing
+    response = re.sub(
+        r'CONNECT[_\s]IMPACT:\s*\n(?:\s*[-*]\s*.+\n?)+',
+        '', response, flags=re.IGNORECASE
+    ).strip()
     
     # Extract TASK_TITLE and TASK_DESCRIPTION from response (works for both formats)
     task_title_match = re.search(
@@ -621,8 +662,12 @@ def _parse_summary_response(response: str) -> Dict[str, Any]:
         # First, strip conversational AI preamble and follow-up offers
         cleaned_response = _clean_ai_preamble(cleaned_response)
         
-        # Remove markdown links [text](url) but keep the text
-        clean_response = re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', cleaned_response)
+        # Remove citation-style markdown links [1](url), [2](url) entirely
+        clean_response = re.sub(r'\s*\[\d+\]\([^\)]+\)', '', cleaned_response)
+        # Remove plain citation references [1], [2] that have no URL
+        clean_response = re.sub(r'\s*\[\d+\]', '', clean_response)
+        # Remove remaining markdown links [text](url) but keep the text
+        clean_response = re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', clean_response)
         
         # Remove heading markers
         clean_response = re.sub(r'^#{1,6}\s*', '', clean_response, flags=re.MULTILINE)

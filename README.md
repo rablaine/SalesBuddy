@@ -288,6 +288,15 @@ The prompt used to generate meeting summaries can be customized:
 
 WorkIQ uses delegated auth — it authenticates through your browser session. No environment variables are needed beyond having Node.js installed. If `npx` is available on your PATH, WorkIQ will work.
 
+## Connect Features (Self-Evaluation Support)
+
+NoteHelper includes tools to help you prepare for Microsoft Connect self-evaluations:
+
+- **Connect Export** -- generate a structured summary of your customer engagement over a date range, with per-customer breakdowns and topic frequency. Available from the Admin Panel.
+- **Connect Impact Signals** -- when importing meetings via WorkIQ, NoteHelper can extract customer impact signals (adoption milestones, technical wins, business value) and include them in your call log notes.
+
+See [docs/CONNECT_FEATURES.md](docs/CONNECT_FEATURES.md) for full details, including how to toggle impact extraction on/off.
+
 ## Scheduled Milestone Sync (Optional — Server Must Be Running)
 
 NoteHelper can automatically sync milestones from MSX on a daily schedule. This keeps your milestone data fresh without manual intervention. **The NoteHelper server must be running at the scheduled time for the sync to execute.**

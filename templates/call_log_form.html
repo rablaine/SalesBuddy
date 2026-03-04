@@ -456,7 +456,11 @@
                         <div class="card card-body bg-light py-2 px-3">
                             <small class="text-muted mb-1">Edit the prompt used to summarize this meeting. Use <code>{title}</code> and <code>{date}</code> as placeholders.</small>
                             <textarea class="form-control form-control-sm" id="meetingCustomPrompt" rows="3"></textarea>
-                            <div class="d-flex justify-content-end mt-1">
+                            <div class="d-flex justify-content-between align-items-center mt-2">
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" id="meetingConnectImpact" {% if workiq_connect_impact is not defined or workiq_connect_impact %}checked{% endif %}>
+                                    <label class="form-check-label small" for="meetingConnectImpact">Extract impact signals</label>
+                                </div>
                                 <button type="button" class="btn btn-sm btn-link" id="resetMeetingPrompt">Reset to default</button>
                             </div>
                         </div>
@@ -2170,6 +2174,7 @@ var pendingTaskSuggestion = null;  // Stores task title/description from meeting
 // WorkIQ prompt customization
 var userWorkiqPrompt = {{ (workiq_prompt or default_workiq_prompt)|tojson }};
 var defaultWorkiqPrompt = {{ default_workiq_prompt|tojson }};
+var connectImpactEnabled = {{ (workiq_connect_impact if workiq_connect_impact is defined else true)|tojson }};
 
 // Initialize prompt textarea and reset button  
 document.addEventListener('DOMContentLoaded', function() {
@@ -2342,6 +2347,13 @@ function proceedWithMeeting(meeting, dateStr) {
         summaryUrl += '&prompt=' + encodeURIComponent(promptEl.value.trim());
     }
     
+    // Include Connect impact extraction preference
+    var impactEl = document.getElementById('meetingConnectImpact');
+    var extractImpact = impactEl ? impactEl.checked : connectImpactEnabled;
+    if (extractImpact) {
+        summaryUrl += '&extract_impact=true';
+    }
+    
     fetch(summaryUrl)
         .then(response => response.json())
         .then(data => {
@@ -2362,6 +2374,14 @@ function proceedWithMeeting(meeting, dateStr) {
             if (data.action_items && data.action_items.length > 0) {
                 content += '<p><strong>Action Items:</strong></p><ul>';
                 data.action_items.forEach(function(item) {
+                    content += '<li>' + escapeHtml(item) + '</li>';
+                });
+                content += '</ul>';
+            }
+            
+            if (data.connect_impact && data.connect_impact.length > 0) {
+                content += '<hr><p><strong>Impact Signals:</strong></p><ul>';
+                data.connect_impact.forEach(function(item) {
                     content += '<li>' + escapeHtml(item) + '</li>';
                 });
                 content += '</ul>';
@@ -2783,6 +2803,13 @@ function importSelectedMeeting() {
         url += '&prompt=' + encodeURIComponent(promptEl.value.trim());
     }
     
+    // Include Connect impact extraction preference
+    var impactEl = document.getElementById('meetingConnectImpact');
+    var extractImpact = impactEl ? impactEl.checked : connectImpactEnabled;
+    if (extractImpact) {
+        url += '&extract_impact=true';
+    }
+    
     // Create abort controller for timeout
     var controller = new AbortController();
     var timeoutId = setTimeout(function() { controller.abort(); }, 150000); // 2.5 min timeout
@@ -2807,6 +2834,14 @@ function importSelectedMeeting() {
             if (data.action_items && data.action_items.length > 0) {
                 content += '<p><strong>Action Items:</strong></p><ul>';
                 data.action_items.forEach(function(item) {
+                    content += '<li>' + escapeHtml(item) + '</li>';
+                });
+                content += '</ul>';
+            }
+            
+            if (data.connect_impact && data.connect_impact.length > 0) {
+                content += '<hr><p><strong>Impact Signals:</strong></p><ul>';
+                data.connect_impact.forEach(function(item) {
                     content += '<li>' + escapeHtml(item) + '</li>';
                 });
                 content += '</ul>';

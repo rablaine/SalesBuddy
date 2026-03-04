@@ -308,6 +308,7 @@ def preferences():
                          show_customers_without_calls=pref.show_customers_without_calls,
                          workiq_summary_prompt=pref.workiq_summary_prompt,
                          default_workiq_prompt=DEFAULT_SUMMARY_PROMPT,
+                         workiq_connect_impact=pref.workiq_connect_impact,
                          stats=stats)
 
 
@@ -698,6 +699,24 @@ def update_workiq_prompt():
     db.session.commit()
     
     return jsonify({'success': True, 'workiq_summary_prompt': pref.workiq_summary_prompt}), 200
+
+
+@main_bp.route('/api/preferences/workiq-connect-impact', methods=['POST'])
+def update_workiq_connect_impact():
+    """Update the Connect impact extraction preference."""
+    user_id = g.user.id if g.user.is_authenticated else 1
+    data = request.get_json()
+    enabled = bool(data.get('workiq_connect_impact', True))
+    
+    pref = UserPreference.query.filter_by(user_id=user_id).first()
+    if not pref:
+        pref = UserPreference(user_id=user_id)
+        db.session.add(pref)
+    
+    pref.workiq_connect_impact = enabled
+    db.session.commit()
+    
+    return jsonify({'success': True, 'workiq_connect_impact': pref.workiq_connect_impact}), 200
 
 
 # =============================================================================

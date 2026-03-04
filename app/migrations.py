@@ -75,6 +75,9 @@ def run_migrations(db):
     # Migration: Create connect_exports table for Connect self-evaluation tracking
     _migrate_connect_exports_table(db, inspector)
 
+    # Migration: Add workiq_connect_impact to user_preferences
+    _migrate_workiq_connect_impact(db, inspector)
+
     # =========================================================================
     # End migrations
     # =========================================================================
@@ -511,3 +514,12 @@ def _migrate_connect_exports_table(db, inspector):
         """))
         db.session.commit()
         print("  Created table: connect_exports")
+
+
+def _migrate_workiq_connect_impact(db, inspector):
+    """Add workiq_connect_impact boolean to user_preferences table."""
+    if 'user_preferences' in inspector.get_table_names():
+        _add_column_if_not_exists(
+            db, inspector, 'user_preferences', 'workiq_connect_impact',
+            'BOOLEAN NOT NULL DEFAULT 1'
+        )

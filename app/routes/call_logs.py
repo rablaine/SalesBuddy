@@ -277,6 +277,7 @@ def call_log_create():
     user_id = g.user.id if g.user.is_authenticated else 1
     pref = UserPreference.query.filter_by(user_id=user_id).first()
     user_prompt = pref.workiq_summary_prompt if pref and pref.workiq_summary_prompt else DEFAULT_SUMMARY_PROMPT
+    connect_impact_enabled = pref.workiq_connect_impact if pref else True
     
     return render_template('call_log_form.html', 
                          call_log=None, 
@@ -293,7 +294,8 @@ def call_log_create():
                          now_time=now_time,
                          ai_enabled=ai_enabled,
                          workiq_prompt=user_prompt,
-                         default_workiq_prompt=DEFAULT_SUMMARY_PROMPT)
+                         default_workiq_prompt=DEFAULT_SUMMARY_PROMPT,
+                         workiq_connect_impact=connect_impact_enabled)
 
 
 @call_logs_bp.route('/call-log/<int:id>')
@@ -388,7 +390,8 @@ def call_log_edit(id):
                          topics=topics,
                          partners=partners,
                          preselect_customer_id=None,
-                         preselect_topic_id=None)
+                         preselect_topic_id=None,
+                         workiq_connect_impact=True)
 
 
 @call_logs_bp.route('/call-log/<int:id>/delete', methods=['POST'])
@@ -509,18 +512,21 @@ def api_get_meeting_summary():
     title = request.args.get('title')
     date_str = request.args.get('date')
     custom_prompt = request.args.get('prompt')
+    extract_impact = request.args.get('extract_impact', '').lower() in ('true', '1', 'yes')
     
     if not title:
         return jsonify({'error': 'title parameter is required'}), 400
     
     try:
-        result = get_meeting_summary(title, date_str, custom_prompt=custom_prompt)
+        result = get_meeting_summary(title, date_str, custom_prompt=custom_prompt,
+                                     extract_impact=extract_impact)
         return jsonify({
             'summary': result.get('summary', ''),
             'topics': result.get('topics', []),
             'action_items': result.get('action_items', []),
             'task_subject': result.get('task_subject', ''),
             'task_description': result.get('task_description', ''),
+            'connect_impact': result.get('connect_impact', []),
             'success': True
         })
     except Exception as e:
@@ -587,13 +593,20 @@ def api_fill_my_day_process():
     
     customer_id = data.get('customer_id')
 
+    # Check user's Connect impact extraction preference
+    from app.models import UserPreference
+    user_id = g.user.id if g.user.is_authenticated else 1
+    pref = UserPreference.query.filter_by(user_id=user_id).first()
+    extract_impact = pref.workiq_connect_impact if pref else True
+
     result = {'success': True, 'summary': '', 'content_html': '', 'topics': [],
-              'task_subject': '', 'task_description': '', 'summary_ok': False,
-              'milestone': None}
+              'task_subject': '', 'task_description': '', 'connect_impact': [],
+              'summary_ok': False, 'milestone': None}
     
     # Step 1: Get meeting summary (WorkIQ provides summary + task suggestion)
     try:
-        summary_data = get_meeting_summary(title, date_str)
+        summary_data = get_meeting_summary(title, date_str,
+                                           extract_impact=extract_impact)
         summary = summary_data.get('summary', '')
         action_items = summary_data.get('action_items', [])
         
@@ -607,8 +620,17 @@ def api_fill_my_day_process():
                 content_html += f'<li>{item}</li>'
             content_html += '</ul>'
         
+        # Add Connect impact signals if present
+        impact_items = summary_data.get('connect_impact', [])
+        if impact_items:
+            content_html += '<hr><p><strong>Impact Signals:</strong></p><ul>'
+            for item in impact_items:
+                content_html += f'<li>{item}</li>'
+            content_html += '</ul>'
+        
         result['summary'] = summary
         result['content_html'] = content_html
+        result['connect_impact'] = impact_items
         result['summary_ok'] = bool(summary and not summary.startswith('Error'))
         
         # Use WorkIQ task suggestion as default (OpenAI milestone match may override)
