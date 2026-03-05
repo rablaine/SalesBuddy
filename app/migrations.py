@@ -84,6 +84,9 @@ def run_migrations(db):
     # Migration: Add ai_summary column to connect_exports
     _migrate_connect_exports_ai_summary(db, inspector)
 
+    # Migration: Normalize string TPIDs to integers (fixes type mismatch from early imports)
+    _migrate_customer_tpid_to_int(db, inspector)
+
     # Migration: Enforce unique constraint on customers.tpid
     _migrate_customer_tpid_unique(db, inspector)
 
@@ -556,6 +559,34 @@ def _migrate_connect_exports_ai_summary(db, inspector):
         _add_column_if_not_exists(
             db, inspector, 'connect_exports', 'ai_summary', 'TEXT'
         )
+
+
+def _migrate_customer_tpid_to_int(db, inspector):
+    """Cast any string-typed TPIDs to integers.
+
+    Early MSX imports stored TPIDs as strings (e.g. '2853766') because the
+    API returns them that way.  The column is BigInteger, but SQLite's
+    flexible typing allowed strings through.  This causes type-mismatch
+    issues when doing in-memory set lookups.  Idempotent -- only updates
+    rows where typeof(tpid) != 'integer'.
+    """
+    if 'customers' not in inspector.get_table_names():
+        return
+
+    from sqlalchemy import text
+
+    rows = db.session.execute(text(
+        "SELECT COUNT(*) FROM customers WHERE typeof(tpid) != 'integer' AND tpid IS NOT NULL"
+    )).scalar()
+
+    if rows and rows > 0:
+        print(f"  Migrating: casting {rows} string TPIDs to integers")
+        db.session.execute(text(
+            "UPDATE customers SET tpid = CAST(tpid AS INTEGER) "
+            "WHERE typeof(tpid) != 'integer' AND tpid IS NOT NULL"
+        ))
+        db.session.commit()
+        print(f"    Converted {rows} TPIDs to integer type")
 
 
 def _migrate_customer_tpid_unique(db, inspector):

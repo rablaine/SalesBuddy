@@ -18,8 +18,10 @@ from flask import Blueprint, g, jsonify, request
 from app.services.backup import (
     backup_all_customers,
     detect_onedrive_paths,
+    find_backup_folder,
     get_auto_detected_backup_path,
     load_config,
+    restore_all_from_folder,
     restore_from_backup,
     save_config,
 )
@@ -135,4 +137,30 @@ def backup_restore():
     status_code = 200 if result.get("success") else 400
     if result.get("error") and "not found" in result["error"].lower():
         status_code = 404
+    return jsonify(result), status_code
+
+
+# -------------------------------------------------------------------------
+# Full DR restore from backup folder
+# -------------------------------------------------------------------------
+
+@backup_bp.route("/api/backup/restore-all", methods=["POST"])
+def backup_restore_all():
+    """Restore all call logs from the backup folder on disk.
+
+    Reads every .json file under ``call_logs/{seller}/`` in the configured
+    (or auto-detected) backup folder.  Requires accounts to have been
+    synced first so customer TPID matching works.
+    """
+    from app.models import SyncStatus
+
+    if not SyncStatus.is_complete("accounts"):
+        return jsonify({
+            "success": False,
+            "error": "Accounts must be synced before restoring call logs. "
+                     "Run the MSX import first.",
+        }), 400
+
+    result = restore_all_from_folder()
+    status_code = 200 if result.get("success") else 400
     return jsonify(result), status_code

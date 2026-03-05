@@ -5,7 +5,7 @@ Verifies that milestone sync, revenue import, and revenue analyze buttons are
 disabled with 'Import accounts first' hints when has_customers is False.
 """
 import pytest
-from app.models import db, Customer
+from app.models import db, Customer, SyncStatus
 
 
 class TestMilestoneTrackerDisabledButtons:
@@ -22,6 +22,9 @@ class TestMilestoneTrackerDisabledButtons:
 
     def test_top_sync_button_enabled_with_customers(self, client, app, sample_data):
         """Top Sync from MSX button should be enabled when customers exist."""
+        with app.app_context():
+            SyncStatus.mark_started('accounts')
+            SyncStatus.mark_completed('accounts', success=True, items_synced=3)
         response = client.get('/milestone-tracker')
         assert response.status_code == 200
         html = response.data.decode()
@@ -39,6 +42,9 @@ class TestMilestoneTrackerDisabledButtons:
 
     def test_bottom_sync_button_enabled_with_customers(self, client, app, sample_data):
         """Bottom Sync from MSX button (empty state) should work when customers exist."""
+        with app.app_context():
+            SyncStatus.mark_started('accounts')
+            SyncStatus.mark_completed('accounts', success=True, items_synced=3)
         response = client.get('/milestone-tracker')
         assert response.status_code == 200
         html = response.data.decode()

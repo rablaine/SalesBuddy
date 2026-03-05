@@ -35,8 +35,10 @@ from app.services.backup import (
     backup_all_customers,
     backup_customer,
     detect_onedrive_paths,
+    find_backup_folder,
     get_auto_detected_backup_path,
     load_config,
+    restore_all_from_folder,
     restore_from_backup,
     save_config,
 )
@@ -825,3 +827,238 @@ class TestDetectOneDriveRoute:
         data = resp.get_json()
         assert data["candidates"] == []
         assert data["auto_path"] is None
+
+
+# =========================================================================
+# find_backup_folder
+# =========================================================================
+
+
+class TestFindBackupFolder:
+    """Tests for the find_backup_folder helper."""
+
+    def test_finds_folder_from_config(self, app, backup_dir, backup_config):
+        """Should find the call_logs subfolder from an enabled config."""
+        with app.app_context():
+            # Create the call_logs subfolder
+            call_logs = os.path.join(backup_dir, "call_logs")
+            os.makedirs(call_logs, exist_ok=True)
+
+            result = find_backup_folder()
+            assert result == call_logs
+
+    def test_returns_none_when_no_folder(self, app, backup_dir, monkeypatch):
+        """Should return None when no call_logs folder exists anywhere."""
+        with app.app_context():
+            # Config pointing at dir with no call_logs subfolder
+            cfg_file = Path(backup_dir) / "call_log_backup_config.json"
+            cfg_data = {"enabled": True, "backup_path": backup_dir}
+            cfg_file.write_text(json.dumps(cfg_data), encoding="utf-8")
+            monkeypatch.setattr("app.services.backup._config_path", lambda: cfg_file)
+
+            # Stub out all OneDrive detection so real machine paths don't leak in
+            monkeypatch.setattr(
+                "app.services.backup.detect_onedrive_paths", lambda: []
+            )
+            monkeypatch.setattr(
+                "app.services.backup.get_auto_detected_backup_path", lambda: None
+            )
+
+            result = find_backup_folder()
+            assert result is None
+
+
+# =========================================================================
+# restore_all_from_folder
+# =========================================================================
+
+
+class TestRestoreAllFromFolder:
+    """Tests for the bulk restore from backup folder."""
+
+    def _write_backup_json(self, folder: str, seller: str, tpid: int,
+                           customer_name: str, call_logs: list) -> str:
+        """Helper to write a backup JSON file in the proper folder structure."""
+        seller_dir = os.path.join(folder, "call_logs", seller)
+        os.makedirs(seller_dir, exist_ok=True)
+        filepath = os.path.join(seller_dir, f"{tpid}.json")
+        data = {
+            "_notehelper_backup": True,
+            "_version": 2,
+            "_exported_at": datetime.now(timezone.utc).isoformat(),
+            "customer": {
+                "name": customer_name,
+                "tpid": tpid,
+                "seller_name": seller,
+            },
+            "call_logs": call_logs,
+        }
+        with open(filepath, "w", encoding="utf-8") as f:
+            json.dump(data, f)
+        return filepath
+
+    def test_restore_all_creates_call_logs(self, app, backup_dir):
+        """Should restore call logs from multiple files across sellers."""
+        with app.app_context():
+            user = User.query.first()
+            seller = Seller(name="TestSeller", alias="ts", seller_type="Growth",
+                            user_id=user.id)
+            db.session.add(seller)
+            db.session.flush()
+
+            c1 = Customer(name="Customer A", tpid=50001, seller_id=seller.id,
+                          user_id=user.id)
+            c2 = Customer(name="Customer B", tpid=50002, seller_id=seller.id,
+                          user_id=user.id)
+            db.session.add_all([c1, c2])
+            db.session.commit()
+
+            # Write backup files
+            call_logs_dir = os.path.join(backup_dir, "call_logs")
+            self._write_backup_json(backup_dir, "TestSeller", 50001, "Customer A", [
+                {"call_date": "2025-01-10T10:00:00+00:00", "content": "Log 1", "topics": [], "partners": []},
+                {"call_date": "2025-01-11T10:00:00+00:00", "content": "Log 2", "topics": [], "partners": []},
+            ])
+            self._write_backup_json(backup_dir, "TestSeller", 50002, "Customer B", [
+                {"call_date": "2025-02-01T14:00:00+00:00", "content": "Log 3", "topics": [], "partners": []},
+            ])
+
+        # Use test_request_context so g.user is set by before_request
+        with app.test_request_context():
+            app.preprocess_request()
+            result = restore_all_from_folder(call_logs_dir)
+            assert result["success"] is True
+            assert result["files_processed"] == 2
+            assert result["total_logs_created"] == 3
+            assert result["files_failed"] == 0
+            assert "Customer A" in result["customers_restored"]
+            assert "Customer B" in result["customers_restored"]
+
+    def test_restore_all_skips_existing_logs(self, app, backup_dir):
+        """Should skip call logs that already exist (by date dedup)."""
+        with app.app_context():
+            user = User.query.first()
+            seller = Seller(name="DedupSeller", alias="ds", seller_type="Growth",
+                            user_id=user.id)
+            db.session.add(seller)
+            db.session.flush()
+
+            customer = Customer(name="Dedup Customer", tpid=60001,
+                                seller_id=seller.id, user_id=user.id)
+            db.session.add(customer)
+            db.session.flush()
+
+            # Pre-existing call log
+            existing = CallLog(
+                customer_id=customer.id,
+                call_date=datetime(2025, 3, 1, 10, 0, 0, tzinfo=timezone.utc),
+                content="Already here", user_id=user.id,
+            )
+            db.session.add(existing)
+            db.session.commit()
+
+            call_logs_dir = os.path.join(backup_dir, "call_logs")
+            self._write_backup_json(backup_dir, "DedupSeller", 60001, "Dedup Customer", [
+                {"call_date": "2025-03-01T10:00:00+00:00", "content": "Already here", "topics": [], "partners": []},
+                {"call_date": "2025-03-02T10:00:00+00:00", "content": "New one", "topics": [], "partners": []},
+            ])
+
+        with app.test_request_context():
+            app.preprocess_request()
+            result = restore_all_from_folder(call_logs_dir)
+            assert result["success"] is True
+            assert result["total_logs_created"] == 1
+            assert result["total_logs_skipped"] == 1
+
+    def test_restore_all_handles_bad_json(self, app, backup_dir):
+        """Should count corrupt files as failures and continue."""
+        with app.app_context():
+            user = User.query.first()
+            seller = Seller(name="BadJsonSeller", alias="bj", seller_type="Growth",
+                            user_id=user.id)
+            db.session.add(seller)
+            db.session.flush()
+            customer = Customer(name="Good Customer", tpid=70001,
+                                seller_id=seller.id, user_id=user.id)
+            db.session.add(customer)
+            db.session.commit()
+
+            # Write one good and one bad file
+            call_logs_dir = os.path.join(backup_dir, "call_logs")
+            self._write_backup_json(backup_dir, "BadJsonSeller", 70001, "Good Customer", [
+                {"call_date": "2025-04-01T10:00:00+00:00", "content": "Works", "topics": [], "partners": []},
+            ])
+            bad_dir = os.path.join(call_logs_dir, "BadJsonSeller")
+            with open(os.path.join(bad_dir, "corrupt.json"), "w") as f:
+                f.write("{not valid json!!!")
+
+        with app.test_request_context():
+            app.preprocess_request()
+            result = restore_all_from_folder(call_logs_dir)
+            assert result["success"] is True
+            assert result["files_processed"] == 1
+            assert result["files_failed"] == 1
+            assert len(result["errors"]) == 1
+
+    def test_restore_all_returns_error_when_no_folder(self, app):
+        """Should return error when folder doesn't exist."""
+        with app.app_context():
+            result = restore_all_from_folder("/nonexistent/path")
+            assert result["success"] is False
+            assert "Could not find" in result["error"]
+
+    def test_restore_all_empty_folder(self, app, backup_dir):
+        """Should succeed with zero files when folder is empty."""
+        with app.app_context():
+            call_logs_dir = os.path.join(backup_dir, "call_logs")
+            os.makedirs(call_logs_dir, exist_ok=True)
+
+            result = restore_all_from_folder(call_logs_dir)
+            assert result["success"] is True
+            assert result["files_processed"] == 0
+            assert result["total_logs_created"] == 0
+
+
+# =========================================================================
+# Restore-All Route
+# =========================================================================
+
+
+class TestRestoreAllRoute:
+    """Tests for POST /api/backup/restore-all."""
+
+    def test_restore_all_blocked_without_account_sync(self, client, app):
+        """Should return 400 when accounts haven't been synced."""
+        with app.app_context():
+            from app.models import SyncStatus
+            # Make sure no accounts sync status exists
+            SyncStatus.query.filter_by(sync_type="accounts").delete()
+            db.session.commit()
+
+        resp = client.post("/api/backup/restore-all")
+        assert resp.status_code == 400
+        data = resp.get_json()
+        assert data["success"] is False
+        assert "accounts" in data["error"].lower()
+
+    def test_restore_all_allowed_after_account_sync(self, client, app, backup_dir, monkeypatch):
+        """Should proceed when accounts sync is complete."""
+        with app.app_context():
+            from app.models import SyncStatus
+            SyncStatus.mark_started("accounts")
+            SyncStatus.mark_completed("accounts", success=True, items_synced=10)
+            db.session.commit()
+
+        # Point find_backup_folder at a dir with no files
+        call_logs_dir = os.path.join(backup_dir, "call_logs")
+        os.makedirs(call_logs_dir, exist_ok=True)
+        monkeypatch.setattr(
+            "app.services.backup.find_backup_folder",
+            lambda: call_logs_dir,
+        )
+
+        resp = client.post("/api/backup/restore-all")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["success"] is True
+        assert data["files_processed"] == 0

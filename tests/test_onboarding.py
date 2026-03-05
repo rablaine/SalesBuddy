@@ -708,13 +708,15 @@ class TestWizardResumeLogic:
             db.session.commit()
 
     def test_has_customers_pre_sets_accounts_imported(self, client, app):
-        """When customers exist in DB, accountsImported should be pre-set to true."""
+        """When accounts sync is complete, accountsImported should be pre-set to true."""
         with app.app_context():
-            from app.models import db, Customer, User
+            from app.models import db, Customer, User, SyncStatus
             user = User.query.first()
             customer = Customer(name='Existing Corp', tpid=888888, user_id=user.id)
             db.session.add(customer)
             db.session.commit()
+            SyncStatus.mark_started('accounts')
+            SyncStatus.mark_completed('accounts', success=True, items_synced=1)
 
         response = client.get('/')
         html = response.data.decode('utf-8')
@@ -722,8 +724,9 @@ class TestWizardResumeLogic:
 
         # Clean up
         with app.app_context():
-            from app.models import db, Customer
+            from app.models import db, Customer, SyncStatus
             db.session.query(Customer).filter_by(name='Existing Corp').delete()
+            SyncStatus.reset('accounts')
             db.session.commit()
 
     def test_wizard_has_init_function(self, client, app):

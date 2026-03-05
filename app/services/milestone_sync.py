@@ -450,6 +450,10 @@ def _apply_customer_milestones(
     Creates/updates milestones and opportunities, deactivates milestones
     no longer returned by MSX.
 
+    Pre-loads existing milestones and opportunities into dicts to avoid
+    per-row queries that trigger autoflush (which caused hangs on large
+    datasets).
+
     Args:
         customer: The Customer model instance.
         msx_milestones: List of milestone dicts from MSX API.
@@ -467,51 +471,70 @@ def _apply_customer_milestones(
     now = datetime.now(timezone.utc)
     seen_msx_ids = set()
 
-    for msx_ms in msx_milestones:
-        msx_id = msx_ms.get("id")
-        if not msx_id:
-            continue
-
-        seen_msx_ids.add(msx_id)
-        due_date = _parse_msx_date(msx_ms.get("due_date"))
-
-        # Upsert the parent Opportunity if we have an opportunity GUID
-        opportunity, opp_is_new = _upsert_opportunity(
-            msx_ms, customer.id, user_id
-        )
-        if opp_is_new:
-            result["opportunities_created"] += 1
-
-        # Find existing milestone or create new one
-        milestone = Milestone.query.filter_by(msx_milestone_id=msx_id).first()
-
-        if milestone:
-            _update_milestone_from_msx(milestone, msx_ms, customer.id, due_date, now)
-            if opportunity:
-                milestone.opportunity_id = opportunity.id
-            result["updated"] += 1
-        else:
-            milestone = _create_milestone_from_msx(
-                msx_ms, customer.id, user_id, due_date, now,
-                opportunity_id=opportunity.id if opportunity else None,
-            )
-            db.session.add(milestone)
-            result["created"] += 1
-
-    # Deactivate milestones for this customer that are no longer in MSX
-    existing_milestones = Milestone.query.filter_by(customer_id=customer.id).filter(
+    # Pre-load existing milestones for this customer to avoid per-row queries
+    existing_milestones_map: Dict[str, Milestone] = {}
+    for ms in Milestone.query.filter_by(customer_id=customer.id).filter(
         Milestone.msx_milestone_id.isnot(None),
-        Milestone.msx_status.in_(ACTIVE_STATUSES),
-    ).all()
+    ).all():
+        existing_milestones_map[ms.msx_milestone_id] = ms
 
-    for existing in existing_milestones:
-        if existing.msx_milestone_id not in seen_msx_ids:
-            if existing.call_logs:
-                existing.last_synced_at = now
+    # Pre-load existing opportunities to avoid per-row queries
+    msx_opp_ids = [
+        m.get("msx_opportunity_id") for m in msx_milestones
+        if m.get("msx_opportunity_id")
+    ]
+    existing_opps_map: Dict[str, Opportunity] = {}
+    if msx_opp_ids:
+        for opp in Opportunity.query.filter(
+            Opportunity.msx_opportunity_id.in_(msx_opp_ids)
+        ).all():
+            existing_opps_map[opp.msx_opportunity_id] = opp
+
+    with db.session.no_autoflush:
+        for msx_ms in msx_milestones:
+            msx_id = msx_ms.get("id")
+            if not msx_id:
                 continue
-            existing.msx_status = "Completed"
-            existing.last_synced_at = now
-            result["deactivated"] += 1
+
+            seen_msx_ids.add(msx_id)
+            due_date = _parse_msx_date(msx_ms.get("due_date"))
+
+            # Upsert the parent Opportunity using pre-loaded map
+            opportunity, opp_is_new = _upsert_opportunity(
+                msx_ms, customer.id, user_id, existing_opps_map
+            )
+            if opp_is_new:
+                result["opportunities_created"] += 1
+
+            # Find existing milestone from pre-loaded map
+            milestone = existing_milestones_map.get(msx_id)
+
+            if milestone:
+                _update_milestone_from_msx(milestone, msx_ms, customer.id, due_date, now)
+                if opportunity:
+                    milestone.opportunity = opportunity
+                result["updated"] += 1
+            else:
+                milestone = _create_milestone_from_msx(
+                    msx_ms, customer.id, user_id, due_date, now,
+                )
+                if opportunity:
+                    milestone.opportunity = opportunity
+                db.session.add(milestone)
+                existing_milestones_map[msx_id] = milestone
+                result["created"] += 1
+
+        # Deactivate milestones for this customer that are no longer in MSX
+        for msx_id, existing in existing_milestones_map.items():
+            if existing.msx_status not in ACTIVE_STATUSES:
+                continue
+            if msx_id not in seen_msx_ids:
+                if existing.call_logs:
+                    existing.last_synced_at = now
+                    continue
+                existing.msx_status = "Completed"
+                existing.last_synced_at = now
+                result["deactivated"] += 1
 
     try:
         db.session.commit()
@@ -552,7 +575,6 @@ def _create_milestone_from_msx(
     user_id: int,
     due_date: Optional[datetime],
     now: datetime,
-    opportunity_id: Optional[int] = None,
 ) -> Milestone:
     """Create a new Milestone from MSX data."""
     return Milestone(
@@ -570,7 +592,6 @@ def _create_milestone_from_msx(
         last_synced_at=now,
         customer_id=customer_id,
         user_id=user_id,
-        opportunity_id=opportunity_id,
     )
 
 
@@ -578,6 +599,7 @@ def _upsert_opportunity(
     msx_data: Dict[str, Any],
     customer_id: int,
     user_id: int,
+    existing_opps_map: Optional[Dict[str, Opportunity]] = None,
 ) -> Tuple[Optional[Opportunity], bool]:
     """
     Upsert an Opportunity record from milestone data.
@@ -585,10 +607,15 @@ def _upsert_opportunity(
     The milestone API returns the parent opportunity GUID and name.
     We create or update the Opportunity record so milestones can FK to it.
     
+    When existing_opps_map is provided, uses it for lookups instead of
+    querying the database per-row (avoids autoflush hangs).
+    
     Args:
         msx_data: Milestone dict from MSX API (contains msx_opportunity_id, opportunity_name).
         customer_id: The customer this opportunity belongs to.
         user_id: The user ID for new records.
+        existing_opps_map: Optional pre-loaded {msx_opportunity_id: Opportunity} dict.
+            If provided, new opportunities are also added to this map.
         
     Returns:
         Tuple of (Opportunity instance or None, True if newly created).
@@ -598,8 +625,13 @@ def _upsert_opportunity(
         return None, False
     
     opp_name = msx_data.get("opportunity_name", "Unknown Opportunity")
-    
-    opportunity = Opportunity.query.filter_by(msx_opportunity_id=msx_opp_id).first()
+
+    # Use pre-loaded map if available, otherwise fall back to DB query
+    if existing_opps_map is not None:
+        opportunity = existing_opps_map.get(msx_opp_id)
+    else:
+        opportunity = Opportunity.query.filter_by(msx_opportunity_id=msx_opp_id).first()
+
     if opportunity:
         # Update name in case it changed
         opportunity.name = opp_name or opportunity.name
@@ -613,8 +645,12 @@ def _upsert_opportunity(
             user_id=user_id,
         )
         db.session.add(opportunity)
-        # Flush to get the ID assigned so we can FK to it
-        db.session.flush()
+        # Track in map so later milestones sharing this opportunity find it
+        if existing_opps_map is not None:
+            existing_opps_map[msx_opp_id] = opportunity
+        else:
+            # Flush to get the ID assigned so we can FK to it (legacy path)
+            db.session.flush()
         return opportunity, True
 
 

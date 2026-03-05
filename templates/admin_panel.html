@@ -81,23 +81,127 @@
             </div>
         </div>
 
-        <!-- Updates + MSX Integration side by side -->
+        <!-- MSX Integration + AI Integration side by side -->
         <div class="row mb-4">
             <div class="col-md-6 mb-4 mb-md-0">
-                <!-- Update Check -->
-                <div class="card h-100{{ ' border-danger' if update_available else '' }}" id="updateCheckCard">
-                    <div class="card-header{{ ' bg-danger text-white' if update_available else '' }}">
-                        <h5 class="mb-0"><i class="bi bi-cloud-download"></i> Updates{{ ' <span class="badge bg-light text-danger">New</span>' | safe if update_available else '' }}</h5>
+                <!-- MSX Integration -->
+                <div class="card h-100">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="bi bi-link-45deg"></i> MSX Integration</h5>
                     </div>
                     <div class="card-body">
-                        <div id="updateCheckContent">
-                            <div class="d-flex align-items-center gap-3">
-                                <div id="updateStatus" class="flex-grow-1">
-                                    <span class="text-muted">Checking for updates...</span>
-                                </div>
-                                <button class="btn btn-outline-secondary btn-sm" id="updateCheckBtn" onclick="checkForUpdates(true)">
-                                    <i class="bi bi-arrow-clockwise"></i> Check Now
+                        <!-- Auth Status Row -->
+                        <div id="msxAuthStatus" class="d-inline-flex align-items-center gap-2 p-2 px-3 rounded border mb-3">
+                            <div class="spinner-border spinner-border-sm text-muted" role="status"></div>
+                            <span class="text-muted">Checking connection...</span>
+                        </div>
+                        
+                        <!-- Action buttons (shown when connected) -->
+                        <div id="msxConnectedActions" class="d-none">
+                            <div class="d-flex gap-2 mb-3">
+                                <button type="button" class="btn btn-sm btn-primary" id="msxRefreshBtn">
+                                    <i class="bi bi-arrow-clockwise"></i> Refresh Token
                                 </button>
+                                <button type="button" class="btn btn-sm btn-outline-success" id="msxTestBtn">
+                                    <i class="bi bi-lightning"></i> Test Connection
+                                </button>
+                            </div>
+                            <div id="msxTestResult"></div>
+                        </div>
+
+                        <!-- Sign In section (shown when NOT connected) -->
+                        <div id="msxSignInSection" class="d-none">
+                            <div id="adminAuthCard">
+                                <!-- Initial state -->
+                                <div id="adminAuthInitial">
+                                    <p class="small text-muted mb-2">Click below to sign in via Azure CLI. A browser window will open.</p>
+                                    <p class="small text-muted mb-3"><i class="bi bi-info-circle"></i> Make sure you select your <strong>Microsoft corporate account</strong>.</p>
+                                    <button class="btn btn-primary" id="adminStartAuthBtn">
+                                        <i class="bi bi-box-arrow-in-right"></i> Sign In to Azure
+                                    </button>
+                                </div>
+                                <!-- Waiting state -->
+                                <div id="adminAuthWaiting" class="d-none">
+                                    <p class="small text-primary fw-bold mb-2">A browser window should open for sign-in.</p>
+                                    <p class="small mb-2">Select your <strong>Microsoft corporate account</strong>. This will update automatically.</p>
+                                    <div class="mb-2">
+                                        <div class="spinner-border spinner-border-sm text-primary" role="status"></div>
+                                        <span class="text-muted ms-2 small" id="adminAuthWaitingStatus">Waiting for sign-in to complete...</span>
+                                    </div>
+                                    <button class="btn btn-outline-secondary btn-sm" id="adminAuthCancelBtn">
+                                        <i class="bi bi-x-circle"></i> Cancel
+                                    </button>
+                                </div>
+                                <!-- Success state -->
+                                <div id="adminAuthSuccess" class="d-none">
+                                    <div class="d-flex align-items-center gap-2 text-success mb-2">
+                                        <i class="bi bi-check-circle-fill fs-4"></i>
+                                        <div>
+                                            <strong>Connected to MSX!</strong><br>
+                                            <small class="text-muted" id="adminAuthEmail"></small>
+                                        </div>
+                                    </div>
+                                </div>
+                                <!-- Error state -->
+                                <div id="adminAuthError" class="d-none">
+                                    <div class="d-flex align-items-center gap-2 text-warning mb-2">
+                                        <i class="bi bi-exclamation-triangle-fill fs-4"></i>
+                                        <div>
+                                            <strong id="adminAuthErrorMsg">Authentication failed</strong><br>
+                                            <small class="text-muted">Make sure you selected your Microsoft corporate account.</small>
+                                        </div>
+                                    </div>
+                                    <button class="btn btn-primary btn-sm" id="adminAuthRetryBtn">
+                                        <i class="bi bi-arrow-clockwise"></i> Try Again
+                                    </button>
+                                </div>
+                                <!-- No CLI state -->
+                                <div id="adminAuthNoCli" class="d-none">
+                                    <div class="d-flex align-items-center gap-2 text-danger mb-2">
+                                        <i class="bi bi-exclamation-triangle-fill fs-4"></i>
+                                        <div>
+                                            <strong>Azure CLI not installed</strong><br>
+                                            <small>Install from <a href="https://aka.ms/installazurecli" target="_blank">aka.ms/installazurecli</a>, then reload.</small>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <hr>
+                        <!-- Import Accounts from MSX -->
+                        <h6><i class="bi bi-cloud-download"></i> Import Accounts from MSX</h6>
+                        <p class="text-muted small mb-2">
+                            Imports all accounts you're assigned to in MSX, along with territories, PODs, sellers, solution engineers, and verticals. Usually takes about 3 minutes.
+                        </p>
+                        <button class="btn btn-primary" type="button" id="importFromMsxBtn">
+                            <i class="bi bi-cloud-download"></i> Import My Accounts
+                        </button>
+                        
+                        <!-- MSX Import Progress -->
+                        <div id="msxImportProgress" class="mt-3 d-none">
+                            <div class="d-flex justify-content-between mb-1">
+                                <small class="text-muted" id="msxImportStatusText">Starting import...</small>
+                                <small class="text-muted" id="msxImportProgressPercent">0%</small>
+                            </div>
+                            <div class="progress" style="height: 10px;">
+                                <div class="progress-bar progress-bar-striped progress-bar-animated bg-primary" 
+                                     role="progressbar" id="msxImportProgressBar" style="width: 0%"></div>
+                            </div>
+                        </div>
+                        
+                        <!-- MSX Import Results -->
+                        <div id="msxImportResults" class="mt-3 d-none">
+                            <div class="alert alert-success mb-0">
+                                <h6 class="alert-heading"><i class="bi bi-check-circle"></i> Import Complete!</h6>
+                                <div id="msxImportSummary"></div>
+                            </div>
+                        </div>
+                        
+                        <!-- MSX Import Error -->
+                        <div id="msxImportError" class="mt-3 d-none">
+                            <div class="alert alert-danger mb-0">
+                                <h6 class="alert-heading"><i class="bi bi-exclamation-triangle"></i> Import Error</h6>
+                                <p class="mb-0" id="msxImportErrorText"></p>
                             </div>
                         </div>
                     </div>
@@ -204,124 +308,107 @@
             </div>
         </div>
 
-        <!-- MSX Integration -->
+        <!-- Updates + Connect Export side by side -->
+        <div class="row mb-4">
+            <div class="col-md-6 mb-4 mb-md-0">
+                <!-- Update Check -->
+                <div class="card h-100 d-flex flex-column{{ ' border-danger' if update_available else '' }}" id="updateCheckCard">
+                    <div class="card-header{{ ' bg-danger text-white' if update_available else '' }}">
+                        <h5 class="mb-0"><i class="bi bi-cloud-download"></i> Updates{{ ' <span class="badge bg-light text-danger">New</span>' | safe if update_available else '' }}</h5>
+                    </div>
+                    <div class="card-body d-flex align-items-center">
+                        <div id="updateCheckContent" class="w-100">
+                            <div class="d-flex align-items-center gap-3">
+                                <div id="updateStatus" class="flex-grow-1">
+                                    <span class="text-muted">Checking for updates...</span>
+                                </div>
+                                <button class="btn btn-outline-secondary btn-sm" id="updateCheckBtn" onclick="checkForUpdates(true)">
+                                    <i class="bi bi-arrow-clockwise"></i> Check Now
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <!-- Connect Export -->
+                <div class="card h-100">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="bi bi-file-earmark-text"></i> Connect Export</h5>
+                    </div>
+                    <div class="card-body">
+                        <p class="text-muted small mb-3">Generate structured exports of your call log activity for writing Microsoft Connects (self-evaluations). Includes customer summaries, topic breakdowns, and milestone revenue impact.</p>
+                        <a href="{{ url_for('connect_export.connect_export_page') }}" class="btn btn-primary btn-sm">
+                            <i class="bi bi-box-arrow-up-right"></i> Go to Connect Export
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Setup Wizard (shown here when incomplete, moves to bottom when done) -->
+        {% set setup_complete = has_customers and has_milestones and has_revenue %}
+        {% if not setup_complete %}
         <div class="card mb-4">
             <div class="card-header">
-                <h5 class="mb-0"><i class="bi bi-link-45deg"></i> MSX Integration</h5>
+                <h5 class="mb-0 d-flex justify-content-between align-items-center">
+                    <span><i class="bi bi-rocket-takeoff"></i> Setup Wizard</span>
+                </h5>
+            </div>
+            <div>
+                <div class="card-body">
+                    <p class="text-muted small mb-3">Re-run the initial setup wizard to check your progress or complete any remaining steps.</p>
+                    <div class="row text-center mb-3">
+                        <div class="col">
+                            <i class="bi bi-{% if has_customers %}check-circle-fill text-success{% else %}circle text-muted{% endif %} fs-4"></i>
+                            <div class="small mt-1">Accounts</div>
+                        </div>
+                        <div class="col">
+                            <i class="bi bi-{% if has_milestones %}check-circle-fill text-success{% else %}circle text-muted{% endif %} fs-4"></i>
+                            <div class="small mt-1">Milestones</div>
+                        </div>
+                        <div class="col">
+                            <i class="bi bi-{% if has_revenue %}check-circle-fill text-success{% else %}circle text-muted{% endif %} fs-4"></i>
+                            <div class="small mt-1">Revenue</div>
+                        </div>
+                    </div>
+                    <button class="btn btn-warning" id="adminRerunWizardBtn">
+                        <i class="bi bi-rocket-takeoff"></i> Launch Setup Wizard
+                    </button>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- WorkIQ Settings -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-robot"></i> WorkIQ Settings</h5>
             </div>
             <div class="card-body">
-                <!-- Auth Status Row -->
-                <div id="msxAuthStatus" class="d-inline-flex align-items-center gap-2 p-2 px-3 rounded border mb-3">
-                    <div class="spinner-border spinner-border-sm text-muted" role="status"></div>
-                    <span class="text-muted">Checking connection...</span>
+                <div class="form-check form-switch mb-3">
+                    <input class="form-check-input" type="checkbox" id="connectImpactSwitch" {{ 'checked' if workiq_connect_impact else '' }}>
+                    <label class="form-check-label" for="connectImpactSwitch">
+                        <strong>Extract Connect Impact Signals</strong>
+                    </label>
+                    <div><small class="text-muted">When enabled, WorkIQ summaries include customer impact signals useful for Connect self-evaluations.</small></div>
                 </div>
-                
-                <!-- Action buttons (shown when connected) -->
-                <div id="msxConnectedActions" class="d-none">
-                    <div class="d-flex gap-2 mb-3">
-                        <button type="button" class="btn btn-sm btn-primary" id="msxRefreshBtn">
-                            <i class="bi bi-arrow-clockwise"></i> Refresh Token
+                <div>
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <div>
+                            <h6 class="mb-1">Meeting Summary Prompt</h6>
+                            <small class="text-muted">Customize how WorkIQ summarizes your meetings. Use <code>{title}</code> and <code>{date}</code> as placeholders.</small>
+                        </div>
+                        <button type="button" class="btn btn-sm btn-outline-secondary" id="resetPromptBtn" title="Reset to default prompt">
+                            <i class="bi bi-arrow-counterclockwise"></i> Reset
                         </button>
-                        <button type="button" class="btn btn-sm btn-outline-success" id="msxTestBtn">
-                            <i class="bi bi-lightning"></i> Test Connection
+                    </div>
+                    <textarea class="form-control" id="workiqPrompt" rows="4" placeholder="Enter your custom meeting summary prompt...">{{ workiq_summary_prompt or default_workiq_prompt }}</textarea>
+                    <div class="d-flex justify-content-between align-items-center mt-2">
+                        <small class="text-muted" id="promptStatus"></small>
+                        <button type="button" class="btn btn-sm btn-primary" id="savePromptBtn">
+                            <i class="bi bi-check-lg"></i> Save Prompt
                         </button>
-                    </div>
-                    <div id="msxTestResult"></div>
-                </div>
-
-                <!-- Sign In section (shown when NOT connected) -->
-                <div id="msxSignInSection" class="d-none">
-                    <div id="adminAuthCard">
-                        <!-- Initial state -->
-                        <div id="adminAuthInitial">
-                            <p class="small text-muted mb-2">Click below to sign in via Azure CLI. A browser window will open.</p>
-                            <p class="small text-muted mb-3"><i class="bi bi-info-circle"></i> Make sure you select your <strong>Microsoft corporate account</strong>.</p>
-                            <button class="btn btn-primary" id="adminStartAuthBtn">
-                                <i class="bi bi-box-arrow-in-right"></i> Sign In to Azure
-                            </button>
-                        </div>
-                        <!-- Waiting state -->
-                        <div id="adminAuthWaiting" class="d-none">
-                            <p class="small text-primary fw-bold mb-2">A browser window should open for sign-in.</p>
-                            <p class="small mb-2">Select your <strong>Microsoft corporate account</strong>. This will update automatically.</p>
-                            <div class="mb-2">
-                                <div class="spinner-border spinner-border-sm text-primary" role="status"></div>
-                                <span class="text-muted ms-2 small" id="adminAuthWaitingStatus">Waiting for sign-in to complete...</span>
-                            </div>
-                            <button class="btn btn-outline-secondary btn-sm" id="adminAuthCancelBtn">
-                                <i class="bi bi-x-circle"></i> Cancel
-                            </button>
-                        </div>
-                        <!-- Success state -->
-                        <div id="adminAuthSuccess" class="d-none">
-                            <div class="d-flex align-items-center gap-2 text-success mb-2">
-                                <i class="bi bi-check-circle-fill fs-4"></i>
-                                <div>
-                                    <strong>Connected to MSX!</strong><br>
-                                    <small class="text-muted" id="adminAuthEmail"></small>
-                                </div>
-                            </div>
-                        </div>
-                        <!-- Error state -->
-                        <div id="adminAuthError" class="d-none">
-                            <div class="d-flex align-items-center gap-2 text-warning mb-2">
-                                <i class="bi bi-exclamation-triangle-fill fs-4"></i>
-                                <div>
-                                    <strong id="adminAuthErrorMsg">Authentication failed</strong><br>
-                                    <small class="text-muted">Make sure you selected your Microsoft corporate account.</small>
-                                </div>
-                            </div>
-                            <button class="btn btn-primary btn-sm" id="adminAuthRetryBtn">
-                                <i class="bi bi-arrow-clockwise"></i> Try Again
-                            </button>
-                        </div>
-                        <!-- No CLI state -->
-                        <div id="adminAuthNoCli" class="d-none">
-                            <div class="d-flex align-items-center gap-2 text-danger mb-2">
-                                <i class="bi bi-exclamation-triangle-fill fs-4"></i>
-                                <div>
-                                    <strong>Azure CLI not installed</strong><br>
-                                    <small>Install from <a href="https://aka.ms/installazurecli" target="_blank">aka.ms/installazurecli</a>, then reload.</small>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                <hr>
-                <!-- Import Accounts from MSX -->
-                <h6><i class="bi bi-cloud-download"></i> Import Accounts from MSX</h6>
-                <p class="text-muted small mb-2">
-                    Imports all accounts you're assigned to in MSX, along with territories, PODs, sellers, solution engineers, and verticals. Usually takes about 3 minutes.
-                </p>
-                <button class="btn btn-primary" type="button" id="importFromMsxBtn">
-                    <i class="bi bi-cloud-download"></i> Import My Accounts
-                </button>
-                
-                <!-- MSX Import Progress -->
-                <div id="msxImportProgress" class="mt-3 d-none">
-                    <div class="d-flex justify-content-between mb-1">
-                        <small class="text-muted" id="msxImportStatusText">Starting import...</small>
-                        <small class="text-muted" id="msxImportProgressPercent">0%</small>
-                    </div>
-                    <div class="progress" style="height: 10px;">
-                        <div class="progress-bar progress-bar-striped progress-bar-animated bg-primary" 
-                             role="progressbar" id="msxImportProgressBar" style="width: 0%"></div>
-                    </div>
-                </div>
-                
-                <!-- MSX Import Results -->
-                <div id="msxImportResults" class="mt-3 d-none">
-                    <div class="alert alert-success mb-0">
-                        <h6 class="alert-heading"><i class="bi bi-check-circle"></i> Import Complete!</h6>
-                        <div id="msxImportSummary"></div>
-                    </div>
-                </div>
-                
-                <!-- MSX Import Error -->
-                <div id="msxImportError" class="mt-3 d-none">
-                    <div class="alert alert-danger mb-0">
-                        <h6 class="alert-heading"><i class="bi bi-exclamation-triangle"></i> Import Error</h6>
-                        <p class="mb-0" id="msxImportErrorText"></p>
                     </div>
                 </div>
             </div>
@@ -396,7 +483,20 @@
                             <i class="bi bi-cloud-upload"></i> Disaster Recovery Restore
                         </summary>
                         <div class="mt-2">
-                            <p class="small text-muted mb-2">Paste a backup JSON file to restore call logs for a customer (matched by TPID).</p>
+                            <!-- Full Restore from OneDrive -->
+                            <p class="small text-muted mb-2">Restore all call logs from your OneDrive backup folder. Requires accounts to be synced first.</p>
+                            <button id="fullRestoreBtn" class="btn btn-warning btn-sm mb-2" onclick="restoreAllFromBackup()"
+                                {% if accounts_sync_state != 'complete' %}disabled{% endif %}>
+                                <i class="bi bi-cloud-download"></i> Full Restore from Backup
+                            </button>
+                            {% if accounts_sync_state != 'complete' %}
+                            <div class="small text-muted mb-2"><i class="bi bi-info-circle"></i> Sync accounts (MSX import) before restoring call logs.</div>
+                            {% endif %}
+                            <div id="fullRestoreResult" class="mt-1 mb-2 small"></div>
+
+                            <hr class="my-2"/>
+                            <!-- Single-file paste restore -->
+                            <p class="small text-muted mb-2">Or paste a single backup JSON file to restore one customer (matched by TPID).</p>
                             <textarea id="restoreJson" class="form-control form-control-sm mb-2" rows="4" placeholder='Paste JSON backup here...'></textarea>
                             <button class="btn btn-warning btn-sm" onclick="restoreFromBackup()">
                                 <i class="bi bi-cloud-upload"></i> Restore
@@ -408,100 +508,19 @@
             </div>
         </div>
 
-        <!-- Setup Wizard (shown here when incomplete, moves to bottom when done) -->
-        {% set setup_complete = has_customers and has_milestones and has_revenue %}
-        {% if not setup_complete %}
-        <div class="card mb-4">
-            <div class="card-header">
-                <h5 class="mb-0 d-flex justify-content-between align-items-center">
-                    <span><i class="bi bi-rocket-takeoff"></i> Setup Wizard</span>
-                </h5>
-            </div>
-            <div>
-                <div class="card-body">
-                    <p class="text-muted small mb-3">Re-run the initial setup wizard to check your progress or complete any remaining steps.</p>
-                    <div class="row text-center mb-3">
-                        <div class="col">
-                            <i class="bi bi-{% if has_customers %}check-circle-fill text-success{% else %}circle text-muted{% endif %} fs-4"></i>
-                            <div class="small mt-1">Accounts</div>
-                        </div>
-                        <div class="col">
-                            <i class="bi bi-{% if has_milestones %}check-circle-fill text-success{% else %}circle text-muted{% endif %} fs-4"></i>
-                            <div class="small mt-1">Milestones</div>
-                        </div>
-                        <div class="col">
-                            <i class="bi bi-{% if has_revenue %}check-circle-fill text-success{% else %}circle text-muted{% endif %} fs-4"></i>
-                            <div class="small mt-1">Revenue</div>
-                        </div>
-                    </div>
-                    <button class="btn btn-warning" id="adminRerunWizardBtn">
-                        <i class="bi bi-rocket-takeoff"></i> Launch Setup Wizard
-                    </button>
-                </div>
-            </div>
-        </div>
-        {% endif %}
-
-        <!-- Connect Export -->
-        <div class="card mb-4">
-            <div class="card-header">
-                <h5 class="mb-0"><i class="bi bi-file-earmark-text"></i> Connect Export</h5>
-            </div>
-            <div class="card-body">
-                <p class="text-muted small mb-3">Generate structured exports of your call log activity for writing Microsoft Connects (self-evaluations). Includes customer summaries, topic breakdowns, and milestone revenue impact.</p>
-                <a href="{{ url_for('connect_export.connect_export_page') }}" class="btn btn-primary btn-sm">
-                    <i class="bi bi-box-arrow-up-right"></i> Go to Connect Export
-                </a>
-            </div>
-        </div>
-
-        <!-- WorkIQ Settings -->
-        <div class="card mb-4">
-            <div class="card-header">
-                <h5 class="mb-0"><i class="bi bi-robot"></i> WorkIQ Settings</h5>
-            </div>
-            <div class="card-body">
-                <div class="form-check form-switch mb-3">
-                    <input class="form-check-input" type="checkbox" id="connectImpactSwitch" {{ 'checked' if workiq_connect_impact else '' }}>
-                    <label class="form-check-label" for="connectImpactSwitch">
-                        <strong>Extract Connect Impact Signals</strong>
-                    </label>
-                    <div><small class="text-muted">When enabled, WorkIQ summaries include customer impact signals useful for Connect self-evaluations.</small></div>
-                </div>
-                <div>
-                    <div class="d-flex justify-content-between align-items-center mb-2">
-                        <div>
-                            <h6 class="mb-1">Meeting Summary Prompt</h6>
-                            <small class="text-muted">Customize how WorkIQ summarizes your meetings. Use <code>{title}</code> and <code>{date}</code> as placeholders.</small>
-                        </div>
-                        <button type="button" class="btn btn-sm btn-outline-secondary" id="resetPromptBtn" title="Reset to default prompt">
-                            <i class="bi bi-arrow-counterclockwise"></i> Reset
-                        </button>
-                    </div>
-                    <textarea class="form-control" id="workiqPrompt" rows="4" placeholder="Enter your custom meeting summary prompt...">{{ workiq_summary_prompt or default_workiq_prompt }}</textarea>
-                    <div class="d-flex justify-content-between align-items-center mt-2">
-                        <small class="text-muted" id="promptStatus"></small>
-                        <button type="button" class="btn btn-sm btn-primary" id="savePromptBtn">
-                            <i class="bi bi-check-lg"></i> Save Prompt
-                        </button>
-                    </div>
-                </div>
-            </div>
-        </div>
-
         <!-- Backups -->
         <div class="card mb-4">
             <div class="card-header">
                 <h5 class="mb-0"><i class="bi bi-cloud-arrow-up"></i> Backups</h5>
             </div>
             <div class="card-body" id="backupSection">
-                <div id="backupLoading" class="text-center py-3">
+                <div id="dbBackupLoading" class="text-center py-3">
                     <div class="spinner-border spinner-border-sm text-muted" role="status"></div>
                     <span class="text-muted ms-2">Loading backup status...</span>
                 </div>
-                <div id="backupContent" style="display: none;">
+                <div id="dbBackupContent" style="display: none;">
                     <!-- Not configured state -->
-                    <div id="backupNotConfigured" style="display: none;">
+                    <div id="dbBackupNotConfigured" style="display: none;">
                         <div class="alert alert-warning mb-3">
                             <i class="bi bi-exclamation-triangle"></i>
                             Automatic backups are not configured.
@@ -511,23 +530,23 @@
                         </p>
                     </div>
                     <!-- Configured state -->
-                    <div id="backupConfigured" style="display: none;">
+                    <div id="dbBackupConfigured" style="display: none;">
                         <div class="row mb-3">
                             <div class="col-md-6">
                                 <small class="text-muted d-block">Backup Folder</small>
-                                <span id="backupDir" class="text-break"></span>
+                                <span id="dbBackupDir" class="text-break"></span>
                             </div>
                             <div class="col-md-3">
                                 <small class="text-muted d-block">Last Backup</small>
-                                <span id="backupLastTime">Never</span>
+                                <span id="dbBackupLastTime">Never</span>
                             </div>
                             <div class="col-md-3">
                                 <small class="text-muted d-block">Scheduled Task</small>
-                                <span id="backupTaskStatus"></span>
+                                <span id="dbBackupTaskStatus"></span>
                             </div>
                         </div>
                         <!-- Recent backups table -->
-                        <div id="backupListSection" style="display: none;">
+                        <div id="dbBackupListSection" style="display: none;">
                             <h6 class="mb-2">Recent Backups</h6>
                             <div class="table-responsive">
                                 <table class="table table-sm table-hover mb-0">
@@ -538,15 +557,15 @@
                                             <th>Date</th>
                                         </tr>
                                     </thead>
-                                    <tbody id="backupListBody"></tbody>
+                                    <tbody id="dbBackupListBody"></tbody>
                                 </table>
                             </div>
                         </div>
-                        <div id="backupNoFiles" style="display: none;">
+                        <div id="dbBackupNoFiles" style="display: none;">
                             <p class="text-muted small mb-0">No backup files found yet.</p>
                         </div>
                         <div class="mt-3">
-                            <button class="btn btn-primary btn-sm" id="backupNowBtn" onclick="runBackupNow()">
+                            <button class="btn btn-primary btn-sm" id="dbBackupNowBtn" onclick="runDbBackupNow()">
                                 <i class="bi bi-cloud-arrow-up"></i> Backup Now
                             </button>
                         </div>
@@ -1500,38 +1519,38 @@ function dismissUpdate() {
 // Check on page load (uses cached state, no git fetch)
 document.addEventListener('DOMContentLoaded', function() {
     checkForUpdates(false);
-    loadBackupStatus();
+    loadDbBackupStatus();
 });
 
 // ==============================================================================
-// Backup Status
+// DB Backup Status
 // ==============================================================================
 
-function loadBackupStatus() {
+function loadDbBackupStatus() {
     fetch('/api/admin/backup/status')
         .then(r => r.json())
         .then(data => {
-            document.getElementById('backupLoading').style.display = 'none';
-            document.getElementById('backupContent').style.display = '';
+            document.getElementById('dbBackupLoading').style.display = 'none';
+            document.getElementById('dbBackupContent').style.display = '';
 
             if (!data.enabled) {
-                document.getElementById('backupNotConfigured').style.display = '';
-                document.getElementById('backupConfigured').style.display = 'none';
+                document.getElementById('dbBackupNotConfigured').style.display = '';
+                document.getElementById('dbBackupConfigured').style.display = 'none';
                 return;
             }
 
-            document.getElementById('backupNotConfigured').style.display = 'none';
-            document.getElementById('backupConfigured').style.display = '';
-            document.getElementById('backupDir').textContent = data.backup_dir || 'Unknown';
+            document.getElementById('dbBackupNotConfigured').style.display = 'none';
+            document.getElementById('dbBackupConfigured').style.display = '';
+            document.getElementById('dbBackupDir').textContent = data.backup_dir || 'Unknown';
 
             if (data.last_backup) {
                 const dt = new Date(data.last_backup);
-                document.getElementById('backupLastTime').textContent = dt.toLocaleString();
+                document.getElementById('dbBackupLastTime').textContent = dt.toLocaleString();
             } else {
-                document.getElementById('backupLastTime').textContent = 'Never';
+                document.getElementById('dbBackupLastTime').textContent = 'Never';
             }
 
-            const taskEl = document.getElementById('backupTaskStatus');
+            const taskEl = document.getElementById('dbBackupTaskStatus');
             if (data.task_registered) {
                 taskEl.innerHTML = '<span class="badge bg-success">Active</span>';
             } else {
@@ -1540,9 +1559,9 @@ function loadBackupStatus() {
 
             const backups = data.recent_backups || [];
             if (backups.length > 0) {
-                document.getElementById('backupListSection').style.display = '';
-                document.getElementById('backupNoFiles').style.display = 'none';
-                const tbody = document.getElementById('backupListBody');
+                document.getElementById('dbBackupListSection').style.display = '';
+                document.getElementById('dbBackupNoFiles').style.display = 'none';
+                const tbody = document.getElementById('dbBackupListBody');
                 tbody.innerHTML = '';
                 backups.forEach(b => {
                     const dt = new Date(b.modified_iso);
@@ -1553,18 +1572,18 @@ function loadBackupStatus() {
                     tbody.appendChild(tr);
                 });
             } else {
-                document.getElementById('backupListSection').style.display = 'none';
-                document.getElementById('backupNoFiles').style.display = '';
+                document.getElementById('dbBackupListSection').style.display = 'none';
+                document.getElementById('dbBackupNoFiles').style.display = '';
             }
         })
         .catch(() => {
-            document.getElementById('backupLoading').innerHTML =
+            document.getElementById('dbBackupLoading').innerHTML =
                 '<span class="text-muted">Could not load backup status.</span>';
         });
 }
 
-function runBackupNow() {
-    const btn = document.getElementById('backupNowBtn');
+function runDbBackupNow() {
+    const btn = document.getElementById('dbBackupNowBtn');
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Backing up...';
 
@@ -1585,7 +1604,7 @@ function runBackupNow() {
                 btn.classList.remove('btn-success');
                 btn.classList.add('btn-primary');
             }, 3000);
-            loadBackupStatus();
+            loadDbBackupStatus();
         } else {
             alert('Backup failed: ' + (data.error || 'Unknown error'));
         }
@@ -1601,7 +1620,7 @@ function runBackupNow() {
 // Call Log Backup
 // =============================================================================
 
-function loadBackupStatus() {
+function loadCallLogBackupStatus() {
     fetch('/api/backup/status')
         .then(r => r.json())
         .then(data => {
@@ -1704,7 +1723,7 @@ function enableBackup() {
         btn.disabled = false;
         btn.innerHTML = '<i class="bi bi-shield-plus"></i> Enable Backup';
         if (data.success) {
-            loadBackupStatus();
+            loadCallLogBackupStatus();
         } else {
             alert('Failed: ' + (data.error || 'Unknown error'));
         }
@@ -1720,7 +1739,7 @@ function disableBackup() {
     if (!confirm('Disable backup? Existing backup files will remain on disk.')) return;
     fetch('/api/backup/disable', { method: 'POST' })
         .then(r => r.json())
-        .then(() => loadBackupStatus());
+        .then(() => loadCallLogBackupStatus());
 }
 
 function backupAll() {
@@ -1734,7 +1753,7 @@ function backupAll() {
             btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> Backup All Now';
             if (data.success) {
                 alert('Backed up ' + data.backed_up + ' customers' + (data.failed ? ' (' + data.failed + ' failed)' : '') + '.');
-                loadBackupStatus();
+                loadCallLogBackupStatus();
             } else {
                 alert('Failed: ' + (data.error || 'Unknown error'));
             }
@@ -1744,6 +1763,50 @@ function backupAll() {
             btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> Backup All Now';
             alert('Error: ' + err.message);
         });
+}
+
+function restoreAllFromBackup() {
+    if (!confirm('Restore all call logs from your OneDrive backup folder? This will import any call logs not already in the database.')) return;
+
+    const btn = document.getElementById('fullRestoreBtn');
+    const resultEl = document.getElementById('fullRestoreResult');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Restoring...';
+    resultEl.innerHTML = '';
+
+    fetch('/api/backup/restore-all', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+    })
+    .then(r => r.json())
+    .then(data => {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-cloud-download"></i> Full Restore from Backup';
+        if (data.success) {
+            let msg = '<span class="text-success"><i class="bi bi-check-circle"></i> ';
+            msg += 'Processed ' + data.files_processed + ' files. ';
+            msg += data.total_logs_created + ' call logs created, ';
+            msg += data.total_logs_skipped + ' skipped (already exist).';
+            if (data.files_failed > 0) {
+                msg += ' <span class="text-warning">' + data.files_failed + ' files failed.</span>';
+            }
+            msg += '</span>';
+            if (data.customers_restored && data.customers_restored.length > 0) {
+                msg += '<br><small class="text-muted">Restored: ' + data.customers_restored.join(', ') + '</small>';
+            }
+            if (data.errors && data.errors.length > 0) {
+                msg += '<br><small class="text-danger">Errors: ' + data.errors.join('; ') + '</small>';
+            }
+            resultEl.innerHTML = msg;
+        } else {
+            resultEl.innerHTML = '<span class="text-danger"><i class="bi bi-x-circle"></i> ' + (data.error || 'Unknown error') + '</span>';
+        }
+    })
+    .catch(err => {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-cloud-download"></i> Full Restore from Backup';
+        resultEl.innerHTML = '<span class="text-danger">Error: ' + err.message + '</span>';
+    });
 }
 
 function restoreFromBackup() {
@@ -1781,7 +1844,7 @@ function restoreFromBackup() {
 }
 
 // Load backup status on page load
-document.addEventListener('DOMContentLoaded', loadBackupStatus);
+document.addEventListener('DOMContentLoaded', loadCallLogBackupStatus);
 </script>
 {% endblock %}
 

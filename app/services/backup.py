@@ -345,6 +345,109 @@ def backup_all_customers() -> Dict[str, int]:
     return {"backed_up": backed_up, "failed": failed}
 
 
+def find_backup_folder() -> Optional[str]:
+    """Find the call_logs backup folder, trying config first then auto-detect.
+
+    Returns:
+        Absolute path to the ``call_logs`` subfolder, or None if not found.
+    """
+    # 1. Try configured backup path
+    config = load_config()
+    if config.get("backup_path"):
+        call_logs_dir = os.path.join(config["backup_path"], _CALL_LOGS_DIR)
+        if os.path.isdir(call_logs_dir):
+            return call_logs_dir
+
+    # 2. Auto-detect from OneDrive
+    auto_path = get_auto_detected_backup_path()
+    if auto_path:
+        call_logs_dir = os.path.join(auto_path, _CALL_LOGS_DIR)
+        if os.path.isdir(call_logs_dir):
+            return call_logs_dir
+
+    # 3. Walk all candidates
+    for candidate in detect_onedrive_paths():
+        call_logs_dir = os.path.join(candidate["suggested_path"], _CALL_LOGS_DIR)
+        if os.path.isdir(call_logs_dir):
+            return call_logs_dir
+
+    return None
+
+
+def restore_all_from_folder(call_logs_dir: Optional[str] = None) -> Dict[str, Any]:
+    """Restore all call logs from a backup folder.
+
+    Walks ``{call_logs_dir}/{seller}/`` subfolders, reads every ``.json``
+    file, and calls ``restore_from_backup()`` for each.
+
+    Args:
+        call_logs_dir: Path to the ``call_logs`` folder.  If None, will
+            auto-detect using ``find_backup_folder()``.
+
+    Returns:
+        Result dict with aggregate success/failure counts.
+    """
+    if call_logs_dir is None:
+        call_logs_dir = find_backup_folder()
+
+    if not call_logs_dir or not os.path.isdir(call_logs_dir):
+        return {
+            "success": False,
+            "error": "Could not find call_logs backup folder. "
+                     "Enable backup or verify OneDrive path.",
+        }
+
+    files_processed = 0
+    files_failed = 0
+    total_logs_created = 0
+    total_logs_skipped = 0
+    customers_restored = []
+    errors = []
+
+    for seller_folder in sorted(os.listdir(call_logs_dir)):
+        seller_path = os.path.join(call_logs_dir, seller_folder)
+        if not os.path.isdir(seller_path):
+            continue
+
+        for filename in sorted(os.listdir(seller_path)):
+            if not filename.endswith(".json"):
+                continue
+
+            filepath = os.path.join(seller_path, filename)
+            try:
+                with open(filepath, "r", encoding="utf-8-sig") as f:
+                    data = json.load(f)
+            except (json.JSONDecodeError, OSError) as exc:
+                logger.warning("Skipping unreadable file %s: %s", filepath, exc)
+                files_failed += 1
+                errors.append(f"{seller_folder}/{filename}: {exc}")
+                continue
+
+            result = restore_from_backup(data)
+            if result.get("success"):
+                files_processed += 1
+                total_logs_created += result.get("logs_created", 0)
+                total_logs_skipped += result.get("logs_skipped", 0)
+                if result.get("logs_created", 0) > 0:
+                    customers_restored.append(result.get("customer_name", filename))
+            else:
+                files_failed += 1
+                errors.append(
+                    f"{seller_folder}/{filename}: {result.get('error', 'Unknown')}"
+                )
+
+    return {
+        "success": True,
+        "files_processed": files_processed,
+        "files_failed": files_failed,
+        "total_logs_created": total_logs_created,
+        "total_logs_skipped": total_logs_skipped,
+        "customers_restored": customers_restored,
+        "errors": errors[:20],  # Cap error list to avoid huge response
+        "backup_folder": call_logs_dir,
+    }
+
+
 def restore_from_backup(data: Dict[str, Any]) -> Dict[str, Any]:
     """Restore call logs from a backup JSON dict.
 

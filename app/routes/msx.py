@@ -64,7 +64,7 @@ from app.services.msx_api import (
     build_account_url,
     get_user_alias,
 )
-from app.models import Customer, Milestone, Territory, Seller, POD, SolutionEngineer, Vertical, db
+from app.models import Customer, Milestone, Territory, Seller, POD, SolutionEngineer, SyncStatus, Vertical, db
 
 logger = logging.getLogger(__name__)
 
@@ -814,6 +814,8 @@ def import_accounts():
         return jsonify({"success": False, "error": "No accounts provided"}), 400
     
     try:
+        SyncStatus.mark_started('accounts')
+
         territories_created = 0
         sellers_created = 0
         customers_created = 0
@@ -853,39 +855,70 @@ def import_accounts():
         db.session.flush()  # Flush to get IDs for the territories and sellers
         
         # 2. Create customers from accounts
-        for acct in accounts:
-            tpid = acct.get("tpid")
-            customer_name = acct.get("name")
-            territory_name = acct.get("territory_name")
-            seller_name = acct.get("seller_name")
-            
-            if not tpid or not customer_name:
-                continue
-            
-            # Check if customer already exists by TPID
-            existing = Customer.query.filter_by(tpid=tpid).first()
-            if existing:
-                customers_skipped += 1
-                continue
-            
-            # Create new customer
-            customer = Customer(
-                name=customer_name,
-                tpid=tpid
-            )
-            
-            # Associate with territory if we have it
-            if territory_name and territory_name in territory_map:
-                customer.territory = territory_map[territory_name]
-            
-            # Associate with seller if we have it
-            if seller_name and seller_name in seller_map:
-                customer.sellers.append(seller_map[seller_name])
-            
-            db.session.add(customer)
-            customers_created += 1
-        
+        seen_tpids = set()  # In-memory dedup for same-TPID accounts in batch
+
+        # Pre-load existing TPIDs to avoid per-row DB queries.
+        # Normalize to int -- old imports may have stored TPIDs as strings.
+        existing_tpids = set()
+        for row in db.session.query(Customer.tpid).all():
+            try:
+                val = int(row[0]) if row[0] is not None else None
+            except (ValueError, TypeError):
+                val = row[0]
+            if val is not None:
+                existing_tpids.add(val)
+
+        with db.session.no_autoflush:
+            for acct in accounts:
+                raw_tpid = acct.get("tpid")
+                # Cast to int (API may return strings, column is BigInteger)
+                try:
+                    tpid = int(raw_tpid) if raw_tpid else None
+                except (ValueError, TypeError):
+                    tpid = None
+                customer_name = acct.get("name")
+                territory_name = acct.get("territory_name")
+                seller_name = acct.get("seller_name")
+
+                if not tpid or not customer_name:
+                    continue
+
+                # Skip duplicates within the same import batch
+                if tpid in seen_tpids:
+                    customers_skipped += 1
+                    continue
+                seen_tpids.add(tpid)
+
+                # Check if customer already exists by TPID
+                if tpid in existing_tpids:
+                    customers_skipped += 1
+                    continue
+
+                # Create new customer
+                customer = Customer(
+                    name=customer_name,
+                    tpid=tpid
+                )
+
+                # Associate with territory if we have it
+                if territory_name and territory_name in territory_map:
+                    customer.territory = territory_map[territory_name]
+
+                # Associate with seller if we have it
+                if seller_name and seller_name in seller_map:
+                    customer.sellers.append(seller_map[seller_name])
+
+                db.session.add(customer)
+                existing_tpids.add(tpid)
+                customers_created += 1
+
         db.session.commit()
+
+        SyncStatus.mark_completed(
+            'accounts', success=True,
+            items_synced=customers_created,
+            details=f'{customers_created} created, {customers_skipped} skipped',
+        )
         
         logger.info(f"API Import complete: {territories_created} territories, {sellers_created} sellers, {customers_created} customers created, {customers_skipped} skipped")
         
@@ -899,6 +932,7 @@ def import_accounts():
         
     except Exception as e:
         db.session.rollback()
+        SyncStatus.mark_completed('accounts', success=False, details=str(e))
         logger.exception("Error importing accounts from MSX")
         return jsonify({"success": False, "error": str(e)}), 500
 
@@ -1194,10 +1228,17 @@ def import_stream():
                 vertical_category = acct.get(
                     "msp_verticalcategorycode@OData.Community.Display.V1.FormattedValue")
 
+                # Cast TPID to int (API returns strings, column is BigInteger)
+                raw_tpid = acct.get("msp_mstopparentid")
+                try:
+                    tpid_int = int(raw_tpid) if raw_tpid else None
+                except (ValueError, TypeError):
+                    tpid_int = None
+
                 account_data = {
                     "id": account_id,
                     "name": acct.get("name"),
-                    "tpid": acct.get("msp_mstopparentid"),
+                    "tpid": tpid_int,
                     "url": build_account_url(account_id),
                     "vertical": vertical,
                     "vertical_category": vertical_category,
@@ -1465,51 +1506,139 @@ def import_stream():
             })
 
             # Customers
+            SyncStatus.mark_started('accounts')
             yield _sse({"message": "Creating customers...", "progress": 97})
             customers_created = 0
             customers_skipped = 0
+            customers_updated = 0
+            seen_tpids = set()  # In-memory dedup for same-TPID accounts in batch
 
-            for idx, ad in enumerate(accounts_data, 1):
-                if idx % 10 == 0:
-                    yield _sse({
-                        "message": f"Processing customer {idx}/{len(accounts_data)}...",
-                        "progress": 97 + int((idx / len(accounts_data)) * 2),
-                    })
+            # Pre-load existing TPIDs to avoid per-row DB queries + autoflush.
+            # Query ALL tpids (unique constraint is on tpid alone, not per-user).
+            # Normalize to int -- old imports may have stored TPIDs as strings.
+            def _safe_int(val):
+                try:
+                    return int(val) if val is not None else None
+                except (ValueError, TypeError):
+                    return val
 
-                tpid = ad.get("tpid")
-                customer_name = ad.get("name")
-                if not tpid or not customer_name:
-                    customers_skipped += 1
-                    continue
+            existing_tpids = set()
+            for row in db.session.query(Customer.tpid).all():
+                normalized = _safe_int(row[0])
+                if normalized is not None:
+                    existing_tpids.add(normalized)
 
-                existing = Customer.query.filter_by(
-                    tpid=tpid, user_id=user_id).first()
-                if existing:
-                    customers_skipped += 1
-                    if not existing.tpid_url and ad.get("url"):
-                        existing.tpid_url = ad["url"]
-                    continue
+            # Also grab customers missing tpid_url for update
+            missing_url_tpids = {}
+            for row in db.session.query(Customer.tpid, Customer.id).filter(
+                (Customer.tpid_url == None) | (Customer.tpid_url == '')  # noqa: E711
+            ).all():
+                normalized = _safe_int(row[0])
+                if normalized is not None:
+                    missing_url_tpids[normalized] = row[1]
 
-                customer = Customer(
-                    name=customer_name, tpid=tpid,
-                    tpid_url=ad.get("url"), user_id=user_id,
+            with db.session.no_autoflush:
+                logger.info(
+                    "Customer import: %d existing TPIDs in DB, %d accounts to process",
+                    len(existing_tpids), len(accounts_data),
                 )
-                territory_name = ad.get("territory_name")
-                if territory_name and territory_name in territories_map:
-                    customer.territory = territories_map[territory_name]
-                seller_name = ad.get("seller_name")
-                if seller_name and seller_name in sellers_map:
-                    customer.seller = sellers_map[seller_name]
-                if ad.get("vertical") and ad["vertical"] in verticals_map:
-                    customer.verticals.append(verticals_map[ad["vertical"]])
-                if ad.get("vertical_category") and ad["vertical_category"] in verticals_map:
-                    vert = verticals_map[ad["vertical_category"]]
-                    if vert not in customer.verticals:
-                        customer.verticals.append(vert)
-                db.session.add(customer)
-                customers_created += 1
+                for idx, ad in enumerate(accounts_data, 1):
+                    if idx % 50 == 0:
+                        yield _sse({
+                            "message": f"Processing customer {idx}/{len(accounts_data)}...",
+                            "progress": 97 + int((idx / len(accounts_data)) * 2),
+                        })
 
-            db.session.commit()
+                    tpid = ad.get("tpid")
+                    customer_name = ad.get("name")
+                    if not tpid or not customer_name:
+                        customers_skipped += 1
+                        continue
+
+                    # Skip duplicates within the same import batch
+                    if tpid in seen_tpids:
+                        customers_skipped += 1
+                        continue
+                    seen_tpids.add(tpid)
+
+                    if tpid in existing_tpids:
+                        customers_skipped += 1
+                        # Backfill missing tpid_url
+                        if tpid in missing_url_tpids and ad.get("url"):
+                            cust = db.session.get(Customer, missing_url_tpids[tpid])
+                            if cust:
+                                cust.tpid_url = ad["url"]
+                                customers_updated += 1
+                        continue
+
+                    customer = Customer(
+                        name=customer_name, tpid=tpid,
+                        tpid_url=ad.get("url"), user_id=user_id,
+                    )
+                    territory_name = ad.get("territory_name")
+                    if territory_name and territory_name in territories_map:
+                        customer.territory = territories_map[territory_name]
+                    seller_name = ad.get("seller_name")
+                    if seller_name and seller_name in sellers_map:
+                        customer.seller = sellers_map[seller_name]
+                    if ad.get("vertical") and ad["vertical"] in verticals_map:
+                        customer.verticals.append(verticals_map[ad["vertical"]])
+                    if ad.get("vertical_category") and ad["vertical_category"] in verticals_map:
+                        vert = verticals_map[ad["vertical_category"]]
+                        if vert not in customer.verticals:
+                            customer.verticals.append(vert)
+                    db.session.add(customer)
+                    existing_tpids.add(tpid)  # Track so later dupes in batch skip
+                    customers_created += 1
+
+            try:
+                db.session.commit()
+            except Exception as commit_err:
+                # IntegrityError safety net: rollback and retry one-by-one
+                logger.warning("Batch commit failed (%s), retrying individually", commit_err)
+                db.session.rollback()
+
+                # Re-check what's already in DB after rollback
+                existing_tpids_after = set()
+                for row in db.session.query(Customer.tpid).all():
+                    n = _safe_int(row[0])
+                    if n is not None:
+                        existing_tpids_after.add(n)
+
+                retry_created = 0
+                for idx, ad in enumerate(accounts_data, 1):
+                    tpid = ad.get("tpid")
+                    customer_name = ad.get("name")
+                    if not tpid or not customer_name:
+                        continue
+                    if tpid in existing_tpids_after:
+                        continue
+
+                    try:
+                        cust = Customer(
+                            name=customer_name, tpid=tpid,
+                            tpid_url=ad.get("url"), user_id=user_id,
+                        )
+                        territory_name = ad.get("territory_name")
+                        if territory_name and territory_name in territories_map:
+                            cust.territory = territories_map[territory_name]
+                        seller_name = ad.get("seller_name")
+                        if seller_name and seller_name in sellers_map:
+                            cust.seller = sellers_map[seller_name]
+                        db.session.add(cust)
+                        db.session.commit()
+                        existing_tpids_after.add(tpid)
+                        retry_created += 1
+                    except Exception:
+                        db.session.rollback()
+
+                customers_created = retry_created
+
+            SyncStatus.mark_completed(
+                'accounts', success=True,
+                items_synced=customers_created,
+                details=f'{customers_created} created, {customers_skipped} skipped, {customers_updated} updated',
+            )
 
             duration = round(time.time() - import_start_time, 1)
             yield _sse({
@@ -1539,6 +1668,11 @@ def import_stream():
         except Exception as e:
             try:
                 db.session.rollback()
+            except Exception:
+                pass
+            # Mark accounts sync as failed if it was started
+            try:
+                SyncStatus.mark_completed('accounts', success=False, details=str(e))
             except Exception:
                 pass
             error_detail = f"[{type(e).__name__}] {e}"

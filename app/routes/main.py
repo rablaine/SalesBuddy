@@ -666,9 +666,10 @@ def inject_preferences():
     topic_sort_by_calls = pref.topic_sort_by_calls if pref else False
     first_run_modal_dismissed = pref.first_run_modal_dismissed if pref else False
     guided_tour_completed = pref.guided_tour_completed if pref else False
-    has_customers = Customer.query.first() is not None
+    has_customers = SyncStatus.is_complete('accounts')
     has_milestones = SyncStatus.is_complete('milestones')
     has_revenue = SyncStatus.is_complete('revenue_import')
+    accounts_sync_state = SyncStatus.get_status('accounts')['state']
     milestones_sync_state = SyncStatus.get_status('milestones')['state']
     revenue_sync_state = SyncStatus.get_status('revenue_import')['state']
     
@@ -698,6 +699,7 @@ def inject_preferences():
         has_customers=has_customers,
         has_milestones=has_milestones,
         has_revenue=has_revenue,
+        accounts_sync_state=accounts_sync_state,
         milestones_sync_state=milestones_sync_state,
         revenue_sync_state=revenue_sync_state,
         get_seller_color=get_seller_color,

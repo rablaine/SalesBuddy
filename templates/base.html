@@ -986,6 +986,7 @@
                     } else {
                         // Finish — dismiss modal
                         await dismissOnboarding();
+                        nextBtn.blur();
                         modal.hide();
                         window.location.reload();
                     }
@@ -996,6 +997,7 @@
                 });
 
                 skipBtn.addEventListener('click', async () => {
+                    skipBtn.blur();
                     await dismissOnboarding();
                     modal.hide();
                     window.location.reload();
