@@ -81,6 +81,9 @@ def run_migrations(db):
     # Migration: Drop colored_sellers column from user_preferences (feature removed)
     _drop_colored_sellers_column(db, inspector)
 
+    # Migration: Add ai_summary column to connect_exports
+    _migrate_connect_exports_ai_summary(db, inspector)
+
     # =========================================================================
     # End migrations
     # =========================================================================
@@ -542,3 +545,11 @@ def _drop_colored_sellers_column(db, inspector):
             ))
             db.session.commit()
             print("  Dropped column: user_preferences.colored_sellers")
+
+
+def _migrate_connect_exports_ai_summary(db, inspector):
+    """Add ai_summary TEXT column to connect_exports table."""
+    if 'connect_exports' in inspector.get_table_names():
+        _add_column_if_not_exists(
+            db, inspector, 'connect_exports', 'ai_summary', 'TEXT'
+        )

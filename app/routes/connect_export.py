@@ -4,22 +4,119 @@ Connect Export routes for NoteHelper.
 Provides functionality to export call log data for writing Microsoft Connects
 (self-evaluations). Generates structured summaries and JSON exports scoped to
 a configurable date range, with milestone revenue impact per customer.
+
+V2 adds AI-assisted summary generation using Azure OpenAI to produce
+polished Connect narratives from raw call log data.
 """
 import json
 import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from flask import (
-    Blueprint, Response, g, jsonify, redirect, render_template, request,
-    url_for, flash,
+    Blueprint, Response, current_app, g, jsonify, redirect, render_template,
+    request, url_for, flash,
 )
 
 from app.models import (
     CallLog, ConnectExport, Customer, Milestone, db,
 )
+from app.routes.ai import is_ai_enabled
 
 connect_export_bp = Blueprint('connect_export', __name__)
+
+# ---------------------------------------------------------------------------
+# Constants for AI summary generation
+# ---------------------------------------------------------------------------
+
+# Rough chars-per-token ratio (conservative for English text)
+CHARS_PER_TOKEN = 4
+
+# Maximum input tokens to send in a single AI call.  GPT-4o-mini supports
+# 128K context; we leave headroom for the system prompt (~600 tokens) and the
+# completion (~2K tokens).
+MAX_INPUT_TOKENS = 100_000
+
+# When chunking by customer, each chunk targets this many tokens so we stay
+# well under the per-call limit while leaving room for the summary header that
+# rides along with every chunk.
+CHUNK_TARGET_TOKENS = 80_000
+
+# System prompt for single-call (full export fits in context)
+CONNECT_SUMMARY_SYSTEM_PROMPT = (
+    "You are an expert at writing Microsoft Connect self-evaluations for "
+    "Azure technical sellers. You will receive structured call log data "
+    "covering a specific date range. Your job is to produce content the "
+    "seller can paste directly into their Connect form.\n\n"
+    "The Connect form has 3 fields. Write each as a separate Markdown section:\n\n"
+    "## What results did you deliver, and how did you do it?\n"
+    "- Focus on IMPACT, not just activity. Highlight outcomes and results.\n"
+    "- Use specific examples with metrics where possible "
+    "(e.g., 'influenced $X in milestone revenue' or 'engaged X customers on Azure AI').\n"
+    "- Demonstrate WHAT you delivered (results for goals in Analytics, Databases, AI, etc.) "
+    "and HOW you worked (behaviors that helped customers/others succeed).\n\n"
+    "## Reflect on setbacks - what did you learn?\n"
+    "- Be honest and self-aware based on what the data shows.\n"
+    "- Identify areas where engagement could have been deeper or where gaps exist.\n"
+    "- Share what could be done differently and growth opportunities.\n\n"
+    "## What are your goals for the upcoming period?\n"
+    "- Keep it focused: 2-3 high-impact, achievable goals based on the trends in the data.\n"
+    "- Align goals with the technology themes and customer needs from this period.\n"
+    "- Clarify expected outcomes for each goal.\n\n"
+    "Tips (follow these strictly):\n"
+    "- Be concise. Use bullet points, not paragraphs.\n"
+    "- Quantify your impact wherever you can.\n"
+    "- Avoid routine tasks. Focus on outcomes that moved the needle.\n"
+    "- Write in first person ('I engaged...', 'I helped...').\n"
+    "- Do not invent information that isn't in the data.\n"
+)
+
+# System prompt for per-chunk calls (subset of customers)
+CONNECT_CHUNK_SYSTEM_PROMPT = (
+    "You are an expert at writing Microsoft Connect self-evaluations for "
+    "Azure technical sellers. You will receive a subset of call log data for "
+    "specific customers. Summarize the engagements for ONLY the customers in "
+    "this chunk.\n\n"
+    "Write concise bullet points covering:\n"
+    "- Key results and impact per customer (with metrics where available)\n"
+    "- Technologies discussed and outcomes\n"
+    "- Revenue impact where applicable\n"
+    "- Any gaps or areas for improvement you can identify\n\n"
+    "Tips (follow these strictly):\n"
+    "- Be concise. Use bullet points, not paragraphs.\n"
+    "- Quantify impact wherever you can.\n"
+    "- Focus on outcomes that moved the needle, not routine tasks.\n"
+    "- Write in first person.\n"
+    "- Do not invent information that isn't in the data.\n"
+)
+
+# System prompt for the synthesis call that combines chunk summaries
+CONNECT_SYNTHESIS_SYSTEM_PROMPT = (
+    "You are an expert at writing Microsoft Connect self-evaluations for "
+    "Azure technical sellers. You will receive multiple partial summaries "
+    "that each cover a subset of customers, plus overall statistics. "
+    "Combine them into a single Connect form response.\n\n"
+    "The Connect form has 3 fields. Write each as a separate Markdown section:\n\n"
+    "## What results did you deliver, and how did you do it?\n"
+    "- Focus on IMPACT, not just activity. Highlight outcomes and results.\n"
+    "- Use specific examples with metrics where possible.\n"
+    "- Demonstrate WHAT you delivered and HOW you worked.\n\n"
+    "## Reflect on setbacks - what did you learn?\n"
+    "- Be honest and self-aware based on what the data shows.\n"
+    "- Identify areas where engagement could have been deeper.\n"
+    "- Share what could be done differently.\n\n"
+    "## What are your goals for the upcoming period?\n"
+    "- Keep it focused: 2-3 high-impact, achievable goals based on trends.\n"
+    "- Align goals with technology themes and customer needs.\n"
+    "- Clarify expected outcomes for each goal.\n\n"
+    "Tips (follow these strictly):\n"
+    "- Be concise. Use bullet points, not paragraphs.\n"
+    "- Quantify your impact wherever you can.\n"
+    "- Avoid routine tasks. Focus on outcomes that moved the needle.\n"
+    "- Write in first person.\n"
+    "- Do not invent information or repeat partial summaries verbatim.\n"
+)
 
 # HTML tag stripper for plain-text output
 _TAG_RE = re.compile(r'<[^>]+>')
@@ -332,6 +429,222 @@ def _build_markdown_export(data: dict, name: str) -> str:
     return '\n'.join(lines)
 
 
+# ---------------------------------------------------------------------------
+# AI summary helpers
+# ---------------------------------------------------------------------------
+
+def _estimate_tokens(text: str) -> int:
+    """Estimate token count from character length."""
+    return len(text) // CHARS_PER_TOKEN
+
+
+def _build_summary_header(data: dict) -> str:
+    """Build a compact stats header to include in every AI prompt chunk."""
+    summary = data['summary']
+    lines = [
+        f"Period: {summary['start_date']} to {summary['end_date']}",
+        f"Total call logs: {summary['total_call_logs']}",
+        f"Unique customers: {summary['unique_customers']}",
+        f"Unique topics: {summary['unique_topics']}",
+    ]
+    if summary['total_milestone_revenue'] > 0:
+        lines.append(
+            f"Total milestone revenue influenced: "
+            f"{_format_currency(summary['total_milestone_revenue'])} "
+            f"({summary['total_milestone_count']} milestones)"
+        )
+    if summary['topics']:
+        topic_names = ', '.join(t['name'] for t in summary['topics'][:20])
+        lines.append(f"Top topics: {topic_names}")
+    return '\n'.join(lines)
+
+
+def _build_customer_text_block(cust: dict) -> str:
+    """Build the text block for a single customer (for chunking)."""
+    lines = []
+    lines.append(f"--- {cust['name']} ({len(cust['call_logs'])} call logs) ---")
+    if cust.get('seller'):
+        lines.append(f"Seller: {cust['seller']}")
+    if cust.get('territory'):
+        lines.append(f"Territory: {cust['territory']}")
+    if cust.get('topics'):
+        lines.append(f"Topics: {', '.join(cust['topics'])}")
+    if cust.get('milestone_revenue', 0) > 0:
+        lines.append(
+            f"Influenced {_format_currency(cust['milestone_revenue'])} "
+            f"of committed milestone revenue "
+            f"({cust['milestone_count']} milestones)"
+        )
+    lines.append("")
+    for cl in cust['call_logs']:
+        topic_str = f" [{', '.join(cl['topics'])}]" if cl['topics'] else ""
+        lines.append(f"  [{cl['date']}]{topic_str}")
+        for content_line in cl.get('content_text', '').splitlines():
+            lines.append(f"    {content_line}")
+        lines.append("")
+    return '\n'.join(lines)
+
+
+def _chunk_customers(data: dict, max_tokens: int = CHUNK_TARGET_TOKENS) -> list[list[dict]]:
+    """
+    Split customer list into chunks that each fit within *max_tokens*.
+
+    The summary header rides along with every chunk, so its cost is
+    subtracted from the budget up front.
+
+    Returns a list of customer-lists (each list is one chunk).
+    """
+    header = _build_summary_header(data)
+    header_tokens = _estimate_tokens(header)
+    budget = max_tokens - header_tokens - 500  # 500 token buffer
+
+    chunks: list[list[dict]] = []
+    current_chunk: list[dict] = []
+    current_tokens = 0
+
+    for cust in data['customers']:
+        cust_text = _build_customer_text_block(cust)
+        cust_tokens = _estimate_tokens(cust_text)
+
+        if current_chunk and current_tokens + cust_tokens > budget:
+            chunks.append(current_chunk)
+            current_chunk = [cust]
+            current_tokens = cust_tokens
+        else:
+            current_chunk.append(cust)
+            current_tokens += cust_tokens
+
+    if current_chunk:
+        chunks.append(current_chunk)
+
+    return chunks
+
+
+def _call_openai(system_prompt: str, user_prompt: str,
+                 max_tokens: int = 2000) -> tuple[str, dict]:
+    """
+    Make a single Azure OpenAI chat completion call.
+
+    Returns (response_text, usage_dict).
+    """
+    from app.routes.ai import get_azure_openai_client, get_openai_deployment
+
+    client = get_azure_openai_client()
+    deployment = get_openai_deployment()
+
+    response = client.chat.completions.create(
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        max_tokens=max_tokens,
+        model=deployment,
+    )
+
+    text = response.choices[0].message.content or ''
+    usage = {
+        'model': response.model or deployment,
+        'prompt_tokens': response.usage.prompt_tokens if response.usage else 0,
+        'completion_tokens': response.usage.completion_tokens if response.usage else 0,
+        'total_tokens': response.usage.total_tokens if response.usage else 0,
+    }
+    return text.strip(), usage
+
+
+def _generate_ai_summary_single(data: dict, text_export: str) -> tuple[str, dict]:
+    """Generate an AI summary with a single API call (export fits in context)."""
+    user_prompt = (
+        "Here is my call log data for this Connect period.  "
+        "Please write my Connect self-evaluation.\n\n"
+        f"{text_export}"
+    )
+    return _call_openai(CONNECT_SUMMARY_SYSTEM_PROMPT, user_prompt, max_tokens=2000)
+
+
+def _generate_ai_summary_chunked(data: dict, text_export: str) -> tuple[str, dict]:
+    """
+    Generate an AI summary by splitting customers into chunks, processing
+    them in parallel, and running a final synthesis call.
+
+    Returns (final_summary_text, aggregated_usage).
+    """
+    header = _build_summary_header(data)
+    chunks = _chunk_customers(data)
+    chunk_count = len(chunks)
+
+    aggregated_usage = {
+        'model': '',
+        'prompt_tokens': 0,
+        'completion_tokens': 0,
+        'total_tokens': 0,
+    }
+    partial_summaries: list[str] = [''] * chunk_count
+
+    def _process_chunk(index: int, customers: list[dict]) -> tuple[int, str, dict]:
+        """Process a single chunk -- designed to run in a thread."""
+        customer_text = '\n'.join(_build_customer_text_block(c) for c in customers)
+        user_prompt = (
+            f"Overall period stats:\n{header}\n\n"
+            f"Customer details (chunk {index + 1} of {chunk_count}):\n\n"
+            f"{customer_text}"
+        )
+        text, usage = _call_openai(CONNECT_CHUNK_SYSTEM_PROMPT, user_prompt, max_tokens=1500)
+        return index, text, usage
+
+    # Run chunk calls in parallel
+    with ThreadPoolExecutor(max_workers=min(chunk_count, 4)) as executor:
+        futures = [
+            executor.submit(_process_chunk, i, customers)
+            for i, customers in enumerate(chunks)
+        ]
+        for future in as_completed(futures):
+            idx, text, usage = future.result()
+            partial_summaries[idx] = text
+            aggregated_usage['model'] = usage['model']
+            aggregated_usage['prompt_tokens'] += usage['prompt_tokens']
+            aggregated_usage['completion_tokens'] += usage['completion_tokens']
+            aggregated_usage['total_tokens'] += usage['total_tokens']
+
+    # Synthesis call: combine partial summaries into final narrative
+    combined = '\n\n---\n\n'.join(
+        f"### Chunk {i + 1}\n{s}" for i, s in enumerate(partial_summaries)
+    )
+    synthesis_prompt = (
+        f"Overall period stats:\n{header}\n\n"
+        f"Here are partial summaries from {chunk_count} customer groups:\n\n"
+        f"{combined}"
+    )
+    final_text, synthesis_usage = _call_openai(
+        CONNECT_SYNTHESIS_SYSTEM_PROMPT, synthesis_prompt, max_tokens=2000
+    )
+    aggregated_usage['prompt_tokens'] += synthesis_usage['prompt_tokens']
+    aggregated_usage['completion_tokens'] += synthesis_usage['completion_tokens']
+    aggregated_usage['total_tokens'] += synthesis_usage['total_tokens']
+
+    return final_text, aggregated_usage
+
+
+def generate_ai_summary(data: dict, text_export: str) -> tuple[str, dict]:
+    """
+    Generate an AI-powered Connect summary from export data.
+
+    Automatically chooses single-call or chunked strategy based on
+    estimated token count.
+
+    Returns (summary_text, usage_dict).
+    """
+    input_tokens = _estimate_tokens(text_export)
+
+    if input_tokens <= MAX_INPUT_TOKENS:
+        return _generate_ai_summary_single(data, text_export)
+    else:
+        return _generate_ai_summary_chunked(data, text_export)
+
+
+# ---------------------------------------------------------------------------
+# Routes
+# ---------------------------------------------------------------------------
+
 @connect_export_bp.route('/connect-export')
 def connect_export_page():
     """Render the Connect Export page with date picker and previous exports."""
@@ -358,6 +671,7 @@ def connect_export_page():
         previous_exports=previous_exports,
         default_start=default_start.isoformat() if default_start else '',
         default_end=default_end.isoformat(),
+        ai_enabled=is_ai_enabled(),
     )
 
 
@@ -450,7 +764,101 @@ def view_connect_export(export_id: int):
         'text_export': text_export,
         'json_export': json_export,
         'markdown_export': markdown_export,
+        'ai_summary': export_record.ai_summary,
     })
+
+
+@connect_export_bp.route('/api/connect-export/<int:export_id>/ai-summary', methods=['POST'])
+def generate_connect_ai_summary(export_id: int):
+    """
+    Generate an AI-powered Connect summary for an existing export.
+
+    Regenerates the structured data from the saved date range, feeds it to
+    Azure OpenAI, and caches the result on the ConnectExport record.
+
+    Automatically chunks large exports and processes them in parallel.
+    """
+    from app.models import AIQueryLog
+
+    if not is_ai_enabled():
+        return jsonify({
+            'success': False,
+            'error': 'AI features are not configured '
+                     '(set AZURE_OPENAI_ENDPOINT and AZURE_OPENAI_DEPLOYMENT in .env)',
+        }), 400
+
+    user = g.user
+    export_record = ConnectExport.query.filter_by(
+        id=export_id, user_id=user.id,
+    ).first()
+
+    if not export_record:
+        return jsonify({'success': False, 'error': 'Export not found'}), 404
+
+    # Regenerate the structured data from the stored date range
+    data = _build_export_data(user.id, export_record.start_date, export_record.end_date)
+    text_export = _build_text_export(data, export_record.name)
+
+    if not data['customers']:
+        return jsonify({
+            'success': False,
+            'error': 'No call log data found for this date range',
+        }), 400
+
+    # Estimate tokens for informational purposes
+    estimated_tokens = _estimate_tokens(text_export)
+    chunks_needed = len(_chunk_customers(data)) if estimated_tokens > MAX_INPUT_TOKENS else 1
+
+    try:
+        summary_text, usage = generate_ai_summary(data, text_export)
+
+        # Cache the AI summary on the export record
+        export_record.ai_summary = summary_text
+        db.session.commit()
+
+        # Log the AI query
+        log_entry = AIQueryLog(
+            user_id=user.id,
+            request_text=f"Connect AI summary for '{export_record.name}' "
+                         f"({export_record.start_date} to {export_record.end_date}), "
+                         f"{estimated_tokens} est. input tokens, {chunks_needed} chunk(s)",
+            response_text=summary_text[:500],
+            success=True,
+            model=usage.get('model', ''),
+            prompt_tokens=usage.get('prompt_tokens'),
+            completion_tokens=usage.get('completion_tokens'),
+            total_tokens=usage.get('total_tokens'),
+        )
+        db.session.add(log_entry)
+        db.session.commit()
+
+        return jsonify({
+            'success': True,
+            'ai_summary': summary_text,
+            'usage': usage,
+            'chunks_used': chunks_needed,
+        })
+
+    except Exception as e:
+        error_msg = str(e)
+        current_app.logger.error(f"Connect AI summary failed: {error_msg}")
+
+        # Log the failure
+        log_entry = AIQueryLog(
+            user_id=user.id,
+            request_text=f"Connect AI summary for '{export_record.name}' "
+                         f"({export_record.start_date} to {export_record.end_date})",
+            response_text=None,
+            success=False,
+            error_message=error_msg[:500],
+        )
+        db.session.add(log_entry)
+        db.session.commit()
+
+        return jsonify({
+            'success': False,
+            'error': f'AI request failed: {error_msg}',
+        }), 500
 
 
 @connect_export_bp.route('/api/connect-export/<int:export_id>', methods=['DELETE'])

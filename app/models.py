@@ -1075,6 +1075,7 @@ class ConnectExport(db.Model):
     end_date = db.Column(db.Date, nullable=False)
     call_log_count = db.Column(db.Integer, nullable=False, default=0)
     customer_count = db.Column(db.Integer, nullable=False, default=0)
+    ai_summary = db.Column(db.Text, nullable=True)
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     created_at = db.Column(db.DateTime, default=utc_now, nullable=False)
 

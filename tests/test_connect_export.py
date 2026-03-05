@@ -665,3 +665,378 @@ class TestHelperFunctions:
         assert _format_currency(1000000) == '$1.0M'
         assert _format_currency(1000) == '$1.0K'
         assert _format_currency(999) == '$999'
+
+    def test_estimate_tokens(self):
+        """Should estimate tokens based on character count."""
+        from app.routes.connect_export import _estimate_tokens, CHARS_PER_TOKEN
+        text = 'a' * 400
+        assert _estimate_tokens(text) == 400 // CHARS_PER_TOKEN
+
+    def test_build_summary_header(self):
+        """Should build a compact stats header from export data."""
+        from app.routes.connect_export import _build_summary_header
+        data = {
+            'summary': {
+                'start_date': '2025-01-01',
+                'end_date': '2025-06-30',
+                'total_call_logs': 10,
+                'unique_customers': 3,
+                'unique_topics': 5,
+                'total_milestone_revenue': 500000.0,
+                'total_milestone_count': 2,
+                'topics': [
+                    {'name': 'Azure AI', 'call_count': 5, 'customer_count': 2},
+                    {'name': 'Cosmos DB', 'call_count': 3, 'customer_count': 1},
+                ],
+            },
+            'customers': [],
+        }
+        header = _build_summary_header(data)
+        assert '2025-01-01' in header
+        assert '2025-06-30' in header
+        assert '10' in header
+        assert '3' in header
+        assert '$500.0K' in header
+        assert 'Azure AI' in header
+
+    def test_build_customer_text_block(self):
+        """Should build a text block for a single customer."""
+        from app.routes.connect_export import _build_customer_text_block
+        cust = {
+            'name': 'Acme Corp',
+            'seller': 'Alice',
+            'territory': 'West',
+            'topics': ['Azure AI', 'Cosmos DB'],
+            'milestone_revenue': 100000.0,
+            'milestone_count': 1,
+            'call_logs': [
+                {
+                    'date': '2025-03-01',
+                    'topics': ['Azure AI'],
+                    'content_text': 'Discussed migration.',
+                },
+            ],
+        }
+        block = _build_customer_text_block(cust)
+        assert 'Acme Corp' in block
+        assert 'Alice' in block
+        assert 'West' in block
+        assert 'Azure AI' in block
+        assert 'Discussed migration.' in block
+        assert '$100.0K' in block
+
+    def test_chunk_customers_single_chunk(self):
+        """Small dataset should produce a single chunk."""
+        from app.routes.connect_export import _chunk_customers
+        data = {
+            'summary': {
+                'start_date': '2025-01-01',
+                'end_date': '2025-06-30',
+                'total_call_logs': 2,
+                'unique_customers': 1,
+                'unique_topics': 1,
+                'total_milestone_revenue': 0,
+                'total_milestone_count': 0,
+                'topics': [],
+            },
+            'customers': [
+                {
+                    'name': 'Small Co',
+                    'seller': None,
+                    'territory': None,
+                    'topics': ['Azure'],
+                    'milestone_revenue': 0,
+                    'milestone_count': 0,
+                    'call_logs': [
+                        {'date': '2025-03-01', 'topics': [], 'content_text': 'Short call.'},
+                    ],
+                },
+            ],
+        }
+        chunks = _chunk_customers(data)
+        assert len(chunks) == 1
+        assert len(chunks[0]) == 1
+
+    def test_chunk_customers_multiple_chunks(self):
+        """Large dataset should be split into multiple chunks."""
+        from app.routes.connect_export import _chunk_customers
+        # Create customers with enough text to force chunking at a low threshold
+        big_content = 'x' * 50000  # 50K chars ~ 12.5K tokens
+        customers = []
+        for i in range(10):
+            customers.append({
+                'name': f'Customer {i}',
+                'seller': None,
+                'territory': None,
+                'topics': [],
+                'milestone_revenue': 0,
+                'milestone_count': 0,
+                'call_logs': [
+                    {'date': '2025-03-01', 'topics': [], 'content_text': big_content},
+                ],
+            })
+        data = {
+            'summary': {
+                'start_date': '2025-01-01',
+                'end_date': '2025-06-30',
+                'total_call_logs': 10,
+                'unique_customers': 10,
+                'unique_topics': 0,
+                'total_milestone_revenue': 0,
+                'total_milestone_count': 0,
+                'topics': [],
+            },
+            'customers': customers,
+        }
+        # With 10 customers at ~12.5K tokens each = ~125K total,
+        # should be multiple chunks at 80K target
+        chunks = _chunk_customers(data)
+        assert len(chunks) > 1
+        # All customers should still be present
+        total = sum(len(c) for c in chunks)
+        assert total == 10
+
+
+class TestAiSummaryEndpoint:
+    """Tests for the AI summary generation endpoint."""
+
+    def test_ai_summary_requires_ai_enabled(self, client, app, monkeypatch):
+        """Should return 400 when AI is not configured."""
+        # Explicitly disable AI
+        monkeypatch.setattr('app.routes.connect_export.is_ai_enabled', lambda: False)
+        with app.app_context():
+            from app.models import ConnectExport, User, db
+            user = User.query.first()
+            export = ConnectExport(
+                name='AI Test',
+                start_date=date(2025, 1, 1),
+                end_date=date(2025, 6, 30),
+                call_log_count=0,
+                customer_count=0,
+                user_id=user.id,
+            )
+            db.session.add(export)
+            db.session.commit()
+            export_id = export.id
+
+        response = client.post(f'/api/connect-export/{export_id}/ai-summary',
+                               content_type='application/json')
+        assert response.status_code == 400
+        data = response.get_json()
+        assert data['success'] is False
+        assert 'not configured' in data['error']
+
+    def test_ai_summary_nonexistent_export(self, client, app, monkeypatch):
+        """Should return 404 for nonexistent export."""
+        monkeypatch.setattr('app.routes.connect_export.is_ai_enabled', lambda: True)
+        response = client.post('/api/connect-export/99999/ai-summary',
+                               content_type='application/json')
+        assert response.status_code == 404
+
+    def test_ai_summary_no_data(self, client, app, monkeypatch):
+        """Should return 400 when export has no call log data."""
+        monkeypatch.setattr('app.routes.connect_export.is_ai_enabled', lambda: True)
+        with app.app_context():
+            from app.models import ConnectExport, User, db
+            user = User.query.first()
+            export = ConnectExport(
+                name='Empty AI Test',
+                start_date=date(2020, 1, 1),
+                end_date=date(2020, 1, 31),
+                call_log_count=0,
+                customer_count=0,
+                user_id=user.id,
+            )
+            db.session.add(export)
+            db.session.commit()
+            export_id = export.id
+
+        response = client.post(f'/api/connect-export/{export_id}/ai-summary',
+                               content_type='application/json')
+        assert response.status_code == 400
+        data = response.get_json()
+        assert 'No call log data' in data['error']
+
+    def test_ai_summary_success(self, client, app, sample_data, monkeypatch):
+        """Should generate and cache AI summary successfully."""
+        monkeypatch.setattr('app.routes.connect_export.is_ai_enabled', lambda: True)
+
+        # Mock the generate_ai_summary function
+        mock_summary = (
+            "## What results did you deliver?\n"
+            "- Engaged 2 customers on Azure VM and Storage\n\n"
+            "## Reflect on setbacks\n"
+            "- Could have deepened engagement with Globex\n\n"
+            "## Goals for upcoming period\n"
+            "- Expand Azure AI adoption across territory"
+        )
+        mock_usage = {
+            'model': 'gpt-4o-mini',
+            'prompt_tokens': 500,
+            'completion_tokens': 200,
+            'total_tokens': 700,
+        }
+        monkeypatch.setattr(
+            'app.routes.connect_export.generate_ai_summary',
+            lambda data, text: (mock_summary, mock_usage),
+        )
+
+        # First generate an export
+        with app.app_context():
+            from app.models import ConnectExport, User, db
+            user = User.query.first()
+            export = ConnectExport(
+                name='AI Success Test',
+                start_date=date(2020, 1, 1),
+                end_date=date(2030, 12, 31),
+                call_log_count=2,
+                customer_count=2,
+                user_id=user.id,
+            )
+            db.session.add(export)
+            db.session.commit()
+            export_id = export.id
+
+        response = client.post(f'/api/connect-export/{export_id}/ai-summary',
+                               content_type='application/json')
+        assert response.status_code == 200
+        data = response.get_json()
+        assert data['success'] is True
+        assert 'ai_summary' in data
+        assert 'What results did you deliver' in data['ai_summary']
+        assert data['usage']['total_tokens'] == 700
+        assert data['chunks_used'] == 1
+
+        # Verify it was cached in the database
+        with app.app_context():
+            from app.models import ConnectExport
+            export = ConnectExport.query.get(export_id)
+            assert export.ai_summary is not None
+            assert 'What results did you deliver' in export.ai_summary
+
+    def test_ai_summary_cached_in_view(self, client, app, monkeypatch):
+        """View endpoint should return cached AI summary."""
+        with app.app_context():
+            from app.models import ConnectExport, User, db
+            user = User.query.first()
+            export = ConnectExport(
+                name='Cached AI Test',
+                start_date=date(2025, 1, 1),
+                end_date=date(2025, 6, 30),
+                call_log_count=0,
+                customer_count=0,
+                ai_summary='## Cached Summary\n- This was cached',
+                user_id=user.id,
+            )
+            db.session.add(export)
+            db.session.commit()
+            export_id = export.id
+
+        response = client.get(f'/api/connect-export/{export_id}/view')
+        assert response.status_code == 200
+        data = response.get_json()
+        assert data['ai_summary'] == '## Cached Summary\n- This was cached'
+
+    def test_ai_summary_handles_error(self, client, app, sample_data, monkeypatch):
+        """Should return 500 and log failure when AI call fails."""
+        monkeypatch.setattr('app.routes.connect_export.is_ai_enabled', lambda: True)
+        monkeypatch.setattr(
+            'app.routes.connect_export.generate_ai_summary',
+            lambda data, text: (_ for _ in ()).throw(
+                RuntimeError('API connection failed')
+            ),
+        )
+
+        with app.app_context():
+            from app.models import ConnectExport, User, db
+            user = User.query.first()
+            export = ConnectExport(
+                name='AI Error Test',
+                start_date=date(2020, 1, 1),
+                end_date=date(2030, 12, 31),
+                call_log_count=2,
+                customer_count=2,
+                user_id=user.id,
+            )
+            db.session.add(export)
+            db.session.commit()
+            export_id = export.id
+
+        response = client.post(f'/api/connect-export/{export_id}/ai-summary',
+                               content_type='application/json')
+        assert response.status_code == 500
+        data = response.get_json()
+        assert data['success'] is False
+        assert 'API connection failed' in data['error']
+
+        # Verify error was logged
+        with app.app_context():
+            from app.models import AIQueryLog
+            log = AIQueryLog.query.filter_by(success=False).order_by(
+                AIQueryLog.id.desc()
+            ).first()
+            assert log is not None
+            assert 'API connection failed' in log.error_message
+
+    def test_ai_summary_logs_success(self, client, app, sample_data, monkeypatch):
+        """Should log successful AI query with token usage."""
+        monkeypatch.setattr('app.routes.connect_export.is_ai_enabled', lambda: True)
+        monkeypatch.setattr(
+            'app.routes.connect_export.generate_ai_summary',
+            lambda data, text: ('## Summary\n- Done', {
+                'model': 'gpt-4o-mini',
+                'prompt_tokens': 1000,
+                'completion_tokens': 300,
+                'total_tokens': 1300,
+            }),
+        )
+
+        with app.app_context():
+            from app.models import ConnectExport, User, db
+            user = User.query.first()
+            export = ConnectExport(
+                name='AI Log Test',
+                start_date=date(2020, 1, 1),
+                end_date=date(2030, 12, 31),
+                call_log_count=2,
+                customer_count=2,
+                user_id=user.id,
+            )
+            db.session.add(export)
+            db.session.commit()
+            export_id = export.id
+
+        response = client.post(f'/api/connect-export/{export_id}/ai-summary',
+                               content_type='application/json')
+        assert response.status_code == 200
+
+        with app.app_context():
+            from app.models import AIQueryLog
+            log = AIQueryLog.query.filter_by(success=True).order_by(
+                AIQueryLog.id.desc()
+            ).first()
+            assert log is not None
+            assert 'Connect AI summary' in log.request_text
+            assert log.model == 'gpt-4o-mini'
+            assert log.total_tokens == 1300
+
+
+class TestAiEnabledInTemplate:
+    """Tests for AI button visibility in the template."""
+
+    def test_ai_button_hidden_when_disabled(self, client, monkeypatch):
+        """AI Generate button should not appear when AI is not configured."""
+        monkeypatch.setattr('app.routes.connect_export.is_ai_enabled', lambda: False)
+        response = client.get('/connect-export')
+        assert response.status_code == 200
+        # The button element is inside {% if ai_enabled %} so it won't render,
+        # but the AI Summary card is always present (hidden). Check for button markup.
+        assert b'<button class="btn btn-primary btn-sm" id="aiGenerateBtn"' not in response.data
+
+    def test_ai_button_shown_when_enabled(self, client, monkeypatch):
+        """AI Generate button should appear when AI is configured."""
+        monkeypatch.setattr('app.routes.connect_export.is_ai_enabled', lambda: True)
+        response = client.get('/connect-export')
+        assert response.status_code == 200
+        assert b'AI Generate' in response.data
+        assert b'aiGenerateBtn' in response.data
