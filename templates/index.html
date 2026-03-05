@@ -200,78 +200,26 @@
 <div class="row mt-5">
     <div class="col-md-12">
         <div class="d-flex justify-content-between align-items-center mb-3">
-            <h3 class="mb-0">Recent Call Logs</h3>
+            <h3 class="mb-0">Activity</h3>
             <ul class="nav nav-pills" id="callLogViewTabs" role="tablist">
+                {% if has_milestones %}
                 <li class="nav-item" role="presentation">
-                    <button class="nav-link active" id="list-tab" data-bs-toggle="pill" data-bs-target="#list-view" type="button" role="tab" aria-controls="list-view" aria-selected="true">
-                        <i class="bi bi-list-ul"></i> List
-                    </button>
-                </li>
-                <li class="nav-item" role="presentation">
-                    <button class="nav-link" id="calendar-tab" data-bs-toggle="pill" data-bs-target="#calendar-view" type="button" role="tab" aria-controls="calendar-view" aria-selected="false">
+                    <button class="nav-link active" id="calendar-tab" data-bs-toggle="pill" data-bs-target="#calendar-view" type="button" role="tab" aria-controls="calendar-view" aria-selected="true">
                         <i class="bi bi-calendar3"></i> Calendar
                     </button>
                 </li>
                 <li class="nav-item" role="presentation">
                     <button class="nav-link" id="milestones-tab" data-bs-toggle="pill" data-bs-target="#milestones-view" type="button" role="tab" aria-controls="milestones-view" aria-selected="false">
-                        <i class="bi bi-flag-fill"></i> Milestones
+                        <i class="bi bi-flag-fill"></i> Milestones Due
                     </button>
                 </li>
+                {% endif %}
             </ul>
         </div>
         
         <div class="tab-content" id="callLogViewTabContent">
-            <!-- List View Tab -->
-            <div class="tab-pane fade show active" id="list-view" role="tabpanel" aria-labelledby="list-tab">
-                {% if recent_calls %}
-                    <div class="list-group">
-                        {% for call in recent_calls %}
-                            <div class="list-group-item list-group-item-action" style="cursor: pointer;" onclick="window.location.href='{{ url_for('call_logs.call_log_view', id=call.id) }}';">
-                                <div class="d-flex w-100 justify-content-between">
-                                    <h5 class="mb-1">
-                                        <a href="{{ url_for('customers.customer_view', id=call.customer.id) }}" class="text-decoration-none" onclick="event.stopPropagation();">
-                                            {{ call.customer.name }}
-                                        </a>
-                                    </h5>
-                                    <small class="text-muted">{{ call.call_date.strftime('%b %d, %Y') }}{% if call.call_date.hour != 0 or call.call_date.minute != 0 %} {{ call.call_date.strftime('%I:%M %p') }}{% endif %}</small>
-                                </div>
-                                <div class="mb-2">
-                                    {% if call.seller %}
-                                        <a href="{{ url_for('sellers.seller_view', id=call.seller.id) }}" class="badge {{ get_seller_color(call.seller.id) }} text-decoration-none" onclick="event.stopPropagation();"><i class="bi bi-person"></i> {{ call.seller.name }}</a>
-                                    {% endif %}
-                                    {% if call.territory %}
-                                        <a href="{{ url_for('territories.territory_view', id=call.territory.id) }}" class="badge bg-info text-dark text-decoration-none" onclick="event.stopPropagation();"><i class="bi bi-geo-alt"></i> {{ call.territory.name }}</a>
-                                    {% endif %}
-                                    {% for topic in call.topics %}
-                                        <a href="{{ url_for('topics.topic_view', id=topic.id) }}" class="badge bg-warning text-dark text-decoration-none" onclick="event.stopPropagation();"><i class="bi bi-tag"></i> {{ topic.name }}</a>
-                                    {% endfor %}
-                                    {% for partner in call.partners %}
-                                        <a href="{{ url_for('partners.partner_view', id=partner.id) }}" class="badge text-decoration-none" style="background-color: #6f42c1;" onclick="event.stopPropagation();"><i class="bi bi-building"></i> {{ partner.name }}</a>
-                                    {% endfor %}
-                                    {% for milestone in call.milestones %}
-                                        <a href="{{ url_for('milestones.milestone_view', id=milestone.id) }}" class="badge bg-success text-decoration-none" title="{{ milestone.display_text }}" onclick="event.stopPropagation();"><i class="bi bi-flag"></i> {{ milestone.display_text[:25] }}{% if milestone.display_text|length > 25 %}...{% endif %}</a>
-                                    {% endfor %}
-                                    {% for task in call.msx_tasks %}
-                                        {% if task.msx_task_url %}
-                                        <a href="{{ task.msx_task_url }}" target="_blank" class="badge bg-secondary text-decoration-none" title="{{ task.subject }}" onclick="event.stopPropagation();"><i class="bi bi-check2-circle"></i> {{ task.subject[:20] }}{% if task.subject|length > 20 %}...{% endif %} <i class="bi bi-box-arrow-up-right"></i></a>
-                                        {% else %}
-                                        <span class="badge bg-secondary" title="{{ task.subject }}"><i class="bi bi-check2-circle"></i> {{ task.subject[:20] }}{% if task.subject|length > 20 %}...{% endif %}</span>
-                                        {% endif %}
-                                    {% endfor %}
-                                </div>
-                                <div class="text-muted">{{ call.content|striptags|truncate(200, true) }}</div>
-                            </div>
-                        {% endfor %}
-                    </div>
-                {% else %}
-                    <div class="alert alert-info">
-                        <i class="bi bi-info-circle"></i> No call logs yet. Use the <strong>New Call Log</strong> button in the navigation bar to get started!
-                    </div>
-                {% endif %}
-            </div>
-            
             <!-- Calendar View Tab -->
-            <div class="tab-pane fade" id="calendar-view" role="tabpanel" aria-labelledby="calendar-tab">
+            <div class="tab-pane fade show active" id="calendar-view" role="tabpanel" aria-labelledby="calendar-tab">
                 <div class="card">
                     <div class="card-header d-flex justify-content-between align-items-center">
                         <button class="btn btn-outline-secondary btn-sm" id="prevMonthBtn">
@@ -307,6 +255,7 @@
             </div>
             
             <!-- Milestones Calendar Tab -->
+            {% if has_milestones %}
             <div class="tab-pane fade" id="milestones-view" role="tabpanel" aria-labelledby="milestones-tab">
                 <div class="card">
                     <div class="card-header d-flex justify-content-between align-items-center">
@@ -345,6 +294,7 @@
                     </div>
                 </div>
             </div>
+            {% endif %}
         </div>
     </div>
 </div>
@@ -573,9 +523,16 @@
     });
     
     // ===== CALENDAR VIEW =====
-    let calendarYear = new Date().getFullYear();
-    let calendarMonth = new Date().getMonth() + 1; // 1-indexed
+    const CAL_MONTH_KEY = 'notehelper_cal_month';
+    const CAL_YEAR_KEY = 'notehelper_cal_year';
+    let calendarYear = parseInt(localStorage.getItem(CAL_YEAR_KEY)) || new Date().getFullYear();
+    let calendarMonth = parseInt(localStorage.getItem(CAL_MONTH_KEY)) || (new Date().getMonth() + 1);
     let calendarLoaded = false;
+    
+    function saveCalendarPosition() {
+        localStorage.setItem(CAL_YEAR_KEY, calendarYear);
+        localStorage.setItem(CAL_MONTH_KEY, calendarMonth);
+    }
     
     // Tab persistence with localStorage
     const TAB_STORAGE_KEY = 'notehelper_home_tab';
@@ -583,23 +540,25 @@
     // Apply saved tab after Bootstrap is loaded
     window.addEventListener('DOMContentLoaded', function() {
         const savedTab = localStorage.getItem(TAB_STORAGE_KEY);
-        if (savedTab === 'calendar') {
-            const calendarTabEl = document.getElementById('calendar-tab');
-            const calendarTab = new bootstrap.Tab(calendarTabEl);
-            calendarTab.show();
-        } else if (savedTab === 'milestones') {
+        {% if has_milestones %}
+        if (savedTab === 'milestones') {
             const msTabEl = document.getElementById('milestones-tab');
             const msTab = new bootstrap.Tab(msTabEl);
             msTab.show();
+        } else {
+        {% endif %}
+            // Calendar is default - load it immediately
+            if (!calendarLoaded) {
+                loadCalendar(calendarYear, calendarMonth);
+                calendarLoaded = true;
+            }
+        {% if has_milestones %}
         }
-    });
-    
-    // Save tab selection when changed
-    document.getElementById('list-tab').addEventListener('shown.bs.tab', function() {
-        localStorage.setItem(TAB_STORAGE_KEY, 'list');
+        {% endif %}
     });
     
     // Load calendar when tab is shown
+    {% if has_milestones %}
     document.getElementById('calendar-tab').addEventListener('shown.bs.tab', function() {
         localStorage.setItem(TAB_STORAGE_KEY, 'calendar');
         if (!calendarLoaded) {
@@ -607,6 +566,7 @@
             calendarLoaded = true;
         }
     });
+    {% endif %}
     
     // Month navigation
     document.getElementById('prevMonthBtn').addEventListener('click', function() {
@@ -616,6 +576,7 @@
         } else {
             calendarMonth--;
         }
+        saveCalendarPosition();
         loadCalendar(calendarYear, calendarMonth);
     });
     
@@ -626,6 +587,7 @@
         } else {
             calendarMonth++;
         }
+        saveCalendarPosition();
         loadCalendar(calendarYear, calendarMonth);
     });
     
@@ -633,6 +595,7 @@
         const now = new Date();
         calendarYear = now.getFullYear();
         calendarMonth = now.getMonth() + 1;
+        saveCalendarPosition();
         loadCalendar(calendarYear, calendarMonth);
     });
     
@@ -814,10 +777,18 @@
         }
     }
 
+    {% if has_milestones %}
     // ===== MILESTONE CALENDAR VIEW =====
-    let msCalYear = new Date().getFullYear();
-    let msCalMonth = new Date().getMonth() + 1;
+    const MS_MONTH_KEY = 'notehelper_ms_cal_month';
+    const MS_YEAR_KEY = 'notehelper_ms_cal_year';
+    let msCalYear = parseInt(localStorage.getItem(MS_YEAR_KEY)) || new Date().getFullYear();
+    let msCalMonth = parseInt(localStorage.getItem(MS_MONTH_KEY)) || (new Date().getMonth() + 1);
     let msCalLoaded = false;
+
+    function saveMsCalendarPosition() {
+        localStorage.setItem(MS_YEAR_KEY, msCalYear);
+        localStorage.setItem(MS_MONTH_KEY, msCalMonth);
+    }
 
     // Load milestone calendar when tab is shown
     document.getElementById('milestones-tab').addEventListener('shown.bs.tab', function() {
@@ -832,17 +803,20 @@
     document.getElementById('msPrevMonthBtn').addEventListener('click', function() {
         if (msCalMonth === 1) { msCalMonth = 12; msCalYear--; }
         else { msCalMonth--; }
+        saveMsCalendarPosition();
         loadMsCalendar(msCalYear, msCalMonth);
     });
     document.getElementById('msNextMonthBtn').addEventListener('click', function() {
         if (msCalMonth === 12) { msCalMonth = 1; msCalYear++; }
         else { msCalMonth++; }
+        saveMsCalendarPosition();
         loadMsCalendar(msCalYear, msCalMonth);
     });
     document.getElementById('msTodayBtn').addEventListener('click', function() {
         const now = new Date();
         msCalYear = now.getFullYear();
         msCalMonth = now.getMonth() + 1;
+        saveMsCalendarPosition();
         loadMsCalendar(msCalYear, msCalMonth);
     });
 
@@ -984,6 +958,7 @@
             body.appendChild(row);
         }
     }
+    {% endif %}
 </script>
 
 {% endblock %}

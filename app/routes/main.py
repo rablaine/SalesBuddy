@@ -82,13 +82,6 @@ def get_seller_color(seller_id: int, use_colors: bool = True) -> str:
 @main_bp.route('/')
 def index():
     """Home page showing recent activity and stats."""
-    # Eager load relationships for recent calls to avoid N+1 queries
-    recent_calls = CallLog.query.options(
-        db.joinedload(CallLog.customer).joinedload(Customer.seller),
-        db.joinedload(CallLog.customer).joinedload(Customer.territory),
-        db.joinedload(CallLog.topics)
-    ).order_by(CallLog.call_date.desc()).limit(10).all()
-    
     # Count queries are fast on these small tables
     stats = {
         'call_logs': CallLog.query.count(),
@@ -96,7 +89,8 @@ def index():
         'sellers': Seller.query.count(),
         'topics': Topic.query.count()
     }
-    return render_template('index.html', recent_calls=recent_calls, stats=stats)
+    has_milestones = SyncStatus.is_complete('milestones')
+    return render_template('index.html', stats=stats, has_milestones=has_milestones)
 
 
 @main_bp.route('/api/call-logs/calendar')

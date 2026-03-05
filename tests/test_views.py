@@ -19,8 +19,7 @@ def test_home_page_with_data(client, sample_data):
     """Test home page displays recent calls."""
     response = client.get('/')
     assert response.status_code == 200
-    assert b'Recent Call Logs' in response.data
-    assert b'Acme Corp' in response.data
+    assert b'Calendar' in response.data
 
 
 def test_calendar_api_returns_json(client, sample_data):

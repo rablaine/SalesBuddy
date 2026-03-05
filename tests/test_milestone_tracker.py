@@ -1140,15 +1140,38 @@ class TestMilestoneCalendarAPI:
 class TestMilestoneCalendarTab:
     """Tests for the milestone calendar tab on the front page."""
 
+    def _mark_milestones_synced(self, app):
+        """Mark milestones as synced so the tab renders on the home page."""
+        with app.app_context():
+            from app.models import db, SyncStatus
+            from datetime import datetime
+            status = SyncStatus.query.filter_by(sync_type='milestones').first()
+            if not status:
+                status = SyncStatus(sync_type='milestones')
+                db.session.add(status)
+            status.started_at = datetime(2026, 1, 1)
+            status.completed_at = datetime(2026, 1, 1)
+            status.success = True
+            db.session.commit()
+
     def test_index_has_milestones_tab(self, client, app, sample_data):
-        """Front page should have the milestones tab button."""
+        """Front page should have the milestones tab button when synced."""
+        self._mark_milestones_synced(app)
         response = client.get('/')
         assert response.status_code == 200
         assert b'milestones-tab' in response.data
         assert b'milestones-view' in response.data
 
+    def test_index_hides_milestones_tab_when_not_synced(self, client, app, sample_data):
+        """Front page should not have milestones tab when not synced."""
+        response = client.get('/')
+        assert response.status_code == 200
+        assert b'milestones-tab' not in response.data
+        assert b'milestones-view' not in response.data
+
     def test_milestones_tab_has_full_week(self, client, app, sample_data):
         """Milestone calendar should have 7-day week headers (Sun-Sat)."""
+        self._mark_milestones_synced(app)
         response = client.get('/')
         assert response.status_code == 200
         assert b'msCalendarTable' in response.data
@@ -1157,6 +1180,7 @@ class TestMilestoneCalendarTab:
 
     def test_milestones_tab_has_tracker_link(self, client, app, sample_data):
         """Milestone calendar footer should link to full tracker."""
+        self._mark_milestones_synced(app)
         response = client.get('/')
         assert response.status_code == 200
         assert b'Full Tracker' in response.data
