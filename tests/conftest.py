@@ -57,7 +57,7 @@ def app():
         db.session.flush()
         
         # Create default user preference
-        pref = UserPreference(user_id=test_user.id, dark_mode=False, customer_view_grouped=False, topic_sort_by_calls=False, territory_view_accounts=False)
+        pref = UserPreference(dark_mode=False, customer_view_grouped=False, topic_sort_by_calls=False, territory_view_accounts=False)
         db.session.add(pref)
         db.session.commit()
     
@@ -121,14 +121,14 @@ def sample_data(app):
         test_user = User.query.first()
         
         # Create territories
-        territory1 = Territory(name='West Region', user_id=test_user.id)
-        territory2 = Territory(name='East Region', user_id=test_user.id)
+        territory1 = Territory(name='West Region')
+        territory2 = Territory(name='East Region')
         db.session.add_all([territory1, territory2])
         db.session.flush()
         
         # Create sellers
-        seller1 = Seller(name='Alice Smith', alias='alices', seller_type='Growth', user_id=test_user.id)
-        seller2 = Seller(name='Bob Jones', alias='bobj', seller_type='Acquisition', user_id=test_user.id)
+        seller1 = Seller(name='Alice Smith', alias='alices', seller_type='Growth')
+        seller2 = Seller(name='Bob Jones', alias='bobj', seller_type='Acquisition')
         db.session.add_all([seller1, seller2])
         db.session.flush()
         
@@ -142,31 +142,28 @@ def sample_data(app):
             tpid=1001,  # Numeric TPID
             tpid_url='https://example.com/acme',
             seller_id=seller1.id,
-            territory_id=territory1.id,
-            user_id=test_user.id
+            territory_id=territory1.id
         )
         customer2 = Customer(
             name='Globex Inc',
             tpid=1002,  # Numeric TPID
             seller_id=seller2.id,
-            territory_id=territory2.id,
-            user_id=test_user.id
+            territory_id=territory2.id
             # No tpid_url - for testing TPID workflow
         )
         customer3 = Customer(
             name='Initech LLC',
             tpid=1003,  # Numeric TPID
             seller_id=seller1.id,
-            territory_id=territory1.id,
-            user_id=test_user.id
+            territory_id=territory1.id
             # No tpid_url - for testing TPID workflow batch updates
         )
         db.session.add_all([customer1, customer2, customer3])
         db.session.flush()
         
         # Create topics
-        topic1 = Topic(name='Azure VM', description='Virtual Machines', user_id=test_user.id)
-        topic2 = Topic(name='Storage', description='Azure Storage', user_id=test_user.id)
+        topic1 = Topic(name='Azure VM', description='Virtual Machines')
+        topic2 = Topic(name='Storage', description='Azure Storage')
         db.session.add_all([topic1, topic2])
         db.session.flush()
         
@@ -175,16 +172,14 @@ def sample_data(app):
         call1 = CallLog(
             customer_id=customer1.id,
             call_date=datetime.now(timezone.utc),
-            content='Discussed VM migration strategy and cloud architecture options.',
-            user_id=test_user.id
+            content='Discussed VM migration strategy and cloud architecture options.'
         )
         call1.topics.append(topic1)
         
         call2 = CallLog(
             customer_id=customer2.id,
             call_date=datetime.now(timezone.utc),
-            content='Storage optimization review with focus on blob storage.',
-            user_id=test_user.id
+            content='Storage optimization review with focus on blob storage.'
         )
         call2.topics.append(topic2)
         
@@ -236,7 +231,7 @@ def reset_db(app):
         db.session.add(test_user)
         db.session.flush()
         
-        pref = UserPreference(user_id=test_user.id, dark_mode=False, customer_view_grouped=False, topic_sort_by_calls=False, territory_view_accounts=False)
+        pref = UserPreference(dark_mode=False, customer_view_grouped=False, topic_sort_by_calls=False, territory_view_accounts=False)
         db.session.add(pref)
         db.session.commit()
     
@@ -267,8 +262,7 @@ def sample_customer(app):
         
         customer = Customer(
             name='Test Customer',
-            tpid=9999,
-            user_id=test_user.id
+            tpid=9999
         )
         db.session.add(customer)
         db.session.commit()

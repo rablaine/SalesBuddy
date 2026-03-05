@@ -261,7 +261,6 @@ class TestVpnStatusEndpoints:
             name="VPN Test Co",
             tpid=12345,
             tpid_url="https://microsoftsales.crm.dynamics.com/main.aspx?id=00000000-0000-0000-0000-000000000001",
-            user_id=test_user.id,
         )
         db.session.add(customer)
         db.session.commit()

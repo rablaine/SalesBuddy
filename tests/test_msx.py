@@ -104,7 +104,6 @@ class TestMsxTaskModel:
                 msx_milestone_id='milestone-123',
                 url='https://example.com/milestone/123',
                 msx_status='On Track',
-                user_id=user.id,
                 customer_id=customer.id
             )
             db.session.add(milestone)
@@ -114,8 +113,7 @@ class TestMsxTaskModel:
             call_log = CallLog(
                 customer_id=customer.id,
                 call_date=date.today(),
-                content='<p>Test content</p>',
-                user_id=user.id
+                content='<p>Test content</p>'
             )
             db.session.add(call_log)
             db.session.commit()
@@ -153,16 +151,14 @@ class TestMsxTaskModel:
             
             milestone = Milestone(
                 msx_milestone_id='rel-milestone',
-                url='https://example.com/milestone',
-                user_id=user.id
+                url='https://example.com/milestone'
             )
             db.session.add(milestone)
             
             call_log = CallLog(
                 customer_id=customer.id,
                 call_date=date.today(),
-                content='<p>Content</p>',
-                user_id=user.id
+                content='<p>Content</p>'
             )
             call_log.milestones.append(milestone)
             db.session.add(call_log)
@@ -382,8 +378,7 @@ class TestMilestoneStatusSorting:
             milestone = Milestone(
                 msx_milestone_id='sort-test',
                 url='https://example.com/milestone',
-                msx_status='On Track',
-                user_id=user.id
+                msx_status='On Track'
             )
             db.session.add(milestone)
             db.session.commit()
@@ -400,8 +395,7 @@ class TestMilestoneStatusSorting:
             milestone = Milestone(
                 msx_milestone_id='unknown-status',
                 url='https://example.com/milestone',
-                msx_status='Unknown Status',
-                user_id=user.id
+                msx_status='Unknown Status'
             )
             db.session.add(milestone)
             db.session.commit()

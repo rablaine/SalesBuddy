@@ -14,8 +14,7 @@ customers_bp = Blueprint('customers', __name__)
 @customers_bp.route('/customers')
 def customers_list():
     """List all customers - alphabetical, grouped by seller, or sorted by call count based on preference."""
-    user_id = g.user.id if g.user.is_authenticated else 1
-    pref = UserPreference.query.filter_by(user_id=user_id).first()
+    pref = UserPreference.query.first()
     
     # Check preference for showing customers without calls (default: True = show all)
     show_customers_without_calls = pref.show_customers_without_calls if pref else True
@@ -134,8 +133,7 @@ def customer_create():
             tpid=tpid_value,
             tpid_url=tpid_url if tpid_url else None,
             seller_id=int(seller_id) if seller_id else None,
-            territory_id=int(territory_id) if territory_id else None,
-            user_id=g.user.id)
+            territory_id=int(territory_id) if territory_id else None)
         db.session.add(customer)
         db.session.commit()
         

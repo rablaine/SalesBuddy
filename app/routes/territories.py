@@ -39,7 +39,7 @@ def territory_create():
             flash(f'Territory "{name}" already exists.', 'warning')
             return redirect(url_for('territories.territory_view', id=existing.id))
         
-        territory = Territory(name=name, user_id=g.user.id)
+        territory = Territory(name=name)
         db.session.add(territory)
         db.session.commit()
         
@@ -61,8 +61,7 @@ def territory_view(id):
     sellers = sorted(territory.sellers, key=lambda s: s.name)
     
     # Get user preference for territory view
-    user_id = g.user.id if g.user.is_authenticated else 1
-    pref = UserPreference.query.filter_by(user_id=user_id).first()
+    pref = UserPreference.query.first()
     show_accounts = pref.territory_view_accounts if pref else False
     
     recent_calls = []
@@ -152,7 +151,7 @@ def territory_create_inline():
     if name:
         existing = Territory.query.filter_by(name=name).first()
         if not existing:
-            territory = Territory(name=name, user_id=g.user.id)
+            territory = Territory(name=name)
             db.session.add(territory)
             db.session.commit()
             flash(f'Territory "{name}" created successfully!', 'success')

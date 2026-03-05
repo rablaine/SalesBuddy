@@ -169,7 +169,6 @@ def api_ai_suggest_topics():
         except (json.JSONDecodeError, ValueError) as e:
             # Log malformed response with full details for debugging
             log_entry = AIQueryLog(
-                user_id=g.user.id,
                 request_text=call_notes[:1000],
                 response_text=raw_response_text[:1000],
                 success=False,
@@ -188,7 +187,6 @@ def api_ai_suggest_topics():
         
         # Log successful query
         log_entry = AIQueryLog(
-            user_id=g.user.id,
             request_text=call_notes[:1000],
             response_text=raw_response_text[:1000],
             success=True,
@@ -206,7 +204,6 @@ def api_ai_suggest_topics():
         for topic_name in suggested_topics:
             # Check if topic exists (case-insensitive)
             existing_topic = Topic.query.filter(
-                Topic.user_id == g.user.id,
                 db.func.lower(Topic.name) == topic_name.lower()
             ).first()
             
@@ -214,7 +211,7 @@ def api_ai_suggest_topics():
                 topic_ids.append({'id': existing_topic.id, 'name': existing_topic.name})
             else:
                 # Create new topic
-                new_topic = Topic(name=topic_name, user_id=g.user.id)
+                new_topic = Topic(name=topic_name)
                 db.session.add(new_topic)
                 db.session.flush()  # Get the ID
                 topic_ids.append({'id': new_topic.id, 'name': new_topic.name})
@@ -231,7 +228,6 @@ def api_ai_suggest_topics():
         error_msg = str(e)
         
         log_entry = AIQueryLog(
-            user_id=g.user.id,
             request_text=call_notes[:1000],
             response_text=None,
             success=False,
@@ -303,7 +299,6 @@ Which milestone best matches what was discussed in the call?"""
         
         # Log the query
         log_entry = AIQueryLog(
-            user_id=g.user.id,
             request_text=f"Match milestone: {call_notes[:500]}...",
             response_text=response_text[:500],
             success=True
@@ -338,7 +333,6 @@ Which milestone best matches what was discussed in the call?"""
         error_msg = str(e)
         
         log_entry = AIQueryLog(
-            user_id=g.user.id,
             request_text=f"Match milestone: {call_notes[:500]}...",
             response_text=None,
             success=False,
@@ -422,7 +416,6 @@ Guidelines:
         
         # Log successful query
         log_entry = AIQueryLog(
-            user_id=g.user.id,
             request_text=f"Analyze call: {call_notes[:500]}...",
             response_text=response_text[:500],
             success=True,
@@ -443,7 +436,6 @@ Guidelines:
             
             # Check if topic exists (case-insensitive)
             existing_topic = Topic.query.filter(
-                Topic.user_id == g.user.id,
                 db.func.lower(Topic.name) == topic_name.lower()
             ).first()
             
@@ -451,7 +443,7 @@ Guidelines:
                 topic_ids.append({'id': existing_topic.id, 'name': existing_topic.name})
             else:
                 # Create new topic
-                new_topic = Topic(name=topic_name, user_id=g.user.id)
+                new_topic = Topic(name=topic_name)
                 db.session.add(new_topic)
                 db.session.flush()
                 topic_ids.append({'id': new_topic.id, 'name': new_topic.name})
@@ -465,7 +457,6 @@ Guidelines:
         
     except json.JSONDecodeError as e:
         log_entry = AIQueryLog(
-            user_id=g.user.id,
             request_text=f"Analyze call: {call_notes[:500]}...",
             response_text=response_text[:500] if 'response_text' in dir() else None,
             success=False,
@@ -483,7 +474,6 @@ Guidelines:
         error_msg = str(e)
         
         log_entry = AIQueryLog(
-            user_id=g.user.id,
             request_text=f"Analyze call: {call_notes[:500]}...",
             response_text=None,
             success=False,

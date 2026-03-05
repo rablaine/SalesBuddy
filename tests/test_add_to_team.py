@@ -20,7 +20,7 @@ def _create_milestone(db_session, sample_user, **overrides):
     """Create a Milestone with sensible defaults and return it."""
     from app.models import db, Milestone, Customer
 
-    customer = Customer(name='Team Test Customer', tpid=5555, user_id=sample_user.id)
+    customer = Customer(name='Team Test Customer', tpid=5555)
     db.session.add(customer)
     db.session.flush()
 
@@ -30,7 +30,6 @@ def _create_milestone(db_session, sample_user, **overrides):
         msx_milestone_id='ms-guid-001',
         msx_status='On Track',
         customer_id=customer.id,
-        user_id=sample_user.id,
         on_my_team=False,
     )
     defaults.update(overrides)
@@ -44,7 +43,7 @@ def _create_opportunity(db_session, sample_user, **overrides):
     """Create an Opportunity with sensible defaults and return it."""
     from app.models import db, Opportunity, Customer
 
-    customer = Customer(name='Opp Test Customer', tpid=6666, user_id=sample_user.id)
+    customer = Customer(name='Opp Test Customer', tpid=6666)
     db.session.add(customer)
     db.session.flush()
 
@@ -53,7 +52,6 @@ def _create_opportunity(db_session, sample_user, **overrides):
         opportunity_number='7-TEAM-TEST',
         name='Test Opportunity',
         customer_id=customer.id,
-        user_id=sample_user.id,
         on_deal_team=False,
     )
     defaults.update(overrides)
@@ -389,7 +387,7 @@ class TestJoinDealTeam:
         with app.app_context():
             from app.models import db, Opportunity, Customer
 
-            customer = Customer(name='No MSX Cust', tpid=7777, user_id=sample_user.id)
+            customer = Customer(name='No MSX Cust', tpid=7777)
             db.session.add(customer)
             db.session.flush()
 
@@ -398,7 +396,6 @@ class TestJoinDealTeam:
                 msx_opportunity_id='',
                 name='No MSX Opp',
                 customer_id=customer.id,
-                user_id=sample_user.id,
             )
             db.session.add(opp)
             db.session.commit()

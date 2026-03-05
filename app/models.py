@@ -147,7 +147,6 @@ class POD(db.Model):
     
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(200), nullable=False)
-    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, default=1)
     created_at = db.Column(db.DateTime, default=utc_now, nullable=False)
     
     # Relationships
@@ -171,7 +170,6 @@ class SolutionEngineer(db.Model):
     name = db.Column(db.String(200), nullable=False)
     alias = db.Column(db.String(100), nullable=True)  # Microsoft email alias
     specialty = db.Column(db.String(50), nullable=True)  # Azure Data, Azure Core and Infra, Azure Apps and AI
-    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     created_at = db.Column(db.DateTime, default=utc_now, nullable=False)
     
     # Relationships
@@ -198,7 +196,6 @@ class Vertical(db.Model):
     
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(200), nullable=False)
-    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, default=1)
     created_at = db.Column(db.DateTime, default=utc_now, nullable=False)
     
     # Relationships
@@ -220,7 +217,6 @@ class Territory(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(200), nullable=False)
     pod_id = db.Column(db.Integer, db.ForeignKey('pods.id'), nullable=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     created_at = db.Column(db.DateTime, default=utc_now, nullable=False)
     
     # Relationships
@@ -247,7 +243,6 @@ class Seller(db.Model):
     seller_type = db.Column(db.String(20), nullable=False, default='Growth')  # Acquisition or Growth
     # Note: territory_id column kept for backwards compatibility but will be deprecated
     territory_id = db.Column(db.Integer, db.ForeignKey('territories.id'), nullable=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     created_at = db.Column(db.DateTime, default=utc_now, nullable=False)
     
     # Relationships
@@ -286,7 +281,6 @@ class Customer(db.Model):
     notes = db.Column(db.Text, nullable=True)  # General notes for tracking opportunities/milestones
     territory_id = db.Column(db.Integer, db.ForeignKey('territories.id'), nullable=True)
     seller_id = db.Column(db.Integer, db.ForeignKey('sellers.id'), nullable=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     created_at = db.Column(db.DateTime, default=utc_now, nullable=False)
 
     # Relationships
@@ -332,7 +326,6 @@ class Topic(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(200), nullable=False)
     description = db.Column(db.Text, nullable=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     created_at = db.Column(db.DateTime, default=utc_now, nullable=False)
     
     # Relationships
@@ -354,7 +347,6 @@ class Specialty(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(200), nullable=False)
     description = db.Column(db.Text, nullable=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     created_at = db.Column(db.DateTime, default=utc_now, nullable=False)
     
     # Relationships
@@ -377,7 +369,6 @@ class Partner(db.Model):
     name = db.Column(db.String(200), nullable=False)
     notes = db.Column(db.Text, nullable=True)
     rating = db.Column(db.Integer, nullable=True)  # 0-5 star rating, null = not rated
-    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     created_at = db.Column(db.DateTime, default=utc_now, nullable=False)
     updated_at = db.Column(db.DateTime, default=utc_now, onupdate=utc_now, nullable=False)
     
@@ -416,7 +407,6 @@ class PartnerContact(db.Model):
     name = db.Column(db.String(200), nullable=False)
     email = db.Column(db.String(255), nullable=True)
     is_primary = db.Column(db.Boolean, default=False, nullable=False)
-    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     created_at = db.Column(db.DateTime, default=utc_now, nullable=False)
     
     # Relationships
@@ -435,7 +425,6 @@ class CallLog(db.Model):
     # DateTime for full timestamp - date portion for display, time for meeting imports
     call_date = db.Column(db.DateTime, nullable=False, default=lambda: datetime.now())
     content = db.Column(db.Text, nullable=False)
-    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     created_at = db.Column(db.DateTime, default=utc_now, nullable=False)
     updated_at = db.Column(db.DateTime, default=utc_now, onupdate=utc_now, nullable=False)
     
@@ -487,7 +476,6 @@ class Opportunity(db.Model):
     
     # Relationships
     customer_id = db.Column(db.Integer, db.ForeignKey('customers.id'), nullable=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     created_at = db.Column(db.DateTime, default=utc_now, nullable=False)
     updated_at = db.Column(db.DateTime, default=utc_now, onupdate=utc_now, nullable=False)
     
@@ -530,7 +518,6 @@ class Milestone(db.Model):
     # Relationships
     customer_id = db.Column(db.Integer, db.ForeignKey('customers.id'), nullable=True)
     opportunity_id = db.Column(db.Integer, db.ForeignKey('opportunities.id'), nullable=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     created_at = db.Column(db.DateTime, default=utc_now, nullable=False)
     updated_at = db.Column(db.DateTime, default=utc_now, onupdate=utc_now, nullable=False)
     
@@ -637,7 +624,6 @@ class UserPreference(db.Model):
     __tablename__ = 'user_preferences'
     
     id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, nullable=False, default=1)  # Single user system
     dark_mode = db.Column(db.Boolean, default=False, nullable=False)
     customer_view_grouped = db.Column(db.Boolean, default=False, nullable=False)
     customer_sort_by = db.Column(db.String(20), default='alphabetical', nullable=False)  # 'alphabetical', 'grouped', or 'by_calls'
@@ -653,7 +639,7 @@ class UserPreference(db.Model):
     updated_at = db.Column(db.DateTime, default=utc_now, onupdate=utc_now, nullable=False)
     
     def __repr__(self) -> str:
-        return f'<UserPreference user_id={self.user_id} dark_mode={self.dark_mode} customer_view_grouped={self.customer_view_grouped} customer_sort_by={self.customer_sort_by} topic_sort_by_calls={self.topic_sort_by_calls} territory_view_accounts={self.territory_view_accounts} show_customers_without_calls={self.show_customers_without_calls} first_run_modal_dismissed={self.first_run_modal_dismissed}>'
+        return f'<UserPreference dark_mode={self.dark_mode} customer_view_grouped={self.customer_view_grouped} customer_sort_by={self.customer_sort_by} topic_sort_by_calls={self.topic_sort_by_calls} territory_view_accounts={self.territory_view_accounts} show_customers_without_calls={self.show_customers_without_calls} first_run_modal_dismissed={self.first_run_modal_dismissed}>'
 
 
 # =============================================================================
@@ -665,7 +651,6 @@ class AIQueryLog(db.Model):
     __tablename__ = 'ai_query_log'
     
     id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     timestamp = db.Column(db.DateTime, default=utc_now, nullable=False)
     request_text = db.Column(db.Text, nullable=False)
     response_text = db.Column(db.Text, nullable=True)
@@ -678,12 +663,9 @@ class AIQueryLog(db.Model):
     completion_tokens = db.Column(db.Integer, nullable=True)
     total_tokens = db.Column(db.Integer, nullable=True)
     
-    # Relationship
-    user = db.relationship('User', foreign_keys=[user_id])
-    
     def __repr__(self) -> str:
         status = 'success' if self.success else 'failed'
-        return f'<AIQueryLog user_id={self.user_id} {status} at {self.timestamp}>'
+        return f'<AIQueryLog {status} at {self.timestamp}>'
 
 
 # =============================================================================
@@ -697,7 +679,6 @@ class RevenueImport(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     filename = db.Column(db.String(500), nullable=False)
     imported_at = db.Column(db.DateTime, default=utc_now, nullable=False)
-    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     
     # Stats about this import
     record_count = db.Column(db.Integer, nullable=False, default=0)  # Customer/bucket rows in CSV
@@ -710,7 +691,6 @@ class RevenueImport(db.Model):
     latest_month = db.Column(db.Date, nullable=True)
     
     # Relationships
-    user = db.relationship('User', foreign_keys=[user_id])
     data_points = db.relationship('CustomerRevenueData', back_populates='last_import', lazy='select')
     
     def __repr__(self) -> str:
@@ -877,7 +857,6 @@ class RevenueConfig(db.Model):
     __tablename__ = 'revenue_config'
     
     id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     
     # Revenue gates
     min_revenue_for_outreach = db.Column(db.Integer, default=3000)
@@ -894,11 +873,8 @@ class RevenueConfig(db.Model):
     recent_drop_threshold = db.Column(db.Float, default=-0.15)  # -15%
     expansion_growth_threshold = db.Column(db.Float, default=0.08)  # 8%
     
-    # Relationships
-    user = db.relationship('User', foreign_keys=[user_id])
-    
     def __repr__(self) -> str:
-        return f'<RevenueConfig user_id={self.user_id}>'
+        return f'<RevenueConfig id={self.id}>'
 
 
 class RevenueEngagement(db.Model):
@@ -1076,7 +1052,6 @@ class ConnectExport(db.Model):
     call_log_count = db.Column(db.Integer, nullable=False, default=0)
     customer_count = db.Column(db.Integer, nullable=False, default=0)
     ai_summary = db.Column(db.Text, nullable=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     created_at = db.Column(db.DateTime, default=utc_now, nullable=False)
 
     def __repr__(self) -> str:

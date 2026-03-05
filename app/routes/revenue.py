@@ -114,7 +114,6 @@ def revenue_import_stream():
     filename = secure_filename(file.filename)
     content = file.read()
     run_analysis = request.form.get('run_analysis', 'on') not in ('off', 'no', '0', '')
-    user_id = g.user.id
     
     def generate():
         """Generator for streaming progress updates."""
@@ -122,7 +121,7 @@ def revenue_import_stream():
             import_start_time = time.time()
             # Stream import progress
             import_result = None
-            for progress in import_revenue_csv_streaming(content, filename, user_id):
+            for progress in import_revenue_csv_streaming(content, filename):
                 if progress.get('complete'):
                     import_result = progress.get('result')
                 else:
@@ -137,7 +136,7 @@ def revenue_import_stream():
                 yield "data: " + json.dumps({"message": "Analyzing revenue trends...", "analysis_started": True}) + "\n\n"
                 
                 analysis_stats = None
-                for update in run_analysis_streaming(user_id=user_id):
+                for update in run_analysis_streaming():
                     if update.get('complete'):
                         analysis_stats = update['stats']
                     else:
@@ -187,7 +186,7 @@ def revenue_analyze():
         return redirect(url_for('revenue.revenue_dashboard'))
 
     try:
-        stats = run_analysis_for_all(user_id=g.user.id)
+        stats = run_analysis_for_all()
         flash(
             f'Analysis complete: {stats["analyzed"]} customers analyzed, '
             f'{stats["actionable"]} need attention, '
@@ -662,11 +661,11 @@ def revenue_product_view(product: str):
 @revenue_bp.route('/revenue/config', methods=['GET', 'POST'])
 def revenue_config():
     """Configure revenue analysis thresholds."""
-    config = RevenueConfig.query.filter_by(user_id=g.user.id).first()
+    config = RevenueConfig.query.first()
     
     if request.method == 'POST':
         if not config:
-            config = RevenueConfig(user_id=g.user.id)
+            config = RevenueConfig()
             db.session.add(config)
         
         # Update values from form

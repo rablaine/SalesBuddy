@@ -41,7 +41,6 @@ def partner_new():
             name=name,
             notes=notes or None,
             rating=rating,
-            user_id=g.user.id
         )
         
         # Add specialties
@@ -149,7 +148,6 @@ def contact_new(partner_id):
         name=name,
         email=email or None,
         is_primary=is_primary,
-        user_id=g.user.id
     )
     
     db.session.add(contact)
@@ -228,7 +226,6 @@ def specialty_new():
         specialty = Specialty(
             name=name,
             description=description or None,
-            user_id=g.user.id
         )
         
         db.session.add(specialty)
@@ -333,7 +330,6 @@ def api_partner_create():
     
     partner = Partner(
         name=name,
-        user_id=g.user.id
     )
     
     db.session.add(partner)
@@ -376,7 +372,6 @@ def api_specialty_create():
     
     specialty = Specialty(
         name=name,
-        user_id=g.user.id
     )
     
     db.session.add(specialty)

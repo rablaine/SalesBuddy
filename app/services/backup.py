@@ -510,13 +510,12 @@ def restore_from_backup(data: Dict[str, Any]) -> Dict[str, Any]:
             customer_id=customer.id,
             call_date=call_date,
             content=cl_data.get("content", ""),
-            user_id=g.user.id,
         )
 
         for topic_name in cl_data.get("topics", []):
             topic = Topic.query.filter_by(name=topic_name).first()
             if not topic:
-                topic = Topic(name=topic_name, user_id=g.user.id)
+                topic = Topic(name=topic_name)
                 db.session.add(topic)
                 db.session.flush()
             call_log.topics.append(topic)
@@ -524,7 +523,7 @@ def restore_from_backup(data: Dict[str, Any]) -> Dict[str, Any]:
         for partner_name in cl_data.get("partners", []):
             partner = Partner.query.filter_by(name=partner_name).first()
             if not partner:
-                partner = Partner(name=partner_name, user_id=g.user.id)
+                partner = Partner(name=partner_name)
                 db.session.add(partner)
                 db.session.flush()
             call_log.partners.append(partner)

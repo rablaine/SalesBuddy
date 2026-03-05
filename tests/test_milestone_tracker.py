@@ -19,7 +19,6 @@ class TestMilestoneModel:
             ms = Milestone(
                 url='https://example.com/ms1',
                 msx_status='On Track',
-                user_id=user.id,
             )
             assert ms.is_active is True
     
@@ -31,7 +30,6 @@ class TestMilestoneModel:
             ms = Milestone(
                 url='https://example.com/ms2',
                 msx_status='At Risk',
-                user_id=user.id,
             )
             assert ms.is_active is True
     
@@ -43,7 +41,6 @@ class TestMilestoneModel:
             ms = Milestone(
                 url='https://example.com/ms3',
                 msx_status='Blocked',
-                user_id=user.id,
             )
             assert ms.is_active is True
     
@@ -55,7 +52,6 @@ class TestMilestoneModel:
             ms = Milestone(
                 url='https://example.com/ms4',
                 msx_status='Completed',
-                user_id=user.id,
             )
             assert ms.is_active is False
     
@@ -67,7 +63,6 @@ class TestMilestoneModel:
             ms = Milestone(
                 url='https://example.com/ms5',
                 msx_status='Cancelled',
-                user_id=user.id,
             )
             assert ms.is_active is False
     
@@ -79,7 +74,6 @@ class TestMilestoneModel:
             ms = Milestone(
                 url='https://example.com/ms6',
                 due_date=datetime.now(timezone.utc) - timedelta(days=5),
-                user_id=user.id,
             )
             assert ms.due_date_urgency == 'past_due'
     
@@ -91,7 +85,6 @@ class TestMilestoneModel:
             ms = Milestone(
                 url='https://example.com/ms7',
                 due_date=datetime.now(timezone.utc) + timedelta(days=3),
-                user_id=user.id,
             )
             assert ms.due_date_urgency == 'this_week'
     
@@ -103,7 +96,6 @@ class TestMilestoneModel:
             ms = Milestone(
                 url='https://example.com/ms8',
                 due_date=datetime.now(timezone.utc) + timedelta(days=20),
-                user_id=user.id,
             )
             assert ms.due_date_urgency == 'this_month'
     
@@ -115,7 +107,6 @@ class TestMilestoneModel:
             ms = Milestone(
                 url='https://example.com/ms9',
                 due_date=datetime.now(timezone.utc) + timedelta(days=60),
-                user_id=user.id,
             )
             assert ms.due_date_urgency == 'future'
     
@@ -127,7 +118,6 @@ class TestMilestoneModel:
             ms = Milestone(
                 url='https://example.com/ms10',
                 due_date=None,
-                user_id=user.id,
             )
             assert ms.due_date_urgency == 'no_date'
     
@@ -148,7 +138,6 @@ class TestMilestoneModel:
                 workload='Azure Data',
                 monthly_usage=1234.56,
                 last_synced_at=datetime.now(timezone.utc),
-                user_id=user.id,
                 customer_id=sample_data['customer1_id'],
             )
             db.session.add(ms)
@@ -217,7 +206,7 @@ class TestMilestoneSyncService:
             customer = db.session.get(Customer, customer_id)
             user = User.query.first()
             
-            result = sync_customer_milestones(customer, user.id)
+            result = sync_customer_milestones(customer)
             
             assert result["success"] is True
             assert result["created"] == 1
@@ -261,7 +250,6 @@ class TestMilestoneSyncService:
                 msx_status="On Track",
                 dollar_value=50000.0,
                 customer_id=customer_id,
-                user_id=user.id,
             )
             db.session.add(existing)
             db.session.commit()
@@ -295,7 +283,7 @@ class TestMilestoneSyncService:
             customer = db.session.get(Customer, customer_id)
             user = User.query.first()
             
-            result = sync_customer_milestones(customer, user.id)
+            result = sync_customer_milestones(customer)
             
             assert result["success"] is True
             assert result["created"] == 0
@@ -328,7 +316,6 @@ class TestMilestoneSyncService:
                 title="Gone Milestone",
                 msx_status="On Track",
                 customer_id=customer_id,
-                user_id=user.id,
             )
             db.session.add(disappearing)
             db.session.commit()
@@ -348,7 +335,7 @@ class TestMilestoneSyncService:
             customer = db.session.get(Customer, customer_id)
             user = User.query.first()
             
-            result = sync_customer_milestones(customer, user.id)
+            result = sync_customer_milestones(customer)
             
             assert result["success"] is True
             assert result["deactivated"] == 1
@@ -377,7 +364,7 @@ class TestMilestoneSyncService:
             customer = db.session.get(Customer, customer_id)
             user = User.query.first()
             
-            result = sync_customer_milestones(customer, user.id)
+            result = sync_customer_milestones(customer)
             
             assert result["success"] is False
             assert "authenticated" in result["error"]
@@ -392,7 +379,7 @@ class TestMilestoneSyncService:
             customer = db.session.get(Customer, sample_data['customer2_id'])
             user = User.query.first()
             
-            result = sync_customer_milestones(customer, user.id)
+            result = sync_customer_milestones(customer)
             
             assert result["success"] is False
             assert "account ID" in result["error"]
@@ -429,7 +416,7 @@ class TestMilestoneSyncService:
             from app.services.milestone_sync import sync_all_customer_milestones
             
             user = User.query.first()
-            results = sync_all_customer_milestones(user.id)
+            results = sync_all_customer_milestones()
             
             assert results["success"] is True
             assert results["customers_synced"] >= 1
@@ -462,7 +449,6 @@ class TestMilestoneTrackerData:
                 due_date=datetime.now(timezone.utc) - timedelta(days=10),
                 workload="Data: SQL Modernization to Azure SQL DB",
                 customer_id=sample_data['customer1_id'],
-                user_id=user.id,
                 last_synced_at=datetime.now(timezone.utc),
             )
             ms2 = Milestone(
@@ -475,7 +461,6 @@ class TestMilestoneTrackerData:
                 due_date=datetime.now(timezone.utc) + timedelta(days=3),
                 workload="Infra: Windows",
                 customer_id=sample_data['customer1_id'],
-                user_id=user.id,
                 last_synced_at=datetime.now(timezone.utc),
             )
             ms3 = Milestone(
@@ -488,7 +473,6 @@ class TestMilestoneTrackerData:
                 due_date=datetime.now(timezone.utc) + timedelta(days=45),
                 workload="AI: Foundry Models - OpenAI",
                 customer_id=sample_data['customer1_id'],
-                user_id=user.id,
             )
             # Completed milestone — should NOT appear in tracker
             ms4 = Milestone(
@@ -499,7 +483,6 @@ class TestMilestoneTrackerData:
                 dollar_value=100000.0,
                 monthly_usage=10000.0,
                 customer_id=sample_data['customer1_id'],
-                user_id=user.id,
             )
             db.session.add_all([ms1, ms2, ms3, ms4])
             db.session.commit()
@@ -657,7 +640,6 @@ class TestMilestoneTrackerRoutes:
                 monthly_usage=7500.0,
                 due_date=datetime.now(timezone.utc) + timedelta(days=5),
                 customer_id=sample_data['customer1_id'],
-                user_id=user.id,
             )
             db.session.add(ms)
             db.session.commit()
@@ -739,7 +721,6 @@ class TestMilestoneTrackerRoutes:
                 title="Sort Test",
                 msx_status="On Track",
                 customer_id=sample_data['customer1_id'],
-                user_id=user.id,
             )
             db.session.add(ms)
             db.session.commit()
@@ -913,7 +894,7 @@ class TestSSESync:
             from app.models import User
             user = User.query.first()
 
-            events = list(sync_all_customer_milestones_stream(user.id))
+            events = list(sync_all_customer_milestones_stream())
 
         # Parse events
         event_types = []
@@ -1076,7 +1057,6 @@ class TestMilestoneCalendarAPI:
                 monthly_usage=5000.0,
                 due_date=datetime(2026, 3, 15),
                 customer_id=sample_data['customer1_id'],
-                user_id=user.id,
             )
             db.session.add(ms)
             db.session.commit()
@@ -1108,7 +1088,6 @@ class TestMilestoneCalendarAPI:
                 msx_status="Completed",
                 due_date=datetime(2026, 3, 20),
                 customer_id=sample_data['customer1_id'],
-                user_id=user.id,
             )
             db.session.add(ms)
             db.session.commit()
@@ -1140,7 +1119,6 @@ class TestMilestoneCalendarAPI:
                 workload="Data: SQL",
                 due_date=datetime(2026, 4, 10),
                 customer_id=sample_data['customer1_id'],
-                user_id=user.id,
             )
             db.session.add(ms)
             db.session.commit()
@@ -1224,7 +1202,6 @@ class TestOnMyTeamModel:
             ms = Milestone(
                 url='https://example.com/team-test',
                 msx_status='On Track',
-                user_id=user.id,
             )
             db.session.add(ms)
             db.session.commit()
@@ -1238,7 +1215,6 @@ class TestOnMyTeamModel:
             ms = Milestone(
                 url='https://example.com/team-test2',
                 msx_status='On Track',
-                user_id=user.id,
                 on_my_team=True,
             )
             db.session.add(ms)
@@ -1261,13 +1237,11 @@ class TestUpdateTeamMemberships:
                 url='https://example.com/t1',
                 msx_milestone_id='aaa-111',
                 msx_status='On Track',
-                user_id=user.id,
             )
             ms2 = Milestone(
                 url='https://example.com/t2',
                 msx_milestone_id='bbb-222',
                 msx_status='On Track',
-                user_id=user.id,
             )
             db.session.add_all([ms1, ms2])
             db.session.commit()
@@ -1297,7 +1271,6 @@ class TestUpdateTeamMemberships:
                 url='https://example.com/t3',
                 msx_milestone_id='ccc-333',
                 msx_status='On Track',
-                user_id=user.id,
                 on_my_team=True,
             )
             db.session.add(ms)
@@ -1326,7 +1299,6 @@ class TestUpdateTeamMemberships:
                 url='https://example.com/t4',
                 msx_milestone_id='ddd-444',
                 msx_status='On Track',
-                user_id=user.id,
                 on_my_team=True,
             )
             db.session.add(ms)
@@ -1366,7 +1338,6 @@ class TestOnMyTeamInTracker:
                 title='Team Icon Test MS',
                 msx_milestone_id='team-icon-test-id',
                 msx_status='On Track',
-                user_id=user.id,
                 customer_id=customer.id,
                 on_my_team=True,
                 monthly_usage=1000.0,
@@ -1392,7 +1363,6 @@ class TestOnMyTeamInTracker:
                 title='Tracker Data Test',
                 msx_milestone_id='tracker-data-test-id',
                 msx_status='On Track',
-                user_id=user.id,
                 customer_id=customer.id,
                 on_my_team=True,
             )
@@ -1420,7 +1390,6 @@ class TestOnMyTeamInCalendar:
                 title='Calendar Team Test',
                 msx_milestone_id='cal-team-test-id',
                 msx_status='On Track',
-                user_id=user.id,
                 customer_id=customer.id,
                 on_my_team=True,
                 due_date=datetime(2026, 2, 15),

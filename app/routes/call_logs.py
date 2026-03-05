@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 call_logs_bp = Blueprint('call_logs', __name__)
 
 
-def _handle_milestone_and_task(call_log, user_id):
+def _handle_milestone_and_task(call_log):
     """
     Handle MSX milestone selection and optional task creation.
     
@@ -57,8 +57,7 @@ def _handle_milestone_and_task(call_log, user_id):
             msx_status=milestone_status,
             msx_status_code=int(milestone_status_code) if milestone_status_code else None,
             opportunity_name=milestone_opp_name,
-            customer_id=int(customer_id) if customer_id else None,
-            user_id=user_id
+            customer_id=int(customer_id) if customer_id else None
         )
         db.session.add(milestone)
     else:
@@ -195,8 +194,7 @@ def call_log_create():
         call_log = CallLog(
             customer_id=int(customer_id),
             call_date=call_date,
-            content=content,
-            user_id=g.user.id)
+            content=content)
         
         # Add topics
         if topic_ids:
@@ -212,7 +210,7 @@ def call_log_create():
         
         # Handle milestone and optional task creation
         try:
-            _handle_milestone_and_task(call_log, g.user.id)
+            _handle_milestone_and_task(call_log)
         except Exception as e:
             logger.exception("Error handling milestone/task during call log create")
             flash(f'Call log will be saved, but milestone/task failed: {e}', 'warning')
@@ -281,8 +279,7 @@ def call_log_create():
     
     # Get user's custom WorkIQ prompt (for meeting import modal)
     from app.services.workiq_service import DEFAULT_SUMMARY_PROMPT
-    user_id = g.user.id if g.user.is_authenticated else 1
-    pref = UserPreference.query.filter_by(user_id=user_id).first()
+    pref = UserPreference.query.first()
     user_prompt = pref.workiq_summary_prompt if pref and pref.workiq_summary_prompt else DEFAULT_SUMMARY_PROMPT
     connect_impact_enabled = pref.workiq_connect_impact if pref else True
     
@@ -369,7 +366,7 @@ def call_log_edit(id):
         
         # Handle milestone and optional task creation
         try:
-            _handle_milestone_and_task(call_log, g.user.id)
+            _handle_milestone_and_task(call_log)
         except Exception as e:
             logger.exception("Error handling milestone/task during call log edit")
             flash(f'Call log will be saved, but milestone/task failed: {e}', 'warning')
@@ -614,8 +611,7 @@ def api_fill_my_day_process():
 
     # Check user's Connect impact extraction preference
     from app.models import UserPreference
-    user_id = g.user.id if g.user.is_authenticated else 1
-    pref = UserPreference.query.filter_by(user_id=user_id).first()
+    pref = UserPreference.query.first()
     extract_impact = pref.workiq_connect_impact if pref else True
 
     result = {'success': True, 'summary': '', 'content_html': '', 'topics': [],
@@ -845,8 +841,7 @@ def api_fill_my_day_save():
         call_log = CallLog(
             customer_id=int(customer_id),
             call_date=call_date,
-            content=content,
-            user_id=g.user.id
+            content=content
         )
         db.session.add(call_log)
         
@@ -870,8 +865,7 @@ def api_fill_my_day_save():
                     msx_status=milestone_data.get('status', ''),
                     msx_status_code=milestone_data.get('status_code'),
                     opportunity_name=milestone_data.get('opportunity_name', ''),
-                    customer_id=int(customer_id),
-                    user_id=g.user.id
+                    customer_id=int(customer_id)
                 )
                 db.session.add(milestone)
             else:

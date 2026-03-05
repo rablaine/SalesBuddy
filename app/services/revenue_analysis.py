@@ -60,9 +60,9 @@ class AnalysisConfig:
     low_confidence_revenue_multiplier: float = 2.0
     
     @classmethod
-    def from_db(cls, user_id: int) -> "AnalysisConfig":
+    def from_db(cls) -> "AnalysisConfig":
         """Load config from database or return defaults."""
-        db_config = RevenueConfig.query.filter_by(user_id=user_id).first()
+        db_config = RevenueConfig.query.first()
         if not db_config:
             return cls()
         
@@ -647,13 +647,12 @@ def build_expansion_rationale(signals: CustomerSignals) -> str:
 # DATABASE INTEGRATION
 # =============================================================================
 
-def run_analysis_for_all(user_id: int, exclude_latest_month: bool = True,
+def run_analysis_for_all(exclude_latest_month: bool = True,
                         progress_callback: callable = None) -> dict:
     """
     Run analysis on all customers in the database.
     
     Args:
-        user_id: User ID for loading config
         exclude_latest_month: Whether to exclude most recent month (usually partial)
         progress_callback: Optional callback(current, total) called after each customer/bucket
         
@@ -661,7 +660,7 @@ def run_analysis_for_all(user_id: int, exclude_latest_month: bool = True,
         Dict with stats about the analysis run
     """
     result = None
-    for update in _run_analysis_generator(user_id, exclude_latest_month):
+    for update in _run_analysis_generator(exclude_latest_month):
         if update.get('complete'):
             result = update['stats']
         elif progress_callback:
@@ -669,7 +668,7 @@ def run_analysis_for_all(user_id: int, exclude_latest_month: bool = True,
     return result or {'analyzed': 0, 'actionable': 0, 'skipped': 0}
 
 
-def run_analysis_streaming(user_id: int, exclude_latest_month: bool = True):
+def run_analysis_streaming(exclude_latest_month: bool = True):
     """
     Run analysis on all customers, yielding progress dicts for SSE streaming.
     
@@ -677,7 +676,7 @@ def run_analysis_streaming(user_id: int, exclude_latest_month: bool = True):
         Dicts with 'current', 'total', and 'progress' keys during analysis,
         then a final dict with 'complete' True and 'stats' keys.
     """
-    for update in _run_analysis_generator(user_id, exclude_latest_month):
+    for update in _run_analysis_generator(exclude_latest_month):
         if update.get('complete'):
             yield update
         else:
@@ -686,13 +685,13 @@ def run_analysis_streaming(user_id: int, exclude_latest_month: bool = True):
             yield update
 
 
-def _run_analysis_generator(user_id: int, exclude_latest_month: bool = True):
+def _run_analysis_generator(exclude_latest_month: bool = True):
     """
     Core analysis generator. Yields progress dicts after each customer/bucket,
     then a final dict with complete=True and stats.
     """
     SyncStatus.mark_started('revenue_analysis')
-    config = AnalysisConfig.from_db(user_id)
+    config = AnalysisConfig.from_db()
     
     # Get all unique customer/bucket combinations
     customer_buckets = db.session.query(

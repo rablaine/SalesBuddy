@@ -47,7 +47,6 @@ def test_analytics_top_topics(client, sample_data):
             customer_id=customer.id,
             call_date=date.today(),
             content="Test call with topic",
-            user_id=1,
             created_at=utc_now(),
             updated_at=utc_now()
         )
@@ -67,15 +66,14 @@ def test_analytics_customers_needing_attention(client):
     # Create a customer with no calls
     seller = Seller.query.first()
     if not seller:
-        seller = Seller(name="Test Seller", user_id=1)
+        seller = Seller(name="Test Seller")
         db.session.add(seller)
         db.session.commit()
     
     customer = Customer(
         name="Neglected Customer",
         tpid="NEGLECT001",
-        seller_id=seller.id,
-        user_id=1
+        seller_id=seller.id
     )
     db.session.add(customer)
     db.session.commit()
@@ -111,7 +109,7 @@ def test_analytics_quick_actions(client):
 def test_analytics_with_no_data(client):
     """Test analytics page handles empty data gracefully."""
     # Clear all call logs for user
-    CallLog.query.filter_by(user_id=1).delete()
+    CallLog.query.delete()
     db.session.commit()
     
     response = client.get('/analytics')
@@ -128,15 +126,14 @@ def test_analytics_calculates_weekly_trends_correctly(client):
     # Create calls from different weeks
     customer = Customer.query.first()
     if not customer:
-        seller = Seller(name="Test Seller", user_id=1)
+        seller = Seller(name="Test Seller")
         db.session.add(seller)
         db.session.commit()
         
         customer = Customer(
             name="Test Customer",
             tpid="TEST001",
-            seller_id=seller.id,
-            user_id=1
+            seller_id=seller.id
         )
         db.session.add(customer)
         db.session.commit()
@@ -149,7 +146,6 @@ def test_analytics_calculates_weekly_trends_correctly(client):
             customer_id=customer.id,
             call_date=today - timedelta(days=days_ago),
             content=f"Call from {days_ago} days ago",
-            user_id=1,
             created_at=utc_now(),
             updated_at=utc_now()
         )

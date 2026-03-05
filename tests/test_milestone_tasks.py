@@ -30,7 +30,6 @@ class TestMsxTaskNullableCallLog:
             msx_milestone_id='ms-nullable-test',
             url='https://example.com/ms-nullable',
             title='Nullable Test Milestone',
-            user_id=sample_user.id,
         )
         db_session.add(milestone)
         db_session.flush()
@@ -58,7 +57,7 @@ class TestMsxTaskNullableCallLog:
     def test_create_task_with_call_log_still_works(self, app, client, db_session, sample_user):
         """MsxTask with call_log_id should still work (backward compatibility)."""
         customer = Customer(
-            name='Task Compat Customer', tpid=8801, user_id=sample_user.id,
+            name='Task Compat Customer', tpid=8801,
         )
         db_session.add(customer)
         db_session.flush()
@@ -67,7 +66,6 @@ class TestMsxTaskNullableCallLog:
             msx_milestone_id='ms-compat-test',
             url='https://example.com/ms-compat',
             title='Compat Test Milestone',
-            user_id=sample_user.id,
         )
         db_session.add(milestone)
         db_session.flush()
@@ -76,7 +74,6 @@ class TestMsxTaskNullableCallLog:
             customer_id=customer.id,
             content='Test call log',
             call_date=datetime(2026, 1, 15, tzinfo=timezone.utc),
-            user_id=sample_user.id,
         )
         db_session.add(call_log)
         db_session.flush()
@@ -109,7 +106,6 @@ class TestMilestoneViewTasks:
             msx_milestone_id='ms-tasks-view',
             url='https://example.com/ms-tasks-view',
             title='Tasks View Milestone',
-            user_id=sample_user.id,
         )
         db_session.add(milestone)
         db_session.commit()
@@ -126,7 +122,6 @@ class TestMilestoneViewTasks:
             msx_milestone_id='ms-show-tasks',
             url='https://example.com/ms-show-tasks',
             title='Show Tasks Milestone',
-            user_id=sample_user.id,
         )
         db_session.add(milestone)
         db_session.flush()
@@ -155,7 +150,7 @@ class TestMilestoneViewTasks:
     def test_milestone_view_shows_task_linked_call_log(self, app, client, db_session, sample_user):
         """Tasks linked to a call log should show a link to that call log."""
         customer = Customer(
-            name='Task Link Customer', tpid=8802, user_id=sample_user.id,
+            name='Task Link Customer', tpid=8802,
         )
         db_session.add(customer)
         db_session.flush()
@@ -164,7 +159,6 @@ class TestMilestoneViewTasks:
             msx_milestone_id='ms-task-link',
             url='https://example.com/ms-task-link',
             title='Task Link Milestone',
-            user_id=sample_user.id,
         )
         db_session.add(milestone)
         db_session.flush()
@@ -173,7 +167,6 @@ class TestMilestoneViewTasks:
             customer_id=customer.id,
             content='Link test call log',
             call_date=datetime(2026, 2, 1, tzinfo=timezone.utc),
-            user_id=sample_user.id,
         )
         db_session.add(call_log)
         db_session.flush()
@@ -204,7 +197,6 @@ class TestMilestoneViewTasks:
             msx_milestone_id=None,
             url='https://example.com/no-msx-id',
             title='No MSX ID Milestone',
-            user_id=sample_user.id,
         )
         db_session.add(milestone)
         db_session.commit()
@@ -223,7 +215,6 @@ class TestMilestoneViewTasks:
             msx_milestone_id='ms-empty-tasks',
             url='https://example.com/ms-empty-tasks',
             title='Empty Tasks Milestone',
-            user_id=sample_user.id,
         )
         db_session.add(milestone)
         db_session.commit()
@@ -251,7 +242,6 @@ class TestMilestoneCreateTask:
             msx_milestone_id='ms-create-task',
             url='https://example.com/ms-create-task',
             title='Create Task Milestone',
-            user_id=sample_user.id,
         )
         db_session.add(milestone)
         db_session.commit()
@@ -299,7 +289,6 @@ class TestMilestoneCreateTask:
             msx_milestone_id='ms-nonhok-task',
             url='https://example.com/ms-nonhok',
             title='NonHoK Milestone',
-            user_id=sample_user.id,
         )
         db_session.add(milestone)
         db_session.commit()
@@ -329,7 +318,6 @@ class TestMilestoneCreateTask:
             msx_milestone_id='ms-no-subject',
             url='https://example.com/ms-no-subject',
             title='No Subject Milestone',
-            user_id=sample_user.id,
         )
         db_session.add(milestone)
         db_session.commit()
@@ -351,7 +339,6 @@ class TestMilestoneCreateTask:
             msx_milestone_id='ms-no-cat',
             url='https://example.com/ms-no-cat',
             title='No Category Milestone',
-            user_id=sample_user.id,
         )
         db_session.add(milestone)
         db_session.commit()
@@ -373,7 +360,6 @@ class TestMilestoneCreateTask:
             msx_milestone_id=None,
             url='https://example.com/no-msx',
             title='No MSX Milestone',
-            user_id=sample_user.id,
         )
         db_session.add(milestone)
         db_session.commit()
@@ -399,7 +385,6 @@ class TestMilestoneCreateTask:
             msx_milestone_id='ms-not-json',
             url='https://example.com/ms-not-json',
             title='Not JSON Milestone',
-            user_id=sample_user.id,
         )
         db_session.add(milestone)
         db_session.commit()
@@ -426,7 +411,6 @@ class TestMilestoneCreateTask:
             msx_milestone_id='ms-api-fail',
             url='https://example.com/ms-api-fail',
             title='API Fail Milestone',
-            user_id=sample_user.id,
         )
         db_session.add(milestone)
         db_session.commit()
@@ -477,7 +461,6 @@ class TestMilestoneCreateTask:
             msx_milestone_id='ms-no-due',
             url='https://example.com/ms-no-due',
             title='No Due Date Milestone',
-            user_id=sample_user.id,
         )
         db_session.add(milestone)
         db_session.commit()

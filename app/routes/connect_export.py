@@ -132,7 +132,7 @@ def _strip_html(html_text: str) -> str:
     return '\n'.join(line for line in lines if line)
 
 
-def _build_export_data(user_id: int, start_date: date, end_date: date) -> dict[str, Any]:
+def _build_export_data(start_date: date, end_date: date) -> dict[str, Any]:
     """
     Query all call logs in the date range and build structured export data.
 
@@ -151,7 +151,6 @@ def _build_export_data(user_id: int, start_date: date, end_date: date) -> dict[s
     call_logs = (
         CallLog.query
         .filter(
-            CallLog.user_id == user_id,
             CallLog.call_date >= start_dt,
             CallLog.call_date <= end_dt,
         )
@@ -653,7 +652,6 @@ def connect_export_page():
     # Get previous exports for this user (most recent first)
     previous_exports = (
         ConnectExport.query
-        .filter_by(user_id=user.id)
         .order_by(ConnectExport.created_at.desc())
         .all()
     )
@@ -710,7 +708,7 @@ def generate_connect_export():
         return jsonify({'success': False, 'error': 'Start date must be before end date'}), 400
 
     # Build the export data
-    data = _build_export_data(user.id, start_date, end_date)
+    data = _build_export_data(start_date, end_date)
 
     # Generate all formats
     text_export = _build_text_export(data, name)
@@ -724,7 +722,6 @@ def generate_connect_export():
         end_date=end_date,
         call_log_count=data['summary']['total_call_logs'],
         customer_count=data['summary']['unique_customers'],
-        user_id=user.id,
     )
     db.session.add(export_record)
     db.session.commit()
@@ -744,14 +741,14 @@ def view_connect_export(export_id: int):
     """View a previously generated Connect export (regenerates data from saved date range)."""
     user = g.user
     export_record = ConnectExport.query.filter_by(
-        id=export_id, user_id=user.id
+        id=export_id,
     ).first()
 
     if not export_record:
         return jsonify({'success': False, 'error': 'Export not found'}), 404
 
     # Regenerate the data from the stored date range
-    data = _build_export_data(user.id, export_record.start_date, export_record.end_date)
+    data = _build_export_data(export_record.start_date, export_record.end_date)
     text_export = _build_text_export(data, export_record.name)
     json_export = _build_json_export(data, export_record.name)
     markdown_export = _build_markdown_export(data, export_record.name)
@@ -789,14 +786,14 @@ def generate_connect_ai_summary(export_id: int):
 
     user = g.user
     export_record = ConnectExport.query.filter_by(
-        id=export_id, user_id=user.id,
+        id=export_id,
     ).first()
 
     if not export_record:
         return jsonify({'success': False, 'error': 'Export not found'}), 404
 
     # Regenerate the structured data from the stored date range
-    data = _build_export_data(user.id, export_record.start_date, export_record.end_date)
+    data = _build_export_data(export_record.start_date, export_record.end_date)
     text_export = _build_text_export(data, export_record.name)
 
     if not data['customers']:
@@ -818,7 +815,6 @@ def generate_connect_ai_summary(export_id: int):
 
         # Log the AI query
         log_entry = AIQueryLog(
-            user_id=user.id,
             request_text=f"Connect AI summary for '{export_record.name}' "
                          f"({export_record.start_date} to {export_record.end_date}), "
                          f"{estimated_tokens} est. input tokens, {chunks_needed} chunk(s)",
@@ -845,7 +841,6 @@ def generate_connect_ai_summary(export_id: int):
 
         # Log the failure
         log_entry = AIQueryLog(
-            user_id=user.id,
             request_text=f"Connect AI summary for '{export_record.name}' "
                          f"({export_record.start_date} to {export_record.end_date})",
             response_text=None,
@@ -866,7 +861,7 @@ def delete_connect_export(export_id: int):
     """Delete a Connect export record."""
     user = g.user
     export_record = ConnectExport.query.filter_by(
-        id=export_id, user_id=user.id
+        id=export_id,
     ).first()
 
     if not export_record:

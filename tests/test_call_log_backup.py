@@ -74,9 +74,9 @@ def customer_with_logs(app):
     with app.app_context():
         user = User.query.first()
 
-        territory = Territory(name="Backup Territory", user_id=user.id)
+        territory = Territory(name="Backup Territory")
         seller = Seller(
-            name="Backup Seller", alias="bseller", seller_type="Growth", user_id=user.id
+            name="Backup Seller", alias="bseller", seller_type="Growth"
         )
         db.session.add_all([territory, seller])
         db.session.flush()
@@ -86,13 +86,12 @@ def customer_with_logs(app):
             tpid=99999,
             seller_id=seller.id,
             territory_id=territory.id,
-            user_id=user.id,
         )
         db.session.add(customer)
         db.session.flush()
 
-        topic = Topic(name="Backup Topic", user_id=user.id)
-        partner = Partner(name="Backup Partner", user_id=user.id)
+        topic = Topic(name="Backup Topic")
+        partner = Partner(name="Backup Partner")
         db.session.add_all([topic, partner])
         db.session.flush()
 
@@ -100,7 +99,6 @@ def customer_with_logs(app):
             customer_id=customer.id,
             call_date=datetime(2025, 6, 15, 12, 0, 0, tzinfo=timezone.utc),
             content="Test call log for backup",
-            user_id=user.id,
         )
         cl.topics.append(topic)
         cl.partners.append(partner)
@@ -214,7 +212,7 @@ class TestCustomerToDict:
         with app.app_context():
             user = User.query.first()
             customer = Customer(
-                name="No Seller Corp", tpid=77777, user_id=user.id
+                name="No Seller Corp", tpid=77777
             )
             db.session.add(customer)
             db.session.flush()
@@ -263,7 +261,7 @@ class TestBackupCustomer:
         with app.app_context():
             user = User.query.first()
             customer = Customer(
-                name="Orphan Corp", tpid=55555, user_id=user.id
+                name="Orphan Corp", tpid=55555
             )
             db.session.add(customer)
             db.session.flush()
@@ -271,7 +269,6 @@ class TestBackupCustomer:
                 customer_id=customer.id,
                 call_date=datetime(2025, 1, 1, tzinfo=timezone.utc),
                 content="orphan log",
-                user_id=user.id,
             )
             db.session.add(cl)
             db.session.commit()
@@ -309,7 +306,7 @@ class TestBackupAllCustomers:
         with app.app_context():
             user = User.query.first()
             seller = Seller(
-                name="Bulk Seller", alias="bsell", seller_type="Growth", user_id=user.id
+                name="Bulk Seller", alias="bsell", seller_type="Growth"
             )
             db.session.add(seller)
             db.session.flush()
@@ -319,7 +316,6 @@ class TestBackupAllCustomers:
                     name=f"Bulk Cust {i}",
                     tpid=80000 + i,
                     seller_id=seller.id,
-                    user_id=user.id,
                 )
                 db.session.add(c)
                 db.session.flush()
@@ -327,7 +323,6 @@ class TestBackupAllCustomers:
                     customer_id=c.id,
                     call_date=datetime(2025, 1, 1 + i, tzinfo=timezone.utc),
                     content=f"Log {i}",
-                    user_id=user.id,
                 )
                 db.session.add(cl)
             db.session.commit()
@@ -369,7 +364,7 @@ class TestRestoreFromBackup:
             user = User.query.first()
             g.user = user
 
-            customer = Customer(name="Restore Corp", tpid=44444, user_id=user.id)
+            customer = Customer(name="Restore Corp", tpid=44444)
             db.session.add(customer)
             db.session.commit()
 
@@ -424,7 +419,7 @@ class TestRestoreFromBackup:
             from flask import g
             user = User.query.first()
             g.user = user
-            customer = Customer(name="Dup Corp", tpid=33333, user_id=user.id)
+            customer = Customer(name="Dup Corp", tpid=33333)
             db.session.add(customer)
             db.session.flush()
 
@@ -432,7 +427,6 @@ class TestRestoreFromBackup:
                 customer_id=customer.id,
                 call_date=datetime(2025, 6, 1, 10, 0, 0, tzinfo=timezone.utc),
                 content="Already exists",
-                user_id=user.id,
             )
             db.session.add(existing_cl)
             db.session.commit()
@@ -560,7 +554,7 @@ class TestBackupRoutes:
     def test_restore_endpoint(self, client, app):
         with app.app_context():
             user = User.query.first()
-            customer = Customer(name="API Restore", tpid=66666, user_id=user.id)
+            customer = Customer(name="API Restore", tpid=66666)
             db.session.add(customer)
             db.session.commit()
             customer_id = customer.id
@@ -901,15 +895,12 @@ class TestRestoreAllFromFolder:
         """Should restore call logs from multiple files across sellers."""
         with app.app_context():
             user = User.query.first()
-            seller = Seller(name="TestSeller", alias="ts", seller_type="Growth",
-                            user_id=user.id)
+            seller = Seller(name="TestSeller", alias="ts", seller_type="Growth")
             db.session.add(seller)
             db.session.flush()
 
-            c1 = Customer(name="Customer A", tpid=50001, seller_id=seller.id,
-                          user_id=user.id)
-            c2 = Customer(name="Customer B", tpid=50002, seller_id=seller.id,
-                          user_id=user.id)
+            c1 = Customer(name="Customer A", tpid=50001, seller_id=seller.id)
+            c2 = Customer(name="Customer B", tpid=50002, seller_id=seller.id)
             db.session.add_all([c1, c2])
             db.session.commit()
 
@@ -938,13 +929,12 @@ class TestRestoreAllFromFolder:
         """Should skip call logs that already exist (by date dedup)."""
         with app.app_context():
             user = User.query.first()
-            seller = Seller(name="DedupSeller", alias="ds", seller_type="Growth",
-                            user_id=user.id)
+            seller = Seller(name="DedupSeller", alias="ds", seller_type="Growth")
             db.session.add(seller)
             db.session.flush()
 
             customer = Customer(name="Dedup Customer", tpid=60001,
-                                seller_id=seller.id, user_id=user.id)
+                                seller_id=seller.id)
             db.session.add(customer)
             db.session.flush()
 
@@ -952,7 +942,7 @@ class TestRestoreAllFromFolder:
             existing = CallLog(
                 customer_id=customer.id,
                 call_date=datetime(2025, 3, 1, 10, 0, 0, tzinfo=timezone.utc),
-                content="Already here", user_id=user.id,
+                content="Already here",
             )
             db.session.add(existing)
             db.session.commit()
@@ -974,12 +964,11 @@ class TestRestoreAllFromFolder:
         """Should count corrupt files as failures and continue."""
         with app.app_context():
             user = User.query.first()
-            seller = Seller(name="BadJsonSeller", alias="bj", seller_type="Growth",
-                            user_id=user.id)
+            seller = Seller(name="BadJsonSeller", alias="bj", seller_type="Growth")
             db.session.add(seller)
             db.session.flush()
             customer = Customer(name="Good Customer", tpid=70001,
-                                seller_id=seller.id, user_id=user.id)
+                                seller_id=seller.id)
             db.session.add(customer)
             db.session.commit()
 

@@ -59,7 +59,6 @@ class TestConnectExportPage:
                 end_date=date(2025, 6, 30),
                 call_log_count=5,
                 customer_count=2,
-                user_id=user.id,
             )
             db.session.add(export)
             db.session.commit()
@@ -79,7 +78,6 @@ class TestConnectExportPage:
                 end_date=date(2025, 6, 30),
                 call_log_count=3,
                 customer_count=1,
-                user_id=user.id,
             )
             db.session.add(export)
             db.session.commit()
@@ -247,16 +245,14 @@ class TestExportWithMilestones:
                 Topic, User, db,
             )
             user = User.query.first()
-            territory = Territory(name='West', user_id=user.id)
-            seller = Seller(name='Rep', alias='rep', seller_type='Growth',
-                            user_id=user.id)
+            territory = Territory(name='West')
+            seller = Seller(name='Rep', alias='rep', seller_type='Growth')
             db.session.add_all([territory, seller])
             db.session.flush()
 
             customer = Customer(name='Big Co', tpid=9001,
                                 seller_id=seller.id,
-                                territory_id=territory.id,
-                                user_id=user.id)
+                                territory_id=territory.id)
             db.session.add(customer)
             db.session.flush()
 
@@ -267,7 +263,6 @@ class TestExportWithMilestones:
                 dollar_value=500000.0,
                 on_my_team=True,
                 customer_id=customer.id,
-                user_id=user.id,
                 updated_at=datetime(2025, 3, 15, tzinfo=timezone.utc),
             )
             db.session.add(milestone)
@@ -278,7 +273,6 @@ class TestExportWithMilestones:
                 customer_id=customer.id,
                 call_date=datetime(2025, 3, 1, tzinfo=timezone.utc),
                 content='Discussed deployment',
-                user_id=user.id,
             )
             db.session.add(call)
             db.session.commit()
@@ -305,16 +299,14 @@ class TestExportWithMilestones:
                 User, db,
             )
             user = User.query.first()
-            territory = Territory(name='East', user_id=user.id)
-            seller = Seller(name='Rep2', alias='rep2', seller_type='Growth',
-                            user_id=user.id)
+            territory = Territory(name='East')
+            seller = Seller(name='Rep2', alias='rep2', seller_type='Growth')
             db.session.add_all([territory, seller])
             db.session.flush()
 
             customer = Customer(name='Mid Co', tpid=9002,
                                 seller_id=seller.id,
-                                territory_id=territory.id,
-                                user_id=user.id)
+                                territory_id=territory.id)
             db.session.add(customer)
             db.session.flush()
 
@@ -325,7 +317,6 @@ class TestExportWithMilestones:
                 dollar_value=200000.0,
                 on_my_team=True,
                 customer_id=customer.id,
-                user_id=user.id,
                 updated_at=datetime(2025, 3, 15, tzinfo=timezone.utc),
             )
             db.session.add(milestone)
@@ -335,7 +326,6 @@ class TestExportWithMilestones:
                 customer_id=customer.id,
                 call_date=datetime(2025, 3, 1, tzinfo=timezone.utc),
                 content='Check-in',
-                user_id=user.id,
             )
             db.session.add(call)
             db.session.commit()
@@ -356,16 +346,14 @@ class TestExportWithMilestones:
                 User, db,
             )
             user = User.query.first()
-            territory = Territory(name='South', user_id=user.id)
-            seller = Seller(name='Rep3', alias='rep3', seller_type='Growth',
-                            user_id=user.id)
+            territory = Territory(name='South')
+            seller = Seller(name='Rep3', alias='rep3', seller_type='Growth')
             db.session.add_all([territory, seller])
             db.session.flush()
 
             customer = Customer(name='Other Co', tpid=9003,
                                 seller_id=seller.id,
-                                territory_id=territory.id,
-                                user_id=user.id)
+                                territory_id=territory.id)
             db.session.add(customer)
             db.session.flush()
 
@@ -376,7 +364,6 @@ class TestExportWithMilestones:
                 dollar_value=100000.0,
                 on_my_team=False,
                 customer_id=customer.id,
-                user_id=user.id,
                 updated_at=datetime(2025, 3, 15, tzinfo=timezone.utc),
             )
             db.session.add(milestone)
@@ -386,7 +373,6 @@ class TestExportWithMilestones:
                 customer_id=customer.id,
                 call_date=datetime(2025, 3, 1, tzinfo=timezone.utc),
                 content='Update',
-                user_id=user.id,
             )
             db.session.add(call)
             db.session.commit()
@@ -434,16 +420,15 @@ class TestExportTextFormat:
                 User, db,
             )
             user = User.query.first()
-            territory = Territory(name='Rev Territory', user_id=user.id)
+            territory = Territory(name='Rev Territory')
             seller = Seller(name='Rev Seller', alias='revs',
-                            seller_type='Growth', user_id=user.id)
+                            seller_type='Growth')
             db.session.add_all([territory, seller])
             db.session.flush()
 
             customer = Customer(name='Revenue Co', tpid=8001,
                                 seller_id=seller.id,
-                                territory_id=territory.id,
-                                user_id=user.id)
+                                territory_id=territory.id)
             db.session.add(customer)
             db.session.flush()
 
@@ -453,7 +438,6 @@ class TestExportTextFormat:
                 dollar_value=1500000.0,
                 on_my_team=True,
                 customer_id=customer.id,
-                user_id=user.id,
                 updated_at=datetime(2025, 4, 1, tzinfo=timezone.utc),
             )
             db.session.add(milestone)
@@ -463,7 +447,6 @@ class TestExportTextFormat:
                 customer_id=customer.id,
                 call_date=datetime(2025, 4, 1, tzinfo=timezone.utc),
                 content='Revenue discussion',
-                user_id=user.id,
             )
             db.session.add(call)
             db.session.commit()
@@ -502,7 +485,6 @@ class TestExportMarkdownFormat:
                 end_date=date(2025, 6, 30),
                 call_log_count=0,
                 customer_count=0,
-                user_id=user.id,
             )
             db.session.add(export)
             db.session.commit()
@@ -569,7 +551,6 @@ class TestExportView:
                 end_date=date(2025, 6, 30),
                 call_log_count=0,
                 customer_count=0,
-                user_id=user.id,
             )
             db.session.add(export)
             db.session.commit()
@@ -604,7 +585,6 @@ class TestExportDelete:
                 end_date=date(2025, 6, 30),
                 call_log_count=0,
                 customer_count=0,
-                user_id=user.id,
             )
             db.session.add(export)
             db.session.commit()
@@ -813,7 +793,6 @@ class TestAiSummaryEndpoint:
                 end_date=date(2025, 6, 30),
                 call_log_count=0,
                 customer_count=0,
-                user_id=user.id,
             )
             db.session.add(export)
             db.session.commit()
@@ -845,7 +824,6 @@ class TestAiSummaryEndpoint:
                 end_date=date(2020, 1, 31),
                 call_log_count=0,
                 customer_count=0,
-                user_id=user.id,
             )
             db.session.add(export)
             db.session.commit()
@@ -891,7 +869,6 @@ class TestAiSummaryEndpoint:
                 end_date=date(2030, 12, 31),
                 call_log_count=2,
                 customer_count=2,
-                user_id=user.id,
             )
             db.session.add(export)
             db.session.commit()
@@ -926,7 +903,6 @@ class TestAiSummaryEndpoint:
                 call_log_count=0,
                 customer_count=0,
                 ai_summary='## Cached Summary\n- This was cached',
-                user_id=user.id,
             )
             db.session.add(export)
             db.session.commit()
@@ -956,7 +932,6 @@ class TestAiSummaryEndpoint:
                 end_date=date(2030, 12, 31),
                 call_log_count=2,
                 customer_count=2,
-                user_id=user.id,
             )
             db.session.add(export)
             db.session.commit()
@@ -1000,7 +975,6 @@ class TestAiSummaryEndpoint:
                 end_date=date(2030, 12, 31),
                 call_log_count=2,
                 customer_count=2,
-                user_id=user.id,
             )
             db.session.add(export)
             db.session.commit()

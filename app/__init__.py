@@ -54,7 +54,6 @@ def create_app():
         run_migrations(db)
         
         # Ensure the canonical single user (id=1) exists.
-        # This is a single-user system -- everything must use user_id=1.
         user = db.session.get(User, 1)
         if not user:
             user = User(
@@ -67,7 +66,7 @@ def create_app():
             db.session.commit()
             
             # Create default preferences
-            pref = UserPreference(user_id=user.id)
+            pref = UserPreference()
             db.session.add(pref)
             db.session.commit()
     
@@ -82,9 +81,9 @@ def create_app():
         
         # Load preferences
         if g.user:
-            g.user_prefs = UserPreference.query.filter_by(user_id=g.user.id).first()
+            g.user_prefs = UserPreference.query.first()
             if not g.user_prefs:
-                g.user_prefs = UserPreference(user_id=g.user.id)
+                g.user_prefs = UserPreference()
                 db.session.add(g.user_prefs)
                 db.session.commit()
     

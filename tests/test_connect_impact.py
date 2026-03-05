@@ -250,7 +250,7 @@ class TestConnectImpactPreference:
         """New UserPreference records should have connect_impact=True by default."""
         with app.app_context():
             from app.models import db, UserPreference
-            pref = UserPreference(user_id=999)
+            pref = UserPreference()
             db.session.add(pref)
             db.session.flush()
             assert pref.workiq_connect_impact is True
@@ -316,7 +316,7 @@ class TestConnectImpactPreference:
             if not pref:
                 from app.models import User
                 user = User.query.first()
-                pref = UserPreference(user_id=user.id)
+                pref = UserPreference()
                 db.session.add(pref)
                 db.session.commit()
 

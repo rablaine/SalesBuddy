@@ -680,13 +680,12 @@ class TestWizardResumeLogic:
         with app.app_context():
             from app.models import db, Milestone, Customer, User, SyncStatus
             user = User.query.first()
-            customer = Customer(name='Test Corp', tpid=999999, user_id=user.id)
+            customer = Customer(name='Test Corp', tpid=999999)
             db.session.add(customer)
             db.session.flush()
             milestone = Milestone(
                 customer_id=customer.id,
-                url='https://example.com/milestone',
-                user_id=user.id
+                url='https://example.com/milestone'
             )
             db.session.add(milestone)
             db.session.commit()
@@ -712,7 +711,7 @@ class TestWizardResumeLogic:
         with app.app_context():
             from app.models import db, Customer, User, SyncStatus
             user = User.query.first()
-            customer = Customer(name='Existing Corp', tpid=888888, user_id=user.id)
+            customer = Customer(name='Existing Corp', tpid=888888)
             db.session.add(customer)
             db.session.commit()
             SyncStatus.mark_started('accounts')

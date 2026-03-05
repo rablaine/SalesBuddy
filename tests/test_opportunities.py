@@ -21,7 +21,6 @@ class TestOpportunityModel:
         opp = Opportunity(
             msx_opportunity_id='abc-123-def',
             name='Fabric Opportunity',
-            user_id=sample_user.id,
         )
         db_session.add(opp)
         db_session.commit()
@@ -36,7 +35,6 @@ class TestOpportunityModel:
         opp1 = Opportunity(
             msx_opportunity_id='unique-guid-1',
             name='First Opp',
-            user_id=sample_user.id,
         )
         db_session.add(opp1)
         db_session.commit()
@@ -44,7 +42,6 @@ class TestOpportunityModel:
         opp2 = Opportunity(
             msx_opportunity_id='unique-guid-1',
             name='Duplicate Opp',
-            user_id=sample_user.id,
         )
         db_session.add(opp2)
 
@@ -54,7 +51,7 @@ class TestOpportunityModel:
     def test_opportunity_with_customer(self, app, db_session, sample_user):
         """Test opportunity linked to a customer."""
         customer = Customer(
-            name='Test Corp', tpid=5000, user_id=sample_user.id
+            name='Test Corp', tpid=5000
         )
         db_session.add(customer)
         db_session.flush()
@@ -63,7 +60,6 @@ class TestOpportunityModel:
             msx_opportunity_id='opp-with-customer',
             name='Cloud Migration',
             customer_id=customer.id,
-            user_id=sample_user.id,
         )
         db_session.add(opp)
         db_session.commit()
@@ -77,7 +73,6 @@ class TestOpportunityModel:
         opp = Opportunity(
             msx_opportunity_id='repr-test',
             name='A Very Long Opportunity Name That Should Be Truncated',
-            user_id=sample_user.id,
         )
         db_session.add(opp)
         db_session.commit()
@@ -93,7 +88,6 @@ class TestMilestoneOpportunityFK:
         opp = Opportunity(
             msx_opportunity_id='opp-for-milestone',
             name='Fabric Opp',
-            user_id=sample_user.id,
         )
         db_session.add(opp)
         db_session.flush()
@@ -103,7 +97,6 @@ class TestMilestoneOpportunityFK:
             url='https://example.com/milestone/ms-123',
             title='Phase 1 Deploy',
             opportunity_id=opp.id,
-            user_id=sample_user.id,
         )
         db_session.add(milestone)
         db_session.commit()
@@ -117,7 +110,6 @@ class TestMilestoneOpportunityFK:
         opp = Opportunity(
             msx_opportunity_id='opp-many-ms',
             name='Big Deal',
-            user_id=sample_user.id,
         )
         db_session.add(opp)
         db_session.flush()
@@ -128,7 +120,6 @@ class TestMilestoneOpportunityFK:
                 url=f'https://example.com/milestone/ms-multi-{i}',
                 title=f'Milestone {i}',
                 opportunity_id=opp.id,
-                user_id=sample_user.id,
             )
             db_session.add(ms)
         db_session.commit()
@@ -141,7 +132,6 @@ class TestMilestoneOpportunityFK:
             msx_milestone_id='ms-no-opp',
             url='https://example.com/milestone/ms-no-opp',
             title='Orphan Milestone',
-            user_id=sample_user.id,
         )
         db_session.add(milestone)
         db_session.commit()
@@ -188,13 +178,12 @@ class TestMilestoneSyncUpsertOpportunity:
         customer = Customer(
             name='Sync Corp', tpid=7777,
             tpid_url='https://example.com/account/account-guid-123',
-            user_id=sample_user.id,
         )
         db_session.add(customer)
         db_session.commit()
 
         from app.services.milestone_sync import sync_customer_milestones
-        result = sync_customer_milestones(customer, sample_user.id)
+        result = sync_customer_milestones(customer)
 
         assert result['success']
         assert result['created'] == 1
@@ -218,7 +207,6 @@ class TestMilestoneSyncUpsertOpportunity:
         customer = Customer(
             name='Reuse Corp', tpid=8888,
             tpid_url='https://example.com/account/account-guid-456',
-            user_id=sample_user.id,
         )
         db_session.add(customer)
         db_session.flush()
@@ -228,7 +216,6 @@ class TestMilestoneSyncUpsertOpportunity:
             msx_opportunity_id='opp-guid-existing',
             name='Old Name',
             customer_id=customer.id,
-            user_id=sample_user.id,
         )
         db_session.add(existing_opp)
         db_session.commit()
@@ -244,7 +231,7 @@ class TestMilestoneSyncUpsertOpportunity:
         }
 
         from app.services.milestone_sync import sync_customer_milestones
-        result = sync_customer_milestones(customer, sample_user.id)
+        result = sync_customer_milestones(customer)
 
         assert result['success']
 
@@ -283,13 +270,12 @@ class TestMilestoneSyncUpsertOpportunity:
         customer = Customer(
             name='Group Corp', tpid=9999,
             tpid_url='https://example.com/account/account-guid-789',
-            user_id=sample_user.id,
         )
         db_session.add(customer)
         db_session.commit()
 
         from app.services.milestone_sync import sync_customer_milestones
-        result = sync_customer_milestones(customer, sample_user.id)
+        result = sync_customer_milestones(customer)
 
         assert result['success']
         assert result['created'] == 3
@@ -322,13 +308,12 @@ class TestMilestoneSyncUpsertOpportunity:
         customer = Customer(
             name='NoOpp Corp', tpid=1111,
             tpid_url='https://example.com/account/account-guid-no-opp',
-            user_id=sample_user.id,
         )
         db_session.add(customer)
         db_session.commit()
 
         from app.services.milestone_sync import sync_customer_milestones
-        result = sync_customer_milestones(customer, sample_user.id)
+        result = sync_customer_milestones(customer)
 
         assert result['success']
         assert Opportunity.query.count() == 0
@@ -369,7 +354,7 @@ class TestMilestoneViewPage:
     def test_milestone_view_shows_opportunity_link(self, app, client, db_session, sample_user):
         """Test that milestone view page shows link to parent opportunity."""
         customer = Customer(
-            name='MS View Corp', tpid=7001, user_id=sample_user.id,
+            name='MS View Corp', tpid=7001,
         )
         db_session.add(customer)
         db_session.flush()
@@ -378,7 +363,6 @@ class TestMilestoneViewPage:
             msx_opportunity_id='opp-ms-view',
             name='Parent Opportunity',
             customer_id=customer.id,
-            user_id=sample_user.id,
         )
         db_session.add(opp)
         db_session.flush()
@@ -392,7 +376,6 @@ class TestMilestoneViewPage:
             dollar_value=25000.0,
             opportunity_id=opp.id,
             customer_id=customer.id,
-            user_id=sample_user.id,
         )
         db_session.add(ms)
         db_session.commit()
@@ -422,7 +405,7 @@ class TestMilestoneViewPage:
         from datetime import datetime, timezone
 
         customer = Customer(
-            name='Call Log Corp', tpid=7002, user_id=sample_user.id,
+            name='Call Log Corp', tpid=7002,
         )
         db_session.add(customer)
         db_session.flush()
@@ -431,7 +414,6 @@ class TestMilestoneViewPage:
             msx_milestone_id='ms-calls-test',
             url='https://example.com/ms-calls-test',
             title='Milestone With Calls',
-            user_id=sample_user.id,
         )
         db_session.add(ms)
         db_session.flush()
@@ -440,7 +422,6 @@ class TestMilestoneViewPage:
             customer_id=customer.id,
             call_date=datetime(2026, 2, 15, tzinfo=timezone.utc),
             content='Discussed migration plan',
-            user_id=sample_user.id,
         )
         call.milestones.append(ms)
         db_session.add(call)
@@ -460,7 +441,6 @@ class TestMilestoneViewPage:
             msx_milestone_id='ms-no-opp-view',
             url='https://example.com/ms-no-opp-view',
             title='Orphan Milestone',
-            user_id=sample_user.id,
         )
         db_session.add(ms)
         db_session.commit()
@@ -503,7 +483,7 @@ class TestMilestoneViewPage:
     def test_opportunity_view_success(self, mock_get_opp, app, client, db_session, sample_user):
         """Test viewing an opportunity with successful MSX fetch."""
         customer = Customer(
-            name='View Test Corp', tpid=6001, user_id=sample_user.id,
+            name='View Test Corp', tpid=6001,
         )
         db_session.add(customer)
         db_session.flush()
@@ -512,7 +492,6 @@ class TestMilestoneViewPage:
             msx_opportunity_id='opp-view-test',
             name='View Test Opp',
             customer_id=customer.id,
-            user_id=sample_user.id,
         )
         db_session.add(opp)
         db_session.flush()
@@ -524,7 +503,6 @@ class TestMilestoneViewPage:
             title='Deploy Phase 1',
             msx_status='On Track',
             opportunity_id=opp.id,
-            user_id=sample_user.id,
         )
         db_session.add(ms)
         db_session.commit()
@@ -553,7 +531,6 @@ class TestMilestoneViewPage:
         opp = Opportunity(
             msx_opportunity_id='opp-error-test',
             name='Error Test Opp',
-            user_id=sample_user.id,
         )
         db_session.add(opp)
         db_session.commit()
@@ -581,7 +558,6 @@ class TestMilestoneViewPage:
         opp = Opportunity(
             msx_opportunity_id='opp-no-comments',
             name='No Comments Opp',
-            user_id=sample_user.id,
         )
         db_session.add(opp)
         db_session.commit()
@@ -606,7 +582,6 @@ class TestOpportunityCommentRoute:
         opp = Opportunity(
             msx_opportunity_id='opp-comment-test',
             name='Comment Test Opp',
-            user_id=sample_user.id,
         )
         db_session.add(opp)
         db_session.commit()
@@ -632,7 +607,6 @@ class TestOpportunityCommentRoute:
         opp = Opportunity(
             msx_opportunity_id='opp-comment-fail',
             name='Comment Fail Opp',
-            user_id=sample_user.id,
         )
         db_session.add(opp)
         db_session.commit()
@@ -654,7 +628,6 @@ class TestOpportunityCommentRoute:
         opp = Opportunity(
             msx_opportunity_id='opp-empty-comment',
             name='Empty Comment Opp',
-            user_id=sample_user.id,
         )
         db_session.add(opp)
         db_session.commit()
@@ -685,7 +658,6 @@ class TestOpportunityApiCommentRoute:
         opp = Opportunity(
             msx_opportunity_id='opp-api-test',
             name='API Test Opp',
-            user_id=sample_user.id,
         )
         db_session.add(opp)
         db_session.commit()
@@ -707,7 +679,6 @@ class TestOpportunityApiCommentRoute:
         opp = Opportunity(
             msx_opportunity_id='opp-api-empty',
             name='API Empty Opp',
-            user_id=sample_user.id,
         )
         db_session.add(opp)
         db_session.commit()
@@ -726,7 +697,6 @@ class TestOpportunityApiCommentRoute:
         opp = Opportunity(
             msx_opportunity_id='opp-api-nojson',
             name='API NoJSON Opp',
-            user_id=sample_user.id,
         )
         db_session.add(opp)
         db_session.commit()

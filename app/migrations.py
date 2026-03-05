@@ -90,6 +90,9 @@ def run_migrations(db):
     # Migration: Enforce unique constraint on customers.tpid
     _migrate_customer_tpid_unique(db, inspector)
 
+    # Migration: Drop user_id columns from all tables (single-user system)
+    _drop_user_id_columns(db, inspector)
+
     # =========================================================================
     # End migrations
     # =========================================================================
@@ -185,7 +188,6 @@ def _migrate_milestones_for_msx(db, inspector):
                         msx_status_code INTEGER,
                         opportunity_name VARCHAR(500),
                         customer_id INTEGER REFERENCES customers(id),
-                        user_id INTEGER NOT NULL REFERENCES users(id),
                         created_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL,
                         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL
                     )
@@ -366,7 +368,6 @@ def _migrate_opportunities_table(db, inspector):
                     opportunity_number VARCHAR(50),
                     name VARCHAR(500) NOT NULL,
                     customer_id INTEGER REFERENCES customers(id),
-                    user_id INTEGER NOT NULL REFERENCES users(id),
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL,
                     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL
                 )
@@ -520,7 +521,6 @@ def _migrate_connect_exports_table(db, inspector):
                 end_date DATE NOT NULL,
                 call_log_count INTEGER NOT NULL DEFAULT 0,
                 customer_count INTEGER NOT NULL DEFAULT 0,
-                user_id INTEGER NOT NULL REFERENCES users(id),
                 created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
             )
         """))
@@ -682,4 +682,34 @@ def _migrate_customer_tpid_unique(db, inspector):
     print("    Created unique index: uq_customers_tpid")
 
 
+def _drop_user_id_columns(db, inspector):
+    """Drop user_id columns from all tables.
+
+    This is a single-user system. The user_id FK was vestigial from a
+    multi-user era and is no longer referenced anywhere in the codebase.
+    SQLite 3.35+ supports ALTER TABLE ... DROP COLUMN.
+    """
+    tables_with_user_id = [
+        'pods', 'solution_engineers', 'verticals', 'territories',
+        'sellers', 'customers', 'topics', 'specialties', 'partners',
+        'partner_contacts', 'call_logs', 'opportunities', 'milestones',
+        'user_preferences', 'ai_query_log', 'revenue_imports',
+        'revenue_config', 'connect_exports',
+    ]
+
+    dropped_any = False
+    for table in tables_with_user_id:
+        if not _table_exists(inspector, table):
+            continue
+        columns = [col['name'] for col in inspector.get_columns(table)]
+        if 'user_id' in columns:
+            db.session.execute(text(
+                f'ALTER TABLE {table} DROP COLUMN user_id'
+            ))
+            db.session.commit()
+            print(f"  Dropped column: {table}.user_id")
+            dropped_any = True
+
+    if not dropped_any:
+        return  # Already migrated
 

@@ -1062,9 +1062,6 @@ def import_stream():
         logger.exception("import-stream: Database check failed")
         return jsonify({"error": f"Database error: {e}"}), 500
 
-    # Capture user_id before entering the generator (g is request-scoped)
-    user_id = g.user.id
-
     def generate():
         phase = "initializing"
         try:
@@ -1361,11 +1358,11 @@ def import_stream():
             pods_map = {}
             pods_created = 0
             for pn in pod_accounts:
-                existing = POD.query.filter_by(name=pn, user_id=user_id).first()
+                existing = POD.query.filter_by(name=pn).first()
                 if existing:
                     pods_map[pn] = existing
                 else:
-                    pod = POD(name=pn, user_id=user_id)
+                    pod = POD(name=pn)
                     db.session.add(pod)
                     pods_map[pn] = pod
                     pods_created += 1
@@ -1382,13 +1379,13 @@ def import_stream():
             territories_created = 0
             for terr_name, terr_info in territories_seen.items():
                 existing = Territory.query.filter_by(
-                    name=terr_name, user_id=user_id).first()
+                    name=terr_name).first()
                 if existing:
                     territories_map[terr_name] = existing
                     if not existing.pod and terr_info.get("pod_name"):
                         existing.pod = pods_map.get(terr_info["pod_name"])
                 else:
-                    territory = Territory(name=terr_name, user_id=user_id)
+                    territory = Territory(name=terr_name)
                     if terr_info.get("pod_name"):
                         territory.pod = pods_map.get(terr_info["pod_name"])
                     db.session.add(territory)
@@ -1407,7 +1404,7 @@ def import_stream():
             sellers_created = 0
             for seller_name, seller_info in sellers_seen.items():
                 existing = Seller.query.filter_by(
-                    name=seller_name, user_id=user_id).first()
+                    name=seller_name).first()
                 if existing:
                     sellers_map[seller_name] = existing
                 else:
@@ -1416,7 +1413,7 @@ def import_stream():
                     alias = get_user_alias(systemuser_id) if systemuser_id else None
                     seller = Seller(
                         name=seller_name, seller_type=seller_type,
-                        alias=alias, user_id=user_id,
+                        alias=alias,
                     )
                     db.session.add(seller)
                     sellers_map[seller_name] = seller
@@ -1460,7 +1457,6 @@ def import_stream():
                         if se_key not in se_map:
                             existing = SolutionEngineer.query.filter_by(
                                 name=se_info["name"], specialty=specialty,
-                                user_id=user_id,
                             ).first()
                             if existing:
                                 se_map[se_key] = existing
@@ -1469,7 +1465,7 @@ def import_stream():
                                 alias = get_user_alias(systemuser_id) if systemuser_id else None
                                 se = SolutionEngineer(
                                     name=se_info["name"], alias=alias,
-                                    specialty=specialty, user_id=user_id,
+                                    specialty=specialty,
                                 )
                                 db.session.add(se)
                                 se_map[se_key] = se
@@ -1490,11 +1486,11 @@ def import_stream():
             verticals_created = 0
             for vn in verticals_seen:
                 existing = Vertical.query.filter_by(
-                    name=vn, user_id=user_id).first()
+                    name=vn).first()
                 if existing:
                     verticals_map[vn] = existing
                 else:
-                    vertical = Vertical(name=vn, user_id=user_id)
+                    vertical = Vertical(name=vn)
                     db.session.add(vertical)
                     verticals_map[vn] = vertical
                     verticals_created += 1
@@ -1573,7 +1569,7 @@ def import_stream():
 
                     customer = Customer(
                         name=customer_name, tpid=tpid,
-                        tpid_url=ad.get("url"), user_id=user_id,
+                        tpid_url=ad.get("url"),
                     )
                     territory_name = ad.get("territory_name")
                     if territory_name and territory_name in territories_map:
@@ -1617,7 +1613,7 @@ def import_stream():
                     try:
                         cust = Customer(
                             name=customer_name, tpid=tpid,
-                            tpid_url=ad.get("url"), user_id=user_id,
+                            tpid_url=ad.get("url"),
                         )
                         territory_name = ad.get("territory_name")
                         if territory_name and territory_name in territories_map:

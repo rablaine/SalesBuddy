@@ -148,7 +148,7 @@ class TestBuildCustomerLookup:
     def test_exact_name_in_lookup(self, app):
         from app.models import db, Customer
         with app.app_context():
-            customer = Customer(name="Test Corp", tpid=12345, user_id=1)
+            customer = Customer(name="Test Corp", tpid=12345)
             db.session.add(customer)
             db.session.commit()
 
@@ -161,7 +161,7 @@ class TestBuildCustomerLookup:
         with app.app_context():
             customer = Customer(
                 name="Long Company Name", nickname="LCN",
-                tpid=12345, user_id=1
+                tpid=12345
             )
             db.session.add(customer)
             db.session.commit()
@@ -172,7 +172,7 @@ class TestBuildCustomerLookup:
     def test_cleaned_names_populated(self, app):
         from app.models import db, Customer
         with app.app_context():
-            customer = Customer(name="Megacorp", tpid=99999, user_id=1)
+            customer = Customer(name="Megacorp", tpid=99999)
             db.session.add(customer)
             db.session.commit()
 
@@ -184,7 +184,7 @@ class TestBuildCustomerLookup:
     def test_acronym_lookup_populated(self, app):
         from app.models import db, Customer
         with app.app_context():
-            customer = Customer(name="Facilities Survey Inc", tpid=55555, user_id=1)
+            customer = Customer(name="Facilities Survey Inc", tpid=55555)
             db.session.add(customer)
             db.session.commit()
 
@@ -199,7 +199,7 @@ class TestResolveCustomerId:
     def test_exact_match(self, app):
         from app.models import db, Customer
         with app.app_context():
-            customer = Customer(name="Azara Healthcare", tpid=111, user_id=1)
+            customer = Customer(name="Azara Healthcare", tpid=111)
             db.session.add(customer)
             db.session.commit()
 
@@ -211,7 +211,7 @@ class TestResolveCustomerId:
         with app.app_context():
             customer = Customer(
                 name="Long Name Here", nickname="LNH",
-                tpid=222, user_id=1
+                tpid=222
             )
             db.session.add(customer)
             db.session.commit()
@@ -223,7 +223,7 @@ class TestResolveCustomerId:
         """'Azara Healthcare, LLC' matches 'Azara Healthcare' via prefix."""
         from app.models import db, Customer
         with app.app_context():
-            customer = Customer(name="Azara Healthcare", tpid=333, user_id=1)
+            customer = Customer(name="Azara Healthcare", tpid=333)
             db.session.add(customer)
             db.session.commit()
 
@@ -236,7 +236,7 @@ class TestResolveCustomerId:
         from app.models import db, Customer
         with app.app_context():
             customer = Customer(
-                name="LTC Consulting Services", tpid=444, user_id=1
+                name="LTC Consulting Services", tpid=444
             )
             db.session.add(customer)
             db.session.commit()
@@ -250,7 +250,7 @@ class TestResolveCustomerId:
         from app.models import db, Customer
         with app.app_context():
             customer = Customer(
-                name="Streamline Healthcare Solutions", tpid=555, user_id=1
+                name="Streamline Healthcare Solutions", tpid=555
             )
             db.session.add(customer)
             db.session.commit()
@@ -262,7 +262,7 @@ class TestResolveCustomerId:
     def test_no_match_returns_none(self, app):
         from app.models import db, Customer
         with app.app_context():
-            customer = Customer(name="Acme Corp", tpid=777, user_id=1)
+            customer = Customer(name="Acme Corp", tpid=777)
             db.session.add(customer)
             db.session.commit()
 
@@ -275,7 +275,7 @@ class TestResolveCustomerId:
     def test_case_insensitive(self, app):
         from app.models import db, Customer
         with app.app_context():
-            customer = Customer(name="NOVOPATH", tpid=888, user_id=1)
+            customer = Customer(name="NOVOPATH", tpid=888)
             db.session.add(customer)
             db.session.commit()
 
@@ -286,7 +286,7 @@ class TestResolveCustomerId:
         """'FSI' matches 'Facilities Survey Inc' via acronym."""
         from app.models import db, Customer
         with app.app_context():
-            customer = Customer(name="Facilities Survey Inc", tpid=999, user_id=1)
+            customer = Customer(name="Facilities Survey Inc", tpid=999)
             db.session.add(customer)
             db.session.commit()
 
@@ -298,7 +298,7 @@ class TestResolveCustomerId:
         """Acronym matching should be case-insensitive on input."""
         from app.models import db, Customer
         with app.app_context():
-            customer = Customer(name="Facilities Survey Inc", tpid=1001, user_id=1)
+            customer = Customer(name="Facilities Survey Inc", tpid=1001)
             db.session.add(customer)
             db.session.commit()
 
@@ -310,7 +310,7 @@ class TestResolveCustomerId:
         """Customer named 'FSI' matches CSV name 'Facilities Survey Inc' via acronym."""
         from app.models import db, Customer
         with app.app_context():
-            customer = Customer(name="FSI", tpid=1002, user_id=1)
+            customer = Customer(name="FSI", tpid=1002)
             db.session.add(customer)
             db.session.commit()
 

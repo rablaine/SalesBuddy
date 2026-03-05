@@ -62,7 +62,6 @@ class TestMsxAuthBannerPresence:
             milestone = Milestone(
                 title='Test Milestone',
                 customer_id=customer.id,
-                user_id=user.id,
                 url='https://example.com'
             )
             db.session.add(milestone)

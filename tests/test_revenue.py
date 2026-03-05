@@ -84,8 +84,7 @@ Test Customer,Analytics,Total,"$5,000","$5,500","$6,000","$16,500"
         with app.app_context():
             import_record = import_revenue_csv(
                 file_content=csv_content,
-                filename="test.csv",
-                user_id=test_user.id
+                filename="test.csv"
             )
             
             assert import_record.record_count == 3
@@ -111,14 +110,14 @@ Existing Customer,Core DBs,Total,"$10,000","$10,000"
         
         with app.app_context():
             # First import
-            import_revenue_csv(csv_content, "test1.csv", test_user.id)
+            import_revenue_csv(csv_content, "test1.csv")
             
             # Second import with updated value
             csv_content2 = b"""FiscalMonth,,,FY26-Jul,Total
 TPAccountName,ServiceCompGrouping,ServiceLevel4,$ ACR,$ ACR
 Existing Customer,Core DBs,Total,"$15,000","$15,000"
 """
-            import_record = import_revenue_csv(csv_content2, "test2.csv", test_user.id)
+            import_record = import_revenue_csv(csv_content2, "test2.csv")
             
             assert import_record.records_updated == 1
             assert import_record.records_created == 0
@@ -138,7 +137,7 @@ Some random content
         
         with app.app_context():
             with pytest.raises(RevenueImportError):
-                import_revenue_csv(csv_content, "bad.csv", test_user.id)
+                import_revenue_csv(csv_content, "bad.csv")
 
     def test_import_missing_required_columns(self, app, test_user):
         """Test that CSV missing required columns raises helpful error."""
@@ -337,11 +336,11 @@ class TestRevenueRoutes:
         
         with app.app_context():
             # Create a seller and customer
-            seller = Seller(name='Test Seller', user_id=test_user.id)
+            seller = Seller(name='Test Seller')
             db.session.add(seller)
             db.session.flush()
             
-            customer = Customer(name='Test Revenue Customer', tpid=99999, seller_id=seller.id, user_id=test_user.id)
+            customer = Customer(name='Test Revenue Customer', tpid=99999, seller_id=seller.id)
             db.session.add(customer)
             db.session.flush()
             
@@ -374,7 +373,7 @@ class TestRevenueRoutes:
         
         with app.app_context():
             # Create a customer
-            customer = Customer(name='Revenue Test Customer', tpid=88888, user_id=test_user.id)
+            customer = Customer(name='Revenue Test Customer', tpid=88888)
             db.session.add(customer)
             db.session.flush()
             
@@ -406,7 +405,7 @@ class TestDatabaseAnalysis:
     def test_run_analysis_empty_database(self, app, test_user):
         """Test analysis with no data."""
         with app.app_context():
-            stats = run_analysis_for_all(user_id=test_user.id)
+            stats = run_analysis_for_all()
             
             assert stats['analyzed'] == 0
             assert stats['actionable'] == 0
@@ -422,10 +421,10 @@ At Risk Customer,Core DBs,Total,"$20,000","$18,000","$16,000","$14,000","$12,000
         
         with app.app_context():
             # Import data
-            import_revenue_csv(csv_content, "test.csv", test_user.id)
+            import_revenue_csv(csv_content, "test.csv")
             
             # Run analysis
-            stats = run_analysis_for_all(user_id=test_user.id)
+            stats = run_analysis_for_all()
             
             assert stats['analyzed'] >= 1
             

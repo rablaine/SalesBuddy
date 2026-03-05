@@ -92,8 +92,7 @@ def admin_panel():
     
     # WorkIQ preferences for settings card
     from app.services.workiq_service import DEFAULT_SUMMARY_PROMPT
-    user_id = g.user.id if g.user.is_authenticated else 1
-    pref = UserPreference.query.filter_by(user_id=user_id).first()
+    pref = UserPreference.query.first()
     workiq_connect_impact = pref.workiq_connect_impact if pref else True
     workiq_summary_prompt = pref.workiq_summary_prompt if pref else None
     default_workiq_prompt = DEFAULT_SUMMARY_PROMPT
@@ -107,16 +106,8 @@ def admin_panel():
 @admin_bp.route('/admin/ai-logs')
 def admin_ai_logs():
     """View AI query logs for debugging."""
-    # Get recent logs (last 50) with users loaded separately
+    # Get recent logs (last 50)
     logs = AIQueryLog.query.order_by(AIQueryLog.timestamp.desc()).limit(50).all()
-    
-    # Load users for all logs
-    user_ids = {log.user_id for log in logs}
-    users = {u.id: u for u in User.query.filter(User.id.in_(user_ids)).all()}
-    
-    # Attach users to logs
-    for log in logs:
-        log.user = users.get(log.user_id)
     
     return render_template('admin_ai_logs.html', logs=logs)
 

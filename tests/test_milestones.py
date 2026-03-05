@@ -14,7 +14,6 @@ class TestMilestoneModel:
         milestone = Milestone(
             url='https://msxsalesplatform.dynamics.com/milestone/123',
             title='Q2 Deployment',
-            user_id=sample_user.id
         )
         db_session.add(milestone)
         db_session.commit()
@@ -29,7 +28,6 @@ class TestMilestoneModel:
         milestone = Milestone(
             url='https://msxsalesplatform.dynamics.com/milestone/456',
             title=None,
-            user_id=sample_user.id
         )
         db_session.add(milestone)
         db_session.commit()
@@ -41,7 +39,6 @@ class TestMilestoneModel:
         milestone1 = Milestone(
             msx_milestone_id='12345678-1234-1234-1234-123456789abc',
             url='https://msxsalesplatform.dynamics.com/milestone/unique',
-            user_id=sample_user.id
         )
         db_session.add(milestone1)
         db_session.commit()
@@ -49,7 +46,6 @@ class TestMilestoneModel:
         milestone2 = Milestone(
             msx_milestone_id='12345678-1234-1234-1234-123456789abc',
             url='https://msxsalesplatform.dynamics.com/milestone/unique2',
-            user_id=sample_user.id
         )
         db_session.add(milestone2)
         
@@ -71,7 +67,6 @@ class TestMilestoneCRUD:
         milestone = Milestone(
             url='https://example.com/milestone/1',
             title='Test Milestone',
-            user_id=sample_user.id
         )
         db_session.add(milestone)
         db_session.commit()
@@ -117,7 +112,6 @@ class TestMilestoneCRUD:
         milestone = Milestone(
             url='https://example.com/view/test',
             title='View Test',
-            user_id=sample_user.id
         )
         db_session.add(milestone)
         db_session.commit()
@@ -132,7 +126,6 @@ class TestMilestoneCRUD:
         milestone = Milestone(
             url='https://example.com/edit/test',
             title='Edit Test',
-            user_id=sample_user.id
         )
         db_session.add(milestone)
         db_session.commit()
@@ -147,7 +140,6 @@ class TestMilestoneCRUD:
         milestone = Milestone(
             url='https://example.com/original',
             title='Original Title',
-            user_id=sample_user.id
         )
         db_session.add(milestone)
         db_session.commit()
@@ -170,7 +162,6 @@ class TestMilestoneCRUD:
         milestone = Milestone(
             url='https://example.com/delete/test',
             title='Delete Me',
-            user_id=sample_user.id
         )
         db_session.add(milestone)
         db_session.commit()
@@ -190,7 +181,6 @@ class TestMilestoneCRUD:
         milestone = Milestone(
             url='https://example.com/linked/test',
             title='Linked Milestone',
-            user_id=sample_user.id
         )
         db_session.add(milestone)
         db_session.flush()
@@ -199,7 +189,6 @@ class TestMilestoneCRUD:
             customer_id=sample_customer.id,
             call_date=datetime(2026, 2, 25),
             content='<p>Test call</p>',
-            user_id=sample_user.id
         )
         call_log.milestones = [milestone]
         db_session.add(call_log)
@@ -265,7 +254,6 @@ class TestCallLogMilestoneIntegration:
                 msx_milestone_id=msx_milestone_id,
                 url='https://msxsalesplatform.dynamics.com/existing/milestone',
                 msx_status='On Track',
-                user_id=test_user.id
             )
             db.session.add(existing_milestone)
             db.session.commit()
@@ -309,7 +297,6 @@ class TestCallLogMilestoneIntegration:
             milestone = Milestone(
                 url='https://example.com/show/milestone',
                 title='Visible Milestone',
-                user_id=test_user.id
             )
             db.session.add(milestone)
             
@@ -317,7 +304,6 @@ class TestCallLogMilestoneIntegration:
                 customer_id=sample_customer.id,
                 call_date=date(2026, 1, 30),
                 content='<p>Test content</p>',
-                user_id=test_user.id
             )
             call_log.milestones.append(milestone)
             db.session.add(call_log)
@@ -340,7 +326,6 @@ class TestCallLogMilestoneIntegration:
             old_milestone = Milestone(
                 msx_milestone_id='old-msx-id-12345',
                 url='https://example.com/old/milestone',
-                user_id=test_user.id
             )
             db.session.add(old_milestone)
             
@@ -348,7 +333,6 @@ class TestCallLogMilestoneIntegration:
                 customer_id=sample_customer.id,
                 call_date=date(2026, 1, 30),
                 content='<p>Original content</p>',
-                user_id=test_user.id
             )
             call_log.milestones.append(old_milestone)
             db.session.add(call_log)
@@ -401,7 +385,6 @@ class TestMilestoneAPI:
             existing = Milestone(
                 url='https://api.test/existing',
                 title='Existing',
-                user_id=test_user.id
             )
             db.session.add(existing)
             db.session.commit()

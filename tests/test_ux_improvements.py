@@ -72,15 +72,14 @@ def test_call_content_truncation_word_boundaries(client):
     # Create test data with long content
     seller = Seller.query.first()
     if not seller:
-        seller = Seller(name="Test Seller", user_id=1)
+        seller = Seller(name="Test Seller")
         db.session.add(seller)
         db.session.commit()
     
     customer = Customer(
         name="Test Customer",
         tpid="TEST001",
-        seller_id=seller.id,
-        user_id=1
+        seller_id=seller.id
     )
     db.session.add(customer)
     db.session.commit()
@@ -91,7 +90,6 @@ def test_call_content_truncation_word_boundaries(client):
         customer_id=customer.id,
         call_date=date.today(),
         content=long_content,
-        user_id=1,
         created_at=utc_now(),
         updated_at=utc_now()
     )
@@ -141,15 +139,14 @@ def test_search_results_hierarchy_simplified(client):
     # Create test data
     seller = Seller.query.first()
     if not seller:
-        seller = Seller(name="Test Seller", user_id=1)
+        seller = Seller(name="Test Seller")
         db.session.add(seller)
         db.session.commit()
     
     customer = Customer(
         name="Search Test Customer",
         tpid="SEARCH001",
-        seller_id=seller.id,
-        user_id=1
+        seller_id=seller.id
     )
     db.session.add(customer)
     db.session.commit()
@@ -158,7 +155,6 @@ def test_search_results_hierarchy_simplified(client):
         customer_id=customer.id,
         call_date=date.today(),
         content="Test search content",
-        user_id=1,
         created_at=utc_now(),
         updated_at=utc_now()
     )
@@ -188,7 +184,7 @@ def test_draft_save_indicator_exists(client):
     
     seller = Seller.query.first()
     if not seller:
-        seller = Seller(name="Test Seller", user_id=1)
+        seller = Seller(name="Test Seller")
         db.session.add(seller)
         db.session.commit()
     
@@ -197,8 +193,7 @@ def test_draft_save_indicator_exists(client):
         customer = Customer(
             name="Test Customer",
             tpid="TEST001",
-            seller_id=seller.id,
-            user_id=1
+            seller_id=seller.id
         )
         db.session.add(customer)
         db.session.commit()

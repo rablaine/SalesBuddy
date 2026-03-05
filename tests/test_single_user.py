@@ -43,11 +43,11 @@ class TestCustomerTpidUnique:
         """Database should reject a second customer with the same TPID."""
         with app.app_context():
             user = User.query.first()
-            c1 = Customer(name="First Corp", tpid=12345678, user_id=user.id)
+            c1 = Customer(name="First Corp", tpid=12345678)
             db.session.add(c1)
             db.session.commit()
 
-            c2 = Customer(name="Second Corp", tpid=12345678, user_id=user.id)
+            c2 = Customer(name="Second Corp", tpid=12345678)
             db.session.add(c2)
             with pytest.raises(IntegrityError):
                 db.session.flush()
@@ -61,8 +61,8 @@ class TestCustomerTpidUnique:
         """Different TPIDs should work fine."""
         with app.app_context():
             user = User.query.first()
-            c1 = Customer(name="Alpha Corp", tpid=11111111, user_id=user.id)
-            c2 = Customer(name="Beta Corp", tpid=22222222, user_id=user.id)
+            c1 = Customer(name="Alpha Corp", tpid=11111111)
+            c2 = Customer(name="Beta Corp", tpid=22222222)
             db.session.add_all([c1, c2])
             db.session.commit()
 

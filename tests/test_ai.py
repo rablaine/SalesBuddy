@@ -163,7 +163,6 @@ class TestAISuggestions:
             # Verify audit log entry
             log = AIQueryLog.query.first()
             assert log is not None
-            assert log.user_id == test_user.id
             assert log.success is True
             assert 'Azure Functions' in log.request_text
     
@@ -174,7 +173,7 @@ class TestAISuggestions:
         with app.app_context():
             # Create existing topic with different case
             test_user = User.query.first()
-            existing_topic = Topic(name='azure functions', user_id=test_user.id)
+            existing_topic = Topic(name='azure functions')
             db.session.add(existing_topic)
             db.session.commit()
             existing_id = existing_topic.id
@@ -233,7 +232,6 @@ class TestAuditLogging:
         """Test that successful calls are logged."""
         with app.app_context():
             test_user = User.query.first()
-            user_id = test_user.id
             
             # Mock the Azure OpenAI client
             mock_client = MagicMock()
@@ -249,7 +247,6 @@ class TestAuditLogging:
             # Check audit log
             log = AIQueryLog.query.first()
             assert log is not None
-            assert log.user_id == user_id
             assert log.success is True
             assert 'Test content for audit log' in log.request_text
             assert 'Topic1' in log.response_text and 'Topic2' in log.response_text

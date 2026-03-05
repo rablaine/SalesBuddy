@@ -549,7 +549,6 @@ def _build_revenue_lookups(month_dates_values):
 def import_revenue_csv(
     file_content: bytes | str,
     filename: str,
-    user_id: int,
     territory_alignments: Optional[dict] = None
 ) -> RevenueImport:
     """Import revenue data from CSV into the database.
@@ -565,7 +564,6 @@ def import_revenue_csv(
     Args:
         file_content: Raw CSV content
         filename: Original filename
-        user_id: ID of user performing import
         territory_alignments: Optional dict mapping (customer_name, bucket) -> seller_name
         
     Returns:
@@ -596,7 +594,6 @@ def import_revenue_csv(
     
     import_record = RevenueImport(
         filename=filename,
-        user_id=user_id,
         record_count=len(df),
         earliest_month=earliest,
         latest_month=latest
@@ -734,7 +731,6 @@ def import_revenue_csv(
 def import_revenue_csv_streaming(
     file_content: bytes | str,
     filename: str,
-    user_id: int,
     territory_alignments: Optional[dict] = None
 ):
     """Import revenue data from CSV with streaming progress updates.
@@ -744,7 +740,6 @@ def import_revenue_csv_streaming(
     Args:
         file_content: Raw CSV content
         filename: Original filename
-        user_id: ID of user performing import
         territory_alignments: Optional dict mapping (customer_name, bucket) -> seller_name
         
     Yields:
@@ -782,7 +777,6 @@ def import_revenue_csv_streaming(
     
     import_record = RevenueImport(
         filename=filename,
-        user_id=user_id,
         record_count=len(df),
         earliest_month=earliest,
         latest_month=latest

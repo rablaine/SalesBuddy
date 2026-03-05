@@ -385,17 +385,14 @@ def analytics():
 @main_bp.route('/api/preferences/dark-mode', methods=['GET', 'POST'])
 def dark_mode_preference():
     """Get or set dark mode preference."""
-    # Get user ID (handle testing mode where login is disabled)
-    user_id = g.user.id if g.user.is_authenticated else 1
-    
     if request.method == 'POST':
         data = request.get_json()
         dark_mode = data.get('dark_mode', False)
         
         # Get or create user preference
-        pref = UserPreference.query.filter_by(user_id=user_id).first()
+        pref = UserPreference.query.first()
         if not pref:
-            pref = UserPreference(user_id=user_id, dark_mode=dark_mode)
+            pref = UserPreference(dark_mode=dark_mode)
             db.session.add(pref)
         else:
             pref.dark_mode = dark_mode
@@ -404,9 +401,9 @@ def dark_mode_preference():
         return jsonify({'dark_mode': pref.dark_mode}), 200
     
     # GET request
-    pref = UserPreference.query.filter_by(user_id=user_id).first()
+    pref = UserPreference.query.first()
     if not pref:
-        pref = UserPreference(user_id=user_id, dark_mode=False)
+        pref = UserPreference(dark_mode=False)
         db.session.add(pref)
         db.session.commit()
     
@@ -416,16 +413,14 @@ def dark_mode_preference():
 @main_bp.route('/api/preferences/customer-view', methods=['GET', 'POST'])
 def customer_view_preference():
     """Get or set customer view preference (alphabetical vs grouped)."""
-    user_id = g.user.id if g.user.is_authenticated else 1
-    
     if request.method == 'POST':
         data = request.get_json()
         customer_view_grouped = data.get('customer_view_grouped', False)
         
         # Get or create user preference
-        pref = UserPreference.query.filter_by(user_id=user_id).first()
+        pref = UserPreference.query.first()
         if not pref:
-            pref = UserPreference(user_id=user_id, customer_view_grouped=customer_view_grouped)
+            pref = UserPreference(customer_view_grouped=customer_view_grouped)
             db.session.add(pref)
         else:
             pref.customer_view_grouped = customer_view_grouped
@@ -434,9 +429,9 @@ def customer_view_preference():
         return jsonify({'customer_view_grouped': pref.customer_view_grouped}), 200
     
     # GET request
-    pref = UserPreference.query.filter_by(user_id=user_id).first()
+    pref = UserPreference.query.first()
     if not pref:
-        pref = UserPreference(user_id=user_id, customer_view_grouped=False)
+        pref = UserPreference(customer_view_grouped=False)
         db.session.add(pref)
         db.session.commit()
     
@@ -446,16 +441,14 @@ def customer_view_preference():
 @main_bp.route('/api/preferences/topic-sort', methods=['GET', 'POST'])
 def topic_sort_preference():
     """Get or set topic sort preference (alphabetical vs by calls)."""
-    user_id = g.user.id if g.user.is_authenticated else 1
-    
     if request.method == 'POST':
         data = request.get_json()
         topic_sort_by_calls = data.get('topic_sort_by_calls', False)
         
         # Get or create user preference
-        pref = UserPreference.query.filter_by(user_id=user_id).first()
+        pref = UserPreference.query.first()
         if not pref:
-            pref = UserPreference(user_id=user_id, topic_sort_by_calls=topic_sort_by_calls)
+            pref = UserPreference(topic_sort_by_calls=topic_sort_by_calls)
             db.session.add(pref)
         else:
             pref.topic_sort_by_calls = topic_sort_by_calls
@@ -464,9 +457,9 @@ def topic_sort_preference():
         return jsonify({'topic_sort_by_calls': pref.topic_sort_by_calls}), 200
     
     # GET request
-    pref = UserPreference.query.filter_by(user_id=user_id).first()
+    pref = UserPreference.query.first()
     if not pref:
-        pref = UserPreference(user_id=user_id, topic_sort_by_calls=False)
+        pref = UserPreference(topic_sort_by_calls=False)
         db.session.add(pref)
         db.session.commit()
     
@@ -476,16 +469,14 @@ def topic_sort_preference():
 @main_bp.route('/api/preferences/territory-view', methods=['GET', 'POST'])
 def territory_view_preference():
     """Get or set territory view preference (recent calls vs accounts)."""
-    user_id = g.user.id if g.user.is_authenticated else 1
-    
     if request.method == 'POST':
         data = request.get_json()
         territory_view_accounts = data.get('territory_view_accounts', False)
         
         # Get or create user preference
-        pref = UserPreference.query.filter_by(user_id=user_id).first()
+        pref = UserPreference.query.first()
         if not pref:
-            pref = UserPreference(user_id=user_id, territory_view_accounts=territory_view_accounts)
+            pref = UserPreference(territory_view_accounts=territory_view_accounts)
             db.session.add(pref)
         else:
             pref.territory_view_accounts = territory_view_accounts
@@ -494,9 +485,9 @@ def territory_view_preference():
         return jsonify({'territory_view_accounts': pref.territory_view_accounts}), 200
     
     # GET request
-    pref = UserPreference.query.filter_by(user_id=user_id).first()
+    pref = UserPreference.query.first()
     if not pref:
-        pref = UserPreference(user_id=user_id, territory_view_accounts=False)
+        pref = UserPreference(territory_view_accounts=False)
         db.session.add(pref)
         db.session.commit()
     
@@ -506,8 +497,6 @@ def territory_view_preference():
 @main_bp.route('/api/preferences/customer-sort-by', methods=['GET', 'POST'])
 def customer_sort_by_preference():
     """Get or set customer sorting preference (alphabetical, grouped, or by_calls)."""
-    user_id = g.user.id if g.user.is_authenticated else 1
-    
     if request.method == 'POST':
         data = request.get_json()
         customer_sort_by = data.get('customer_sort_by', 'alphabetical')
@@ -518,9 +507,9 @@ def customer_sort_by_preference():
             return jsonify({'error': 'Invalid sort option'}), 400
         
         # Get or create user preference
-        pref = UserPreference.query.filter_by(user_id=user_id).first()
+        pref = UserPreference.query.first()
         if not pref:
-            pref = UserPreference(user_id=user_id, customer_sort_by=customer_sort_by)
+            pref = UserPreference(customer_sort_by=customer_sort_by)
             db.session.add(pref)
         else:
             pref.customer_sort_by = customer_sort_by
@@ -529,9 +518,9 @@ def customer_sort_by_preference():
         return jsonify({'customer_sort_by': pref.customer_sort_by}), 200
     
     # GET request
-    pref = UserPreference.query.filter_by(user_id=user_id).first()
+    pref = UserPreference.query.first()
     if not pref:
-        pref = UserPreference(user_id=user_id, customer_sort_by='alphabetical')
+        pref = UserPreference(customer_sort_by='alphabetical')
         db.session.add(pref)
         db.session.commit()
     
@@ -541,16 +530,14 @@ def customer_sort_by_preference():
 @main_bp.route('/api/preferences/show-customers-without-calls', methods=['GET', 'POST'])
 def show_customers_without_calls_preference():
     """Get or set preference for showing customers without call logs."""
-    user_id = g.user.id if g.user.is_authenticated else 1
-    
     if request.method == 'POST':
         data = request.get_json()
         show_customers_without_calls = data.get('show_customers_without_calls', False)
         
         # Get or create user preference
-        pref = UserPreference.query.filter_by(user_id=user_id).first()
+        pref = UserPreference.query.first()
         if not pref:
-            pref = UserPreference(user_id=user_id, show_customers_without_calls=show_customers_without_calls)
+            pref = UserPreference(show_customers_without_calls=show_customers_without_calls)
             db.session.add(pref)
         else:
             pref.show_customers_without_calls = show_customers_without_calls
@@ -559,9 +546,9 @@ def show_customers_without_calls_preference():
         return jsonify({'show_customers_without_calls': pref.show_customers_without_calls}), 200
     
     # GET request
-    pref = UserPreference.query.filter_by(user_id=user_id).first()
+    pref = UserPreference.query.first()
     if not pref:
-        pref = UserPreference(user_id=user_id, show_customers_without_calls=False)
+        pref = UserPreference(show_customers_without_calls=False)
         db.session.add(pref)
         db.session.commit()
     
@@ -571,12 +558,10 @@ def show_customers_without_calls_preference():
 @main_bp.route('/api/preferences/dismiss-welcome-modal', methods=['POST'])
 def dismiss_welcome_modal():
     """Dismiss the first-run welcome modal."""
-    user_id = g.user.id if g.user.is_authenticated else 1
-    
     # Get or create user preference
-    pref = UserPreference.query.filter_by(user_id=user_id).first()
+    pref = UserPreference.query.first()
     if not pref:
-        pref = UserPreference(user_id=user_id, first_run_modal_dismissed=True)
+        pref = UserPreference(first_run_modal_dismissed=True)
         db.session.add(pref)
     else:
         pref.first_run_modal_dismissed = True
@@ -590,11 +575,9 @@ def dismiss_welcome_modal():
 @main_bp.route('/api/preferences/guided-tour-complete', methods=['POST'])
 def guided_tour_complete():
     """Mark the guided product tour as completed."""
-    user_id = g.user.id if g.user.is_authenticated else 1
-    
-    pref = UserPreference.query.filter_by(user_id=user_id).first()
+    pref = UserPreference.query.first()
     if not pref:
-        pref = UserPreference(user_id=user_id, guided_tour_completed=True)
+        pref = UserPreference(guided_tour_completed=True)
         db.session.add(pref)
     else:
         pref.guided_tour_completed = True
@@ -606,9 +589,7 @@ def guided_tour_complete():
 @main_bp.route('/api/preferences/reset-onboarding', methods=['POST'])
 def reset_onboarding():
     """Reset the onboarding wizard so it shows again on next page load."""
-    user_id = g.user.id if g.user.is_authenticated else 1
-    
-    pref = UserPreference.query.filter_by(user_id=user_id).first()
+    pref = UserPreference.query.first()
     if pref:
         pref.first_run_modal_dismissed = False
         db.session.commit()
@@ -619,13 +600,12 @@ def reset_onboarding():
 @main_bp.route('/api/preferences/workiq-prompt', methods=['POST'])
 def update_workiq_prompt():
     """Update the custom WorkIQ meeting summary prompt."""
-    user_id = g.user.id if g.user.is_authenticated else 1
     data = request.get_json()
     prompt_text = data.get('workiq_summary_prompt', '').strip()
     
-    pref = UserPreference.query.filter_by(user_id=user_id).first()
+    pref = UserPreference.query.first()
     if not pref:
-        pref = UserPreference(user_id=user_id)
+        pref = UserPreference()
         db.session.add(pref)
     
     # Empty string means "use default" — store as null
@@ -638,13 +618,12 @@ def update_workiq_prompt():
 @main_bp.route('/api/preferences/workiq-connect-impact', methods=['POST'])
 def update_workiq_connect_impact():
     """Update the Connect impact extraction preference."""
-    user_id = g.user.id if g.user.is_authenticated else 1
     data = request.get_json()
     enabled = bool(data.get('workiq_connect_impact', True))
     
-    pref = UserPreference.query.filter_by(user_id=user_id).first()
+    pref = UserPreference.query.first()
     if not pref:
-        pref = UserPreference(user_id=user_id)
+        pref = UserPreference()
         db.session.add(pref)
     
     pref.workiq_connect_impact = enabled

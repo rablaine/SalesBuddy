@@ -14,8 +14,7 @@ topics_bp = Blueprint('topics', __name__)
 @topics_bp.route('/topics')
 def topics_list():
     """List all topics (FR009)."""
-    user_id = g.user.id if g.user.is_authenticated else 1
-    pref = UserPreference.query.filter_by(user_id=user_id).first()
+    pref = UserPreference.query.first()
     
     # Load topics with eager loading
     topics = Topic.query.options(db.joinedload(Topic.call_logs)).all()
@@ -50,8 +49,7 @@ def topic_create():
         
         topic = Topic(
             name=name,
-            description=description if description else None,
-            user_id=g.user.id)
+            description=description if description else None)
         db.session.add(topic)
         db.session.commit()
         
@@ -141,7 +139,7 @@ def api_topic_create():
         }), 200
     
     # Create new topic
-    topic = Topic(name=name, description=None, user_id=g.user.id)
+    topic = Topic(name=name, description=None)
     db.session.add(topic)
     db.session.commit()
     

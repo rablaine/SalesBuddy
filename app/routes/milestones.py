@@ -45,7 +45,6 @@ def milestone_create():
         milestone = Milestone(
             url=url,
             title=title,
-            user_id=g.user.id
         )
         db.session.add(milestone)
         db.session.commit()
@@ -224,7 +223,6 @@ def api_find_or_create_milestone():
         milestone = Milestone(
             url=url,
             title=None,
-            user_id=g.user.id
         )
         db.session.add(milestone)
         db.session.commit()
@@ -285,12 +283,10 @@ def api_sync_milestones():
         sync_all_customer_milestones_stream,
     )
 
-    user_id = g.user.id
-
     # SSE streaming path
     if 'text/event-stream' in request.headers.get('Accept', ''):
         def generate():
-            yield from sync_all_customer_milestones_stream(user_id)
+            yield from sync_all_customer_milestones_stream()
 
         return Response(
             stream_with_context(generate()),
@@ -303,7 +299,7 @@ def api_sync_milestones():
 
     # JSON fallback for non-SSE clients
     try:
-        results = sync_all_customer_milestones(user_id=user_id)
+        results = sync_all_customer_milestones()
         status_code = 200 if results["success"] else 207
         return jsonify(results), status_code
     except Exception as e:
@@ -334,7 +330,7 @@ def api_sync_customer_milestones(customer_id):
         }), 400
     
     try:
-        result = sync_customer_milestones(customer, user_id=g.user.id)
+        result = sync_customer_milestones(customer)
         return jsonify(result)
     except Exception as e:
         logger.exception(f"Milestone sync failed for customer {customer_id}")

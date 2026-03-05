@@ -32,15 +32,12 @@ ACTIVE_STATUSES = {'On Track', 'At Risk', 'Blocked'}
 _MILESTONE_WORKERS = 3
 
 
-def sync_all_customer_milestones(user_id: int) -> Dict[str, Any]:
+def sync_all_customer_milestones() -> Dict[str, Any]:
     """
     Sync active milestones from MSX for all customers with a tpid_url.
     
     Loops through every customer that has an MSX account link (tpid_url),
     fetches their milestones from MSX, and upserts into the local database.
-    
-    Args:
-        user_id: The user ID to associate with new milestones.
         
     Returns:
         Dict with sync results:
@@ -92,7 +89,7 @@ def sync_all_customer_milestones(user_id: int) -> Dict[str, Any]:
             break
 
         try:
-            customer_result = sync_customer_milestones(customer, user_id)
+            customer_result = sync_customer_milestones(customer)
             
             if customer_result["success"]:
                 results["customers_synced"] += 1
@@ -172,7 +169,6 @@ def _ms_fetch_worker(
 
 
 def sync_all_customer_milestones_stream(
-    user_id: int,
 ) -> Generator[str, None, None]:
     """
     Stream milestone sync progress as Server-Sent Events.
@@ -185,9 +181,6 @@ def sync_all_customer_milestones_stream(
         - progress: per-customer fetch/write result
         - vpn_blocked: VPN block detected
         - complete: final summary (includes opportunities_created)
-
-    Args:
-        user_id: The user ID to associate with new milestones.
     """
     start_time = _time.time()
 
@@ -318,7 +311,7 @@ def sync_all_customer_milestones_stream(
 
         try:
             wr = _apply_customer_milestones(
-                customer, fetch_data.get('milestones', []), user_id
+                customer, fetch_data.get('milestones', [])
             )
             if wr['success']:
                 synced += 1
@@ -385,7 +378,6 @@ def _sse_event(event_type: str, data: Dict[str, Any]) -> str:
 
 def sync_customer_milestones(
     customer: Customer,
-    user_id: int,
 ) -> Dict[str, Any]:
     """
     Sync milestones from MSX for a single customer.
@@ -396,7 +388,6 @@ def sync_customer_milestones(
     
     Args:
         customer: The Customer model instance.
-        user_id: The user ID to associate with new milestones.
         
     Returns:
         Dict with:
@@ -415,7 +406,7 @@ def sync_customer_milestones(
             "error": fetch_result.get("error", "Unknown MSX error"),
         }
     return _apply_customer_milestones(
-        customer, fetch_result.get("milestones", []), user_id
+        customer, fetch_result.get("milestones", [])
     )
 
 
@@ -442,7 +433,6 @@ def _fetch_customer_milestones(customer: Customer) -> Dict[str, Any]:
 def _apply_customer_milestones(
     customer: Customer,
     msx_milestones: List[Dict[str, Any]],
-    user_id: int,
 ) -> Dict[str, Any]:
     """
     Write pre-fetched milestone data to DB for a single customer.
@@ -457,7 +447,6 @@ def _apply_customer_milestones(
     Args:
         customer: The Customer model instance.
         msx_milestones: List of milestone dicts from MSX API.
-        user_id: The user ID to associate with new records.
 
     Returns:
         Dict with success, created, updated, deactivated,
@@ -501,7 +490,7 @@ def _apply_customer_milestones(
 
             # Upsert the parent Opportunity using pre-loaded map
             opportunity, opp_is_new = _upsert_opportunity(
-                msx_ms, customer.id, user_id, existing_opps_map
+                msx_ms, customer.id, existing_opps_map
             )
             if opp_is_new:
                 result["opportunities_created"] += 1
@@ -516,7 +505,7 @@ def _apply_customer_milestones(
                 result["updated"] += 1
             else:
                 milestone = _create_milestone_from_msx(
-                    msx_ms, customer.id, user_id, due_date, now,
+                    msx_ms, customer.id, due_date, now,
                 )
                 if opportunity:
                     milestone.opportunity = opportunity
@@ -572,7 +561,6 @@ def _update_milestone_from_msx(
 def _create_milestone_from_msx(
     msx_data: Dict[str, Any],
     customer_id: int,
-    user_id: int,
     due_date: Optional[datetime],
     now: datetime,
 ) -> Milestone:
@@ -591,14 +579,12 @@ def _create_milestone_from_msx(
         dollar_value=msx_data.get("dollar_value"),
         last_synced_at=now,
         customer_id=customer_id,
-        user_id=user_id,
     )
 
 
 def _upsert_opportunity(
     msx_data: Dict[str, Any],
     customer_id: int,
-    user_id: int,
     existing_opps_map: Optional[Dict[str, Opportunity]] = None,
 ) -> Tuple[Optional[Opportunity], bool]:
     """
@@ -613,7 +599,6 @@ def _upsert_opportunity(
     Args:
         msx_data: Milestone dict from MSX API (contains msx_opportunity_id, opportunity_name).
         customer_id: The customer this opportunity belongs to.
-        user_id: The user ID for new records.
         existing_opps_map: Optional pre-loaded {msx_opportunity_id: Opportunity} dict.
             If provided, new opportunities are also added to this map.
         
@@ -642,7 +627,6 @@ def _upsert_opportunity(
             msx_opportunity_id=msx_opp_id,
             name=opp_name,
             customer_id=customer_id,
-            user_id=user_id,
         )
         db.session.add(opportunity)
         # Track in map so later milestones sharing this opportunity find it

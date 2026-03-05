@@ -132,7 +132,7 @@ def test_territory_view_accounts(client, sample_data, app):
     
     with app.app_context():
         # Set preference to show accounts view
-        pref = UserPreference.query.filter_by(user_id=1).first()
+        pref = UserPreference.query.first()
         pref.territory_view_accounts = True
         db.session.commit()
     
@@ -235,8 +235,7 @@ def test_customers_list_filters_without_calls(client, sample_data):
     # Create a customer without any call logs
     customer = Customer(
         name='Empty Customer',
-        tpid=9999,
-        user_id=1
+        tpid=9999
     )
     db.session.add(customer)
     db.session.commit()
