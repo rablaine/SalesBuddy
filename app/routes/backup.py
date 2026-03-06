@@ -3,7 +3,6 @@ Backup routes -- admin panel endpoints for file-based call log backup.
 
 Provides:
 - Status API (enabled, path, file count)
-- Enable / disable / configure path
 - Backup-all trigger
 - DR restore from JSON file
 """
@@ -16,14 +15,14 @@ from datetime import datetime, timezone
 from flask import Blueprint, g, jsonify, request
 
 from app.services.backup import (
+    _get_backup_root,
+    _load_db_backup_config,
     backup_all_customers,
     detect_onedrive_paths,
     find_backup_folder,
     get_auto_detected_backup_path,
-    load_config,
     restore_all_from_folder,
     restore_from_backup,
-    save_config,
 )
 
 logger = logging.getLogger(__name__)
@@ -53,53 +52,28 @@ def backup_detect_onedrive():
 
 @backup_bp.route("/api/backup/status")
 def backup_status():
-    """Return backup status for the admin panel."""
-    config = load_config()
+    """Return backup status for the admin panel.
+
+    Backups are automatically enabled when a OneDrive for Business path
+    is configured in ``backup_config.json`` or auto-detected.  There is
+    no separate enable/disable toggle.
+    """
+    backup_root = _get_backup_root()
+    enabled = backup_root is not None
 
     # Count .json files in the call_logs subfolder
     file_count = 0
-    call_logs_dir = os.path.join(config.get("backup_path", ""), "call_logs")
-    if os.path.isdir(call_logs_dir):
-        for root, _dirs, files in os.walk(call_logs_dir):
-            file_count += sum(1 for f in files if f.endswith(".json"))
+    if backup_root:
+        call_logs_dir = os.path.join(backup_root, "call_logs")
+        if os.path.isdir(call_logs_dir):
+            for root, _dirs, files in os.walk(call_logs_dir):
+                file_count += sum(1 for f in files if f.endswith(".json"))
 
     return jsonify({
-        "enabled": config.get("enabled", False),
-        "backup_path": config.get("backup_path", ""),
+        "enabled": enabled,
+        "backup_path": backup_root or "",
         "file_count": file_count,
     })
-
-
-@backup_bp.route("/api/backup/enable", methods=["POST"])
-def backup_enable():
-    """Enable file backup with the given path."""
-    data = request.get_json(silent=True) or {}
-    backup_path = data.get("backup_path", "").strip()
-
-    if not backup_path:
-        return jsonify({"success": False, "error": "Backup path is required"}), 400
-
-    # Validate the path exists (or can be created)
-    try:
-        os.makedirs(backup_path, exist_ok=True)
-    except OSError as exc:
-        return jsonify({"success": False, "error": f"Invalid path: {exc}"}), 400
-
-    config = load_config()
-    config["backup_path"] = backup_path
-    config["enabled"] = True
-    save_config(config)
-
-    return jsonify({"success": True, "backup_path": backup_path})
-
-
-@backup_bp.route("/api/backup/disable", methods=["POST"])
-def backup_disable():
-    """Disable file backup (leaves existing files intact)."""
-    config = load_config()
-    config["enabled"] = False
-    save_config(config)
-    return jsonify({"success": True})
 
 
 # -------------------------------------------------------------------------
@@ -109,9 +83,8 @@ def backup_disable():
 @backup_bp.route("/api/backup/backup-all", methods=["POST"])
 def backup_all():
     """Write backup files for all customers with call logs."""
-    config = load_config()
-    if not config.get("enabled"):
-        return jsonify({"success": False, "error": "Backup is not enabled"}), 400
+    if not _get_backup_root():
+        return jsonify({"success": False, "error": "No backup location available"}), 400
 
     result = backup_all_customers()
     return jsonify({"success": True, **result})

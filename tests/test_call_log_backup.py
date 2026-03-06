@@ -2,10 +2,9 @@
 Tests for the file-based call log backup system.
 
 Covers:
-- JSON config file (load_config / save_config)
 - backup.py service functions (_sanitize_folder_name, _customer_to_dict,
   backup_customer, backup_all_customers, restore_from_backup)
-- backup routes (status, enable, disable, backup-all, restore)
+- backup routes (status, backup-all, restore)
 - call_logs.py integration hooks
 """
 
@@ -28,19 +27,17 @@ from app.models import (
     db,
 )
 from app.services.backup import (
-    _config_path,
     _customer_to_dict,
     _get_backup_root,
+    _load_db_backup_config,
     _sanitize_folder_name,
     backup_all_customers,
     backup_customer,
     detect_onedrive_paths,
     find_backup_folder,
     get_auto_detected_backup_path,
-    load_config,
     restore_all_from_folder,
     restore_from_backup,
-    save_config,
 )
 
 
@@ -57,15 +54,12 @@ def backup_dir():
 
 @pytest.fixture
 def backup_config(app, backup_dir, monkeypatch):
-    """Write an enabled JSON config pointing at the temp directory."""
-    cfg_file = Path(backup_dir) / "call_log_backup_config.json"
-    cfg_data = {"enabled": True, "backup_path": backup_dir}
-    cfg_file.write_text(json.dumps(cfg_data), encoding="utf-8")
-    monkeypatch.setattr("app.services.backup._config_path", lambda: cfg_file)
+    """Stub _load_db_backup_config to return a config pointing at the temp dir."""
+    cfg_data = {"enabled": True, "backup_dir": backup_dir}
+    monkeypatch.setattr(
+        "app.services.backup._load_db_backup_config", lambda: cfg_data
+    )
     yield cfg_data
-    # Cleanup: remove the config file
-    if cfg_file.exists():
-        cfg_file.unlink()
 
 
 @pytest.fixture
@@ -160,9 +154,14 @@ class TestSanitizeFolderName:
 class TestGetBackupRoot:
     """Tests for _get_backup_root config lookup."""
 
-    def test_returns_none_when_no_config(self, app, tmp_path, monkeypatch):
-        cfg_file = tmp_path / "call_log_backup_config.json"
-        monkeypatch.setattr("app.services.backup._config_path", lambda: cfg_file)
+    def test_returns_none_when_no_config(self, app, monkeypatch):
+        monkeypatch.setattr(
+            "app.services.backup._load_db_backup_config",
+            lambda: {"enabled": False, "backup_dir": ""},
+        )
+        monkeypatch.setattr(
+            "app.services.backup.get_auto_detected_backup_path", lambda: None
+        )
         with app.app_context():
             assert _get_backup_root() is None
 
@@ -172,10 +171,14 @@ class TestGetBackupRoot:
             assert root is not None
             assert root == backup_dir
 
-    def test_returns_none_when_disabled(self, app, backup_dir, tmp_path, monkeypatch):
-        cfg_file = tmp_path / "call_log_backup_config.json"
-        cfg_file.write_text(json.dumps({"enabled": False, "backup_path": backup_dir}))
-        monkeypatch.setattr("app.services.backup._config_path", lambda: cfg_file)
+    def test_returns_none_when_disabled(self, app, backup_dir, monkeypatch):
+        monkeypatch.setattr(
+            "app.services.backup._load_db_backup_config",
+            lambda: {"enabled": False, "backup_dir": backup_dir},
+        )
+        monkeypatch.setattr(
+            "app.services.backup.get_auto_detected_backup_path", lambda: None
+        )
         with app.app_context():
             assert _get_backup_root() is None
 
@@ -245,9 +248,14 @@ class TestBackupCustomer:
             assert data["_notehelper_backup"] is True
             assert data["customer"]["tpid"] == 99999
 
-    def test_returns_false_when_disabled(self, app, customer_with_logs, tmp_path, monkeypatch):
-        cfg_file = tmp_path / "call_log_backup_config.json"
-        monkeypatch.setattr("app.services.backup._config_path", lambda: cfg_file)
+    def test_returns_false_when_disabled(self, app, customer_with_logs, monkeypatch):
+        monkeypatch.setattr(
+            "app.services.backup._load_db_backup_config",
+            lambda: {"enabled": False, "backup_dir": ""},
+        )
+        monkeypatch.setattr(
+            "app.services.backup.get_auto_detected_backup_path", lambda: None
+        )
         with app.app_context():
             result = backup_customer(customer_with_logs["customer_id"])
             assert result is False
@@ -342,9 +350,14 @@ class TestBackupAllCustomers:
             db.session.delete(seller)
             db.session.commit()
 
-    def test_returns_error_when_disabled(self, app, tmp_path, monkeypatch):
-        cfg_file = tmp_path / "call_log_backup_config.json"
-        monkeypatch.setattr("app.services.backup._config_path", lambda: cfg_file)
+    def test_returns_error_when_disabled(self, app, monkeypatch):
+        monkeypatch.setattr(
+            "app.services.backup._load_db_backup_config",
+            lambda: {"enabled": False, "backup_dir": ""},
+        )
+        monkeypatch.setattr(
+            "app.services.backup.get_auto_detected_backup_path", lambda: None
+        )
         with app.app_context():
             result = backup_all_customers()
             assert result["backed_up"] == 0
@@ -489,61 +502,35 @@ class TestRestoreFromBackup:
 class TestBackupRoutes:
     """Tests for backup API endpoints."""
 
-    def test_status_when_disabled(self, client, app, tmp_path, monkeypatch):
-        cfg_file = tmp_path / "call_log_backup_config.json"
-        monkeypatch.setattr("app.services.backup._config_path", lambda: cfg_file)
+    def test_status_when_disabled(self, client, app, monkeypatch):
+        monkeypatch.setattr(
+            "app.services.backup._load_db_backup_config",
+            lambda: {"enabled": False, "backup_dir": ""},
+        )
+        monkeypatch.setattr(
+            "app.services.backup.get_auto_detected_backup_path", lambda: None
+        )
         resp = client.get("/api/backup/status")
         assert resp.status_code == 200
         data = resp.get_json()
         assert data["enabled"] is False
 
-    def test_enable_creates_config(self, client, app, backup_dir, tmp_path, monkeypatch):
-        cfg_file = tmp_path / "call_log_backup_config.json"
-        monkeypatch.setattr("app.services.backup._config_path", lambda: cfg_file)
-
-        resp = client.post(
-            "/api/backup/enable",
-            json={"backup_path": backup_dir},
-            content_type="application/json",
+    def test_backup_all_when_disabled(self, client, app, monkeypatch):
+        monkeypatch.setattr(
+            "app.services.backup._load_db_backup_config",
+            lambda: {"enabled": False, "backup_dir": ""},
         )
-        assert resp.status_code == 200
-        data = resp.get_json()
-        assert data["success"] is True
-        assert data["backup_path"] == backup_dir
-
-        resp2 = client.get("/api/backup/status")
-        assert resp2.get_json()["enabled"] is True
-
-    def test_enable_requires_path(self, client):
-        resp = client.post(
-            "/api/backup/enable",
-            json={"backup_path": ""},
-            content_type="application/json",
+        monkeypatch.setattr(
+            "app.services.backup.get_auto_detected_backup_path", lambda: None
         )
-        assert resp.status_code == 400
-
-    def test_disable(self, client, app, backup_dir, tmp_path, monkeypatch):
-        cfg_file = tmp_path / "call_log_backup_config.json"
-        cfg_file.write_text(json.dumps({"enabled": True, "backup_path": backup_dir}))
-        monkeypatch.setattr("app.services.backup._config_path", lambda: cfg_file)
-
-        resp = client.post("/api/backup/disable")
-        assert resp.status_code == 200
-        assert resp.get_json()["success"] is True
-
-        resp2 = client.get("/api/backup/status")
-        assert resp2.get_json()["enabled"] is False
-
-    def test_backup_all_when_disabled(self, client, app, tmp_path, monkeypatch):
-        cfg_file = tmp_path / "call_log_backup_config.json"
-        monkeypatch.setattr("app.services.backup._config_path", lambda: cfg_file)
         resp = client.post("/api/backup/backup-all")
         assert resp.status_code == 400
 
-    def test_backup_all_success(self, client, app, backup_dir, sample_data, tmp_path, monkeypatch):
-        cfg_file = tmp_path / "call_log_backup_config.json"
-        cfg_file.write_text(json.dumps({"enabled": True, "backup_path": backup_dir}))
-        monkeypatch.setattr("app.services.backup._config_path", lambda: cfg_file)
+    def test_backup_all_success(self, client, app, backup_dir, sample_data, monkeypatch):
+        monkeypatch.setattr(
+            "app.services.backup._load_db_backup_config",
+            lambda: {"enabled": True, "backup_dir": backup_dir},
+        )
 
         resp = client.post("/api/backup/backup-all")
         assert resp.status_code == 200
@@ -609,11 +596,12 @@ class TestBackupRoutes:
         )
         assert resp.status_code == 404
 
-    def test_status_counts_files(self, client, app, backup_dir, tmp_path, monkeypatch):
+    def test_status_counts_files(self, client, app, backup_dir, monkeypatch):
         """Verify file_count reflects actual JSON files on disk."""
-        cfg_file = tmp_path / "call_log_backup_config.json"
-        cfg_file.write_text(json.dumps({"enabled": True, "backup_path": backup_dir}))
-        monkeypatch.setattr("app.services.backup._config_path", lambda: cfg_file)
+        monkeypatch.setattr(
+            "app.services.backup._load_db_backup_config",
+            lambda: {"enabled": True, "backup_dir": backup_dir},
+        )
 
         cl_dir = os.path.join(backup_dir, "call_logs", "Some Seller")
         os.makedirs(cl_dir, exist_ok=True)
@@ -632,11 +620,12 @@ class TestBackupRoutes:
 class TestCallLogBackupHooks:
     """Verify that call log CRUD triggers a backup write."""
 
-    def test_create_call_log_triggers_backup(self, client, app, backup_dir, sample_data, tmp_path, monkeypatch):
+    def test_create_call_log_triggers_backup(self, client, app, backup_dir, sample_data, monkeypatch):
         """Creating a call log should write a backup file."""
-        cfg_file = tmp_path / "call_log_backup_config.json"
-        cfg_file.write_text(json.dumps({"enabled": True, "backup_path": backup_dir}))
-        monkeypatch.setattr("app.services.backup._config_path", lambda: cfg_file)
+        monkeypatch.setattr(
+            "app.services.backup._load_db_backup_config",
+            lambda: {"enabled": True, "backup_dir": backup_dir},
+        )
 
         resp = client.post(
             "/call-log/new",
@@ -653,10 +642,15 @@ class TestCallLogBackupHooks:
         filepath = os.path.join(backup_dir, "call_logs", "Alice Smith", "1001.json")
         assert os.path.isfile(filepath), f"Expected backup at {filepath}"
 
-    def test_backup_not_written_when_disabled(self, client, app, backup_dir, sample_data, tmp_path, monkeypatch):
+    def test_backup_not_written_when_disabled(self, client, app, backup_dir, sample_data, monkeypatch):
         """No backup file when feature is off."""
-        cfg_file = tmp_path / "call_log_backup_config.json"
-        monkeypatch.setattr("app.services.backup._config_path", lambda: cfg_file)
+        monkeypatch.setattr(
+            "app.services.backup._load_db_backup_config",
+            lambda: {"enabled": False, "backup_dir": ""},
+        )
+        monkeypatch.setattr(
+            "app.services.backup.get_auto_detected_backup_path", lambda: None
+        )
 
         client.post(
             "/call-log/new",
@@ -845,10 +839,10 @@ class TestFindBackupFolder:
         """Should return None when no call_logs folder exists anywhere."""
         with app.app_context():
             # Config pointing at dir with no call_logs subfolder
-            cfg_file = Path(backup_dir) / "call_log_backup_config.json"
-            cfg_data = {"enabled": True, "backup_path": backup_dir}
-            cfg_file.write_text(json.dumps(cfg_data), encoding="utf-8")
-            monkeypatch.setattr("app.services.backup._config_path", lambda: cfg_file)
+            monkeypatch.setattr(
+                "app.services.backup._load_db_backup_config",
+                lambda: {"enabled": True, "backup_dir": backup_dir},
+            )
 
             # Stub out all OneDrive detection so real machine paths don't leak in
             monkeypatch.setattr(

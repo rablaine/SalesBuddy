@@ -5,9 +5,10 @@ Writes per-customer JSON files organized by seller name into a OneDrive-synced
 folder.  OneDrive handles cloud sync transparently, giving us RPO=0 backups
 with zero external API calls.
 
-Configuration lives in ``data/call_log_backup_config.json`` (separate from the
-database backup config).  This keeps the call log backup settings outside the
-database so they survive a DB restore.
+The backup path is derived automatically from ``data/backup_config.json``
+(the DB backup config written by ``scripts/server.ps1``) or auto-detected
+from OneDrive for Business.  There is no separate call-log-specific config
+file -- if DB backups are configured, call log backups use the same path.
 
 Folder structure::
 
@@ -39,50 +40,63 @@ _CALL_LOGS_DIR = "call_logs"
 # Subfolder name we look for to auto-select a OneDrive path
 _NOTEHELPER_BACKUPS_DIR = "NoteHelper_Backups"
 
-# Config file path (relative to project root / data dir)
-_CONFIG_FILENAME = "call_log_backup_config.json"
+# DB backup config filename (written by scripts/server.ps1 and backup.ps1)
+_DB_BACKUP_CONFIG = "backup_config.json"
 
 
-def _config_path() -> Path:
-    """Return the absolute path to the call log backup config file."""
-    # app/ is one level down from project root; data/ is at project root
-    project_root = Path(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    return project_root / "data" / _CONFIG_FILENAME
+def _db_backup_config_path() -> Path:
+    """Return the absolute path to the DB backup config file."""
+    project_root = Path(os.path.abspath(__file__)).parent.parent.parent
+    return project_root / "data" / _DB_BACKUP_CONFIG
 
 
-def load_config() -> Dict[str, Any]:
-    """Load call log backup config from JSON, returning defaults if missing."""
-    defaults: Dict[str, Any] = {
-        "enabled": False,
-        "backup_path": "",
-    }
-    path = _config_path()
+def _load_db_backup_config() -> Dict[str, Any]:
+    """Load the DB backup config (written by scripts/server.ps1).
+
+    Returns a dict with at least ``enabled`` and ``backup_dir`` keys.
+    """
+    path = _db_backup_config_path()
     if path.exists():
         try:
             with open(path, "r", encoding="utf-8-sig") as f:
-                config = json.load(f)
-            for key, val in defaults.items():
-                if key not in config:
-                    config[key] = val
-            return config
+                return json.load(f)
         except (json.JSONDecodeError, OSError):
             pass
-    return defaults
-
-
-def save_config(config: Dict[str, Any]) -> None:
-    """Persist call log backup config to JSON."""
-    path = _config_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(config, f, indent=2)
+    return {"enabled": False, "backup_dir": ""}
 
 
 # ---------------------------------------------------------------------------
 # OneDrive auto-detection
 # ---------------------------------------------------------------------------
 
-def detect_onedrive_paths() -> List[Dict[str, Any]]:
+# Folder names that indicate a *personal* (consumer) OneDrive.  Business
+# OneDrive folders are typically "OneDrive - {OrgName}".
+_PERSONAL_ONEDRIVE_NAMES = {"onedrive", "onedrive - personal"}
+
+
+def _is_business_path(path: str, source: str) -> bool:
+    """Return True if *path* looks like a OneDrive for Business folder.
+
+    Heuristics:
+    - ``OneDriveCommercial`` env var and registry ``Business1`` are always
+      business.
+    - Folder names that are just "OneDrive" or "OneDrive - Personal" are
+      personal.
+    - "OneDrive - {OrgName}" (e.g. "OneDrive - Microsoft") is business.
+    """
+    if source in ("OneDriveCommercial env var", "Registry (Business1)"):
+        return True
+    basename = os.path.basename(path).lower().strip()
+    if basename in _PERSONAL_ONEDRIVE_NAMES:
+        return False
+    # "OneDrive - <something>" where <something> is not "Personal"
+    if basename.startswith("onedrive - "):
+        return True
+    # Bare "onedrive" caught above; anything else is ambiguous -- reject
+    return False
+
+
+def detect_onedrive_paths(*, business_only: bool = True) -> List[Dict[str, Any]]:
     """Detect OneDrive folder paths on this machine.
 
     Uses the same priority order as ``scripts/backup.ps1``:
@@ -95,9 +109,14 @@ def detect_onedrive_paths() -> List[Dict[str, Any]]:
     already exists inside it, which lets the caller auto-select if there's
     an obvious winner.
 
+    Args:
+        business_only: When True (default), only return OneDrive for Business
+            paths.  Personal OneDrive folders are excluded.
+
     Returns:
-        List of dicts with keys: ``path``, ``source``, ``has_backups``,
-        ``suggested_path``.  Sorted so paths with existing backups come first.
+        List of dicts with keys: ``path``, ``source``, ``is_business``,
+        ``has_backups``, ``suggested_path``.  Sorted so paths with existing
+        backups come first.
     """
     seen: set[str] = set()
     candidates: List[Dict[str, Any]] = []
@@ -109,10 +128,14 @@ def detect_onedrive_paths() -> List[Dict[str, Any]]:
         if not os.path.isdir(normalized):
             return
         seen.add(normalized)
+        is_biz = _is_business_path(normalized, source)
+        if business_only and not is_biz:
+            return
         suggested = os.path.join(normalized, _NOTEHELPER_BACKUPS_DIR)
         candidates.append({
             "path": normalized,
             "source": source,
+            "is_business": is_biz,
             "has_backups": os.path.isdir(suggested),
             "suggested_path": suggested,
         })
@@ -178,15 +201,50 @@ def get_auto_detected_backup_path() -> Optional[str]:
     return None
 
 
-def _get_backup_root() -> Optional[str]:
-    """Return the configured backup root path, or None if disabled.
+def is_business_onedrive_path(path: str) -> bool:
+    """Return True if *path* lives under a OneDrive for Business folder.
 
-    Reads from the JSON config file.
+    Walks up the directory tree looking for a folder whose name matches
+    the business pattern (``OneDrive - {OrgName}``), or checks whether the
+    path matches any known business candidate from detection.
     """
-    config = load_config()
-    if config.get("enabled") and config.get("backup_path"):
-        return config["backup_path"]
-    return None
+    normalized = os.path.normpath(path)
+
+    # Quick check: does the path sit under any detected business candidate?
+    for candidate in detect_onedrive_paths(business_only=True):
+        if normalized.lower().startswith(candidate["path"].lower()):
+            return True
+
+    # Walk up to check folder names (covers manual input)
+    parts = Path(normalized).parts
+    for part in parts:
+        lower = part.lower().strip()
+        if lower.startswith("onedrive"):
+            return _is_business_path(
+                os.path.join(*parts[:parts.index(part) + 1]),
+                "Path inspection",
+            )
+
+    return False
+
+
+def _get_backup_root() -> Optional[str]:
+    """Return the backup root path, or None if no backup location is available.
+
+    Resolution order:
+    1. ``backup_config.json`` -- the DB backup config written by
+       ``scripts/server.ps1``.  If ``enabled`` is true and ``backup_dir``
+       is set, use that.
+    2. Auto-detect from OneDrive for Business (``get_auto_detected_backup_path``).
+
+    No separate call-log config file is needed.
+    """
+    db_cfg = _load_db_backup_config()
+    if db_cfg.get("enabled") and db_cfg.get("backup_dir"):
+        return db_cfg["backup_dir"]
+
+    # Fallback: auto-detect
+    return get_auto_detected_backup_path()
 
 
 def _sanitize_folder_name(name: str) -> str:
@@ -351,21 +409,14 @@ def find_backup_folder() -> Optional[str]:
     Returns:
         Absolute path to the ``call_logs`` subfolder, or None if not found.
     """
-    # 1. Try configured backup path
-    config = load_config()
-    if config.get("backup_path"):
-        call_logs_dir = os.path.join(config["backup_path"], _CALL_LOGS_DIR)
+    # 1. Try _get_backup_root (reads backup_config.json, then auto-detects)
+    backup_root = _get_backup_root()
+    if backup_root:
+        call_logs_dir = os.path.join(backup_root, _CALL_LOGS_DIR)
         if os.path.isdir(call_logs_dir):
             return call_logs_dir
 
-    # 2. Auto-detect from OneDrive
-    auto_path = get_auto_detected_backup_path()
-    if auto_path:
-        call_logs_dir = os.path.join(auto_path, _CALL_LOGS_DIR)
-        if os.path.isdir(call_logs_dir):
-            return call_logs_dir
-
-    # 3. Walk all candidates
+    # 2. Walk all candidates as last resort
     for candidate in detect_onedrive_paths():
         call_logs_dir = os.path.join(candidate["suggested_path"], _CALL_LOGS_DIR)
         if os.path.isdir(call_logs_dir):

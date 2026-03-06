@@ -87,20 +87,16 @@ function Save-BackupConfig {
 function Find-OneDrivePath {
     <#
     .SYNOPSIS
-    Detect the corporate OneDrive folder path.
-    Checks: $env:OneDriveCommercial > $env:OneDrive > registry > folder scan
+    Detect the corporate (business) OneDrive folder path.
+    Only returns OneDrive for Business paths, not personal OneDrive.
+    Checks: $env:OneDriveCommercial > registry Business1 > folder scan (business names only)
     #>
-    # Priority 1: OneDriveCommercial env var (corporate accounts)
+    # Priority 1: OneDriveCommercial env var (always corporate)
     if ($env:OneDriveCommercial -and (Test-Path $env:OneDriveCommercial)) {
         return $env:OneDriveCommercial
     }
 
-    # Priority 2: OneDrive env var
-    if ($env:OneDrive -and (Test-Path $env:OneDrive)) {
-        return $env:OneDrive
-    }
-
-    # Priority 3: Registry (Business1 account)
+    # Priority 2: Registry Business1 account (always corporate)
     try {
         $regPath = "HKCU:\Software\Microsoft\OneDrive\Accounts\Business1"
         if (Test-Path $regPath) {
@@ -109,12 +105,14 @@ function Find-OneDrivePath {
         }
     } catch {}
 
-    # Priority 4: Scan user profile for OneDrive folders
+    # Priority 3: Scan user profile for business OneDrive folders
+    # Business = "OneDrive - <OrgName>", Personal = bare "OneDrive" or "OneDrive - Personal"
+    $personalNames = @('OneDrive', 'OneDrive - Personal')
     $candidates = Get-ChildItem $env:USERPROFILE -Directory -ErrorAction SilentlyContinue |
-        Where-Object { $_.Name -match '^OneDrive' } |
-        Sort-Object { $_.Name.Length } -Descending  # "OneDrive - Microsoft" before "OneDrive"
+        Where-Object { $_.Name -match '^OneDrive' -and $_.Name -notin $personalNames }
     if ($candidates) {
-        return $candidates[0].FullName
+        return ($candidates | Sort-Object { $_.Name.Length } -Descending |
+            Select-Object -First 1).FullName
     }
 
     return $null

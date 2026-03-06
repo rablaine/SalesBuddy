@@ -11,6 +11,166 @@ from unittest.mock import patch
 
 import pytest
 
+from app.services.backup import (
+    _is_business_path,
+    detect_onedrive_paths,
+    is_business_onedrive_path,
+)
+
+
+# =========================================================================
+# OneDrive for Business enforcement
+# =========================================================================
+
+class TestIsBusinessPath:
+    """Unit tests for _is_business_path heuristic."""
+
+    def test_onedrive_commercial_env_is_business(self):
+        assert _is_business_path(
+            r"C:\Users\test\OneDrive - Contoso", "OneDriveCommercial env var"
+        ) is True
+
+    def test_registry_business1_is_business(self):
+        assert _is_business_path(
+            r"C:\Users\test\OneDrive - Contoso", "Registry (Business1)"
+        ) is True
+
+    def test_onedrive_with_org_name_is_business(self):
+        assert _is_business_path(
+            r"C:\Users\test\OneDrive - Microsoft", "Folder scan"
+        ) is True
+
+    def test_onedrive_with_org_name_is_business_other_source(self):
+        assert _is_business_path(
+            r"C:\Users\test\OneDrive - Acme Corp", "OneDrive env var"
+        ) is True
+
+    def test_plain_onedrive_is_personal(self):
+        assert _is_business_path(
+            r"C:\Users\test\OneDrive", "Folder scan"
+        ) is False
+
+    def test_onedrive_personal_is_personal(self):
+        assert _is_business_path(
+            r"C:\Users\test\OneDrive - Personal", "Folder scan"
+        ) is False
+
+    def test_onedrive_personal_case_insensitive(self):
+        assert _is_business_path(
+            r"C:\Users\test\OneDrive - personal", "OneDrive env var"
+        ) is False
+
+    def test_plain_onedrive_via_env_is_personal(self):
+        """Even if found via the OneDrive env var, bare 'OneDrive' is personal."""
+        assert _is_business_path(
+            r"C:\Users\test\OneDrive", "OneDrive env var"
+        ) is False
+
+
+class TestDetectOneDrivePathsFilter:
+    """Tests for the business_only filter on detect_onedrive_paths."""
+
+    def test_business_only_excludes_personal(self, tmp_path):
+        """Personal OneDrive dirs should be excluded when business_only=True."""
+        biz_dir = tmp_path / "OneDrive - Microsoft"
+        personal_dir = tmp_path / "OneDrive"
+        biz_dir.mkdir()
+        personal_dir.mkdir()
+
+        with patch.dict(os.environ, {
+            "OneDriveCommercial": str(biz_dir),
+            "OneDrive": str(personal_dir),
+            "USERPROFILE": str(tmp_path),
+        }), patch("app.services.backup.winreg") as mock_winreg:
+            mock_winreg.OpenKey.side_effect = OSError("no key")
+
+            results = detect_onedrive_paths(business_only=True)
+            paths = [c["path"] for c in results]
+            assert str(biz_dir) in paths
+            assert str(personal_dir) not in paths
+
+    def test_business_only_false_includes_all(self, tmp_path):
+        """When business_only=False, personal dirs should be included."""
+        biz_dir = tmp_path / "OneDrive - Microsoft"
+        personal_dir = tmp_path / "OneDrive"
+        biz_dir.mkdir()
+        personal_dir.mkdir()
+
+        with patch.dict(os.environ, {
+            "OneDriveCommercial": str(biz_dir),
+            "OneDrive": str(personal_dir),
+            "USERPROFILE": str(tmp_path),
+        }), patch("app.services.backup.winreg") as mock_winreg:
+            mock_winreg.OpenKey.side_effect = OSError("no key")
+
+            results = detect_onedrive_paths(business_only=False)
+            paths = [c["path"] for c in results]
+            assert str(biz_dir) in paths
+            assert str(personal_dir) in paths
+
+    def test_candidates_include_is_business_flag(self, tmp_path):
+        """Each candidate should have an is_business flag."""
+        biz_dir = tmp_path / "OneDrive - Contoso"
+        biz_dir.mkdir()
+
+        with patch.dict(os.environ, {
+            "OneDriveCommercial": str(biz_dir),
+            "OneDrive": "",
+            "USERPROFILE": str(tmp_path),
+        }), patch("app.services.backup.winreg") as mock_winreg:
+            mock_winreg.OpenKey.side_effect = OSError("no key")
+
+            results = detect_onedrive_paths(business_only=False)
+            for c in results:
+                assert "is_business" in c
+
+
+class TestIsBusinessOneDrivePath:
+    """Tests for the is_business_onedrive_path validation helper."""
+
+    def test_path_under_business_dir(self, tmp_path):
+        biz_dir = tmp_path / "OneDrive - Microsoft"
+        biz_dir.mkdir()
+        backup_path = biz_dir / "NoteHelper_Backups"
+        backup_path.mkdir()
+
+        with patch.dict(os.environ, {
+            "OneDriveCommercial": str(biz_dir),
+            "OneDrive": "",
+            "USERPROFILE": str(tmp_path),
+        }), patch("app.services.backup.winreg") as mock_winreg:
+            mock_winreg.OpenKey.side_effect = OSError("no key")
+
+            assert is_business_onedrive_path(str(backup_path)) is True
+
+    def test_path_under_personal_dir(self, tmp_path):
+        personal_dir = tmp_path / "OneDrive"
+        personal_dir.mkdir()
+        backup_path = personal_dir / "NoteHelper_Backups"
+        backup_path.mkdir()
+
+        with patch.dict(os.environ, {
+            "OneDriveCommercial": "",
+            "OneDrive": str(personal_dir),
+            "USERPROFILE": str(tmp_path),
+        }), patch("app.services.backup.winreg") as mock_winreg:
+            mock_winreg.OpenKey.side_effect = OSError("no key")
+
+            assert is_business_onedrive_path(str(backup_path)) is False
+
+    def test_random_local_path_rejected(self, tmp_path):
+        local_dir = tmp_path / "MyBackups"
+        local_dir.mkdir()
+
+        with patch.dict(os.environ, {
+            "OneDriveCommercial": "",
+            "OneDrive": "",
+            "USERPROFILE": str(tmp_path),
+        }), patch("app.services.backup.winreg") as mock_winreg:
+            mock_winreg.OpenKey.side_effect = OSError("no key")
+
+            assert is_business_onedrive_path(str(local_dir)) is False
+
 
 class TestBackupHelpers:
     """Tests for backup helper functions."""

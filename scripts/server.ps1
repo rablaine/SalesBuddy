@@ -67,6 +67,35 @@ function Install-WithWinget {
     return $false
 }
 
+# Detect OneDrive for Business folder (excludes personal OneDrive)
+function Find-OneDriveBusinessPath {
+    # Priority 1: OneDriveCommercial env var (always corporate)
+    if ($env:OneDriveCommercial -and (Test-Path $env:OneDriveCommercial)) {
+        return $env:OneDriveCommercial
+    }
+
+    # Priority 2: Registry Business1 account (always corporate)
+    try {
+        $regPath = "HKCU:\Software\Microsoft\OneDrive\Accounts\Business1"
+        if (Test-Path $regPath) {
+            $folder = (Get-ItemProperty $regPath -ErrorAction SilentlyContinue).UserFolder
+            if ($folder -and (Test-Path $folder)) { return $folder }
+        }
+    } catch {}
+
+    # Priority 3: Scan user profile for business OneDrive folders
+    # Business = "OneDrive - <OrgName>", Personal = bare "OneDrive" or "OneDrive - Personal"
+    $personalNames = @('OneDrive', 'OneDrive - Personal')
+    $candidates = Get-ChildItem $env:USERPROFILE -Directory -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -match '^OneDrive' -and $_.Name -notin $personalNames }
+    if ($candidates) {
+        return ($candidates | Sort-Object { $_.Name.Length } -Descending |
+            Select-Object -First 1).FullName
+    }
+
+    return $null
+}
+
 # Read .env file into a hashtable
 function Read-EnvFile {
     $config = @{}
@@ -396,7 +425,7 @@ if ($isGitRepo) {
     Write-Host "  [INFO] Git not available - update checking disabled." -ForegroundColor Gray
 }
 
-# -- Step 11: Check backup configuration --------------------------------------
+# -- Step 11: Check/configure backups ------------------------------------------
 $backupConfigFile = Join-Path $RepoRoot 'data\backup_config.json'
 $backupConfigExists = Test-Path $backupConfigFile
 $backupEnabled = $false
@@ -414,57 +443,92 @@ if ($backupConfigExists) {
     }
 }
 
-# Only prompt if the config file doesn't exist at all (never been asked).
-# If the file exists with enabled=false, the user explicitly declined - don't nag.
+# First run: auto-detect OneDrive for Business and enable backups without prompting.
+# If the config already exists (enabled or disabled), respect that -- don't override.
 if (-not $backupConfigExists -and -not $Force) {
-    Write-Host ""
-    Write-Host "  Automatic backups are not configured." -ForegroundColor Yellow
-    Write-Host "  Backups copy your database to OneDrive daily." -ForegroundColor Gray
-    $setupBackup = Read-Host "         Set up automatic backups now? (Y/n)"
-    if ($setupBackup -eq '' -or $setupBackup -eq 'Y' -or $setupBackup -eq 'y') {
-        $backupScript = Join-Path $PSScriptRoot 'backup.ps1'
-        & $backupScript -Setup
+    $businessOneDrive = Find-OneDriveBusinessPath
+    if ($businessOneDrive) {
+        $backupDir = Join-Path $businessOneDrive 'NoteHelper_Backups'
+        Write-Host ""
+        Write-Host "  Detected OneDrive for Business: $businessOneDrive" -ForegroundColor Green
+        Write-Host "  Enabling automatic backups -> $backupDir" -ForegroundColor Yellow
 
-        # Also enable call log backups into the same OneDrive folder.
-        # After backup.ps1 -Setup, backup_config.json has the backup_dir.
-        $callLogConfigFile = Join-Path $RepoRoot 'data\call_log_backup_config.json'
-        if (Test-Path $backupConfigFile) {
-            try {
-                $dbBackupCfg = Get-Content $backupConfigFile -Raw | ConvertFrom-Json
-                if ($dbBackupCfg.enabled -eq $true -and $dbBackupCfg.backup_dir) {
-                    $callLogConfig = @{
-                        enabled = $true
-                        backup_path = $dbBackupCfg.backup_dir
-                    } | ConvertTo-Json
-                    Set-Content -Path $callLogConfigFile -Value $callLogConfig -Encoding UTF8
-                    Write-Host "  [OK] Call log backups enabled -> $($dbBackupCfg.backup_dir)" -ForegroundColor Green
-                }
-            } catch {
-                Write-Host "  [WARNING] Could not configure call log backups." -ForegroundColor Yellow
-            }
+        # Create the backup directory
+        if (-not (Test-Path $backupDir)) {
+            New-Item -ItemType Directory -Path $backupDir -Force | Out-Null
         }
-    } else {
-        # Create config with enabled=false so we don't ask again
-        $declinedConfig = @{ enabled = $false } | ConvertTo-Json
+
+        # Save backup_config.json
         $dataDir = Join-Path $RepoRoot 'data'
         if (-not (Test-Path $dataDir)) { New-Item -ItemType Directory -Path $dataDir -Force | Out-Null }
-        Set-Content -Path $backupConfigFile -Value $declinedConfig
-        Write-Host "  [SKIP] You can set up backups later with: backup.bat" -ForegroundColor Gray
+        $newBackupConfig = @{
+            enabled        = $true
+            onedrive_path  = $businessOneDrive
+            backup_dir     = $backupDir
+            retention      = @{ daily = 7; weekly = 4; monthly = 3 }
+            last_backup    = $null
+            task_registered = $false
+        }
+        $newBackupConfig | ConvertTo-Json -Depth 3 | Set-Content $backupConfigFile -Encoding UTF8
+
+        # Register scheduled task for daily backups
+        $BackupTaskName = 'NoteHelper-DailyBackup'
+        $backupScript = Join-Path $PSScriptRoot 'backup.ps1'
+        $action = New-ScheduledTaskAction `
+            -Execute 'powershell.exe' `
+            -Argument "-ExecutionPolicy Bypass -WindowStyle Hidden -File `"$backupScript`" -Silent" `
+            -WorkingDirectory $RepoRoot
+        $trigger = New-ScheduledTaskTrigger -Daily -At '11:00AM'
+        $settings = New-ScheduledTaskSettingsSet `
+            -AllowStartIfOnBatteries `
+            -DontStopIfGoingOnBatteries `
+            -StartWhenAvailable `
+            -ExecutionTimeLimit (New-TimeSpan -Minutes 10)
+        Unregister-ScheduledTask -TaskName $BackupTaskName -Confirm:$false -ErrorAction SilentlyContinue
+
+        $taskRegistered = $false
+        try {
+            $principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType S4U -RunLevel Limited
+            Register-ScheduledTask `
+                -TaskName $BackupTaskName -Action $action -Trigger $trigger `
+                -Principal $principal -Settings $settings `
+                -Description 'Daily backup of NoteHelper database to OneDrive' `
+                -ErrorAction Stop | Out-Null
+            $taskRegistered = $true
+        } catch {
+            try {
+                $principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Limited
+                Register-ScheduledTask `
+                    -TaskName $BackupTaskName -Action $action -Trigger $trigger `
+                    -Principal $principal -Settings $settings `
+                    -Description 'Daily backup of NoteHelper database to OneDrive' `
+                    -ErrorAction Stop | Out-Null
+                $taskRegistered = $true
+            } catch {
+                Write-Host "  [WARNING] Could not register scheduled task: $_" -ForegroundColor Yellow
+                Write-Host "            Run backup.bat -Setup as admin to register." -ForegroundColor Gray
+            }
+        }
+
+        if ($taskRegistered) {
+            $newBackupConfig.task_registered = $true
+            $newBackupConfig | ConvertTo-Json -Depth 3 | Set-Content $backupConfigFile -Encoding UTF8
+            Write-Host "  [OK] Daily backups scheduled at 11:00 AM." -ForegroundColor Green
+        }
+
+        Write-Host "  [OK] Automatic backups enabled (database + call logs)." -ForegroundColor Green
+    } else {
+        Write-Host ""
+        Write-Host "  [WARNING] No OneDrive for Business detected." -ForegroundColor Yellow
+        Write-Host "            Automatic backups could not be configured." -ForegroundColor Gray
+        Write-Host "            Install OneDrive and sign in with your work account," -ForegroundColor Gray
+        Write-Host "            then run backup.bat to set up backups." -ForegroundColor Gray
     }
 } elseif (-not $backupConfigExists -and $Force) {
     Write-Host "  [INFO] Backups not configured. Run backup.bat to set up." -ForegroundColor Gray
 }
 
-# Also check/display call log backup status
-$callLogConfigFile = Join-Path $RepoRoot 'data\call_log_backup_config.json'
-if (Test-Path $callLogConfigFile) {
-    try {
-        $clConfig = Get-Content $callLogConfigFile -Raw | ConvertFrom-Json
-        if ($clConfig.enabled -eq $true -and $clConfig.backup_path) {
-            Write-Host "  [OK] Call log backups enabled -> $($clConfig.backup_path)" -ForegroundColor Green
-        }
-    } catch {}
-}
+
 
 # ==============================================================================
 # Decision Logic
