@@ -2381,6 +2381,14 @@ function proceedWithMeeting(meeting, dateStr) {
                 content += '</ul>';
             }
             
+            if (data.engagement_signals && Object.keys(data.engagement_signals).length > 0) {
+                content += '<hr><p><strong>Engagement Metadata:</strong></p><ul>';
+                Object.keys(data.engagement_signals).forEach(function(field) {
+                    content += '<li><strong>' + escapeHtml(field) + ':</strong> ' + escapeHtml(data.engagement_signals[field]) + '</li>';
+                });
+                content += '</ul>';
+            }
+            
             // Append after existing content with separator
             var existing = quill.root.innerHTML.trim();
             if (existing && existing !== '<p><br></p>' && existing !== '<p></p>') {
@@ -2800,6 +2808,14 @@ function importSelectedMeeting() {
                 content += '<hr><p><strong>Impact Signals:</strong></p><ul>';
                 data.connect_impact.forEach(function(item) {
                     content += '<li>' + escapeHtml(item) + '</li>';
+                });
+                content += '</ul>';
+            }
+            
+            if (data.engagement_signals && Object.keys(data.engagement_signals).length > 0) {
+                content += '<hr><p><strong>Engagement Metadata:</strong></p><ul>';
+                Object.keys(data.engagement_signals).forEach(function(field) {
+                    content += '<li><strong>' + escapeHtml(field) + ':</strong> ' + escapeHtml(data.engagement_signals[field]) + '</li>';
                 });
                 content += '</ul>';
             }

@@ -301,4 +301,257 @@ class TestAuditLogging:
             assert len(log.response_text) <= 1000
 
 
+class TestGenerateEngagementSummary:
+    """Tests for the AI engagement summary generation endpoint."""
 
+    def _create_customer_with_logs(self, app):
+        """Helper to create a customer with call logs for testing."""
+        from app.models import Customer, CallLog, Seller, Territory
+        with app.app_context():
+            territory = Territory(name="Test Territory")
+            seller = Seller(name="Test Seller", alias="tseller", seller_type="Growth")
+            db.session.add_all([territory, seller])
+            db.session.flush()
+
+            customer = Customer(
+                name="Test AI Customer",
+                tpid=11111,
+                seller_id=seller.id,
+                territory_id=territory.id,
+            )
+            db.session.add(customer)
+            db.session.flush()
+
+            cl1 = CallLog(
+                customer_id=customer.id,
+                call_date=datetime(2025, 6, 15, 12, 0, 0),
+                content="Discussed migrating their monolith to AKS. Key contact: Jane Smith, CTO.",
+            )
+            cl2 = CallLog(
+                customer_id=customer.id,
+                call_date=datetime(2025, 7, 1, 14, 0, 0),
+                content="Follow-up on AKS migration. Targeting Q3 go-live. Estimated $50K ACR.",
+            )
+            db.session.add_all([cl1, cl2])
+            db.session.commit()
+            return customer.id
+
+    def test_returns_400_when_ai_disabled(self, app, client):
+        """Should return 400 when AI env vars are not set."""
+        customer_id = self._create_customer_with_logs(app)
+        with patch.dict('os.environ', {}, clear=True):
+            resp = client.post(
+                '/api/ai/generate-engagement-summary',
+                json={'customer_id': customer_id},
+                content_type='application/json',
+            )
+        assert resp.status_code == 400
+        assert 'not configured' in resp.get_json()['error']
+
+    def test_returns_400_when_no_customer_id(self, app, client):
+        """Should return 400 when customer_id is missing."""
+        with patch.dict('os.environ', AI_ENV_VARS):
+            resp = client.post(
+                '/api/ai/generate-engagement-summary',
+                json={},
+                content_type='application/json',
+            )
+        assert resp.status_code == 400
+        assert 'customer_id' in resp.get_json()['error']
+
+    def test_returns_404_when_customer_not_found(self, app, client):
+        """Should return 404 for nonexistent customer."""
+        with patch.dict('os.environ', AI_ENV_VARS):
+            resp = client.post(
+                '/api/ai/generate-engagement-summary',
+                json={'customer_id': 999999},
+                content_type='application/json',
+            )
+        assert resp.status_code == 404
+
+    def test_returns_400_when_no_call_logs(self, app, client):
+        """Should return 400 when customer has no call logs."""
+        from app.models import Customer
+        with app.app_context():
+            customer = Customer(name="Empty Customer", tpid=22222)
+            db.session.add(customer)
+            db.session.commit()
+            cid = customer.id
+
+        with patch.dict('os.environ', AI_ENV_VARS):
+            resp = client.post(
+                '/api/ai/generate-engagement-summary',
+                json={'customer_id': cid},
+                content_type='application/json',
+            )
+        assert resp.status_code == 400
+        assert 'No call logs' in resp.get_json()['error']
+
+    @patch('app.routes.ai.get_azure_openai_client')
+    def test_success_returns_summary(self, mock_get_client, app, client):
+        """Should return AI-generated summary on success."""
+        customer_id = self._create_customer_with_logs(app)
+
+        summary_text = (
+            "Key Individuals & Titles: Jane Smith, CTO\n"
+            "Technical/Business Problem: Monolith architecture limiting scalability\n"
+            "Business Process/Strategy: Migration to microservices on AKS\n"
+            "Solution Resources: Azure Kubernetes Service (AKS)\n"
+            "Business Outcome in Estimated $$ACR: $50K ACR\n"
+            "Future Date/Timeline: Q3 go-live target\n"
+            "Risks/Blockers: Not identified in call logs"
+        )
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+        mock_client.chat.completions.create.return_value = create_mock_openai_response(summary_text)
+
+        with patch.dict('os.environ', AI_ENV_VARS):
+            resp = client.post(
+                '/api/ai/generate-engagement-summary',
+                json={'customer_id': customer_id},
+                content_type='application/json',
+            )
+
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data['success'] is True
+        assert 'Jane Smith' in data['summary']
+        assert data['call_log_count'] == 2
+
+    @patch('app.routes.ai.get_azure_openai_client')
+    def test_logs_success_to_ai_query_log(self, mock_get_client, app, client):
+        """Should create an AIQueryLog entry on success."""
+        customer_id = self._create_customer_with_logs(app)
+
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+        mock_client.chat.completions.create.return_value = create_mock_openai_response("Summary here")
+
+        with patch.dict('os.environ', AI_ENV_VARS):
+            client.post(
+                '/api/ai/generate-engagement-summary',
+                json={'customer_id': customer_id},
+                content_type='application/json',
+            )
+
+        with app.app_context():
+            log = AIQueryLog.query.filter(
+                AIQueryLog.request_text.like('%Engagement summary%')
+            ).first()
+            assert log is not None
+            assert log.success is True
+            assert 'Test AI Customer' in log.request_text
+
+    @patch('app.routes.ai.get_azure_openai_client')
+    def test_logs_failure_to_ai_query_log(self, mock_get_client, app, client):
+        """Should create an AIQueryLog entry on failure."""
+        customer_id = self._create_customer_with_logs(app)
+
+        mock_get_client.side_effect = Exception("API quota exceeded")
+
+        with patch.dict('os.environ', AI_ENV_VARS):
+            resp = client.post(
+                '/api/ai/generate-engagement-summary',
+                json={'customer_id': customer_id},
+                content_type='application/json',
+            )
+
+        assert resp.status_code == 500
+        with app.app_context():
+            log = AIQueryLog.query.filter(
+                AIQueryLog.request_text.like('%Engagement summary%')
+            ).first()
+            assert log is not None
+            assert log.success is False
+            assert 'quota' in log.error_message.lower()
+
+    @patch('app.routes.ai.get_azure_openai_client')
+    def test_includes_customer_notes_in_prompt(self, mock_get_client, app, client):
+        """Should include existing customer notes in the user message sent to AI."""
+        customer_id = self._create_customer_with_logs(app)
+
+        # Add notes to the customer
+        from app.models import Customer
+        with app.app_context():
+            customer = db.session.get(Customer, customer_id)
+            customer.notes = "Key contact is Jane Smith (CTO). Budget approved for Q3."
+            db.session.commit()
+
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+        mock_client.chat.completions.create.return_value = create_mock_openai_response("Summary")
+
+        with patch.dict('os.environ', AI_ENV_VARS):
+            resp = client.post(
+                '/api/ai/generate-engagement-summary',
+                json={'customer_id': customer_id},
+                content_type='application/json',
+            )
+
+        assert resp.status_code == 200
+        # Verify the user message sent to OpenAI includes the customer notes
+        call_args = mock_client.chat.completions.create.call_args
+        user_message = call_args[1]['messages'][1]['content'] if 'messages' in call_args[1] else call_args[0][0][1]['content']
+        assert 'Existing Customer Notes' in user_message
+        assert 'Jane Smith (CTO)' in user_message
+        assert 'Budget approved for Q3' in user_message
+
+
+class TestGenerateButtonVisibility:
+    """Tests that the Generate button appears/hides based on AI config."""
+
+    def test_generate_button_visible_when_ai_enabled(self, app, client):
+        """Generate button should appear when AI is enabled and customer has call logs."""
+        from app.models import Customer, CallLog
+        with app.app_context():
+            customer = Customer(name="Button Test", tpid=33333)
+            db.session.add(customer)
+            db.session.flush()
+            cl = CallLog(
+                customer_id=customer.id,
+                call_date=datetime(2025, 6, 1),
+                content="Test call",
+            )
+            db.session.add(cl)
+            db.session.commit()
+            cid = customer.id
+
+        with patch.dict('os.environ', AI_ENV_VARS):
+            resp = client.get(f'/customer/{cid}')
+        assert resp.status_code == 200
+        assert b'id="generateNotesBtn"' in resp.data
+
+    def test_generate_button_hidden_when_ai_disabled(self, app, client):
+        """Generate button should not appear when AI is disabled."""
+        from app.models import Customer, CallLog
+        with app.app_context():
+            customer = Customer(name="No AI Test", tpid=44444)
+            db.session.add(customer)
+            db.session.flush()
+            cl = CallLog(
+                customer_id=customer.id,
+                call_date=datetime(2025, 6, 1),
+                content="Test call",
+            )
+            db.session.add(cl)
+            db.session.commit()
+            cid = customer.id
+
+        with patch.dict('os.environ', {}, clear=True):
+            resp = client.get(f'/customer/{cid}')
+        assert resp.status_code == 200
+        assert b'id="generateNotesBtn"' not in resp.data
+
+    def test_generate_button_hidden_when_no_call_logs(self, app, client):
+        """Generate button should not appear when customer has no call logs."""
+        from app.models import Customer
+        with app.app_context():
+            customer = Customer(name="No Logs Test", tpid=55555)
+            db.session.add(customer)
+            db.session.commit()
+            cid = customer.id
+
+        with patch.dict('os.environ', AI_ENV_VARS):
+            resp = client.get(f'/customer/{cid}')
+        assert resp.status_code == 200
+        assert b'id="generateNotesBtn"' not in resp.data

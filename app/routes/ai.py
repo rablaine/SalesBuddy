@@ -485,4 +485,142 @@ Guidelines:
         return jsonify({'success': False, 'error': f'AI request failed: {error_msg}'}), 500
 
 
+# System prompt for customer engagement summary generation
+ENGAGEMENT_SUMMARY_PROMPT = (
+    "You are a Microsoft technical seller's assistant. Analyze the provided call log notes "
+    "and any existing customer notes for a customer and generate a structured engagement summary. "
+    "Fill in each field based on what you can extract from the call logs and notes. If a field "
+    "cannot be determined from the available information, write 'Not identified in call logs' "
+    "for that field.\n\n"
+    "Return your response in EXACTLY this format (keep the field labels exactly as shown, "
+    "fill in the values after the colon):\n\n"
+    "Key Individuals & Titles: [names and titles of key people mentioned]\n"
+    "Technical/Business Problem: [the technical or business challenges they face]\n"
+    "Business Process/Strategy: [how the problem impacts their business]\n"
+    "Solution Resources: [Azure services, tools, or approaches being used to address it]\n"
+    "Business Outcome in Estimated $$ACR: [expected revenue impact or business value]\n"
+    "Future Date/Timeline: [any deadlines, milestones, or target dates mentioned]\n"
+    "Risks/Blockers: [any risks, blockers, or concerns raised]\n\n"
+    "Be concise but specific. Use actual details from the call logs and notes, not generic "
+    "statements. If multiple topics or workstreams exist, cover the most significant ones."
+)
 
+
+@ai_bp.route('/api/ai/generate-engagement-summary', methods=['POST'])
+def api_ai_generate_engagement_summary():
+    """Generate a structured engagement summary from all call logs for a customer.
+
+    Reads all call logs for the given customer_id and sends them to Azure OpenAI
+    to fill out the engagement metadata table (Ben's table from issue #25).
+    """
+    if not is_ai_enabled():
+        return jsonify({
+            'success': False,
+            'error': 'AI features are not configured (set AZURE_OPENAI_ENDPOINT and AZURE_OPENAI_DEPLOYMENT in .env)'
+        }), 400
+
+    deployment_name = get_openai_deployment()
+
+    data = request.get_json()
+    customer_id = data.get('customer_id') if data else None
+
+    if not customer_id:
+        return jsonify({'success': False, 'error': 'customer_id is required'}), 400
+
+    from app.models import Customer, CallLog
+    customer = Customer.query.get(customer_id)
+    if not customer:
+        return jsonify({'success': False, 'error': 'Customer not found'}), 404
+
+    # Get all call logs sorted by date
+    call_logs = (
+        CallLog.query
+        .filter_by(customer_id=customer_id)
+        .order_by(CallLog.call_date.asc())
+        .all()
+    )
+
+    if not call_logs:
+        return jsonify({'success': False, 'error': 'No call logs found for this customer'}), 400
+
+    # Build the call log text for the prompt
+    import re as _re
+    call_text_parts = []
+    for cl in call_logs:
+        date_str = cl.call_date.strftime('%Y-%m-%d')
+        # Strip HTML tags for cleaner AI input
+        content = _re.sub(r'<[^>]+>', '', cl.content or '')
+        topics = ', '.join(t.name for t in cl.topics) if cl.topics else ''
+        entry = f"[{date_str}]"
+        if topics:
+            entry += f" Topics: {topics}"
+        entry += f"\n{content}"
+        call_text_parts.append(entry)
+
+    call_text = '\n\n---\n\n'.join(call_text_parts)
+
+    # Cap the input to avoid token limits (roughly 30k chars)
+    MAX_CHARS = 30000
+    if len(call_text) > MAX_CHARS:
+        call_text = call_text[:MAX_CHARS] + '\n\n[... additional call logs truncated ...]'
+
+    # Include existing customer notes as additional context if present
+    notes_section = ''
+    if customer.notes:
+        notes_text = _re.sub(r'<[^>]+>', '', customer.notes)
+        notes_section = f"\nExisting Customer Notes:\n{notes_text}\n"
+
+    user_message = (
+        f"Customer: {customer.name} (TPID: {customer.tpid})\n"
+        f"Total call logs: {len(call_logs)}\n"
+        f"{notes_section}\n"
+        f"Call Log Notes:\n\n{call_text}"
+    )
+
+    try:
+        client = get_azure_openai_client()
+
+        response = client.chat.completions.create(
+            messages=[
+                {"role": "system", "content": ENGAGEMENT_SUMMARY_PROMPT},
+                {"role": "user", "content": user_message}
+            ],
+            max_tokens=1000,
+            model=deployment_name
+        )
+
+        response_text = response.choices[0].message.content
+        if not response_text or not response_text.strip():
+            raise ValueError("AI returned empty content")
+
+        response_text = response_text.strip()
+
+        # Log success
+        log_entry = AIQueryLog(
+            request_text=f"Engagement summary for {customer.name} ({len(call_logs)} logs)",
+            response_text=response_text[:500],
+            success=True,
+            error_message=None
+        )
+        db.session.add(log_entry)
+        db.session.commit()
+
+        return jsonify({
+            'success': True,
+            'summary': response_text,
+            'call_log_count': len(call_logs)
+        })
+
+    except Exception as e:
+        error_msg = str(e)
+
+        log_entry = AIQueryLog(
+            request_text=f"Engagement summary for {customer.name} ({len(call_logs)} logs)",
+            response_text=None,
+            success=False,
+            error_message=error_msg[:500]
+        )
+        db.session.add(log_entry)
+        db.session.commit()
+
+        return jsonify({'success': False, 'error': f'AI request failed: {error_msg}'}), 500

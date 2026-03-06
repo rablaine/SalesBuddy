@@ -543,6 +543,7 @@ def api_get_meeting_summary():
             'task_subject': result.get('task_subject', ''),
             'task_description': result.get('task_description', ''),
             'connect_impact': result.get('connect_impact', []),
+            'engagement_signals': result.get('engagement_signals', {}),
             'success': True
         })
     except Exception as e:
@@ -616,6 +617,7 @@ def api_fill_my_day_process():
 
     result = {'success': True, 'summary': '', 'content_html': '', 'topics': [],
               'task_subject': '', 'task_description': '', 'connect_impact': [],
+              'engagement_signals': {},
               'summary_ok': False, 'milestone': None}
     
     # Step 1: Get meeting summary (WorkIQ provides summary + task suggestion)
@@ -643,9 +645,18 @@ def api_fill_my_day_process():
                 content_html += f'<li>{item}</li>'
             content_html += '</ul>'
         
+        # Add engagement metadata signals if present (Ben's table fields)
+        eng_signals = summary_data.get('engagement_signals', {})
+        if eng_signals:
+            content_html += '<hr><p><strong>Engagement Metadata:</strong></p><ul>'
+            for field, value in eng_signals.items():
+                content_html += f'<li><strong>{field}:</strong> {value}</li>'
+            content_html += '</ul>'
+        
         result['summary'] = summary
         result['content_html'] = content_html
         result['connect_impact'] = impact_items
+        result['engagement_signals'] = eng_signals
         result['summary_ok'] = bool(summary and not summary.startswith('Error'))
         
         # Use WorkIQ task suggestion as default (OpenAI milestone match may override)

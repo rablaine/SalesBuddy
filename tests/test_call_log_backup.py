@@ -1045,3 +1045,178 @@ class TestRestoreAllRoute:
         data = resp.get_json()
         assert data["success"] is True
         assert data["files_processed"] == 0
+
+
+# =========================================================================
+# Customer notes backup integration
+# =========================================================================
+
+class TestCustomerNotesBackupIntegration:
+    """Verify that customer notes changes trigger backup and restore correctly."""
+
+    def test_update_notes_triggers_backup(self, client, app, backup_dir, sample_data, monkeypatch):
+        """Saving customer notes should write a backup JSON file."""
+        monkeypatch.setattr(
+            "app.services.backup._load_db_backup_config",
+            lambda: {"enabled": True, "backup_dir": backup_dir},
+        )
+
+        resp = client.post(
+            f"/customer/{sample_data['customer1_id']}/notes",
+            data={"notes": "Key engagement notes for Acme"},
+            headers={"X-Requested-With": "XMLHttpRequest"},
+        )
+        assert resp.status_code == 200
+
+        # customer1 has tpid=1001 and seller=Alice Smith
+        filepath = os.path.join(backup_dir, "call_logs", "Alice Smith", "1001.json")
+        assert os.path.isfile(filepath), f"Expected backup at {filepath}"
+
+        with open(filepath, "r") as f:
+            backup = json.load(f)
+        assert backup["customer"]["notes"] == "Key engagement notes for Acme"
+
+    def test_update_notes_backup_disabled(self, client, app, backup_dir, sample_data, monkeypatch):
+        """No backup file when backup is disabled."""
+        monkeypatch.setattr(
+            "app.services.backup._load_db_backup_config",
+            lambda: {"enabled": False, "backup_dir": ""},
+        )
+        monkeypatch.setattr(
+            "app.services.backup.get_auto_detected_backup_path", lambda: None,
+        )
+
+        resp = client.post(
+            f"/customer/{sample_data['customer1_id']}/notes",
+            data={"notes": "Should not trigger backup"},
+            headers={"X-Requested-With": "XMLHttpRequest"},
+        )
+        assert resp.status_code == 200
+
+        cl_dir = os.path.join(backup_dir, "call_logs")
+        assert not os.path.exists(cl_dir)
+
+    def test_edit_customer_triggers_backup(self, client, app, backup_dir, sample_data, monkeypatch):
+        """Editing a customer via the form should write a backup JSON file."""
+        monkeypatch.setattr(
+            "app.services.backup._load_db_backup_config",
+            lambda: {"enabled": True, "backup_dir": backup_dir},
+        )
+
+        resp = client.post(
+            f"/customer/{sample_data['customer1_id']}/edit",
+            data={
+                "name": "Acme Corp Updated",
+                "tpid": "1001",
+                "seller_id": str(sample_data["seller1_id"]),
+                "territory_id": str(sample_data["territory1_id"]),
+            },
+            follow_redirects=True,
+        )
+        assert resp.status_code == 200
+
+        filepath = os.path.join(backup_dir, "call_logs", "Alice Smith", "1001.json")
+        assert os.path.isfile(filepath), f"Expected backup at {filepath}"
+
+        with open(filepath, "r") as f:
+            backup = json.load(f)
+        assert backup["customer"]["name"] == "Acme Corp Updated"
+
+    def test_restore_includes_notes(self, app):
+        """Restoring a backup with notes should set the customer notes field."""
+        with app.app_context():
+            from flask import g
+            user = User.query.first()
+            g.user = user
+
+            customer = Customer(name="Notes Restore Corp", tpid=77777)
+            db.session.add(customer)
+            db.session.commit()
+            assert customer.notes is None
+
+            backup_data = {
+                "_notehelper_backup": True,
+                "_version": 2,
+                "customer": {
+                    "name": "Notes Restore Corp",
+                    "tpid": 77777,
+                    "notes": "Restored engagement summary",
+                },
+                "call_logs": [],
+            }
+
+            result = restore_from_backup(backup_data)
+            assert result["success"] is True
+
+            db.session.refresh(customer)
+            assert customer.notes == "Restored engagement summary"
+
+            # Cleanup
+            db.session.delete(customer)
+            db.session.commit()
+
+    def test_restore_does_not_overwrite_existing_notes(self, app):
+        """Restoring should not overwrite notes if the customer already has them."""
+        with app.app_context():
+            from flask import g
+            user = User.query.first()
+            g.user = user
+
+            customer = Customer(
+                name="Existing Notes Corp", tpid=88888,
+                notes="My existing notes",
+            )
+            db.session.add(customer)
+            db.session.commit()
+
+            backup_data = {
+                "_notehelper_backup": True,
+                "_version": 2,
+                "customer": {
+                    "name": "Existing Notes Corp",
+                    "tpid": 88888,
+                    "notes": "Backup notes that should NOT overwrite",
+                },
+                "call_logs": [],
+            }
+
+            result = restore_from_backup(backup_data)
+            assert result["success"] is True
+
+            db.session.refresh(customer)
+            assert customer.notes == "My existing notes"
+
+            # Cleanup
+            db.session.delete(customer)
+            db.session.commit()
+
+    def test_restore_without_notes_field(self, app):
+        """Restoring a backup that has no notes key should leave notes as None."""
+        with app.app_context():
+            from flask import g
+            user = User.query.first()
+            g.user = user
+
+            customer = Customer(name="No Notes Corp", tpid=66666)
+            db.session.add(customer)
+            db.session.commit()
+
+            backup_data = {
+                "_notehelper_backup": True,
+                "_version": 2,
+                "customer": {
+                    "name": "No Notes Corp",
+                    "tpid": 66666,
+                },
+                "call_logs": [],
+            }
+
+            result = restore_from_backup(backup_data)
+            assert result["success"] is True
+
+            db.session.refresh(customer)
+            assert customer.notes is None
+
+            # Cleanup
+            db.session.delete(customer)
+            db.session.commit()

@@ -149,9 +149,16 @@
         <div class="card mb-3">
             <div class="card-header d-flex justify-content-between align-items-center">
                 <h5 class="mb-0"><i class="bi bi-sticky"></i> Notes</h5>
-                <button type="button" class="btn btn-sm btn-outline-primary" id="editNotesBtn" onclick="toggleNotesEdit()">
-                    <i class="bi bi-pencil"></i> Edit
-                </button>
+                <div class="d-flex gap-2">
+                    {% if ai_enabled and call_logs %}
+                    <button type="button" class="btn btn-sm btn-outline-success" id="generateNotesBtn" onclick="generateEngagementSummary()" title="Use AI to generate an engagement summary from all call logs">
+                        <i class="bi bi-stars"></i> Generate
+                    </button>
+                    {% endif %}
+                    <button type="button" class="btn btn-sm btn-outline-primary" id="editNotesBtn" onclick="toggleNotesEdit()">
+                        <i class="bi bi-pencil"></i> Edit
+                    </button>
+                </div>
             </div>
             <div class="card-body">
                 <div id="notesDisplay" {% if not customer.notes %}style="display: none;"{% endif %}>
@@ -160,8 +167,14 @@
                 <div id="notesEmpty" {% if customer.notes %}style="display: none;"{% endif %}>
                     <p class="text-muted mb-0">No notes yet. Click Edit to add notes about opportunities or milestones.</p>
                 </div>
+                <div id="notesGenerating" style="display: none;">
+                    <div class="d-flex align-items-center gap-2 text-muted">
+                        <div class="spinner-border spinner-border-sm" role="status"></div>
+                        <span>Analyzing {{ call_logs|length }} call log{{ 's' if call_logs|length != 1 else '' }}...</span>
+                    </div>
+                </div>
                 <form id="notesForm" action="{{ url_for('customers.customer_update_notes', id=customer.id) }}" method="post" style="display: none;">
-                    <textarea class="form-control mb-2" name="notes" id="notesTextarea" rows="5" placeholder="Track opportunities, milestones, key contacts, etc.">{{ customer.notes or '' }}</textarea>
+                    <textarea class="form-control mb-2" name="notes" id="notesTextarea" rows="10" placeholder="Track opportunities, milestones, key contacts, etc.">{{ customer.notes or '' }}</textarea>
                     <div class="d-flex gap-2">
                         <button type="submit" class="btn btn-sm btn-primary">
                             <i class="bi bi-check-lg"></i> Save
@@ -315,6 +328,8 @@ function cancelNotesEdit() {
     
     document.getElementById('notesForm').style.display = 'none';
     document.getElementById('editNotesBtn').style.display = 'inline-block';
+    const genBtn = document.getElementById('generateNotesBtn');
+    if (genBtn) genBtn.style.display = 'inline-block';
     
     if (hasNotes) {
         document.getElementById('notesDisplay').style.display = 'block';
@@ -323,6 +338,58 @@ function cancelNotesEdit() {
         document.getElementById('notesDisplay').style.display = 'none';
         document.getElementById('notesEmpty').style.display = 'block';
     }
+}
+
+function generateEngagementSummary() {
+    const btn = document.getElementById('generateNotesBtn');
+    const editBtn = document.getElementById('editNotesBtn');
+    const generating = document.getElementById('notesGenerating');
+    const display = document.getElementById('notesDisplay');
+    const empty = document.getElementById('notesEmpty');
+
+    // Show loading state
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status"></span> Generating...';
+    display.style.display = 'none';
+    empty.style.display = 'none';
+    generating.style.display = 'block';
+
+    fetch('/api/ai/generate-engagement-summary', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest'},
+        body: JSON.stringify({customer_id: {{ customer.id }}})
+    })
+    .then(r => r.json())
+    .then(data => {
+        generating.style.display = 'none';
+        if (data.success) {
+            // Open the edit form with the generated summary pre-filled
+            const textarea = document.getElementById('notesTextarea');
+            textarea.value = data.summary;
+            textarea.rows = Math.max(10, data.summary.split('\n').length + 2);
+            document.getElementById('notesForm').style.display = 'block';
+            btn.style.display = 'none';
+            editBtn.style.display = 'none';
+            textarea.focus();
+        } else {
+            alert('Failed to generate summary: ' + (data.error || 'Unknown error'));
+            // Restore original display
+            const hasNotes = document.getElementById('notesTextarea').defaultValue.trim().length > 0;
+            if (hasNotes) display.style.display = 'block';
+            else empty.style.display = 'block';
+        }
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-stars"></i> Generate';
+    })
+    .catch(err => {
+        generating.style.display = 'none';
+        alert('Error: ' + err.message);
+        const hasNotes = document.getElementById('notesTextarea').defaultValue.trim().length > 0;
+        if (hasNotes) display.style.display = 'block';
+        else empty.style.display = 'block';
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-stars"></i> Generate';
+    });
 }
 </script>
 {% endblock %}

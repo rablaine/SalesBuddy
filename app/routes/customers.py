@@ -6,6 +6,7 @@ from flask import Blueprint, render_template, request, redirect, url_for, flash,
 from sqlalchemy import func, or_
 
 from app.models import db, Customer, Seller, Territory, CallLog, UserPreference
+from app.services.backup import backup_customer as _backup_customer
 
 # Create blueprint
 customers_bp = Blueprint('customers', __name__)
@@ -192,10 +193,14 @@ def customer_view(id):
         customer_name=customer.name
     ).order_by(RevenueAnalysis.priority_score.desc()).all()
     
+    from app.routes.ai import is_ai_enabled
+    ai_enabled = is_ai_enabled()
+
     return render_template('customer_view.html', 
                           customer=customer, 
                           call_logs=call_logs,
-                          revenue_analyses=revenue_analyses)
+                          revenue_analyses=revenue_analyses,
+                          ai_enabled=ai_enabled)
 
 
 @customers_bp.route('/customer/<int:id>/edit', methods=['GET', 'POST'])
@@ -232,6 +237,12 @@ def customer_edit(id):
         customer.seller_id = int(seller_id) if seller_id else None
         customer.territory_id = int(territory_id) if territory_id else None
         db.session.commit()
+
+        # Trigger backup to include updated customer data in OneDrive JSON
+        try:
+            _backup_customer(customer.id)
+        except Exception:
+            pass  # Backup failure should not block customer edit
         
         flash(f'Customer "{name}" updated successfully!', 'success')
         return redirect(url_for('customers.customer_view', id=customer.id))
@@ -287,6 +298,12 @@ def customer_update_notes(id):
     customer.notes = notes if notes else None
     
     db.session.commit()
+
+    # Trigger backup to include updated notes in OneDrive JSON
+    try:
+        _backup_customer(customer.id)
+    except Exception:
+        pass  # Backup failure should not block notes save
     
     # Check if AJAX request
     if request.headers.get('X-Requested-With') == 'XMLHttpRequest':

@@ -39,7 +39,8 @@ _TOPIC_SUGGESTION_SUFFIX = (
 )
 
 # Connect impact extraction suffix - appended when user has the preference enabled.
-# Asks WorkIQ to identify customer impact signals useful for Connect self-evaluations.
+# Asks WorkIQ to identify customer impact signals useful for Connect self-evaluations,
+# plus engagement metadata fields for account planning (Ben's table from issue #25).
 _CONNECT_IMPACT_SUFFIX = (
     ' Additionally, identify any customer impact signals from this meeting that would '
     'be relevant for a Microsoft Connect self-evaluation. List concrete examples of '
@@ -47,6 +48,17 @@ _CONNECT_IMPACT_SUFFIX = (
     'Format each signal on its own line in a block starting with CONNECT_IMPACT: '
     'Use a dash (-) prefix for each signal. If there are no clear impact signals, '
     'omit the CONNECT_IMPACT block entirely.'
+    ' Also extract any engagement metadata relevant to account planning. '
+    'For each field below, include ONLY information clearly present in this meeting. '
+    'Use the exact labels shown. Omit any field where the meeting provides no relevant info.\n'
+    'ENGAGEMENT_DATA:\n'
+    'Key Individuals & Titles: [names and roles/titles mentioned]\n'
+    'Technical/Business Problem: [technical or business challenges discussed]\n'
+    'Business Process/Strategy: [how the problem impacts their business process]\n'
+    'Solution Resources: [Azure services, tools, or approaches discussed]\n'
+    'Business Outcome in Estimated $$ACR: [revenue impact or business value mentioned]\n'
+    'Future Date/Timeline: [deadlines, milestones, or target dates]\n'
+    'Risks/Blockers: [risks, blockers, or concerns raised]\n'
 )
 
 
@@ -596,7 +608,8 @@ def get_meeting_summary(meeting_title: str, date_str: str = None,
             'action_items': [],
             'task_subject': '',
             'task_description': '',
-            'connect_impact': []
+            'connect_impact': [],
+            'engagement_signals': {}
         }
     except Exception as e:
         logger.error(f"Failed to get meeting summary: {e}")
@@ -606,7 +619,8 @@ def get_meeting_summary(meeting_title: str, date_str: str = None,
             'action_items': [],
             'task_subject': '',
             'task_description': '',
-            'connect_impact': []
+            'connect_impact': [],
+            'engagement_signals': {}
         }
 
 
@@ -623,8 +637,45 @@ def _parse_summary_response(response: str) -> Dict[str, Any]:
         'task_subject': '',
         'task_description': '',
         'connect_impact': [],
+        'engagement_signals': {},
         'raw_response': response
     }
+    
+    # Extract ENGAGEMENT_DATA block before other parsing.
+    # Matches "ENGAGEMENT_DATA:" followed by labeled lines (Key Individuals, etc.).
+    _ENGAGEMENT_FIELDS = [
+        'Key Individuals & Titles',
+        'Technical/Business Problem',
+        'Business Process/Strategy',
+        'Solution Resources',
+        'Business Outcome in Estimated $$ACR',
+        'Future Date/Timeline',
+        'Risks/Blockers',
+    ]
+    engagement_match = re.search(
+        r'ENGAGEMENT[_\s]DATA:\s*\n((?:.+\n?)+)',
+        response, re.IGNORECASE
+    )
+    if engagement_match:
+        eng_block = engagement_match.group(1)
+        for field in _ENGAGEMENT_FIELDS:
+            # Match "Field Label: value" (case-insensitive on the label)
+            field_match = re.search(
+                re.escape(field) + r':\s*(.+?)(?:\n|$)',
+                eng_block, re.IGNORECASE
+            )
+            if field_match:
+                value = field_match.group(1).strip()
+                # Skip placeholder or empty values
+                if value and value not in ('N/A', 'None', '-', '[not mentioned]',
+                                           'Not identified', 'Not mentioned'):
+                    result['engagement_signals'][field] = value
+    
+    # Remove ENGAGEMENT_DATA block from response before further parsing
+    response = re.sub(
+        r'ENGAGEMENT[_\s]DATA:\s*\n(?:.+\n?)+',
+        '', response, flags=re.IGNORECASE
+    ).strip()
     
     # Extract CONNECT_IMPACT block before other parsing
     # Matches "CONNECT_IMPACT:" followed by dash-prefixed lines

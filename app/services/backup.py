@@ -585,6 +585,12 @@ def restore_from_backup(data: Dict[str, Any]) -> Dict[str, Any]:
 
     db.session.commit()
 
+    # Restore customer notes if present in backup and customer has no notes yet
+    backup_notes = cust_data.get("notes")
+    if backup_notes and not customer.notes:
+        customer.notes = backup_notes
+        db.session.commit()
+
     return {
         "success": True,
         "customer_name": customer.name,

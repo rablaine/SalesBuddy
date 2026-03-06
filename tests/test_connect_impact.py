@@ -455,3 +455,174 @@ class TestConnectImpactMigration:
             # Run migration twice - should not error
             _migrate_workiq_connect_impact(db, inspector)
             _migrate_workiq_connect_impact(db, inspector)
+
+
+# =============================================================================
+# Engagement Signals (Ben's Table) - Parser Tests
+# =============================================================================
+
+class TestEngagementSignalsParser:
+    """Tests for parsing ENGAGEMENT_DATA block from WorkIQ responses."""
+
+    def test_parse_full_engagement_data(self):
+        """Parser should extract all engagement fields from a complete block."""
+        from app.services.workiq_service import _parse_summary_response
+        response = (
+            "Meeting about cloud migration strategy.\n\n"
+            "TASK_TITLE: Cloud migration follow-up\n"
+            "TASK_DESCRIPTION: Review migration plan.\n\n"
+            "CONNECT_IMPACT:\n"
+            "- Customer committed to Azure migration\n\n"
+            "ENGAGEMENT_DATA:\n"
+            "Key Individuals & Titles: Jane Smith (CTO), Bob Lee (VP Engineering)\n"
+            "Technical/Business Problem: Legacy on-prem infrastructure costs $2M/year\n"
+            "Business Process/Strategy: Migrate to cloud to reduce OpEx and scale globally\n"
+            "Solution Resources: Azure Kubernetes Service, Azure DevOps, Cosmos DB\n"
+            "Business Outcome in Estimated $$ACR: $150K/month projected ACR\n"
+            "Future Date/Timeline: Production migration by Q3 2026\n"
+            "Risks/Blockers: Security team needs compliance review before migration\n"
+        )
+        result = _parse_summary_response(response)
+
+        eng = result['engagement_signals']
+        assert len(eng) == 7
+        assert 'Jane Smith (CTO)' in eng['Key Individuals & Titles']
+        assert 'Legacy on-prem' in eng['Technical/Business Problem']
+        assert 'cloud to reduce OpEx' in eng['Business Process/Strategy']
+        assert 'Azure Kubernetes Service' in eng['Solution Resources']
+        assert '$150K/month' in eng['Business Outcome in Estimated $$ACR']
+        assert 'Q3 2026' in eng['Future Date/Timeline']
+        assert 'compliance review' in eng['Risks/Blockers']
+
+    def test_parse_partial_engagement_data(self):
+        """Parser should handle partial engagement data (not all fields present)."""
+        from app.services.workiq_service import _parse_summary_response
+        response = (
+            "Quick sync about Azure.\n\n"
+            "ENGAGEMENT_DATA:\n"
+            "Key Individuals & Titles: Sarah Chen (Director of IT)\n"
+            "Solution Resources: Azure App Service, Azure SQL\n"
+            "Future Date/Timeline: Go-live targeted for April 2026\n"
+        )
+        result = _parse_summary_response(response)
+
+        eng = result['engagement_signals']
+        assert len(eng) == 3
+        assert 'Sarah Chen' in eng['Key Individuals & Titles']
+        assert 'Azure App Service' in eng['Solution Resources']
+        assert 'April 2026' in eng['Future Date/Timeline']
+        assert 'Technical/Business Problem' not in eng
+
+    def test_no_engagement_data_returns_empty_dict(self):
+        """Parser should return empty dict when no ENGAGEMENT_DATA block."""
+        from app.services.workiq_service import _parse_summary_response
+        response = (
+            "Summary of the meeting.\n\n"
+            "TASK_TITLE: Follow up\n"
+            "TASK_DESCRIPTION: Send docs.\n"
+        )
+        result = _parse_summary_response(response)
+        assert result['engagement_signals'] == {}
+
+    def test_engagement_data_stripped_from_summary(self):
+        """ENGAGEMENT_DATA block should not appear in the summary text."""
+        from app.services.workiq_service import _parse_summary_response
+        response = (
+            "The customer discussed their modernization plans.\n\n"
+            "ENGAGEMENT_DATA:\n"
+            "Key Individuals & Titles: Mike Johnson (CIO)\n"
+            "Technical/Business Problem: Aging data center\n"
+        )
+        result = _parse_summary_response(response)
+        assert 'ENGAGEMENT_DATA' not in result['summary']
+        assert 'Mike Johnson' not in result['summary']
+
+    def test_engagement_skips_placeholder_values(self):
+        """Parser should skip fields with placeholder-like values."""
+        from app.services.workiq_service import _parse_summary_response
+        response = (
+            "Meeting notes.\n\n"
+            "ENGAGEMENT_DATA:\n"
+            "Key Individuals & Titles: John Doe (PM)\n"
+            "Technical/Business Problem: N/A\n"
+            "Business Process/Strategy: Not mentioned\n"
+            "Solution Resources: Azure VMs\n"
+            "Business Outcome in Estimated $$ACR: None\n"
+            "Future Date/Timeline: -\n"
+            "Risks/Blockers: Not identified\n"
+        )
+        result = _parse_summary_response(response)
+
+        eng = result['engagement_signals']
+        assert 'Key Individuals & Titles' in eng
+        assert 'Solution Resources' in eng
+        # These should be filtered out as placeholders
+        assert 'Technical/Business Problem' not in eng
+        assert 'Business Process/Strategy' not in eng
+        assert 'Business Outcome in Estimated $$ACR' not in eng
+        assert 'Future Date/Timeline' not in eng
+        assert 'Risks/Blockers' not in eng
+
+    def test_engagement_with_connect_impact(self):
+        """Both CONNECT_IMPACT and ENGAGEMENT_DATA should parse together."""
+        from app.services.workiq_service import _parse_summary_response
+        response = (
+            "Deep dive on Contoso's data platform.\n\n"
+            "CONNECT_IMPACT:\n"
+            "- Migrated 500TB to Azure Data Lake\n"
+            "- Reduced query latency by 80%\n\n"
+            "ENGAGEMENT_DATA:\n"
+            "Key Individuals & Titles: Lisa Park (Chief Data Officer)\n"
+            "Technical/Business Problem: Slow analytics pipeline\n"
+            "Solution Resources: Azure Synapse, Azure Data Lake\n"
+        )
+        result = _parse_summary_response(response)
+
+        assert len(result['connect_impact']) == 2
+        assert '500TB' in result['connect_impact'][0]
+        eng = result['engagement_signals']
+        assert len(eng) == 3
+        assert 'Lisa Park' in eng['Key Individuals & Titles']
+
+    def test_engagement_with_space_separator(self):
+        """Parser should handle 'ENGAGEMENT DATA:' (space instead of underscore)."""
+        from app.services.workiq_service import _parse_summary_response
+        response = (
+            "Meeting notes.\n\n"
+            "ENGAGEMENT DATA:\n"
+            "Key Individuals & Titles: Tom Harris (VP Sales)\n"
+            "Risks/Blockers: Budget approval pending\n"
+        )
+        result = _parse_summary_response(response)
+
+        eng = result['engagement_signals']
+        assert 'Tom Harris' in eng['Key Individuals & Titles']
+        assert 'Budget approval' in eng['Risks/Blockers']
+
+    def test_engagement_signals_in_error_returns(self):
+        """Error/timeout returns should include empty engagement_signals."""
+        from app.services.workiq_service import get_meeting_summary
+
+        with patch('app.services.workiq_service.query_workiq', side_effect=TimeoutError):
+            result = get_meeting_summary("Test meeting")
+            assert result['engagement_signals'] == {}
+
+        with patch('app.services.workiq_service.query_workiq', side_effect=RuntimeError("fail")):
+            result = get_meeting_summary("Test meeting")
+            assert result['engagement_signals'] == {}
+
+
+class TestEngagementSignalsPrompt:
+    """Tests for the engagement metadata fields in the prompt suffix."""
+
+    def test_prompt_includes_engagement_fields(self):
+        """When extract_impact is True, prompt should include engagement data fields."""
+        from app.services.workiq_service import _CONNECT_IMPACT_SUFFIX
+        assert 'ENGAGEMENT_DATA' in _CONNECT_IMPACT_SUFFIX
+        assert 'Key Individuals & Titles' in _CONNECT_IMPACT_SUFFIX
+        assert 'Technical/Business Problem' in _CONNECT_IMPACT_SUFFIX
+        assert 'Business Process/Strategy' in _CONNECT_IMPACT_SUFFIX
+        assert 'Solution Resources' in _CONNECT_IMPACT_SUFFIX
+        assert 'Business Outcome in Estimated $$ACR' in _CONNECT_IMPACT_SUFFIX
+        assert 'Future Date/Timeline' in _CONNECT_IMPACT_SUFFIX
+        assert 'Risks/Blockers' in _CONNECT_IMPACT_SUFFIX
