@@ -7,6 +7,8 @@ import json
 import os
 import shutil
 import signal
+import subprocess
+import sys
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
@@ -576,17 +578,54 @@ def _list_backup_files(backup_dir: str, limit: int = 10) -> list[dict]:
     return backups
 
 
+# Scheduled task name (must match scripts/backup.ps1 and scripts/server.ps1)
+_BACKUP_TASK_NAME = 'NoteHelper-DailyBackup'
+
+
+def _check_scheduled_task() -> dict:
+    """Query Windows Task Scheduler for the backup task's real status.
+
+    Returns:
+        dict with ``exists`` (bool), ``next_run`` (str or None), and
+        ``status`` (str or None, e.g. 'Ready', 'Running', 'Disabled').
+    """
+    result = {'exists': False, 'next_run': None, 'status': None}
+    if sys.platform != 'win32':
+        return result
+    try:
+        proc = subprocess.run(
+            ['schtasks', '/Query', '/TN', _BACKUP_TASK_NAME, '/FO', 'CSV', '/NH'],
+            capture_output=True, text=True, timeout=5,
+        )
+        if proc.returncode == 0 and proc.stdout.strip():
+            # CSV columns: "TaskName","Next Run Time","Status"
+            line = proc.stdout.strip().splitlines()[0]
+            parts = [p.strip('"') for p in line.split(',')]
+            result['exists'] = True
+            if len(parts) >= 2 and parts[1] not in ('N/A', ''):
+                result['next_run'] = parts[1]
+            if len(parts) >= 3:
+                result['status'] = parts[2]
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        pass
+    return result
+
+
 @admin_bp.route('/api/admin/backup/status', methods=['GET'])
 def api_backup_status():
     """Return backup configuration and recent backup list."""
     config = _get_backup_config()
     backups = _list_backup_files(config.get('backup_dir', ''))
+    task_info = _check_scheduled_task()
     return jsonify({
         'enabled': config.get('enabled', False),
         'backup_dir': config.get('backup_dir', ''),
         'onedrive_path': config.get('onedrive_path', ''),
         'last_backup': config.get('last_backup'),
         'task_registered': config.get('task_registered', False),
+        'task_exists': task_info['exists'],
+        'task_next_run': task_info['next_run'],
+        'task_status': task_info['status'],
         'retention': config.get('retention', {}),
         'recent_backups': backups,
     })

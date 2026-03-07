@@ -340,7 +340,7 @@ if ($Setup) {
         -Argument "-ExecutionPolicy Bypass -WindowStyle Hidden -File `"$scriptPath`" -Silent" `
         -WorkingDirectory $RepoRoot
 
-    # Run daily at 2 AM
+    # Run daily at 11:00 AM
     $trigger = New-ScheduledTaskTrigger -Daily -At '11:00AM'
 
     $settings = New-ScheduledTaskSettingsSet `
@@ -460,7 +460,20 @@ if ($Status) {
     }
 
     Write-Host "  Backup folder: $($config.backup_dir)" -ForegroundColor White
-    Write-Host "  Scheduled task: $(if ($config.task_registered) { 'Active (daily at 2 AM)' } else { 'Not registered' })" -ForegroundColor White
+
+    # Live-check the scheduled task in Windows Task Scheduler
+    $liveTask = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+    if ($liveTask) {
+        $taskInfo = $liveTask | Get-ScheduledTaskInfo -ErrorAction SilentlyContinue
+        $nextRun = if ($taskInfo -and $taskInfo.NextRunTime) { $taskInfo.NextRunTime.ToString('yyyy-MM-dd h:mm tt') } else { 'Unknown' }
+        Write-Host "  Scheduled task: Active (next run: $nextRun)" -ForegroundColor Green
+    } elseif ($config.task_registered) {
+        Write-Host "  Scheduled task: NOT FOUND (config says registered but task is missing from Task Scheduler)" -ForegroundColor Red
+        Write-Host "                  Run: .\scripts\backup.ps1 -Setup  to re-register" -ForegroundColor Yellow
+    } else {
+        Write-Host "  Scheduled task: Not registered" -ForegroundColor Yellow
+    }
+
     Write-Host "  Last backup: $(if ($config.last_backup) { [datetime]::Parse($config.last_backup).ToString('yyyy-MM-dd h:mm tt') } else { 'Never' })" -ForegroundColor White
     Write-Host "  Retention: $($config.retention.daily) daily, $($config.retention.weekly) weekly, $($config.retention.monthly) monthly" -ForegroundColor White
     Write-Host ""
