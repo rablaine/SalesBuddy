@@ -370,7 +370,7 @@ Double-click `uninstall.bat` (or run `scripts\uninstall.ps1`) to cleanly remove 
 1. **Stop the running server** on the configured port
 2. **Remove all scheduled tasks** (`NoteHelper-AutoStart`, `NoteHelper-DailyBackup`)
 
-Your data is preserved. To fully remove NoteHelper, delete the app folder after running the uninstall script. Your OneDrive backups remain in the `NoteHelper_Backups` folder.
+Your data is preserved. To fully remove NoteHelper, delete the app folder after running the uninstall script. Your OneDrive backups remain in the `Backups/NoteHelper` folder.
 
 ## License
 

@@ -682,7 +682,7 @@ class TestOneDriveDetection:
 
     def test_detect_from_env_var(self, tmp_path, monkeypatch):
         """OneDriveCommercial env var should be detected."""
-        od_path = str(tmp_path / "OneDrive - Corp")
+        od_path = str(tmp_path / "OneDrive - Microsoft")
         os.makedirs(od_path)
         monkeypatch.setenv("OneDriveCommercial", od_path)
         monkeypatch.delenv("OneDrive", raising=False)
@@ -696,9 +696,9 @@ class TestOneDriveDetection:
         assert results[0]["has_backups"] is False
 
     def test_detect_with_existing_backups_folder(self, tmp_path, monkeypatch):
-        """If NoteHelper_Backups exists, has_backups should be True."""
-        od_path = str(tmp_path / "OneDrive - Corp")
-        os.makedirs(os.path.join(od_path, "NoteHelper_Backups"))
+        """If Backups/NoteHelper exists, has_backups should be True."""
+        od_path = str(tmp_path / "OneDrive - Microsoft")
+        os.makedirs(os.path.join(od_path, "Backups", "NoteHelper"))
         monkeypatch.setenv("OneDriveCommercial", od_path)
         monkeypatch.delenv("OneDrive", raising=False)
         monkeypatch.setenv("USERPROFILE", str(tmp_path / "nonexistent"))
@@ -707,12 +707,12 @@ class TestOneDriveDetection:
         assert len(results) >= 1
         assert results[0]["has_backups"] is True
         assert results[0]["suggested_path"] == os.path.join(
-            os.path.normpath(od_path), "NoteHelper_Backups"
+            os.path.normpath(od_path), "Backups", "NoteHelper"
         )
 
     def test_detect_deduplicates(self, tmp_path, monkeypatch):
         """Same path from multiple sources should only appear once."""
-        od_path = str(tmp_path / "OneDrive")
+        od_path = str(tmp_path / "OneDrive - Microsoft")
         os.makedirs(od_path)
         monkeypatch.setenv("OneDriveCommercial", od_path)
         monkeypatch.setenv("OneDrive", od_path)
@@ -748,18 +748,18 @@ class TestOneDriveDetection:
 
     def test_auto_detected_path_with_single_match(self, tmp_path, monkeypatch):
         """get_auto_detected_backup_path returns the path when one has backups."""
-        od_path = str(tmp_path / "OneDrive - Corp")
-        os.makedirs(os.path.join(od_path, "NoteHelper_Backups"))
+        od_path = str(tmp_path / "OneDrive - Microsoft")
+        os.makedirs(os.path.join(od_path, "Backups", "NoteHelper"))
         monkeypatch.setenv("OneDriveCommercial", od_path)
         monkeypatch.delenv("OneDrive", raising=False)
         monkeypatch.setenv("USERPROFILE", str(tmp_path / "nonexistent"))
 
         result = get_auto_detected_backup_path()
-        assert result == os.path.join(os.path.normpath(od_path), "NoteHelper_Backups")
+        assert result == os.path.join(os.path.normpath(od_path), "Backups", "NoteHelper")
 
     def test_auto_detected_path_with_no_backups_folder(self, tmp_path, monkeypatch):
-        """Returns None when OneDrive exists but no NoteHelper_Backups subfolder."""
-        od_path = str(tmp_path / "OneDrive")
+        """Returns None when OneDrive exists but no Backups/NoteHelper subfolder."""
+        od_path = str(tmp_path / "OneDrive - Microsoft")
         os.makedirs(od_path)
         monkeypatch.setenv("OneDriveCommercial", od_path)
         monkeypatch.delenv("OneDrive", raising=False)
@@ -790,8 +790,8 @@ class TestDetectOneDriveRoute:
 
     def test_detect_route_returns_candidates(self, client, tmp_path, monkeypatch):
         """The route returns detected candidates."""
-        od_path = str(tmp_path / "OneDrive - Corp")
-        os.makedirs(os.path.join(od_path, "NoteHelper_Backups"))
+        od_path = str(tmp_path / "OneDrive - Microsoft")
+        os.makedirs(os.path.join(od_path, "Backups", "NoteHelper"))
         monkeypatch.setenv("OneDriveCommercial", od_path)
         monkeypatch.delenv("OneDrive", raising=False)
         monkeypatch.setenv("USERPROFILE", str(tmp_path / "nonexistent"))

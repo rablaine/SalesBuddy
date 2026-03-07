@@ -9,7 +9,7 @@
 #
 # Configuration lives in data/backup_config.json. Defaults:
 #   - 7 daily backups, 4 weekly backups, 3 monthly backups
-#   - Backups go to OneDrive/NoteHelper_Backups/
+#   - Backups go to OneDrive - Microsoft/Backups/NoteHelper/
 #
 # Entry points:
 #   backup.bat              Double-click to run a backup now
@@ -105,11 +105,10 @@ function Find-OneDrivePath {
         }
     } catch {}
 
-    # Priority 3: Scan user profile for business OneDrive folders
-    # Business = "OneDrive - <OrgName>", Personal = bare "OneDrive" or "OneDrive - Personal"
-    $personalNames = @('OneDrive', 'OneDrive - Personal')
+    # Priority 3: Scan user profile for the Microsoft corporate OneDrive folder
+    # Employees may have multiple OneDrive for Business accounts; we only want Microsoft.
     $candidates = Get-ChildItem $env:USERPROFILE -Directory -ErrorAction SilentlyContinue |
-        Where-Object { $_.Name -match '^OneDrive' -and $_.Name -notin $personalNames }
+        Where-Object { $_.Name -eq 'OneDrive - Microsoft' }
     if ($candidates) {
         return ($candidates | Sort-Object { $_.Name.Length } -Descending |
             Select-Object -First 1).FullName
@@ -302,7 +301,7 @@ if ($Setup) {
         exit 1
     }
 
-    $defaultBackupDir = Join-Path $onedrivePath 'NoteHelper_Backups'
+    $defaultBackupDir = Join-Path $onedrivePath 'Backups\NoteHelper'
     Write-Host "  Detected OneDrive: $onedrivePath" -ForegroundColor Green
     Write-Host ""
     Write-Host "  Backups will be saved to:" -ForegroundColor White

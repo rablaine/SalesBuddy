@@ -37,8 +37,15 @@ logger = logging.getLogger(__name__)
 # Subfolder inside the configured backup root
 _CALL_LOGS_DIR = "call_logs"
 
-# Subfolder name we look for to auto-select a OneDrive path
-_NOTEHELPER_BACKUPS_DIR = "NoteHelper_Backups"
+# The specific org name to match for OneDrive for Business.  Employees may
+# have multiple OneDrive for Business accounts (e.g. from consultancies or
+# partner orgs); we only want the Microsoft corporate one.
+_ONEDRIVE_ORG_NAME = "Microsoft"
+
+# Subfolder path we create/look for inside the OneDrive root.
+# Changed from "NoteHelper_Backups" to "Backups/NoteHelper" for cleaner
+# organization under a shared Backups umbrella.
+_NOTEHELPER_BACKUPS_DIR = os.path.join("Backups", "NoteHelper")
 
 # DB backup config filename (written by scripts/server.ps1 and backup.ps1)
 _DB_BACKUP_CONFIG = "backup_config.json"
@@ -69,31 +76,17 @@ def _load_db_backup_config() -> Dict[str, Any]:
 # OneDrive auto-detection
 # ---------------------------------------------------------------------------
 
-# Folder names that indicate a *personal* (consumer) OneDrive.  Business
-# OneDrive folders are typically "OneDrive - {OrgName}".
-_PERSONAL_ONEDRIVE_NAMES = {"onedrive", "onedrive - personal"}
-
-
 def _is_business_path(path: str, source: str) -> bool:
-    """Return True if *path* looks like a OneDrive for Business folder.
+    """Return True if *path* is the target OneDrive for Business folder.
 
-    Heuristics:
-    - ``OneDriveCommercial`` env var and registry ``Business1`` are always
-      business.
-    - Folder names that are just "OneDrive" or "OneDrive - Personal" are
-      personal.
-    - "OneDrive - {OrgName}" (e.g. "OneDrive - Microsoft") is business.
+    Specifically matches ``OneDrive - Microsoft`` regardless of how the
+    path was discovered.  Employees may have multiple OneDrive for Business
+    accounts (e.g. "OneDrive - Contoso" from a partner org) and we only
+    want the Microsoft corporate one.
     """
-    if source in ("OneDriveCommercial env var", "Registry (Business1)"):
-        return True
     basename = os.path.basename(path).lower().strip()
-    if basename in _PERSONAL_ONEDRIVE_NAMES:
-        return False
-    # "OneDrive - <something>" where <something> is not "Personal"
-    if basename.startswith("onedrive - "):
-        return True
-    # Bare "onedrive" caught above; anything else is ambiguous -- reject
-    return False
+    expected = f"onedrive - {_ONEDRIVE_ORG_NAME.lower()}"
+    return basename == expected
 
 
 def detect_onedrive_paths(*, business_only: bool = True) -> List[Dict[str, Any]]:
@@ -105,7 +98,7 @@ def detect_onedrive_paths(*, business_only: bool = True) -> List[Dict[str, Any]]
     3. Registry ``HKCU\\Software\\Microsoft\\OneDrive\\Accounts\\Business1``
     4. Folder scan of ``%USERPROFILE%`` for ``OneDrive*`` directories
 
-    Each returned entry includes whether a ``NoteHelper_Backups`` folder
+    Each returned entry includes whether a ``Backups/NoteHelper`` folder
     already exists inside it, which lets the caller auto-select if there's
     an obvious winner.
 
@@ -176,7 +169,7 @@ def detect_onedrive_paths(*, business_only: bool = True) -> List[Dict[str, Any]]
         except OSError:
             pass
 
-    # Sort: paths with existing NoteHelper_Backups folder first
+    # Sort: paths with existing Backups/NoteHelper folder first
     candidates.sort(key=lambda c: (not c["has_backups"], c["source"]))
 
     return candidates
@@ -185,7 +178,7 @@ def detect_onedrive_paths(*, business_only: bool = True) -> List[Dict[str, Any]]
 def get_auto_detected_backup_path() -> Optional[str]:
     """Return the best auto-detected backup path, or None.
 
-    If exactly one candidate has an existing ``NoteHelper_Backups`` folder
+    If exactly one candidate has an existing ``Backups/NoteHelper`` folder
     inside it, return that path directly.  Otherwise return None (caller
     should present choices to the user).
     """
@@ -205,8 +198,8 @@ def is_business_onedrive_path(path: str) -> bool:
     """Return True if *path* lives under a OneDrive for Business folder.
 
     Walks up the directory tree looking for a folder whose name matches
-    the business pattern (``OneDrive - {OrgName}``), or checks whether the
-    path matches any known business candidate from detection.
+    ``OneDrive - Microsoft``, or checks whether the path matches any
+    known business candidate from detection.
     """
     normalized = os.path.normpath(path)
 

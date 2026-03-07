@@ -83,11 +83,10 @@ function Find-OneDriveBusinessPath {
         }
     } catch {}
 
-    # Priority 3: Scan user profile for business OneDrive folders
-    # Business = "OneDrive - <OrgName>", Personal = bare "OneDrive" or "OneDrive - Personal"
-    $personalNames = @('OneDrive', 'OneDrive - Personal')
+    # Priority 3: Scan user profile for the Microsoft corporate OneDrive folder
+    # Employees may have multiple OneDrive for Business accounts; we only want Microsoft.
     $candidates = Get-ChildItem $env:USERPROFILE -Directory -ErrorAction SilentlyContinue |
-        Where-Object { $_.Name -match '^OneDrive' -and $_.Name -notin $personalNames }
+        Where-Object { $_.Name -eq 'OneDrive - Microsoft' }
     if ($candidates) {
         return ($candidates | Sort-Object { $_.Name.Length } -Descending |
             Select-Object -First 1).FullName
@@ -448,7 +447,7 @@ if ($backupConfigExists) {
 if (-not $backupConfigExists -and -not $Force) {
     $businessOneDrive = Find-OneDriveBusinessPath
     if ($businessOneDrive) {
-        $backupDir = Join-Path $businessOneDrive 'NoteHelper_Backups'
+        $backupDir = Join-Path $businessOneDrive 'Backups\NoteHelper'
         Write-Host ""
         Write-Host "  Detected OneDrive for Business: $businessOneDrive" -ForegroundColor Green
         Write-Host "  Enabling automatic backups -> $backupDir" -ForegroundColor Yellow

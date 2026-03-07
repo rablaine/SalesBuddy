@@ -25,25 +25,28 @@ from app.services.backup import (
 class TestIsBusinessPath:
     """Unit tests for _is_business_path heuristic."""
 
-    def test_onedrive_commercial_env_is_business(self):
+    def test_onedrive_commercial_env_contoso_not_microsoft(self):
+        """OneDriveCommercial pointing at non-Microsoft org is rejected."""
         assert _is_business_path(
             r"C:\Users\test\OneDrive - Contoso", "OneDriveCommercial env var"
-        ) is True
+        ) is False
 
-    def test_registry_business1_is_business(self):
+    def test_registry_business1_contoso_not_microsoft(self):
+        """Registry Business1 pointing at non-Microsoft org is rejected."""
         assert _is_business_path(
             r"C:\Users\test\OneDrive - Contoso", "Registry (Business1)"
-        ) is True
+        ) is False
 
     def test_onedrive_with_org_name_is_business(self):
         assert _is_business_path(
             r"C:\Users\test\OneDrive - Microsoft", "Folder scan"
         ) is True
 
-    def test_onedrive_with_org_name_is_business_other_source(self):
+    def test_onedrive_with_other_org_name_is_not_business(self):
+        """Non-Microsoft org names should be rejected."""
         assert _is_business_path(
             r"C:\Users\test\OneDrive - Acme Corp", "OneDrive env var"
-        ) is True
+        ) is False
 
     def test_plain_onedrive_is_personal(self):
         assert _is_business_path(
@@ -89,6 +92,22 @@ class TestDetectOneDrivePathsFilter:
             assert str(biz_dir) in paths
             assert str(personal_dir) not in paths
 
+    def test_non_microsoft_business_excluded(self, tmp_path):
+        """Non-Microsoft business OneDrive dirs should be excluded."""
+        contoso_dir = tmp_path / "OneDrive - Contoso"
+        contoso_dir.mkdir()
+
+        with patch.dict(os.environ, {
+            "OneDriveCommercial": str(contoso_dir),
+            "OneDrive": "",
+            "USERPROFILE": str(tmp_path),
+        }), patch("app.services.backup.winreg") as mock_winreg:
+            mock_winreg.OpenKey.side_effect = OSError("no key")
+
+            results = detect_onedrive_paths(business_only=True)
+            paths = [c["path"] for c in results]
+            assert str(contoso_dir) not in paths
+
     def test_business_only_false_includes_all(self, tmp_path):
         """When business_only=False, personal dirs should be included."""
         biz_dir = tmp_path / "OneDrive - Microsoft"
@@ -110,7 +129,7 @@ class TestDetectOneDrivePathsFilter:
 
     def test_candidates_include_is_business_flag(self, tmp_path):
         """Each candidate should have an is_business flag."""
-        biz_dir = tmp_path / "OneDrive - Contoso"
+        biz_dir = tmp_path / "OneDrive - Microsoft"
         biz_dir.mkdir()
 
         with patch.dict(os.environ, {
@@ -131,8 +150,8 @@ class TestIsBusinessOneDrivePath:
     def test_path_under_business_dir(self, tmp_path):
         biz_dir = tmp_path / "OneDrive - Microsoft"
         biz_dir.mkdir()
-        backup_path = biz_dir / "NoteHelper_Backups"
-        backup_path.mkdir()
+        backup_path = biz_dir / "Backups" / "NoteHelper"
+        backup_path.mkdir(parents=True)
 
         with patch.dict(os.environ, {
             "OneDriveCommercial": str(biz_dir),
@@ -146,8 +165,8 @@ class TestIsBusinessOneDrivePath:
     def test_path_under_personal_dir(self, tmp_path):
         personal_dir = tmp_path / "OneDrive"
         personal_dir.mkdir()
-        backup_path = personal_dir / "NoteHelper_Backups"
-        backup_path.mkdir()
+        backup_path = personal_dir / "Backups" / "NoteHelper"
+        backup_path.mkdir(parents=True)
 
         with patch.dict(os.environ, {
             "OneDriveCommercial": "",
@@ -195,7 +214,7 @@ class TestBackupHelpers:
             config_data = {
                 'enabled': True,
                 'onedrive_path': 'C:\\Users\\test\\OneDrive',
-                'backup_dir': 'C:\\Users\\test\\OneDrive\\NoteHelper_Backups',
+                'backup_dir': 'C:\\Users\\test\\OneDrive\\Backups\\NoteHelper',
                 'retention': {'daily': 7, 'weekly': 4, 'monthly': 3},
                 'last_backup': '2025-01-15T10:30:00+00:00',
                 'task_registered': True,
@@ -210,7 +229,7 @@ class TestBackupHelpers:
                 result = mock_get()
 
             assert result['enabled'] is True
-            assert result['backup_dir'] == 'C:\\Users\\test\\OneDrive\\NoteHelper_Backups'
+            assert result['backup_dir'] == 'C:\\Users\\test\\OneDrive\\Backups\\NoteHelper'
             assert result['task_registered'] is True
 
     def test_get_backup_config_handles_corrupt_json(self, app):
