@@ -1058,3 +1058,78 @@ class ConnectExport(db.Model):
 
     def __repr__(self) -> str:
         return f'<ConnectExport {self.name} ({self.start_date} to {self.end_date})>'
+
+
+# =============================================================================
+# Usage Telemetry
+# =============================================================================
+
+class UsageEvent(db.Model):
+    """Local telemetry log for tracking feature usage and API calls.
+
+    Stores one row per HTTP request. No PII is recorded -- no IP addresses,
+    user-agents, session IDs, or usernames. The ``referrer_path`` field keeps
+    only the URL *path* (query string stripped) so we can correlate an API call
+    back to the page/feature that triggered it.
+    """
+    __tablename__ = 'usage_events'
+
+    id = db.Column(db.Integer, primary_key=True)
+    timestamp = db.Column(db.DateTime, default=utc_now, nullable=False, index=True)
+
+    # Request info
+    method = db.Column(db.String(10), nullable=False)          # GET, POST, DELETE, ...
+    endpoint = db.Column(db.String(500), nullable=False)       # URL path (no query string)
+    blueprint = db.Column(db.String(100), nullable=True)       # Flask blueprint name
+    view_function = db.Column(db.String(200), nullable=True)   # Flask endpoint/view name
+    is_api = db.Column(db.Boolean, nullable=False, default=False)  # True for /api/* routes
+
+    # Response info
+    status_code = db.Column(db.Integer, nullable=False)
+    response_time_ms = db.Column(db.Float, nullable=True)      # Wall-clock ms
+
+    # Feature context -- where the user was when they triggered this call
+    referrer_path = db.Column(db.String(500), nullable=True)   # Path-only from Referer header
+
+    # Error details (non-PII)
+    error_type = db.Column(db.String(200), nullable=True)      # Exception class name
+    error_message = db.Column(db.Text, nullable=True)          # Sanitized error message
+
+    # Metadata
+    category = db.Column(db.String(50), nullable=True)         # Derived category for grouping
+
+    def __repr__(self) -> str:
+        return f'<UsageEvent {self.method} {self.endpoint} {self.status_code}>'
+
+
+class DailyFeatureStats(db.Model):
+    """Aggregated daily feature usage statistics.
+
+    One row per (date, category, endpoint, method) combination. Produced by
+    rolling up raw ``UsageEvent`` rows so we can track long-term feature
+    popularity without keeping every individual request forever.
+
+    No PII is stored -- just counts and averages.
+    """
+    __tablename__ = 'daily_feature_stats'
+    __table_args__ = (
+        db.UniqueConstraint('date', 'category', 'endpoint', 'method', name='uq_daily_feature'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    date = db.Column(db.Date, nullable=False, index=True)
+
+    # Feature identification
+    category = db.Column(db.String(50), nullable=False, index=True)
+    endpoint = db.Column(db.String(500), nullable=False)
+    method = db.Column(db.String(10), nullable=False)
+    is_api = db.Column(db.Boolean, nullable=False, default=False)
+
+    # Aggregated metrics
+    event_count = db.Column(db.Integer, nullable=False, default=0)
+    error_count = db.Column(db.Integer, nullable=False, default=0)
+    avg_response_ms = db.Column(db.Float, nullable=True)
+    unique_referrers = db.Column(db.Integer, nullable=False, default=0)
+
+    def __repr__(self) -> str:
+        return f'<DailyFeatureStats {self.date} {self.category} {self.endpoint} ({self.event_count})>'

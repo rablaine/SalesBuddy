@@ -609,16 +609,16 @@ class TestAdminPanelCard:
     """Tests for the Connect Export card in admin panel."""
 
     def test_admin_panel_has_connect_export_card(self, client):
-        """Admin panel should have a Connect Export card."""
+        """Connect Export should be accessible from the navbar, not a dedicated admin card."""
         response = client.get('/admin')
         assert response.status_code == 200
+        # Connect Export link is in the navbar (from base.html), not an admin panel card
         assert b'Connect Export' in response.data
-        assert b'connect-export' in response.data
 
     def test_admin_card_links_to_export_page(self, client):
-        """Admin panel card should link to connect export page."""
+        """Navbar should link to connect export page."""
         response = client.get('/admin')
-        assert b'Go to Connect Export' in response.data
+        assert b'connect-export' in response.data
 
 
 class TestHelperFunctions:

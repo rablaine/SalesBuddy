@@ -87,6 +87,10 @@ def create_app():
                 db.session.add(g.user_prefs)
                 db.session.commit()
     
+    # Initialize usage telemetry hooks (before registering blueprints)
+    from app.services.telemetry import init_telemetry
+    init_telemetry(app)
+    
     # Register blueprints
     from app.routes.admin import admin_bp
     from app.routes.ai import ai_bp
@@ -148,5 +152,9 @@ def create_app():
     # Start background update checker (checks GitHub every 12 hours)
     from app.services.update_checker import start_update_checker
     start_update_checker(interval_seconds=43200)
+
+    # Start telemetry flush thread (buffers events, flushes to App Insights every 30s)
+    from app.services.telemetry_shipper import start_flush_thread
+    start_flush_thread(app)
 
     return app

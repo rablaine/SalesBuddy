@@ -21,7 +21,8 @@ from app.models import (
     db, User, POD, Territory, Seller, Customer, Topic, CallLog, AIQueryLog,
     RevenueImport, CustomerRevenueData, ProductRevenueData, RevenueAnalysis,
     RevenueConfig, RevenueEngagement, Milestone, Opportunity, MsxTask,
-    SolutionEngineer, SyncStatus, UserPreference, call_logs_milestones, utc_now
+    SolutionEngineer, SyncStatus, UserPreference, UsageEvent, DailyFeatureStats,
+    call_logs_milestones, utc_now
 )
 
 # Create blueprint
@@ -670,4 +671,336 @@ def api_backup_run():
         })
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ==============================================================================
+# Usage Telemetry API Endpoints
+# ==============================================================================
+
+@admin_bp.route('/api/admin/telemetry/stats', methods=['GET'])
+def api_telemetry_stats():
+    """Return aggregated usage telemetry statistics.
+
+    Query params:
+        days: Number of days to look back (default 30, max 365).
+
+    Returns JSON with:
+        summary: total events, unique endpoints, date range
+        by_category: event counts grouped by feature category
+        top_endpoints: most-hit endpoints
+        top_api_endpoints: most-hit API endpoints specifically
+        errors: recent error summary
+        daily_activity: events per day for charting
+        avg_response_time: average response time by category
+    """
+    from sqlalchemy import func, case
+
+    days = min(int(request.args.get('days', 30)), 365)
+    cutoff = datetime.now(timezone.utc) - __import__('datetime').timedelta(days=days)
+
+    base_q = UsageEvent.query.filter(UsageEvent.timestamp >= cutoff)
+
+    # Summary
+    total_events = base_q.count()
+    unique_endpoints = base_q.with_entities(
+        func.count(func.distinct(UsageEvent.endpoint))
+    ).scalar()
+    api_events = base_q.filter(UsageEvent.is_api.is_(True)).count()
+    page_events = base_q.filter(UsageEvent.is_api.is_(False)).count()
+    error_events = base_q.filter(UsageEvent.status_code >= 400).count()
+
+    # By category
+    by_category = (
+        base_q.with_entities(
+            UsageEvent.category,
+            func.count().label('count'),
+            func.avg(UsageEvent.response_time_ms).label('avg_ms'),
+        )
+        .group_by(UsageEvent.category)
+        .order_by(func.count().desc())
+        .all()
+    )
+
+    # Top endpoints (all)
+    top_endpoints = (
+        base_q.with_entities(
+            UsageEvent.method,
+            UsageEvent.endpoint,
+            UsageEvent.category,
+            func.count().label('count'),
+            func.avg(UsageEvent.response_time_ms).label('avg_ms'),
+        )
+        .group_by(UsageEvent.method, UsageEvent.endpoint, UsageEvent.category)
+        .order_by(func.count().desc())
+        .limit(25)
+        .all()
+    )
+
+    # Top API endpoints
+    top_api = (
+        base_q.filter(UsageEvent.is_api.is_(True))
+        .with_entities(
+            UsageEvent.method,
+            UsageEvent.endpoint,
+            UsageEvent.category,
+            func.count().label('count'),
+            func.avg(UsageEvent.response_time_ms).label('avg_ms'),
+            func.sum(case((UsageEvent.status_code >= 400, 1), else_=0)).label('errors'),
+        )
+        .group_by(UsageEvent.method, UsageEvent.endpoint, UsageEvent.category)
+        .order_by(func.count().desc())
+        .limit(25)
+        .all()
+    )
+
+    # Recent errors
+    recent_errors = (
+        base_q.filter(UsageEvent.status_code >= 400)
+        .with_entities(
+            UsageEvent.method,
+            UsageEvent.endpoint,
+            UsageEvent.status_code,
+            UsageEvent.error_type,
+            UsageEvent.error_message,
+            UsageEvent.referrer_path,
+            UsageEvent.timestamp,
+        )
+        .order_by(UsageEvent.timestamp.desc())
+        .limit(50)
+        .all()
+    )
+
+    # Daily activity (for charting)
+    daily = (
+        base_q.with_entities(
+            func.date(UsageEvent.timestamp).label('day'),
+            func.count().label('count'),
+            func.sum(case((UsageEvent.is_api.is_(True), 1), else_=0)).label('api_count'),
+            func.sum(case((UsageEvent.status_code >= 400, 1), else_=0)).label('errors'),
+        )
+        .group_by(func.date(UsageEvent.timestamp))
+        .order_by(func.date(UsageEvent.timestamp))
+        .all()
+    )
+
+    # Feature flow: which pages trigger which API calls
+    flows = (
+        base_q.filter(
+            UsageEvent.is_api.is_(True),
+            UsageEvent.referrer_path.isnot(None),
+        )
+        .with_entities(
+            UsageEvent.referrer_path,
+            UsageEvent.endpoint,
+            func.count().label('count'),
+        )
+        .group_by(UsageEvent.referrer_path, UsageEvent.endpoint)
+        .order_by(func.count().desc())
+        .limit(30)
+        .all()
+    )
+
+    return jsonify({
+        'days': days,
+        'summary': {
+            'total_events': total_events,
+            'unique_endpoints': unique_endpoints,
+            'api_events': api_events,
+            'page_events': page_events,
+            'error_events': error_events,
+        },
+        'by_category': [
+            {
+                'category': row.category or 'Unknown',
+                'count': row.count,
+                'avg_response_ms': round(row.avg_ms, 1) if row.avg_ms else None,
+            }
+            for row in by_category
+        ],
+        'top_endpoints': [
+            {
+                'method': row.method,
+                'endpoint': row.endpoint,
+                'category': row.category,
+                'count': row.count,
+                'avg_response_ms': round(row.avg_ms, 1) if row.avg_ms else None,
+            }
+            for row in top_endpoints
+        ],
+        'top_api_endpoints': [
+            {
+                'method': row.method,
+                'endpoint': row.endpoint,
+                'category': row.category,
+                'count': row.count,
+                'avg_response_ms': round(row.avg_ms, 1) if row.avg_ms else None,
+                'errors': row.errors,
+            }
+            for row in top_api
+        ],
+        'recent_errors': [
+            {
+                'method': row.method,
+                'endpoint': row.endpoint,
+                'status_code': row.status_code,
+                'error_type': row.error_type,
+                'error_message': row.error_message,
+                'referrer_path': row.referrer_path,
+                'timestamp': row.timestamp.isoformat() if row.timestamp else None,
+            }
+            for row in recent_errors
+        ],
+        'daily_activity': [
+            {
+                'date': str(row.day),
+                'count': row.count,
+                'api_count': row.api_count,
+                'errors': row.errors,
+            }
+            for row in daily
+        ],
+        'feature_flows': [
+            {
+                'from_page': row.referrer_path,
+                'to_api': row.endpoint,
+                'count': row.count,
+            }
+            for row in flows
+        ],
+    })
+
+
+@admin_bp.route('/api/admin/telemetry/clear', methods=['POST'])
+def api_telemetry_clear():
+    """Delete all telemetry data."""
+    try:
+        deleted = UsageEvent.query.delete()
+        db.session.commit()
+        return jsonify({
+            'success': True,
+            'message': f'Deleted {deleted} telemetry events.',
+        })
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@admin_bp.route('/api/admin/telemetry/events', methods=['GET'])
+def api_telemetry_events():
+    """Return raw telemetry events with pagination.
+
+    Query params:
+        page: Page number (default 1).
+        per_page: Events per page (default 50, max 200).
+        category: Filter by category.
+        is_api: Filter (true/false) for API vs page requests.
+        errors_only: If 'true', only return 4xx/5xx events.
+    """
+    page = max(1, int(request.args.get('page', 1)))
+    per_page = min(200, max(1, int(request.args.get('per_page', 50))))
+
+    q = UsageEvent.query.order_by(UsageEvent.timestamp.desc())
+
+    category = request.args.get('category')
+    if category:
+        q = q.filter(UsageEvent.category == category)
+
+    is_api = request.args.get('is_api')
+    if is_api == 'true':
+        q = q.filter(UsageEvent.is_api.is_(True))
+    elif is_api == 'false':
+        q = q.filter(UsageEvent.is_api.is_(False))
+
+    if request.args.get('errors_only') == 'true':
+        q = q.filter(UsageEvent.status_code >= 400)
+
+    pagination = q.paginate(page=page, per_page=per_page, error_out=False)
+
+    return jsonify({
+        'events': [
+            {
+                'id': e.id,
+                'timestamp': e.timestamp.isoformat(),
+                'method': e.method,
+                'endpoint': e.endpoint,
+                'blueprint': e.blueprint,
+                'view_function': e.view_function,
+                'is_api': e.is_api,
+                'status_code': e.status_code,
+                'response_time_ms': e.response_time_ms,
+                'referrer_path': e.referrer_path,
+                'error_type': e.error_type,
+                'error_message': e.error_message,
+                'category': e.category,
+            }
+            for e in pagination.items
+        ],
+        'page': pagination.page,
+        'per_page': pagination.per_page,
+        'total': pagination.total,
+        'pages': pagination.pages,
+    })
+
+
+@admin_bp.route('/api/admin/telemetry/feature-health', methods=['GET'])
+def api_telemetry_feature_health():
+    """Return a feature-health report: popularity ranking, dead features, trends.
+
+    Query params:
+        days: Number of days to analyse (default 30, max 365).
+
+    Combines aggregated DailyFeatureStats (for completed days) with today's
+    live UsageEvent data so the report is always current.
+    """
+    from app.services.telemetry_aggregation import get_feature_health
+
+    days = min(int(request.args.get('days', 30)), 365)
+    return jsonify(get_feature_health(days=days))
+
+
+@admin_bp.route('/api/admin/telemetry/aggregate', methods=['POST'])
+def api_telemetry_aggregate():
+    """Manually trigger aggregation of raw events into daily stats.
+
+    JSON body (all optional):
+        days_back: How many days to aggregate (default 7).
+        prune_raw: If true, prune raw events beyond retention window.
+        raw_retention_days: Days of raw events to keep (default 90).
+    """
+    from app.services.telemetry_aggregation import aggregate_daily_stats
+
+    data = request.get_json(silent=True) or {}
+    try:
+        result = aggregate_daily_stats(
+            days_back=min(int(data.get('days_back', 7)), 365),
+            prune_raw=bool(data.get('prune_raw', False)),
+            raw_retention_days=int(data.get('raw_retention_days', 90)),
+        )
+        return jsonify({'success': True, **result})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@admin_bp.route('/api/admin/telemetry/flush', methods=['POST'])
+def api_telemetry_flush():
+    """Manually flush the central telemetry buffer to App Insights."""
+    from app.services.telemetry_shipper import flush_buffer, is_telemetry_enabled
+
+    if not is_telemetry_enabled():
+        return jsonify({
+            'success': False,
+            'reason': 'Telemetry shipping is disabled (NOTEHELPER_TELEMETRY_OPT_OUT)',
+        })
+
+    result = flush_buffer()
+    return jsonify({'success': result.get('flushed', False), **result})
+
+
+@admin_bp.route('/api/admin/telemetry/shipping-status', methods=['GET'])
+def api_telemetry_shipping_status():
+    """Return the current central telemetry shipping status and stats."""
+    from app.services.telemetry_shipper import get_flush_stats
+
+    return jsonify(get_flush_stats())
 

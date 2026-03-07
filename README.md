@@ -355,6 +355,22 @@ If you prefer to use Windows Task Scheduler instead of the built-in background s
    ```
 4. NoteHelper must be running when the task fires
 
+## Telemetry
+
+NoteHelper sends anonymous, aggregated feature usage data to Azure Application Insights to help maintainers understand which features are used and improve the app. **No personal data, customer names, IP addresses, or endpoint paths are ever sent** -- only the feature category (e.g. "Call Logs"), HTTP method, status code, and response time.
+
+See [APP_INSIGHTS.md](APP_INSIGHTS.md) for full details on what is sent, how it works, and Kusto queries for auditing.
+
+### Opting Out
+
+To disable central telemetry, add this line to your `.env` file:
+
+```
+NOTEHELPER_TELEMETRY_OPT_OUT=true
+```
+
+Then restart the app. Local usage tracking (visible in Admin > Usage Telemetry) still works regardless of this setting.
+
 ## Compliance
 
 This application stores customer account data locally. The SQLite database is **not encrypted at the application level** — encryption at rest is provided by **BitLocker** full-disk encryption on your managed device. To remain compliant with organizational data handling policies:

@@ -98,16 +98,18 @@
 - Never run tests against production database
 - Aim for 70%+ code coverage
 - Test file naming: `test_*.py` or `*_test.py`
-- **Run tests before committing** - Ensure all tests pass with `pytest tests/`
+- **Run scoped tests during development** - Run only the test file(s) relevant to what you're building (e.g., `pytest tests/test_views.py`). Do NOT run the full suite (`pytest tests/`) during normal development.
+- **Full test suite is reserved for merge-to-main only** - The full suite takes 12+ minutes. Only run `pytest tests/` after the user has manually tested the feature and explicitly asked to merge to main.
 - Add tests for any bugs discovered to prevent regression
 
 ## Terminal Command Rules
 
 **CRITICAL - DO NOT VIOLATE THESE RULES:**
-- **NEVER pipe, redirect, or filter pytest output** — always run `pytest tests/` plain and wait for it to finish. The test suite is large (350+ tests) and takes time. Let it complete.
+- **NEVER run the full test suite (`pytest tests/`) during development** — only run it when the user has tested the feature and told you to merge to main. During development, run only the relevant scoped test file(s) (e.g., `pytest tests/test_views.py`).
+- **NEVER pipe, redirect, or filter pytest output** — always run pytest plain and wait for it to finish. The full suite is 900+ tests and takes 12+ minutes. Let it complete.
 - **NEVER kill a running command and re-run it** — if a command is still running, WAIT. Do not start a new terminal command while one is still executing.
 - **NEVER chain pytest with `| Select-Object`, `| Out-String`, `| Where-Object`, `2>&1`, or any other output manipulation** — this causes truncation and wastes massive amounts of time re-running.
-- **Set timeout to 0 for pytest runs** — the suite can take over 60 seconds. Use `timeout: 0` so it doesn't get killed early.
+- **Set timeout to 0 for pytest runs** — the suite can take over 12 minutes. Use `timeout: 0` so it doesn't get killed early.
 - If output appears truncated, DO NOT re-run the command with different piping. Just re-run the same plain command and wait.
 
 ## Architecture Patterns
@@ -253,11 +255,11 @@ pytest --cov=app tests/  # with coverage
 **Development Workflow:**
 1. Create feature branch: `git checkout -b feature/your-feature-name`
 2. Write code and corresponding tests together
-3. Run `pytest tests/` to verify all tests pass
+3. Run scoped tests for the feature you're building (e.g., `pytest tests/test_views.py`)
 4. **Prompt user to manually test new features or bug fixes** - Before committing, always ask the user to test the changes in the running app to verify everything works as expected
 5. Commit to feature branch with descriptive message
 6. **STOP AND WAIT for user confirmation** before merging to `main` — **NEVER merge to main without explicit user approval**
-7. When user says ready: merge to `main` with `--no-ff` and push
+7. When user says ready: run full test suite (`pytest tests/`), then merge to `main` with `--no-ff` and push
    - **Always use `git merge --no-ff`** to preserve feature branch history
 
 **CRITICAL — DO NOT AUTO-MERGE:**
