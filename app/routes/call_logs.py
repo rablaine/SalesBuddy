@@ -132,13 +132,22 @@ def _handle_milestone_and_task(call_log):
 @call_logs_bp.route('/call-logs')
 def call_logs_list():
     """List all call logs (FR010)."""
-    call_logs = CallLog.query.options(
+    filter_type = request.args.get('filter', '')
+    
+    query = CallLog.query.options(
         db.joinedload(CallLog.customer).joinedload(Customer.seller),
         db.joinedload(CallLog.customer).joinedload(Customer.territory),
         db.joinedload(CallLog.topics),
         db.joinedload(CallLog.partners)
-    ).order_by(CallLog.call_date.desc()).all()
-    return render_template('call_logs_list.html', call_logs=call_logs)
+    )
+    
+    if filter_type == 'customer':
+        query = query.filter(CallLog.customer_id.isnot(None))
+    elif filter_type == 'general':
+        query = query.filter(CallLog.customer_id.is_(None))
+    
+    call_logs = query.order_by(CallLog.call_date.desc()).all()
+    return render_template('call_logs_list.html', call_logs=call_logs, filter_type=filter_type)
 
 
 @call_logs_bp.route('/call-log/new', methods=['GET', 'POST'])
@@ -153,11 +162,7 @@ def call_log_create():
         partner_ids = request.form.getlist('partner_ids')
         referrer = request.form.get('referrer', '')
         
-        # Validation
-        if not customer_id:
-            flash('Customer is required.', 'danger')
-            return redirect(url_for('call_logs.call_log_create'))
-        
+        # Validation -- customer is optional for general notes
         if not call_date_str:
             flash('Call date is required.', 'danger')
             return redirect(url_for('call_logs.call_log_create'))
@@ -177,22 +182,25 @@ def call_log_create():
             flash('Invalid date/time format.', 'danger')
             return redirect(url_for('call_logs.call_log_create'))
         
-        # Get customer and auto-fill territory
-        customer = Customer.query.filter_by(id=int(customer_id)).first()
-        territory_id = customer.territory_id if customer else None
-        
-        # If customer doesn't have a seller but one is selected, associate it
-        if customer and not customer.seller_id and seller_id:
-            customer.seller_id = int(seller_id)
-            # Also update customer's territory if seller has one
-            seller = Seller.query.filter_by(id=int(seller_id)).first()
-            if seller and seller.territory_id:
-                customer.territory_id = seller.territory_id
-                territory_id = seller.territory_id
+        # Get customer and auto-fill territory (customer is optional)
+        customer = None
+        territory_id = None
+        if customer_id:
+            customer = Customer.query.filter_by(id=int(customer_id)).first()
+            territory_id = customer.territory_id if customer else None
+            
+            # If customer doesn't have a seller but one is selected, associate it
+            if customer and not customer.seller_id and seller_id:
+                customer.seller_id = int(seller_id)
+                # Also update customer's territory if seller has one
+                seller = Seller.query.filter_by(id=int(seller_id)).first()
+                if seller and seller.territory_id:
+                    customer.territory_id = seller.territory_id
+                    territory_id = seller.territory_id
         
         # Create call log
         call_log = CallLog(
-            customer_id=int(customer_id),
+            customer_id=int(customer_id) if customer_id else None,
             call_date=call_date,
             content=content)
         
@@ -208,20 +216,22 @@ def call_log_create():
         
         db.session.add(call_log)
         
-        # Handle milestone and optional task creation
-        try:
-            _handle_milestone_and_task(call_log)
-        except Exception as e:
-            logger.exception("Error handling milestone/task during call log create")
-            flash(f'Call log will be saved, but milestone/task failed: {e}', 'warning')
+        # Handle milestone and optional task creation (only for customer-linked notes)
+        if customer_id:
+            try:
+                _handle_milestone_and_task(call_log)
+            except Exception as e:
+                logger.exception("Error handling milestone/task during call log create")
+                flash(f'Call log will be saved, but milestone/task failed: {e}', 'warning')
         
         db.session.commit()
 
         # Back up this customer's call logs
-        try:
-            _backup_customer(call_log.customer_id)
-        except Exception:
-            logger.debug("Backup skipped", exc_info=True)
+        if call_log.customer_id:
+            try:
+                _backup_customer(call_log.customer_id)
+            except Exception:
+                logger.debug("Backup skipped", exc_info=True)
         
         flash('Call log created successfully!', 'success')
         
@@ -232,19 +242,18 @@ def call_log_create():
         return redirect(url_for('call_logs.call_log_view', id=call_log.id))
     
     # GET request - load form
-    # Require customer_id to be specified
+    # customer_id is optional: if not provided, it's a general (non-customer) note
     preselect_customer_id = request.args.get('customer_id', type=int)
     
-    if not preselect_customer_id:
-        # Redirect to customers list to select a customer first
-        flash('Please select a customer before creating a call log.', 'info')
-        return redirect(url_for('customers.customers_list'))
+    preselect_customer = None
+    previous_calls = []
     
-    # Load customer and their previous call logs
-    preselect_customer = Customer.query.filter_by(id=preselect_customer_id).first_or_404()
-    previous_calls = CallLog.query.filter_by(customer_id=preselect_customer_id).options(
-        db.joinedload(CallLog.topics)
-    ).order_by(CallLog.call_date.desc()).all()
+    if preselect_customer_id:
+        # Load customer and their previous call logs
+        preselect_customer = Customer.query.filter_by(id=preselect_customer_id).first_or_404()
+        previous_calls = CallLog.query.filter_by(customer_id=preselect_customer_id).options(
+            db.joinedload(CallLog.topics)
+        ).order_by(CallLog.call_date.desc()).all()
     
     customers = Customer.query.order_by(Customer.name).all()
     sellers = Seller.query.order_by(Seller.name).all()
@@ -273,9 +282,9 @@ def call_log_create():
     # Current time for new call logs (default to now)
     now_time = datetime.now().strftime('%H:%M')
     
-    # Check if AI features are enabled
+    # Check if AI features are enabled (only for customer-linked notes)
     from app.routes.ai import is_ai_enabled
-    ai_enabled = is_ai_enabled()
+    ai_enabled = is_ai_enabled() if preselect_customer_id else False
     
     # Get user's custom WorkIQ prompt (for meeting import modal)
     from app.services.workiq_service import DEFAULT_SUMMARY_PROMPT
@@ -322,11 +331,7 @@ def call_log_edit(id):
         topic_ids = request.form.getlist('topic_ids')
         partner_ids = request.form.getlist('partner_ids')
         
-        # Validation
-        if not customer_id:
-            flash('Customer is required.', 'danger')
-            return redirect(url_for('call_logs.call_log_edit', id=id))
-        
+        # Validation -- customer is optional for general notes
         if not call_date_str:
             flash('Call date is required.', 'danger')
             return redirect(url_for('call_logs.call_log_edit', id=id))
@@ -347,7 +352,7 @@ def call_log_edit(id):
             return redirect(url_for('call_logs.call_log_edit', id=id))
         
         # Update call log
-        call_log.customer_id = int(customer_id)
+        call_log.customer_id = int(customer_id) if customer_id else None
         # Seller and territory are now derived from customer
         call_log.call_date = call_date
         call_log.content = content
@@ -364,20 +369,22 @@ def call_log_edit(id):
             partners = Partner.query.filter(Partner.id.in_([int(pid) for pid in partner_ids])).all()
             call_log.partners = partners
         
-        # Handle milestone and optional task creation
-        try:
-            _handle_milestone_and_task(call_log)
-        except Exception as e:
-            logger.exception("Error handling milestone/task during call log edit")
-            flash(f'Call log will be saved, but milestone/task failed: {e}', 'warning')
+        # Handle milestone and optional task creation (only for customer-linked notes)
+        if customer_id:
+            try:
+                _handle_milestone_and_task(call_log)
+            except Exception as e:
+                logger.exception("Error handling milestone/task during call log edit")
+                flash(f'Call log will be saved, but milestone/task failed: {e}', 'warning')
         
         db.session.commit()
 
         # Back up this customer's call logs
-        try:
-            _backup_customer(call_log.customer_id)
-        except Exception:
-            logger.debug("Backup skipped", exc_info=True)
+        if call_log.customer_id:
+            try:
+                _backup_customer(call_log.customer_id)
+            except Exception:
+                logger.debug("Backup skipped", exc_info=True)
         
         flash('Call log updated successfully!', 'success')
         return redirect(url_for('call_logs.call_log_view', id=call_log.id))

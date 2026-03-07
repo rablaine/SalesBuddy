@@ -423,7 +423,7 @@ class CallLog(db.Model):
     __tablename__ = 'call_logs'
     
     id = db.Column(db.Integer, primary_key=True)
-    customer_id = db.Column(db.Integer, db.ForeignKey('customers.id'), nullable=False)
+    customer_id = db.Column(db.Integer, db.ForeignKey('customers.id'), nullable=True)
     # DateTime for full timestamp - date portion for display, time for meeting imports
     call_date = db.Column(db.DateTime, nullable=False, default=lambda: datetime.now())
     content = db.Column(db.Text, nullable=False)
@@ -462,7 +462,8 @@ class CallLog(db.Model):
         return self.customer.territory if self.customer else None
     
     def __repr__(self) -> str:
-        return f'<CallLog {self.id} for {self.customer.name}>'
+        name = self.customer.name if self.customer else 'General'
+        return f'<CallLog {self.id} for {name}>'
 
 
 class Opportunity(db.Model):

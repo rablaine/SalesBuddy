@@ -96,6 +96,9 @@ def run_migrations(db):
     # Migration: Add website and favicon_b64 columns to customers
     _migrate_customer_favicon_columns(db, inspector)
 
+    # Migration: Make customer_id nullable on call_logs (support non-customer notes)
+    _migrate_call_logs_nullable_customer(db, inspector)
+
     # =========================================================================
     # End migrations
     # =========================================================================
@@ -778,3 +781,59 @@ def _migrate_customer_favicon_columns(db, inspector):
         return
     _add_column_if_not_exists(db, inspector, 'customers', 'website', 'VARCHAR(500)')
     _add_column_if_not_exists(db, inspector, 'customers', 'favicon_b64', 'TEXT')
+
+
+def _migrate_call_logs_nullable_customer(db, inspector):
+    """Make customer_id nullable on call_logs to support non-customer notes.
+    
+    SQLite doesn't support ALTER COLUMN, so we recreate the table with the
+    new schema and copy data over.
+    """
+    if 'call_logs' not in inspector.get_table_names():
+        return
+    
+    # Check if customer_id is already nullable
+    columns = inspector.get_columns('call_logs')
+    for col in columns:
+        if col['name'] == 'customer_id':
+            if col.get('nullable', True):
+                # Already nullable (or can't determine -- skip)
+                return
+            break
+    else:
+        # customer_id column not found, nothing to do
+        return
+    
+    print("Migration: Making customer_id nullable on call_logs...")
+    
+    db.session.execute(text('PRAGMA foreign_keys=OFF'))
+    db.session.commit()
+    
+    # Get existing columns for the copy
+    col_names = [c['name'] for c in columns]
+    col_list = ', '.join(col_names)
+    
+    db.session.execute(text('''
+        CREATE TABLE call_logs_new (
+            id INTEGER PRIMARY KEY,
+            customer_id INTEGER REFERENCES customers(id),
+            call_date DATETIME NOT NULL,
+            content TEXT NOT NULL,
+            created_at DATETIME NOT NULL,
+            updated_at DATETIME NOT NULL
+        )
+    '''))
+    
+    # Copy data (only columns that exist in both old and new)
+    new_cols = ['id', 'customer_id', 'call_date', 'content', 'created_at', 'updated_at']
+    shared = [c for c in new_cols if c in col_names]
+    shared_list = ', '.join(shared)
+    db.session.execute(text(f'INSERT INTO call_logs_new ({shared_list}) SELECT {shared_list} FROM call_logs'))
+    
+    db.session.execute(text('DROP TABLE call_logs'))
+    db.session.execute(text('ALTER TABLE call_logs_new RENAME TO call_logs'))
+    
+    db.session.execute(text('PRAGMA foreign_keys=ON'))
+    db.session.commit()
+    
+    print("  -> customer_id is now nullable on call_logs")

@@ -91,13 +91,13 @@ def test_topic_edit_form_loads(client, sample_data):
 
 
 def test_call_log_create_form_loads(client, sample_data):
-    """Test call log creation form loads (now requires customer_id)."""
-    # Without customer_id, should redirect to customers list
+    """Test call log creation form loads (without customer_id shows general note form)."""
+    # Without customer_id, should load as general note form
     response = client.get('/call-log/new')
-    assert response.status_code == 302
-    assert '/customers' in response.location
+    assert response.status_code == 200
+    assert b'General Note' in response.data
     
-    # With customer_id, should load form
+    # With customer_id, should load form with customer context
     customer_id = sample_data['customer1_id']
     response = client.get(f'/call-log/new?customer_id={customer_id}')
     assert response.status_code == 200

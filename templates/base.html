@@ -2107,12 +2107,12 @@
     <script defer>
         window.addEventListener('load', () => {
             // Setup for call log modal - goes to call log form
-            setupCustomerSearchModal('quickCallLogModal', 'customerSearch', 'customerResults', '{{ url_for("call_logs.call_log_create") }}?customer_id=');
+            setupCustomerSearchModal('quickCallLogModal', 'customerSearch', 'customerResults', '{{ url_for("call_logs.call_log_create") }}?customer_id=', '{{ url_for("call_logs.call_log_create") }}');
             // Setup for customer lookup modal - goes directly to customer page
             setupCustomerSearchModal('quickCustomerLookupModal', 'customerLookupSearch', 'customerLookupResults', '{{ url_for("customers.customer_view", id=0) }}'.replace('/0', '/'));
         });
         
-        function setupCustomerSearchModal(modalId, searchInputId, resultsId, baseUrl) {
+        function setupCustomerSearchModal(modalId, searchInputId, resultsId, baseUrl, noCustomerUrl) {
             const customerSearch = document.getElementById(searchInputId);
             const customerResults = document.getElementById(resultsId);
             const modal = document.getElementById(modalId);
@@ -2121,15 +2121,21 @@
             if (!customerSearch || !customerResults || !modal) return;
 
             function renderResults(customers){
-                if (customers.length === 0) {
+                let html = '';
+                // Show "Not Customer Associated" option at top for call log modal
+                if (noCustomerUrl) {
+                    html += `<a href="${noCustomerUrl}" class="list-group-item list-group-item-action list-group-item-light border-bottom-2"><i class="bi bi-journal-text text-secondary"></i> <em>Not Customer Associated</em> <span class="badge bg-secondary ms-2">General Note</span></a>`;
+                }
+                if (customers.length === 0 && !noCustomerUrl) {
                     customerResults.innerHTML = '<div class="list-group-item text-muted">No customers found</div>';
                     return;
                 }
-                customerResults.innerHTML = customers.map(c => {
+                html += customers.map(c => {
                     const displayName = c.nickname ? `${c.name} (${c.nickname})` : c.name;
                     const tpidBadge = c.tpid ? `<span class="badge bg-secondary ms-2">TPID: ${c.tpid}</span>` : '';
                     return `<a href="${baseUrl}${c.id}" class="list-group-item list-group-item-action"><i class="bi bi-building"></i> ${displayName}${tpidBadge}</a>`;
                 }).join('');
+                customerResults.innerHTML = html;
             }
 
             function filterAndRender(query) {

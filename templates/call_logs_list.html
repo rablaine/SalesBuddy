@@ -4,7 +4,14 @@
 {% block title %}Call Logs - NoteHelper{% endblock %}
 
 {% block content %}
-<h1 class="mb-4"><i class="bi bi-journal-text"></i> Call Logs</h1>
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1 class="mb-0"><i class="bi bi-journal-text"></i> Call Logs</h1>
+    <div class="btn-group" role="group" aria-label="Filter notes">
+        <a href="{{ url_for('call_logs.call_logs_list') }}" class="btn btn-sm {% if not filter_type %}btn-primary{% else %}btn-outline-primary{% endif %}">All</a>
+        <a href="{{ url_for('call_logs.call_logs_list', filter='customer') }}" class="btn btn-sm {% if filter_type == 'customer' %}btn-primary{% else %}btn-outline-primary{% endif %}">Customer</a>
+        <a href="{{ url_for('call_logs.call_logs_list', filter='general') }}" class="btn btn-sm {% if filter_type == 'general' %}btn-primary{% else %}btn-outline-primary{% endif %}">General</a>
+    </div>
+</div>
 
 {% if call_logs %}
     <style>
@@ -40,7 +47,7 @@
                                 ({{ call.customer.tpid }})
                             {% endif %}
                         {% else %}
-                            Unknown Customer
+                            <span class="text-secondary"><i class="bi bi-journal-text"></i> General Note</span>
                         {% endif %}
                     </h5>
                     <small class="text-muted text-nowrap ms-3">{{ call.call_date.strftime('%b %d, %Y') }}{% if call.call_date.hour != 0 or call.call_date.minute != 0 %} {{ call.call_date.strftime('%I:%M %p') }}{% endif %}</small>
