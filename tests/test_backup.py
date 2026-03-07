@@ -4,6 +4,7 @@ Tests for the backup API endpoints.
 import json
 import os
 import shutil
+import subprocess
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -290,12 +291,61 @@ class TestBackupHelpers:
             assert result == []
 
 
+class TestCheckScheduledTask:
+    """Tests for _check_scheduled_task live Task Scheduler query."""
+
+    def test_task_exists_parses_csv(self, app):
+        """Should parse schtasks CSV output when task exists."""
+        with app.app_context():
+            from app.routes.admin import _check_scheduled_task
+            csv_output = '"\\NoteHelper-DailyBackup","3/8/2026 11:00:00 AM","Ready"\n'
+            with patch('app.routes.admin.subprocess.run') as mock_run:
+                mock_run.return_value = type('R', (), {
+                    'returncode': 0, 'stdout': csv_output, 'stderr': ''
+                })()
+                result = _check_scheduled_task()
+            assert result['exists'] is True
+            assert result['next_run'] == '3/8/2026 11:00:00 AM'
+            assert result['status'] == 'Ready'
+
+    def test_task_not_found(self, app):
+        """Should return exists=False when schtasks returns non-zero."""
+        with app.app_context():
+            from app.routes.admin import _check_scheduled_task
+            with patch('app.routes.admin.subprocess.run') as mock_run:
+                mock_run.return_value = type('R', (), {
+                    'returncode': 1, 'stdout': '', 'stderr': 'ERROR: not found'
+                })()
+                result = _check_scheduled_task()
+            assert result['exists'] is False
+            assert result['next_run'] is None
+
+    def test_task_check_handles_timeout(self, app):
+        """Should gracefully handle subprocess timeout."""
+        with app.app_context():
+            from app.routes.admin import _check_scheduled_task
+            with patch('app.routes.admin.subprocess.run',
+                       side_effect=subprocess.TimeoutExpired('schtasks', 5)):
+                result = _check_scheduled_task()
+            assert result['exists'] is False
+
+    def test_task_check_non_windows(self, app):
+        """Should return exists=False on non-Windows platforms."""
+        with app.app_context():
+            from app.routes.admin import _check_scheduled_task
+            with patch('app.routes.admin.sys') as mock_sys:
+                mock_sys.platform = 'linux'
+                result = _check_scheduled_task()
+            assert result['exists'] is False
+
+
 class TestBackupStatusAPI:
     """Tests for GET /api/admin/backup/status."""
 
     def test_backup_status_not_configured(self, client, app):
         """Should return not-configured status when no config exists."""
-        with patch('app.routes.admin._get_backup_config') as mock_config:
+        with patch('app.routes.admin._get_backup_config') as mock_config, \
+             patch('app.routes.admin._check_scheduled_task') as mock_task:
             mock_config.return_value = {
                 'enabled': False,
                 'onedrive_path': '',
@@ -304,19 +354,22 @@ class TestBackupStatusAPI:
                 'last_backup': None,
                 'task_registered': False,
             }
+            mock_task.return_value = {'exists': False, 'next_run': None, 'status': None}
             response = client.get('/api/admin/backup/status')
 
         assert response.status_code == 200
         data = response.get_json()
         assert data['enabled'] is False
         assert data['recent_backups'] == []
+        assert data['task_exists'] is False
 
     def test_backup_status_configured(self, client, app, tmp_path):
         """Should return configured status with backup list."""
         # Create a fake backup file
         (tmp_path / 'notehelper_2025-01-15_100000.db').write_bytes(b'x' * 4096)
 
-        with patch('app.routes.admin._get_backup_config') as mock_config:
+        with patch('app.routes.admin._get_backup_config') as mock_config, \
+             patch('app.routes.admin._check_scheduled_task') as mock_task:
             mock_config.return_value = {
                 'enabled': True,
                 'onedrive_path': 'C:\\OneDrive',
@@ -325,15 +378,40 @@ class TestBackupStatusAPI:
                 'last_backup': '2025-01-15T10:30:00+00:00',
                 'task_registered': True,
             }
+            mock_task.return_value = {'exists': True, 'next_run': '3/8/2026 11:00:00 AM', 'status': 'Ready'}
             response = client.get('/api/admin/backup/status')
 
         assert response.status_code == 200
         data = response.get_json()
         assert data['enabled'] is True
         assert data['task_registered'] is True
+        assert data['task_exists'] is True
+        assert data['task_next_run'] == '3/8/2026 11:00:00 AM'
+        assert data['task_status'] == 'Ready'
         assert data['last_backup'] == '2025-01-15T10:30:00+00:00'
         assert len(data['recent_backups']) == 1
         assert data['recent_backups'][0]['name'] == 'notehelper_2025-01-15_100000.db'
+
+    def test_backup_status_task_missing_but_config_says_registered(self, client, app):
+        """task_exists should be False even when task_registered is True."""
+        with patch('app.routes.admin._get_backup_config') as mock_config, \
+             patch('app.routes.admin._check_scheduled_task') as mock_task:
+            mock_config.return_value = {
+                'enabled': True,
+                'onedrive_path': 'C:\\OneDrive',
+                'backup_dir': 'C:\\fake',
+                'retention': {'daily': 7, 'weekly': 4, 'monthly': 3},
+                'last_backup': None,
+                'task_registered': True,
+            }
+            mock_task.return_value = {'exists': False, 'next_run': None, 'status': None}
+            response = client.get('/api/admin/backup/status')
+
+        assert response.status_code == 200
+        data = response.get_json()
+        assert data['task_registered'] is True
+        assert data['task_exists'] is False
+        assert data['task_next_run'] is None
 
 
 class TestBackupRunAPI:

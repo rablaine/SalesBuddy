@@ -1611,8 +1611,11 @@ function loadBackupStatus() {
             }
 
             const taskEl = document.getElementById('dbBackupTaskStatus');
-            if (dbData.task_registered) {
-                taskEl.innerHTML = '<span class="badge bg-success">Active</span>';
+            if (dbData.task_exists) {
+                const nextRun = dbData.task_next_run ? ` <small class="text-muted">(next: ${dbData.task_next_run})</small>` : '';
+                taskEl.innerHTML = `<span class="badge bg-success">${dbData.task_status || 'Active'}</span>${nextRun}`;
+            } else if (dbData.task_registered) {
+                taskEl.innerHTML = '<span class="badge bg-warning text-dark">Not found</span> <small class="text-muted">(config says registered but task missing)</small>';
             } else {
                 taskEl.innerHTML = '<span class="badge bg-secondary">Not registered</span>';
             }
