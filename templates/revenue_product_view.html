@@ -83,7 +83,6 @@
                             <th>Bucket</th>
                             <th class="text-end">Total Revenue</th>
                             <th>Latest Month</th>
-                            <th>Actions</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -108,14 +107,6 @@
                                 {{ c.latest_month.strftime('%b %Y') }}
                                 {% else %}
                                 -
-                                {% endif %}
-                            </td>
-                            <td>
-                                {% if c.customer_id %}
-                                <a href="{{ url_for('revenue.revenue_bucket_products', customer_id=c.customer_id, bucket=c.bucket) }}" 
-                                   class="btn btn-sm btn-outline-primary" title="View all products">
-                                    <i class="bi bi-boxes"></i>
-                                </a>
                                 {% endif %}
                             </td>
                         </tr>

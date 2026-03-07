@@ -60,7 +60,7 @@
     <div class="col-md-3">
         <div class="card text-center border-0 shadow-sm">
             <div class="card-body py-3">
-                <h3 class="text-primary mb-0" id="totalCount">{{ summary.total_count }}</h3>
+                <h3 class="mb-0" id="totalCount" style="color: #0d6efd;">{{ summary.total_count }}</h3>
                 <p class="text-muted mb-0 small">Active Milestones</p>
             </div>
         </div>
@@ -235,7 +235,7 @@
                     {% if ms.on_my_team %}
                     <span class="badge bg-success" title="On my team"><i class="bi bi-people-fill"></i></span>
                     {% elif ms.msx_milestone_id %}
-                    <button class="btn btn-outline-primary btn-sm py-0 px-1" title="Join milestone team"
+                    <button class="btn btn-external btn-sm py-0 px-1" title="Join milestone team"
                             onclick="joinTrackerTeam(this, {{ ms.id }})">
                         <i class="bi bi-person-plus"></i>
                     </button>
@@ -326,7 +326,7 @@
                 <!-- MSX Link -->
                 <td class="text-center">
                     {% if ms.url %}
-                        <a href="{{ ms.url }}" target="_blank" class="btn btn-sm btn-outline-primary" title="Open in MSX" onclick="event.stopPropagation();">
+                        <a href="{{ ms.url }}" target="_blank" class="btn btn-sm btn-external" title="Open in MSX" onclick="event.stopPropagation();">
                             <i class="bi bi-box-arrow-up-right"></i>
                         </a>
                     {% endif %}
@@ -370,9 +370,9 @@
 // Disable join-team buttons when VPN is blocked
 fetch('/api/msx/vpn-status').then(r => r.json()).then(data => {
     if (data.blocked) {
-        document.querySelectorAll('.btn-outline-primary[onclick*="joinTrackerTeam"]').forEach(btn => {
+        document.querySelectorAll('.btn-external[onclick*="joinTrackerTeam"]').forEach(btn => {
             btn.disabled = true;
-            btn.classList.replace('btn-outline-primary', 'btn-outline-secondary');
+            btn.classList.replace('btn-external', 'btn-outline-secondary');
             btn.title = 'VPN required \u2014 connect to corpnet first';
         });
     }
@@ -737,8 +737,8 @@ function updateSortIndicators() {
     if (activeHeader) {
         const icon = activeHeader.querySelector('i');
         icon.className = currentSort.direction === 'asc'
-            ? 'bi bi-sort-up text-primary small'
-            : 'bi bi-sort-down text-primary small';
+            ? 'bi bi-sort-up small' + ' text-info'
+            : 'bi bi-sort-down small' + ' text-info';
     }
 }
 

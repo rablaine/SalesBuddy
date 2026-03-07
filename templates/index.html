@@ -58,7 +58,7 @@
         <a href="{{ url_for('milestones.milestone_tracker') }}" class="text-decoration-none">
             <div class="card text-center h-100" style="cursor: pointer; transition: transform 0.2s;">
                 <div class="card-body">
-                    <i class="bi bi-flag-fill text-warning" style="font-size: 3rem;"></i>
+                    <i class="bi bi-flag-fill" style="font-size: 3rem; color: #c49000;"></i>
                     <h5 class="card-title mt-3">Milestone Tracker</h5>
                     <p class="card-text text-muted">Track customer milestones</p>
                 </div>
@@ -69,7 +69,7 @@
         <a href="{{ url_for('revenue.revenue_dashboard') }}" class="text-decoration-none">
             <div class="card text-center h-100" style="cursor: pointer; transition: transform 0.2s;">
                 <div class="card-body">
-                    <i class="bi bi-graph-up-arrow text-primary" style="font-size: 3rem;"></i>
+                    <i class="bi bi-graph-up-arrow" style="font-size: 3rem; color: #742774;"></i>
                     <h5 class="card-title mt-3">Revenue Analyzer</h5>
                     <p class="card-text text-muted">Trends & service breakdowns</p>
                 </div>
@@ -247,7 +247,7 @@
                             </table>
                     </div>
                     <div class="card-footer text-center">
-                        <button class="btn btn-outline-primary btn-sm" id="todayBtn">
+                        <button class="btn btn-outline-secondary btn-sm" id="todayBtn">
                             <i class="bi bi-calendar-day"></i> Today
                         </button>
                     </div>
@@ -288,7 +288,7 @@
                         <a href="{{ url_for('milestones.milestone_tracker') }}" class="btn btn-outline-success btn-sm">
                             <i class="bi bi-flag-fill"></i> Full Tracker
                         </a>
-                        <button class="btn btn-outline-primary btn-sm" id="msTodayBtn">
+                        <button class="btn btn-outline-secondary btn-sm" id="msTodayBtn">
                             <i class="bi bi-calendar-day"></i> Today
                         </button>
                     </div>

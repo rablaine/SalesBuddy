@@ -2,17 +2,43 @@
 Main routes for NoteHelper.
 Handles index, search, preferences, and API endpoints.
 """
-from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, session, g
+from flask import (Blueprint, render_template, request, redirect, url_for,
+                   flash, jsonify, session, g, send_from_directory, current_app)
 from datetime import datetime, timezone, date
 from sqlalchemy import func, extract
 import calendar as cal
 import json
+import os
 
 from app.models import (db, CallLog, Customer, Seller, Territory, Topic,
                         UserPreference, User, SyncStatus)
 
 # Create blueprint
 main_bp = Blueprint('main', __name__)
+
+
+# =============================================================================
+# PWA Support
+# =============================================================================
+
+@main_bp.route('/sw.js')
+def service_worker():
+    """Serve service worker from root scope so it can control all routes."""
+    return send_from_directory(
+        os.path.join(current_app.root_path, '..', 'static'),
+        'sw.js',
+        mimetype='application/javascript'
+    )
+
+
+@main_bp.route('/manifest.json')
+def manifest():
+    """Serve PWA manifest from root path."""
+    return send_from_directory(
+        os.path.join(current_app.root_path, '..', 'static'),
+        'manifest.json',
+        mimetype='application/json'
+    )
 
 
 # =============================================================================
