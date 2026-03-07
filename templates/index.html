@@ -365,7 +365,11 @@
         listEl.innerHTML = '';
         
         const filtered = filter 
-            ? customers.filter(c => c.name.toLowerCase().includes(filter.toLowerCase()))
+            ? customers.filter(c => {
+                const q = filter.toLowerCase();
+                return c.name.toLowerCase().includes(q) ||
+                       (c.tpid && String(c.tpid).includes(q));
+            })
             : customers;
         
         if (filtered.length === 0) {

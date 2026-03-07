@@ -325,6 +325,7 @@ def api_customers_list():
         'id': c.id,
         'name': c.name,
         'nickname': c.nickname,
+        'tpid': c.tpid,
         'tpid_url': c.tpid_url,
         'territory': c.territory.name if c.territory else None
     } for c in customers]
@@ -340,11 +341,12 @@ def api_customers_autocomplete():
     if not query or len(query) < 2:
         return jsonify([]), 200
     
-    # Search customers by name OR nickname (case-insensitive, contains)
+    # Search customers by name, nickname, or TPID (case-insensitive, contains)
     customers = Customer.query.filter(
         db.or_(
             Customer.name.ilike(f'%{query}%'),
-            Customer.nickname.ilike(f'%{query}%')
+            Customer.nickname.ilike(f'%{query}%'),
+            Customer.tpid.cast(db.String).ilike(f'%{query}%')
         )
     ).order_by(Customer.name).limit(10).all()
     

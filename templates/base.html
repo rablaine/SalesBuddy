@@ -882,7 +882,7 @@
 
     <!-- Quick Call Log Modal -->
     <div class="modal fade" id="quickCallLogModal" tabindex="-1" aria-labelledby="quickCallLogModalLabel" aria-hidden="true">
-        <div class="modal-dialog">
+        <div class="modal-dialog modal-dialog-scrollable">
             <div class="modal-content">
                 <div class="modal-header">
                     <h5 class="modal-title" id="quickCallLogModalLabel">Create Call Log</h5>
@@ -891,10 +891,9 @@
                 <div class="modal-body">
                     <div class="mb-3">
                         <label for="customerSearch" class="form-label">Search for Customer</label>
-                        <input type="text" class="form-control" id="customerSearch" placeholder="Start typing customer name..." autocomplete="off">
-                        <small class="form-text text-muted">Type at least 2 characters to search</small>
+                        <input type="text" class="form-control" id="customerSearch" placeholder="Search customers..." autocomplete="off">
                     </div>
-                    <div id="customerResults" class="list-group"></div>
+                    <div id="customerResults" class="list-group" style="max-height: 400px; overflow-y: auto;"></div>
                 </div>
             </div>
         </div>
@@ -902,7 +901,7 @@
     
     <!-- Quick Customer Lookup Modal -->
     <div class="modal fade" id="quickCustomerLookupModal" tabindex="-1" aria-labelledby="quickCustomerLookupModalLabel" aria-hidden="true">
-        <div class="modal-dialog">
+        <div class="modal-dialog modal-dialog-scrollable">
             <div class="modal-content">
                 <div class="modal-header">
                     <h5 class="modal-title" id="quickCustomerLookupModalLabel">
@@ -913,10 +912,9 @@
                 <div class="modal-body">
                     <div class="mb-3">
                         <label for="customerLookupSearch" class="form-label">Search for Customer</label>
-                        <input type="text" class="form-control" id="customerLookupSearch" placeholder="Start typing customer name..." autocomplete="off">
-                        <small class="form-text text-muted">Type at least 2 characters to search</small>
+                        <input type="text" class="form-control" id="customerLookupSearch" placeholder="Search customers..." autocomplete="off">
                     </div>
-                    <div id="customerLookupResults" class="list-group"></div>
+                    <div id="customerLookupResults" class="list-group" style="max-height: 400px; overflow-y: auto;"></div>
                 </div>
             </div>
         </div>
@@ -2117,12 +2115,55 @@
             const customerSearch = document.getElementById(searchInputId);
             const customerResults = document.getElementById(resultsId);
             const modal = document.getElementById(modalId);
-            let debounceTimer;
+            let allCustomers = null;
 
             if (!customerSearch || !customerResults || !modal) return;
 
-            // Focus input when modal opens
+            function renderResults(customers){
+                if (customers.length === 0) {
+                    customerResults.innerHTML = '<div class="list-group-item text-muted">No customers found</div>';
+                    return;
+                }
+                customerResults.innerHTML = customers.map(c => {
+                    const displayName = c.nickname ? `${c.name} (${c.nickname})` : c.name;
+                    const tpidBadge = c.tpid ? `<span class="badge bg-secondary ms-2">TPID: ${c.tpid}</span>` : '';
+                    return `<a href="${baseUrl}${c.id}" class="list-group-item list-group-item-action"><i class="bi bi-building"></i> ${displayName}${tpidBadge}</a>`;
+                }).join('');
+            }
+
+            function filterAndRender(query) {
+                if (!allCustomers) return;
+                if (!query) {
+                    renderResults(allCustomers);
+                    return;
+                }
+                const q = query.toLowerCase();
+                const filtered = allCustomers.filter(c =>
+                    c.name.toLowerCase().includes(q) ||
+                    (c.nickname && c.nickname.toLowerCase().includes(q)) ||
+                    (c.tpid && String(c.tpid).includes(q))
+                );
+                renderResults(filtered);
+            }
+
+            async function loadCustomers() {
+                if (allCustomers) {
+                    filterAndRender(customerSearch.value.trim());
+                    return;
+                }
+                customerResults.innerHTML = '<div class="text-center py-3"><div class="spinner-border spinner-border-sm"></div> Loading...</div>';
+                try {
+                    const resp = await fetch('{{ url_for("customers.api_customers_list") }}');
+                    allCustomers = await resp.json();
+                    filterAndRender(customerSearch.value.trim());
+                } catch (err) {
+                    customerResults.innerHTML = '<div class="list-group-item text-danger">Error loading customers</div>';
+                }
+            }
+
+            // Load + show all customers when modal opens, then focus search
             modal.addEventListener('shown.bs.modal', function () {
+                loadCustomers();
                 customerSearch.focus();
             });
 
@@ -2176,39 +2217,9 @@
                 }
             });
 
+            // Client-side filter as user types (instant, no debounce needed)
             customerSearch.addEventListener('input', function() {
-                clearTimeout(debounceTimer);
-                const query = this.value.trim();
-
-                if (query.length < 2) {
-                    customerResults.innerHTML = '';
-                    return;
-                }
-
-                debounceTimer = setTimeout(async () => {
-                    try {
-                        const response = await fetch(`{{ url_for('customers.api_customers_autocomplete') }}?q=${encodeURIComponent(query)}`);
-                        const customers = await response.json();
-
-                        if (customers.length === 0) {
-                            customerResults.innerHTML = '<div class="list-group-item text-muted">No customers found</div>';
-                            return;
-                        }
-
-                        customerResults.innerHTML = customers.map(customer => {
-                            const displayName = customer.nickname ? `${customer.name} (${customer.nickname})` : customer.name;
-                            const tpidBadge = customer.tpid ? `<span class="badge bg-secondary ms-2">TPID: ${customer.tpid}</span>` : '';
-                            return `
-                                <a href="${baseUrl}${customer.id}" class="list-group-item list-group-item-action">
-                                    <i class="bi bi-building"></i> ${displayName}${tpidBadge}
-                                </a>
-                            `;
-                        }).join('');
-                    } catch (error) {
-                        console.error('Error fetching customers:', error);
-                        customerResults.innerHTML = '<div class="list-group-item text-danger">Error loading results</div>';
-                    }
-                }, 300);
+                filterAndRender(this.value.trim());
             });
         }
     </script>
