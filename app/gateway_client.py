@@ -1,23 +1,19 @@
 """
 Gateway client for calling the NoteHelper AI Gateway via APIM.
 
-When ``AI_GATEWAY_URL`` is set in the environment, all AI calls are routed
-through the centralized APIM → App Service → Azure OpenAI pipeline instead
-of calling Azure OpenAI directly from the user's machine.
-
-Authentication uses the user's ``az login`` credential to obtain a JWT
-scoped to the gateway's Entra app registration.
+All AI calls are routed through the centralized APIM → App Service →
+Azure OpenAI pipeline.  The gateway URL is hardcoded — no configuration
+needed.  Authentication uses the caller's ``az login`` credential to
+obtain a JWT scoped to the gateway's Entra app registration.
 
 Usage::
 
-    from app.gateway_client import gateway_call, is_gateway_enabled
+    from app.gateway_client import gateway_call
 
-    if is_gateway_enabled():
-        result = gateway_call("/v1/suggest-topics", {"call_notes": "..."})
-        # result == {"success": True, "topics": [...], "usage": {...}}
+    result = gateway_call("/v1/suggest-topics", {"call_notes": "..."})
+    # result == {"success": True, "topics": [...], "usage": {...}}
 """
 import logging
-import os
 from typing import Any
 
 import requests
@@ -28,6 +24,9 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
+# Hardcoded APIM gateway URL — no env-var configuration needed
+_GATEWAY_URL = "https://apim-notehelper.azure-api.net/ai"
+
 # Entra app registration client ID — the audience for JWT tokens
 _GATEWAY_APP_ID = "api://0f6db4af-332c-4fd5-b894-77fadb181e5c"
 
@@ -37,19 +36,9 @@ _cached_token: str | None = None
 _token_expiry: float = 0
 
 
-def _get_gateway_url() -> str | None:
-    """Return the configured gateway URL, or None.
-
-    Reads ``AI_GATEWAY_URL`` from the environment on every call so that
-    test patches and runtime changes are picked up immediately.
-    """
-    raw = os.environ.get("AI_GATEWAY_URL", "").rstrip("/")
-    return raw or None
-
-
 def is_gateway_enabled() -> bool:
-    """Return True if the AI gateway is configured."""
-    return bool(_get_gateway_url())
+    """Return True — the AI gateway is always available."""
+    return True
 
 
 def _get_token() -> str:
@@ -95,11 +84,7 @@ def gateway_call(
     Raises:
         GatewayError: On HTTP errors or connection failures.
     """
-    base = _get_gateway_url()
-    if not base:
-        raise GatewayError("AI_GATEWAY_URL is not configured")
-
-    url = f"{base}{endpoint}"
+    url = f"{_GATEWAY_URL}{endpoint}"
     token = _get_token()
 
     try:

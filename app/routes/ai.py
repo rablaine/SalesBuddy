@@ -2,11 +2,11 @@
 AI routes for NoteHelper.
 Handles AI-powered topic suggestion and related features.
 
-Supports two modes:
-  - **Gateway mode** (preferred): NoteHelper → APIM → App Service gateway → Azure OpenAI.
-    Enabled when ``AI_GATEWAY_URL`` is set.  Prompts live server-side only.
-  - **Direct mode** (legacy): NoteHelper → Azure OpenAI via service-principal.
-    Enabled when ``AZURE_OPENAI_ENDPOINT`` + ``AZURE_OPENAI_DEPLOYMENT`` are set.
+All AI calls go through the APIM gateway by default
+(NoteHelper → APIM → App Service gateway → Azure OpenAI).
+A direct-to-OpenAI legacy path is preserved for fallback when
+``AZURE_OPENAI_ENDPOINT`` + ``AZURE_OPENAI_DEPLOYMENT`` are set and
+the gateway is explicitly bypassed.
 """
 from flask import Blueprint, request, jsonify, g
 from datetime import date

@@ -46,36 +46,40 @@ class TestAIEnabled:
                 assert is_ai_enabled() is True
 
     def test_ai_disabled_when_no_endpoint(self, app):
-        """Test that AI is disabled when endpoint is missing."""
+        """Test that AI is disabled when endpoint is missing (gateway bypassed)."""
         from app.routes.ai import is_ai_enabled
         with app.app_context():
             env = {k: v for k, v in AI_ENV_VARS.items() if k != 'AZURE_OPENAI_ENDPOINT'}
-            with patch.dict('os.environ', env, clear=True):
-                assert is_ai_enabled() is False
+            with patch('app.routes.ai.is_gateway_enabled', return_value=False):
+                with patch.dict('os.environ', env, clear=True):
+                    assert is_ai_enabled() is False
 
     def test_ai_disabled_when_no_deployment(self, app):
-        """Test that AI is disabled when deployment is missing."""
+        """Test that AI is disabled when deployment is missing (gateway bypassed)."""
         from app.routes.ai import is_ai_enabled
         with app.app_context():
             env = {k: v for k, v in AI_ENV_VARS.items() if k != 'AZURE_OPENAI_DEPLOYMENT'}
-            with patch.dict('os.environ', env, clear=True):
-                assert is_ai_enabled() is False
+            with patch('app.routes.ai.is_gateway_enabled', return_value=False):
+                with patch.dict('os.environ', env, clear=True):
+                    assert is_ai_enabled() is False
 
     def test_ai_disabled_when_env_empty(self, app):
-        """Test that AI is disabled when env vars are empty strings."""
+        """Test that AI is disabled when env vars are empty strings (gateway bypassed)."""
         from app.routes.ai import is_ai_enabled
         with app.app_context():
             env = {**AI_ENV_VARS, 'AZURE_OPENAI_ENDPOINT': '', 'AZURE_OPENAI_DEPLOYMENT': ''}
-            with patch.dict('os.environ', env, clear=True):
-                assert is_ai_enabled() is False
+            with patch('app.routes.ai.is_gateway_enabled', return_value=False):
+                with patch.dict('os.environ', env, clear=True):
+                    assert is_ai_enabled() is False
     
 
 class TestAIConnection:
     """Test AI connection testing functionality."""
     
+    @patch('app.gateway_client.is_gateway_enabled', return_value=False)
     @patch('app.routes.ai.get_azure_openai_client')
-    def test_connection_test_success(self, mock_get_client, app, client):
-        """Test successful AI connection test."""
+    def test_connection_test_success(self, mock_get_client, mock_gw, app, client):
+        """Test successful AI connection test (direct/legacy mode)."""
         with app.app_context():
             test_user = User.query.first()
             test_user.is_admin = True
@@ -101,9 +105,10 @@ class TestAIConnection:
         assert data['success'] is True
         assert 'successful' in data['message'].lower()
     
+    @patch('app.gateway_client.is_gateway_enabled', return_value=False)
     @patch('app.routes.ai.get_azure_openai_client')
-    def test_connection_test_failure(self, mock_get_client, app, client):
-        """Test failed AI connection test."""
+    def test_connection_test_failure(self, mock_get_client, mock_gw, app, client):
+        """Test failed AI connection test (direct/legacy mode)."""
         with app.app_context():
             test_user = User.query.first()
             test_user.is_admin = True
@@ -132,9 +137,10 @@ class TestAIConnection:
 class TestAISuggestions:
     """Test AI topic suggestion functionality."""
 
+    @patch('app.routes.ai.is_gateway_mode', return_value=False)
     @patch.dict('os.environ', AI_ENV_VARS)
     @patch('app.routes.ai.get_azure_openai_client')
-    def test_suggest_topics_success(self, mock_get_client, app, client):
+    def test_suggest_topics_success(self, mock_get_client, mock_gw_mode, app, client):
         """Test successful topic suggestion."""
         with app.app_context():
             test_user = User.query.first()
@@ -166,9 +172,10 @@ class TestAISuggestions:
             assert log.success is True
             assert 'Azure Functions' in log.request_text
     
+    @patch('app.routes.ai.is_gateway_mode', return_value=False)
     @patch.dict('os.environ', AI_ENV_VARS)
     @patch('app.routes.ai.get_azure_openai_client')
-    def test_suggest_topics_reuses_existing(self, mock_get_client, app, client):
+    def test_suggest_topics_reuses_existing(self, mock_get_client, mock_gw_mode, app, client):
         """Test that existing topics are reused (case-insensitive)."""
         with app.app_context():
             # Create existing topic with different case
@@ -199,9 +206,10 @@ class TestAISuggestions:
             # Total topics in DB should be 2 (not 3)
             assert Topic.query.count() == 2
     
+    @patch('app.routes.ai.is_gateway_enabled', return_value=False)
     @patch.dict('os.environ', {'AZURE_OPENAI_ENDPOINT': '', 'AZURE_OPENAI_DEPLOYMENT': ''})
-    def test_suggest_topics_when_disabled(self, app, client):
-        """Test that suggestions fail when AI env vars are not set."""
+    def test_suggest_topics_when_disabled(self, mock_gw, app, client):
+        """Test that suggestions fail when AI is fully disabled."""
         response = client.post('/api/ai/suggest-topics', json={
             'call_notes': 'Test content'
         })
@@ -226,9 +234,10 @@ class TestAISuggestions:
 class TestAuditLogging:
     """Test AI audit logging functionality."""
 
+    @patch('app.routes.ai.is_gateway_mode', return_value=False)
     @patch.dict('os.environ', AI_ENV_VARS)
     @patch('app.routes.ai.get_azure_openai_client')
-    def test_audit_log_success(self, mock_get_client, app, client):
+    def test_audit_log_success(self, mock_get_client, mock_gw_mode, app, client):
         """Test that successful calls are logged."""
         with app.app_context():
             test_user = User.query.first()
@@ -275,9 +284,10 @@ class TestAuditLogging:
             assert log.error_message is not None
             assert len(log.error_message) > 0
     
+    @patch('app.routes.ai.is_gateway_mode', return_value=False)
     @patch.dict('os.environ', AI_ENV_VARS)
     @patch('app.routes.ai.get_azure_openai_client')
-    def test_audit_log_truncation(self, mock_get_client, app, client):
+    def test_audit_log_truncation(self, mock_get_client, mock_gw_mode, app, client):
         """Test that long texts are truncated in audit log."""
         with app.app_context():
             # Create very long call notes (over 1000 chars)
@@ -337,14 +347,15 @@ class TestGenerateEngagementSummary:
             return customer.id
 
     def test_returns_400_when_ai_disabled(self, app, client):
-        """Should return 400 when AI env vars are not set."""
+        """Should return 400 when AI is fully disabled (gateway + direct both off)."""
         customer_id = self._create_customer_with_logs(app)
-        with patch.dict('os.environ', {}, clear=True):
-            resp = client.post(
-                '/api/ai/generate-engagement-summary',
-                json={'customer_id': customer_id},
-                content_type='application/json',
-            )
+        with patch('app.routes.ai.is_gateway_enabled', return_value=False):
+            with patch.dict('os.environ', {}, clear=True):
+                resp = client.post(
+                    '/api/ai/generate-engagement-summary',
+                    json={'customer_id': customer_id},
+                    content_type='application/json',
+                )
         assert resp.status_code == 400
         assert 'not configured' in resp.get_json()['error']
 
@@ -387,8 +398,9 @@ class TestGenerateEngagementSummary:
         assert resp.status_code == 400
         assert 'No notes' in resp.get_json()['error']
 
+    @patch('app.routes.ai.is_gateway_mode', return_value=False)
     @patch('app.routes.ai.get_azure_openai_client')
-    def test_success_returns_summary(self, mock_get_client, app, client):
+    def test_success_returns_summary(self, mock_get_client, mock_gw_mode, app, client):
         """Should return AI-generated summary on success."""
         customer_id = self._create_customer_with_logs(app)
 
@@ -418,8 +430,9 @@ class TestGenerateEngagementSummary:
         assert 'Jane Smith' in data['summary']
         assert data['note_count'] == 2
 
+    @patch('app.routes.ai.is_gateway_mode', return_value=False)
     @patch('app.routes.ai.get_azure_openai_client')
-    def test_logs_success_to_ai_query_log(self, mock_get_client, app, client):
+    def test_logs_success_to_ai_query_log(self, mock_get_client, mock_gw_mode, app, client):
         """Should create an AIQueryLog entry on success."""
         customer_id = self._create_customer_with_logs(app)
 
@@ -442,8 +455,9 @@ class TestGenerateEngagementSummary:
             assert log.success is True
             assert 'Test AI Customer' in log.request_text
 
+    @patch('app.routes.ai.is_gateway_mode', return_value=False)
     @patch('app.routes.ai.get_azure_openai_client')
-    def test_logs_failure_to_ai_query_log(self, mock_get_client, app, client):
+    def test_logs_failure_to_ai_query_log(self, mock_get_client, mock_gw_mode, app, client):
         """Should create an AIQueryLog entry on failure."""
         customer_id = self._create_customer_with_logs(app)
 
@@ -465,8 +479,9 @@ class TestGenerateEngagementSummary:
             assert log.success is False
             assert 'quota' in log.error_message.lower()
 
+    @patch('app.routes.ai.is_gateway_mode', return_value=False)
     @patch('app.routes.ai.get_azure_openai_client')
-    def test_includes_customer_notes_in_prompt(self, mock_get_client, app, client):
+    def test_includes_customer_notes_in_prompt(self, mock_get_client, mock_gw_mode, app, client):
         """Should include existing customer account context in the user message sent to AI."""
         customer_id = self._create_customer_with_logs(app)
 
@@ -531,7 +546,7 @@ class TestGenerateButtonVisibility:
         assert b'id="generateStoryBtn"' in resp.data
 
     def test_generate_button_hidden_when_ai_disabled(self, app, client):
-        """Generate button should not appear when AI is disabled."""
+        """Generate button should not appear when AI is fully disabled."""
         from app.models import Customer, Note, Engagement
         with app.app_context():
             customer = Customer(name="No AI Test", tpid=44444)
@@ -555,8 +570,9 @@ class TestGenerateButtonVisibility:
             db.session.commit()
             eid = engagement.id
 
-        with patch.dict('os.environ', {}, clear=True):
-            resp = client.get(f'/engagement/{eid}')
+        with patch('app.routes.ai.is_gateway_enabled', return_value=False):
+            with patch.dict('os.environ', {}, clear=True):
+                resp = client.get(f'/engagement/{eid}')
         assert resp.status_code == 200
         assert b'id="generateStoryBtn"' not in resp.data
 

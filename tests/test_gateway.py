@@ -1,9 +1,8 @@
 """
 Tests for the APIM gateway integration.
 
-Verifies that when ``AI_GATEWAY_URL`` is set, AI routes call the gateway
-client instead of Azure OpenAI directly, and that the gateway client module
-works correctly.
+Verifies that AI routes call the gateway client instead of Azure OpenAI
+directly, and that the gateway client module works correctly.
 """
 import json
 import os
@@ -16,38 +15,23 @@ from app.models import db, AIQueryLog, Topic, Customer, Note, User
 
 
 # ---------------------------------------------------------------------------
-# Helpers
+# Gateway client module tests
 # ---------------------------------------------------------------------------
-GATEWAY_ENV = {"AI_GATEWAY_URL": "https://apim-test.azure-api.net/ai"}
-
-
 class TestGatewayClientModule:
     """Unit tests for app.gateway_client."""
 
-    def test_is_gateway_enabled_when_set(self):
-        with patch.dict(os.environ, GATEWAY_ENV):
-            from app.gateway_client import is_gateway_enabled
-            assert is_gateway_enabled() is True
-
-    def test_is_gateway_disabled_when_unset(self):
-        with patch.dict(os.environ, {}, clear=True):
-            from app.gateway_client import is_gateway_enabled
-            assert is_gateway_enabled() is False
-
-    def test_is_gateway_disabled_when_empty(self):
-        with patch.dict(os.environ, {"AI_GATEWAY_URL": ""}):
-            from app.gateway_client import is_gateway_enabled
-            assert is_gateway_enabled() is False
+    def test_is_gateway_always_enabled(self):
+        from app.gateway_client import is_gateway_enabled
+        assert is_gateway_enabled() is True
 
 
 class TestIsAIEnabledGatewayMode:
-    """Verify is_ai_enabled returns True when gateway is configured."""
+    """Verify is_ai_enabled returns True when gateway is available."""
 
     def test_ai_enabled_via_gateway(self, app):
         from app.routes.ai import is_ai_enabled
         with app.app_context():
-            with patch.dict(os.environ, GATEWAY_ENV, clear=True):
-                assert is_ai_enabled() is True
+            assert is_ai_enabled() is True
 
     def test_ai_enabled_via_direct(self, app):
         """Legacy path still works."""
@@ -77,11 +61,10 @@ class TestSuggestTopicsGateway:
         with client.session_transaction() as sess:
             sess["_user_id"] = str(test_user.id)
 
-        with patch.dict(os.environ, GATEWAY_ENV):
-            resp = client.post(
-                "/api/ai/suggest-topics",
-                json={"call_notes": "We discussed Azure OpenAI and RAG patterns."},
-            )
+        resp = client.post(
+            "/api/ai/suggest-topics",
+            json={"call_notes": "We discussed Azure OpenAI and RAG patterns."},
+        )
         data = resp.get_json()
         assert resp.status_code == 200
         assert data["success"] is True
@@ -121,14 +104,13 @@ class TestMatchMilestoneGateway:
             {"id": "MS-123", "name": "AKS Deploy", "status": "Active",
              "opportunity": "Contoso", "workload": "Containers"},
         ]
-        with patch.dict(os.environ, GATEWAY_ENV):
-            resp = client.post(
-                "/api/ai/match-milestone",
-                json={
-                    "call_notes": "Discussed Kubernetes deployment strategies and AKS best practices.",
-                    "milestones": milestones,
-                },
-            )
+        resp = client.post(
+            "/api/ai/match-milestone",
+            json={
+                "call_notes": "Discussed Kubernetes deployment strategies and AKS best practices.",
+                "milestones": milestones,
+            },
+        )
         data = resp.get_json()
         assert resp.status_code == 200
         assert data["success"] is True
@@ -151,11 +133,10 @@ class TestAnalyzeCallGateway:
         with client.session_transaction() as sess:
             sess["_user_id"] = str(test_user.id)
 
-        with patch.dict(os.environ, GATEWAY_ENV):
-            resp = client.post(
-                "/api/ai/analyze-call",
-                json={"call_notes": "Customer wants to optimize AKS costs and explore reserved instances."},
-            )
+        resp = client.post(
+            "/api/ai/analyze-call",
+            json={"call_notes": "Customer wants to optimize AKS costs and explore reserved instances."},
+        )
         data = resp.get_json()
         assert resp.status_code == 200
         assert data["success"] is True
@@ -196,11 +177,10 @@ class TestEngagementSummaryGateway:
         with client.session_transaction() as sess:
             sess["_user_id"] = str(user_id)
 
-        with patch.dict(os.environ, GATEWAY_ENV):
-            resp = client.post(
-                "/api/ai/generate-engagement-summary",
-                json={"customer_id": customer_id},
-            )
+        resp = client.post(
+            "/api/ai/generate-engagement-summary",
+            json={"customer_id": customer_id},
+        )
         data = resp.get_json()
         assert resp.status_code == 200
         assert data["success"] is True
@@ -229,8 +209,7 @@ class TestAdminAITestGateway:
         with client.session_transaction() as sess:
             sess["_user_id"] = str(test_user.id)
 
-        with patch.dict(os.environ, GATEWAY_ENV):
-            resp = client.post("/api/admin/ai-config/test")
+        resp = client.post("/api/admin/ai-config/test")
         data = resp.get_json()
         assert resp.status_code == 200
         assert data["success"] is True
@@ -246,8 +225,7 @@ class TestAdminAITestGateway:
         with client.session_transaction() as sess:
             sess["_user_id"] = str(test_user.id)
 
-        with patch.dict(os.environ, GATEWAY_ENV):
-            resp = client.post("/api/admin/ai-config/test")
+        resp = client.post("/api/admin/ai-config/test")
         data = resp.get_json()
         assert resp.status_code == 400
         assert data["success"] is False
