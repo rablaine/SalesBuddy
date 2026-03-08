@@ -53,7 +53,12 @@ def clear_token_cache() -> None:
 
 
 def _get_token() -> str:
-    """Acquire a JWT for the gateway audience. Caches until near expiry."""
+    """Acquire a JWT for the gateway audience. Caches until near expiry.
+
+    Raises:
+        GatewayConsentError: If the user hasn't consented to the gateway app.
+        GatewayError: On other authentication failures.
+    """
     import time
 
     global _credential, _cached_token, _token_expiry
@@ -68,13 +73,55 @@ def _get_token() -> str:
             cred = AzureCliCredential()
             cred.get_token(f"{_GATEWAY_APP_ID}/.default")
             _credential = cred
-        except Exception:
+        except Exception as exc:
+            if _is_consent_error(exc):
+                raise GatewayConsentError(
+                    "AI gateway consent required. Please sign out and sign "
+                    "back in via the Admin Panel to grant permission."
+                ) from exc
             _credential = DefaultAzureCredential()
 
-    token_obj = _credential.get_token(f"{_GATEWAY_APP_ID}/.default")
+    try:
+        token_obj = _credential.get_token(f"{_GATEWAY_APP_ID}/.default")
+    except Exception as exc:
+        if _is_consent_error(exc):
+            raise GatewayConsentError(
+                "AI gateway consent required. Please sign out and sign "
+                "back in via the Admin Panel to grant permission."
+            ) from exc
+        raise GatewayError(f"Failed to acquire gateway token: {exc}") from exc
+
     _cached_token = token_obj.token
     _token_expiry = token_obj.expires_on
     return _cached_token
+
+
+def _is_consent_error(exc: Exception) -> bool:
+    """Return True if the exception indicates a missing consent."""
+    msg = str(exc).lower()
+    return "consent_required" in msg or "aadsts65001" in msg
+
+
+def check_ai_consent() -> dict[str, Any]:
+    """Check whether the current user has consented to the AI gateway.
+
+    Returns:
+        Dict with ``status`` ('ok', 'needs_relogin', or 'error'),
+        ``consented`` (bool), ``error`` (str or None),
+        and ``needs_relogin`` (bool).
+    """
+    try:
+        _get_token()
+        return {"status": "ok", "consented": True, "error": None, "needs_relogin": False}
+    except GatewayConsentError as exc:
+        return {
+            "status": "needs_relogin",
+            "consented": False,
+            "error": str(exc),
+            "needs_relogin": True,
+        }
+    except Exception as exc:
+        return {"status": "error", "consented": False, "error": str(exc), "needs_relogin": False}
 
 
 def gateway_call(
@@ -145,4 +192,9 @@ def gateway_call(
 
 class GatewayError(Exception):
     """Raised when a gateway call fails."""
+    pass
+
+
+class GatewayConsentError(GatewayError):
+    """Raised when the user hasn't consented to the AI gateway app."""
     pass

@@ -295,119 +295,68 @@ def test_admin_panel_has_shutdown_button(client):
 
 
 # =============================================================================
-# Admin Panel AI Integration Card
+# Admin Panel AI Integration Card (Gateway Mode)
 # =============================================================================
 
-def test_admin_ai_not_configured_shows_disabled_test(client):
-    """Admin AI card shows red X for each setting when nothing is configured."""
-    with patch.dict(os.environ, {}, clear=False):
-        os.environ.pop('AZURE_OPENAI_ENDPOINT', None)
-        os.environ.pop('AZURE_OPENAI_DEPLOYMENT', None)
-        os.environ.pop('AZURE_CLIENT_ID', None)
-        os.environ.pop('AZURE_CLIENT_SECRET', None)
-        os.environ.pop('AZURE_TENANT_ID', None)
-        response = client.get('/admin')
-        html = response.data.decode()
+def test_admin_ai_card_shows_gateway_info(client):
+    """Admin AI card shows gateway-based UI with test button and consent status div."""
+    response = client.get('/admin')
+    html = response.data.decode()
 
-    # All 5 settings should show x-circle (not configured)
-    assert html.count('x-circle-fill text-danger') >= 5
-    assert html.count('check-circle-fill text-success') == 0 or 'AZURE_OPENAI' not in html.split('check-circle-fill')[0]
-    # Setup guide should be visible
-    assert 'Setup guide' in html
-    # Test button should be disabled
-    assert 'id="aiTestBtn"' not in html
-
-
-def test_admin_ai_configured_shows_test_button(client):
-    """Admin AI card shows green checks and enabled test button when fully configured."""
-    env_vars = {
-        'AZURE_OPENAI_ENDPOINT': 'https://test.openai.azure.com/',
-        'AZURE_OPENAI_DEPLOYMENT': 'gpt-4o-mini',
-        'AZURE_CLIENT_ID': '12345678-1234-1234-1234-123456789abc',
-        'AZURE_CLIENT_SECRET': 'real-secret-value',
-        'AZURE_TENANT_ID': '12345678-1234-1234-1234-123456789abc',
-    }
-    with patch.dict(os.environ, env_vars):
-        response = client.get('/admin')
-        html = response.data.decode()
-
-    assert 'gpt-4o-mini' in html
+    # Gateway-based card always shows these elements
+    assert 'APIM gateway' in html
     assert 'id="aiTestBtn"' in html
-    # Should not show the setup guide link (all configured)
-    assert 'Setup guide' not in html
+    assert 'id="aiConsentStatus"' in html
+    assert 'id="aiReloginBtn"' in html
+    # Should NOT show old env var checklist
+    assert 'AZURE_OPENAI_ENDPOINT' not in html
+    assert 'AZURE_CLIENT_SECRET' not in html
 
 
-def test_admin_ai_placeholder_values_detected(client):
-    """Admin AI card detects placeholder values from .env.example and shows them as invalid."""
-    env_vars = {
-        'AZURE_OPENAI_ENDPOINT': 'https://your-resource.openai.azure.com/',
-        'AZURE_OPENAI_DEPLOYMENT': 'gpt-4o-mini',
-        'AZURE_CLIENT_ID': 'your-service-principal-client-id',
-        'AZURE_CLIENT_SECRET': 'your-service-principal-secret',
-        'AZURE_TENANT_ID': 'your-azure-tenant-id',
-    }
-    with patch.dict(os.environ, env_vars):
-        response = client.get('/admin')
-        html = response.data.decode()
+def test_admin_ai_consent_check_endpoint_ok(client):
+    """AI consent check endpoint returns ok when consent is valid."""
+    mock_result = {"consented": True, "error": None, "needs_relogin": False, "status": "ok"}
+    with patch('app.gateway_client.check_ai_consent', return_value=mock_result):
+        response = client.get('/api/admin/ai-consent-check')
+        data = response.get_json()
 
-    # Deployment is real (gpt-4o-mini), but everything else is a placeholder
-    # Test button should be disabled because not all_configured
-    assert 'id="aiTestBtn"' not in html
-    assert 'Setup guide' in html
+    assert response.status_code == 200
+    assert data['consented'] is True
 
 
-def test_admin_ai_missing_credentials_shows_red(client):
-    """Admin AI card shows red X for credentials when endpoint is set but no service principal."""
-    env_vars = {
-        'AZURE_OPENAI_ENDPOINT': 'https://test.openai.azure.com/',
-        'AZURE_OPENAI_DEPLOYMENT': 'gpt-4o-mini',
-    }
-    with patch.dict(os.environ, env_vars, clear=False):
-        os.environ.pop('AZURE_CLIENT_ID', None)
-        os.environ.pop('AZURE_CLIENT_SECRET', None)
-        os.environ.pop('AZURE_TENANT_ID', None)
-        response = client.get('/admin')
-        html = response.data.decode()
+def test_admin_ai_consent_check_endpoint_needs_relogin(client):
+    """AI consent check endpoint returns needs_relogin when consent is missing."""
+    mock_result = {"consented": False, "error": "consent_required", "needs_relogin": True, "status": "needs_relogin"}
+    with patch('app.gateway_client.check_ai_consent', return_value=mock_result):
+        response = client.get('/api/admin/ai-consent-check')
+        data = response.get_json()
 
-    assert 'AZURE_CLIENT_ID' in html
-    assert 'AZURE_CLIENT_SECRET' in html
-    assert 'AZURE_TENANT_ID' in html
-    assert 'id="aiTestBtn"' not in html
+    assert response.status_code == 200
+    assert data['consented'] is False
+    assert data['needs_relogin'] is True
 
 
-def test_admin_ai_missing_deployment_shows_red(client):
-    """Admin AI card shows red X for deployment when it's not set."""
-    env_vars = {
-        'AZURE_OPENAI_ENDPOINT': 'https://test.openai.azure.com/',
-        'AZURE_CLIENT_ID': '12345678-1234-1234-1234-123456789abc',
-        'AZURE_CLIENT_SECRET': 'real-secret-value',
-        'AZURE_TENANT_ID': '12345678-1234-1234-1234-123456789abc',
-    }
-    with patch.dict(os.environ, env_vars, clear=False):
-        os.environ.pop('AZURE_OPENAI_DEPLOYMENT', None)
-        response = client.get('/admin')
-        html = response.data.decode()
+def test_admin_ai_consent_check_endpoint_error(client):
+    """AI consent check endpoint handles unexpected errors gracefully."""
+    mock_result = {"consented": False, "error": "boom", "needs_relogin": False, "status": "error"}
+    with patch('app.gateway_client.check_ai_consent', return_value=mock_result):
+        response = client.get('/api/admin/ai-consent-check')
+        data = response.get_json()
 
-    assert 'AZURE_OPENAI_DEPLOYMENT' in html
-    assert 'id="aiTestBtn"' not in html
+    assert response.status_code == 200
+    assert data['consented'] is False
 
 
-def test_admin_ai_non_guid_ids_detected(client):
-    """Admin AI card detects non-GUID client/tenant IDs as invalid."""
-    env_vars = {
-        'AZURE_OPENAI_ENDPOINT': 'https://test.openai.azure.com/',
-        'AZURE_OPENAI_DEPLOYMENT': 'gpt-4o-mini',
-        'AZURE_CLIENT_ID': 'not-a-guid',
-        'AZURE_CLIENT_SECRET': 'real-secret-value',
-        'AZURE_TENANT_ID': 'also-not-a-guid',
-    }
-    with patch.dict(os.environ, env_vars):
-        response = client.get('/admin')
-        html = response.data.decode()
+def test_admin_ai_test_consent_error_returns_needs_relogin(client):
+    """AI test connection returns needs_relogin when GatewayConsentError is raised."""
+    from app.gateway_client import GatewayConsentError
+    with patch('app.gateway_client.is_gateway_enabled', return_value=True), \
+         patch('app.gateway_client.gateway_call', side_effect=GatewayConsentError('consent_required')):
+        response = client.post('/api/admin/ai-config/test')
+        data = response.get_json()
 
-    # Non-GUID IDs should fail validation
-    assert 'id="aiTestBtn"' not in html
-    assert 'Setup guide' in html
+    assert response.status_code == 403
+    assert data['needs_relogin'] is True
 
 
 # =============================================================================

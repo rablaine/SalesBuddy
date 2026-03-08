@@ -253,93 +253,21 @@
                         <h5 class="mb-0"><i class="bi bi-stars"></i> AI Integration</h5>
                     </div>
                     <div class="card-body">
-                        <!-- Config checklist -->
-                        <table class="table-sm mb-2 w-100" style="border-collapse: collapse;">
-                            <tbody>
-                                <tr>
-                                    <td class="ps-0 py-1" style="width: 24px;">
-                                        <i class="bi bi-{{ 'check-circle-fill text-success' if ai_config.endpoint_ok else 'x-circle-fill text-danger' }}"></i>
-                                    </td>
-                                    <td class="py-1"><small class="text-muted">AZURE_OPENAI_ENDPOINT</small></td>
-                                    <td class="text-end text-muted small py-1">
-                                        {% if ai_config.endpoint_ok %}
-                                            {{ ai_config.endpoint | truncate(35, True) }}
-                                        {% elif ai_config.endpoint %}
-                                            <span class="text-danger">placeholder</span>
-                                        {% else %}
-                                            not set
-                                        {% endif %}
-                                    </td>
-                                </tr>
-                                <tr>
-                                    <td class="ps-0 py-1">
-                                        <i class="bi bi-{{ 'check-circle-fill text-success' if ai_config.deployment_ok else 'x-circle-fill text-danger' }}"></i>
-                                    </td>
-                                    <td class="py-1"><small class="text-muted">AZURE_OPENAI_DEPLOYMENT</small></td>
-                                    <td class="text-end text-muted small py-1">
-                                        {% if ai_config.deployment_ok %}
-                                            {{ ai_config.deployment }}
-                                        {% elif ai_config.deployment %}
-                                            <span class="text-danger">placeholder</span>
-                                        {% else %}
-                                            not set
-                                        {% endif %}
-                                    </td>
-                                </tr>
-                                <tr>
-                                    <td class="ps-0 py-1">
-                                        <i class="bi bi-{{ 'check-circle-fill text-success' if ai_config.client_id_ok else 'x-circle-fill text-danger' }}"></i>
-                                    </td>
-                                    <td class="py-1"><small class="text-muted">AZURE_CLIENT_ID</small></td>
-                                    <td class="text-end text-muted small py-1">
-                                        {% if ai_config.client_id_ok %}
-                                            set
-                                        {% else %}
-                                            <span class="text-danger">{{ 'invalid' if ai_config.endpoint else 'not set' }}</span>
-                                        {% endif %}
-                                    </td>
-                                </tr>
-                                <tr>
-                                    <td class="ps-0 py-1">
-                                        <i class="bi bi-{{ 'check-circle-fill text-success' if ai_config.client_secret_ok else 'x-circle-fill text-danger' }}"></i>
-                                    </td>
-                                    <td class="py-1"><small class="text-muted">AZURE_CLIENT_SECRET</small></td>
-                                    <td class="text-end text-muted small py-1">
-                                        {% if ai_config.client_secret_ok %}
-                                            set
-                                        {% else %}
-                                            <span class="text-danger">{{ 'invalid' if ai_config.endpoint else 'not set' }}</span>
-                                        {% endif %}
-                                    </td>
-                                </tr>
-                                <tr>
-                                    <td class="ps-0 py-1">
-                                        <i class="bi bi-{{ 'check-circle-fill text-success' if ai_config.tenant_id_ok else 'x-circle-fill text-danger' }}"></i>
-                                    </td>
-                                    <td class="py-1"><small class="text-muted">AZURE_TENANT_ID</small></td>
-                                    <td class="text-end text-muted small py-1">
-                                        {% if ai_config.tenant_id_ok %}
-                                            set
-                                        {% else %}
-                                            <span class="text-danger">{{ 'invalid' if ai_config.endpoint else 'not set' }}</span>
-                                        {% endif %}
-                                    </td>
-                                </tr>
-                            </tbody>
-                        </table>
-                        <div class="d-flex align-items-center justify-content-between">
-                            {% if ai_config.all_configured %}
+                        <p class="text-muted small mb-2">
+                            AI features use the centralized APIM gateway.
+                            Requires <code>az login</code> with your Microsoft account.
+                        </p>
+                        <!-- Consent status (loaded via JS) -->
+                        <div id="aiConsentStatus" class="mb-2">
+                            <span class="text-muted small"><i class="bi bi-hourglass-split"></i> Checking AI consent...</span>
+                        </div>
+                        <div class="d-flex align-items-center gap-2">
                             <button class="btn btn-outline-success btn-sm" id="aiTestBtn">
                                 <i class="bi bi-lightning"></i> Test Connection
                             </button>
-                            {% else %}
-                            <span class="text-muted small">
-                                <a href="https://github.com/rablaine/NoteHelper#ai-features-optional" target="_blank">Setup guide</a>
-                            </span>
-                            <button class="btn btn-outline-secondary btn-sm" disabled>
-                                <i class="bi bi-lightning"></i> Test Connection
+                            <button class="btn btn-outline-warning btn-sm d-none" id="aiReloginBtn">
+                                <i class="bi bi-arrow-repeat"></i> Re-login to enable AI
                             </button>
-                            {% endif %}
                         </div>
                         <div id="aiTestResult" class="mt-2"></div>
                     </div>
@@ -1370,6 +1298,72 @@ document.getElementById('adminRerunWizardBtn').addEventListener('click', async f
     }
 });
 
+// --- AI Consent Check (runs on page load) ---
+async function checkAiConsent() {
+    const statusDiv = document.getElementById('aiConsentStatus');
+    const reloginBtn = document.getElementById('aiReloginBtn');
+    try {
+        const resp = await fetch('/api/admin/ai-consent-check');
+        const data = await resp.json();
+        if (data.consented) {
+            statusDiv.innerHTML = '<span class="text-success small"><i class="bi bi-check-circle-fill"></i> AI gateway consent granted</span>';
+            reloginBtn.classList.add('d-none');
+        } else if (data.needs_relogin) {
+            statusDiv.innerHTML = '<span class="text-warning small"><i class="bi bi-exclamation-triangle-fill"></i> AI consent required &mdash; sign out and sign back in to grant permission</span>';
+            reloginBtn.classList.remove('d-none');
+        } else {
+            statusDiv.innerHTML = `<span class="text-danger small"><i class="bi bi-x-circle-fill"></i> ${data.error || 'Unable to check AI consent'}</span>`;
+            reloginBtn.classList.add('d-none');
+        }
+    } catch (err) {
+        statusDiv.innerHTML = `<span class="text-danger small"><i class="bi bi-x-circle-fill"></i> ${err.message}</span>`;
+    }
+}
+checkAiConsent();
+
+// AI Re-login button — logout then start login with gateway scope
+const aiReloginBtn = document.getElementById('aiReloginBtn');
+if (aiReloginBtn) {
+    aiReloginBtn.addEventListener('click', async function() {
+        const btn = this;
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Signing out...';
+        try {
+            await fetch('/api/msx/az-logout', { method: 'POST' });
+            btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Opening login...';
+            const resp = await fetch('/api/msx/az-login/start', { method: 'POST' });
+            const data = await resp.json();
+            if (data.success) {
+                btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Waiting for sign-in...';
+                // Poll for login completion
+                const poll = setInterval(async () => {
+                    const statusResp = await fetch('/api/msx/az-login/status');
+                    const statusData = await statusResp.json();
+                    if (!statusData.running) {
+                        clearInterval(poll);
+                        // Complete the login (sets subscription + refreshes tokens)
+                        await fetch('/api/msx/az-login/complete', { method: 'POST' });
+                        btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> Re-login to enable AI';
+                        btn.disabled = false;
+                        // Re-check consent
+                        checkAiConsent();
+                        // Refresh MSX status too
+                        if (typeof loadMsxStatus === 'function') loadMsxStatus();
+                    }
+                }, 2000);
+            } else {
+                alert(data.error || 'Failed to launch login');
+                btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> Re-login to enable AI';
+                btn.disabled = false;
+            }
+        } catch (err) {
+            alert('Error: ' + err.message);
+            btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> Re-login to enable AI';
+            btn.disabled = false;
+        }
+    });
+}
+
 // AI Connection Test
 const aiTestBtn = document.getElementById('aiTestBtn');
 if (aiTestBtn) {
@@ -1391,6 +1385,15 @@ if (aiTestBtn) {
                         <small class="text-muted">Response: ${data.response}</small>
                     </div>
                 `;
+                checkAiConsent();  // Refresh consent status
+            } else if (data.needs_relogin) {
+                resultDiv.innerHTML = `
+                    <div class="alert alert-warning py-2">
+                        <i class="bi bi-exclamation-triangle-fill"></i> <strong>AI consent required</strong><br>
+                        <small>Click "Re-login to enable AI" above to grant permission.</small>
+                    </div>
+                `;
+                checkAiConsent();
             } else {
                 resultDiv.innerHTML = `
                     <div class="alert alert-danger py-2">

@@ -33,7 +33,6 @@ admin_bp = Blueprint('admin', __name__)
 def admin_panel():
     """Admin control panel for system-wide operations."""
     import os
-    import re
     
     # Get system-wide statistics
     stats = {
@@ -56,50 +55,6 @@ def admin_panel():
             Customer.favicon_b64.isnot(None), Customer.favicon_b64 != '').count(),
     }
     
-    # AI configuration status -- validate that values look real, not placeholders
-    guid_pattern = re.compile(
-        r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', re.IGNORECASE
-    )
-    placeholder_keywords = ('your-', 'example', 'placeholder', 'changeme', 'xxx')
-
-    def _is_real_value(val: str, require_guid: bool = False) -> bool:
-        """Check if an env var value looks real (not a placeholder)."""
-        if not val:
-            return False
-        val_lower = val.lower().strip()
-        if any(kw in val_lower for kw in placeholder_keywords):
-            return False
-        if require_guid and not guid_pattern.match(val.strip()):
-            return False
-        return True
-
-    raw_endpoint = os.environ.get('AZURE_OPENAI_ENDPOINT', '')
-    raw_deployment = os.environ.get('AZURE_OPENAI_DEPLOYMENT', '')
-    raw_client_id = os.environ.get('AZURE_CLIENT_ID', '')
-    raw_client_secret = os.environ.get('AZURE_CLIENT_SECRET', '')
-    raw_tenant_id = os.environ.get('AZURE_TENANT_ID', '')
-
-    endpoint_ok = _is_real_value(raw_endpoint) and raw_endpoint.startswith('https://')
-    deployment_ok = _is_real_value(raw_deployment)
-    client_id_ok = _is_real_value(raw_client_id, require_guid=True)
-    client_secret_ok = _is_real_value(raw_client_secret)
-    tenant_id_ok = _is_real_value(raw_tenant_id, require_guid=True)
-
-    all_configured = all([
-        endpoint_ok, deployment_ok, client_id_ok, client_secret_ok, tenant_id_ok
-    ])
-
-    ai_config = {
-        'endpoint': raw_endpoint,
-        'deployment': raw_deployment,
-        'endpoint_ok': endpoint_ok,
-        'deployment_ok': deployment_ok,
-        'client_id_ok': client_id_ok,
-        'client_secret_ok': client_secret_ok,
-        'tenant_id_ok': tenant_id_ok,
-        'all_configured': all_configured,
-    }
-    
     # WorkIQ preferences for settings card
     from app.services.workiq_service import DEFAULT_SUMMARY_PROMPT
     pref = UserPreference.query.first()
@@ -107,7 +62,7 @@ def admin_panel():
     workiq_summary_prompt = pref.workiq_summary_prompt if pref else None
     default_workiq_prompt = DEFAULT_SUMMARY_PROMPT
     
-    return render_template('admin_panel.html', stats=stats, ai_config=ai_config,
+    return render_template('admin_panel.html', stats=stats,
                          workiq_connect_impact=workiq_connect_impact,
                          workiq_summary_prompt=workiq_summary_prompt,
                          default_workiq_prompt=default_workiq_prompt)
@@ -189,7 +144,7 @@ def api_admin_ai_config_test():
     In direct mode, calls Azure OpenAI via service-principal.
     """
     import os
-    from app.gateway_client import is_gateway_enabled, gateway_call, GatewayError
+    from app.gateway_client import is_gateway_enabled, gateway_call, GatewayError, GatewayConsentError
 
     # ---- Gateway path ----
     if is_gateway_enabled():
@@ -201,6 +156,12 @@ def api_admin_ai_config_test():
                 'response': result.get('response', ''),
                 'mode': 'gateway',
             })
+        except GatewayConsentError as e:
+            return jsonify({
+                'success': False,
+                'error': str(e),
+                'needs_relogin': True,
+            }), 403
         except GatewayError as e:
             return jsonify({'success': False, 'error': f'Gateway test failed: {e}'}), 400
 
@@ -238,6 +199,16 @@ def api_admin_ai_config_test():
         })
     except Exception as e:
         return jsonify({'success': False, 'error': f'Connection failed: {e}'}), 400
+
+
+@admin_bp.route('/api/admin/ai-consent-check', methods=['GET'])
+def api_admin_ai_consent_check():
+    """Check if the user has consented to the AI gateway app.
+
+    Returns JSON with ``consented``, ``error``, ``needs_relogin``.
+    """
+    from app.gateway_client import check_ai_consent
+    return jsonify(check_ai_consent())
 
 
 @admin_bp.route('/api/admin/update-check', methods=['GET'])
