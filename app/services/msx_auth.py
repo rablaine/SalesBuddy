@@ -485,13 +485,17 @@ def get_az_cli_status() -> Dict[str, Any]:
 
 
 def az_logout() -> Dict[str, Any]:
-    """Run ``az logout`` to clear the current Azure CLI session.
+    """Clear ALL Azure CLI cached accounts and tokens.
+
+    Uses ``az account clear`` instead of ``az logout`` so that non-default
+    accounts (e.g. a personal tenant) don't survive and interfere with
+    the next ``az login --tenant``.
 
     Returns:
         Dict with success, message.
     """
     try:
-        cmd = "az logout" if IS_WINDOWS else ["az", "logout"]
+        cmd = "az account clear" if IS_WINDOWS else ["az", "account", "clear"]
         result = subprocess.run(
             cmd,
             capture_output=True,
@@ -500,12 +504,12 @@ def az_logout() -> Dict[str, Any]:
             shell=IS_WINDOWS,
         )
         if result.returncode == 0:
-            logger.info("Azure CLI logged out")
-            return {"success": True, "message": "Logged out"}
-        logger.warning(f"az logout failed: {result.stderr}")
-        return {"success": True, "message": "Logout completed"}  # non-zero is OK if already logged out
+            logger.info("Azure CLI accounts cleared")
+            return {"success": True, "message": "All accounts cleared"}
+        logger.warning(f"az account clear failed: {result.stderr}")
+        return {"success": True, "message": "Logout completed"}
     except Exception as e:
-        logger.warning(f"Error during az logout: {e}")
+        logger.warning(f"Error during az account clear: {e}")
         return {"success": False, "error": str(e)}
 
 
