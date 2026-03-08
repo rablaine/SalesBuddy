@@ -624,3 +624,202 @@ def api_ai_generate_engagement_summary():
         db.session.commit()
 
         return jsonify({'success': False, 'error': f'AI request failed: {error_msg}'}), 500
+
+
+ENGAGEMENT_STORY_PROMPT = (
+    "You are a Microsoft technical seller's assistant. Analyze the provided notes "
+    "for a specific customer engagement and generate structured story fields.\n\n"
+    "Return your response as valid JSON with EXACTLY these keys:\n"
+    "{\n"
+    '  "key_individuals": "names and titles of key people involved",\n'
+    '  "technical_problem": "the technical or business challenges they face",\n'
+    '  "business_impact": "how the problem impacts their business processes/strategy",\n'
+    '  "solution_resources": "Azure services, tools, or approaches being used",\n'
+    '  "estimated_acr": "expected monthly/annual Azure consumption revenue impact",\n'
+    '  "target_date": "target completion date in YYYY-MM-DD format, or null if unknown"\n'
+    "}\n\n"
+    "Rules:\n"
+    "- Be concise but specific. Use actual details from the notes.\n"
+    "- If a field cannot be determined, use null for that field.\n"
+    "- For target_date, only return a date string if a specific date or timeframe is mentioned.\n"
+    "- For estimated_acr, include dollar amounts if mentioned (e.g. '$5,000/mo ACR').\n"
+    "- Return ONLY the JSON object, no markdown formatting or extra text."
+)
+
+
+@ai_bp.route('/api/ai/generate-engagement-story', methods=['POST'])
+def api_ai_generate_engagement_story():
+    """Generate structured story fields for a specific engagement from its linked notes.
+
+    Reads all notes linked to the given engagement and sends them to Azure OpenAI
+    to populate the engagement story fields (key_individuals, technical_problem,
+    business_impact, solution_resources, estimated_acr, target_date).
+    """
+    if not is_ai_enabled():
+        return jsonify({
+            'success': False,
+            'error': 'AI features are not configured'
+        }), 400
+
+    deployment_name = get_openai_deployment()
+
+    data = request.get_json()
+    engagement_id = data.get('engagement_id') if data else None
+
+    if not engagement_id:
+        return jsonify({'success': False, 'error': 'engagement_id is required'}), 400
+
+    from app.models import Engagement
+    engagement = Engagement.query.get(engagement_id)
+    if not engagement:
+        return jsonify({'success': False, 'error': 'Engagement not found'}), 404
+
+    customer = engagement.customer
+
+    # Get notes linked to this engagement, sorted by date
+    notes = sorted(engagement.notes, key=lambda n: n.call_date)
+
+    if not notes:
+        return jsonify({
+            'success': False,
+            'error': 'No notes linked to this engagement. Link some notes first.'
+        }), 400
+
+    # Build the notes text for the prompt
+    import re as _re
+    call_text_parts = []
+    for cl in notes:
+        date_str = cl.call_date.strftime('%Y-%m-%d')
+        content = _re.sub(r'<[^>]+>', '', cl.content or '')
+        topics = ', '.join(t.name for t in cl.topics) if cl.topics else ''
+        entry = f"[{date_str}]"
+        if topics:
+            entry += f" Topics: {topics}"
+        entry += f"\n{content}"
+        call_text_parts.append(entry)
+
+    call_text = '\n\n---\n\n'.join(call_text_parts)
+
+    # Cap input to avoid token limits
+    MAX_CHARS = 30000
+    if len(call_text) > MAX_CHARS:
+        call_text = call_text[:MAX_CHARS] + '\n\n[... additional notes truncated ...]'
+
+    # Include engagement context
+    engagement_context = f"Engagement: {engagement.title}\n"
+    if engagement.key_individuals:
+        engagement_context += f"Current Key Individuals: {engagement.key_individuals}\n"
+    if engagement.technical_problem:
+        engagement_context += f"Current Technical Problem: {engagement.technical_problem}\n"
+
+    # Include linked opportunities/milestones context
+    opp_context = ''
+    if engagement.opportunities:
+        opp_names = [o.name for o in engagement.opportunities]
+        opp_context = f"Linked Opportunities: {', '.join(opp_names)}\n"
+    if engagement.milestones:
+        ms_names = [m.display_text for m in engagement.milestones]
+        opp_context += f"Linked Milestones: {', '.join(ms_names)}\n"
+
+    user_message = (
+        f"Customer: {customer.name}\n"
+        f"{engagement_context}"
+        f"{opp_context}"
+        f"Total notes: {len(notes)}\n\n"
+        f"Notes:\n\n{call_text}"
+    )
+
+    try:
+        client = get_azure_openai_client()
+
+        response = client.chat.completions.create(
+            messages=[
+                {"role": "system", "content": ENGAGEMENT_STORY_PROMPT},
+                {"role": "user", "content": user_message}
+            ],
+            max_tokens=1000,
+            model=deployment_name
+        )
+
+        response_text = response.choices[0].message.content
+        if not response_text or not response_text.strip():
+            raise ValueError("AI returned empty content")
+
+        response_text = response_text.strip()
+
+        # Parse JSON response
+        import json as _json
+        # Strip markdown code fences if present
+        if response_text.startswith('```'):
+            response_text = _re.sub(r'^```(?:json)?\s*', '', response_text)
+            response_text = _re.sub(r'\s*```$', '', response_text)
+
+        story_data = _json.loads(response_text)
+
+        # Save story fields directly to the engagement
+        from datetime import datetime as _datetime
+        if story_data.get('key_individuals'):
+            engagement.key_individuals = story_data['key_individuals']
+        if story_data.get('technical_problem'):
+            engagement.technical_problem = story_data['technical_problem']
+        if story_data.get('business_impact'):
+            engagement.business_impact = story_data['business_impact']
+        if story_data.get('solution_resources'):
+            engagement.solution_resources = story_data['solution_resources']
+        if story_data.get('estimated_acr'):
+            engagement.estimated_acr = story_data['estimated_acr']
+        if story_data.get('target_date'):
+            try:
+                engagement.target_date = _datetime.strptime(
+                    story_data['target_date'], '%Y-%m-%d'
+                ).date()
+            except (ValueError, TypeError):
+                pass  # Skip invalid date formats
+
+        # Log success
+        log_entry = AIQueryLog(
+            request_text=f"Story for engagement '{engagement.title}' ({len(notes)} notes)",
+            response_text=response_text[:500],
+            success=True,
+            error_message=None
+        )
+        db.session.add(log_entry)
+        db.session.commit()
+
+        return jsonify({
+            'success': True,
+            'story': story_data,
+            'note_count': len(notes)
+        })
+
+    except (ValueError, KeyError) as e:
+        log_entry = AIQueryLog(
+            request_text=f"Story for engagement '{engagement.title}' ({len(notes)} notes)",
+            response_text=response_text[:500] if 'response_text' in dir() else None,
+            success=False,
+            error_message=f"Parse error: {str(e)}"
+        )
+        db.session.add(log_entry)
+        db.session.commit()
+
+        return jsonify({
+            'success': False,
+            'error': 'AI returned invalid response. Please try again.'
+        }), 500
+
+    except Exception as e:
+        error_msg = str(e)
+
+        log_entry = AIQueryLog(
+            request_text=f"Story for engagement '{engagement.title}' ({len(notes)} notes)",
+            response_text=None,
+            success=False,
+            error_message=error_msg[:500]
+        )
+        db.session.add(log_entry)
+        db.session.commit()
+
+        return jsonify({
+            'success': False,
+            'error': f'AI request failed: {error_msg}'
+        }), 500

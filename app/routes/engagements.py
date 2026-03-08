@@ -36,12 +36,16 @@ def engagement_view(id: int):
     ]
     unassigned_notes.sort(key=lambda n: n.call_date, reverse=True)
 
+    from app.routes.ai import is_ai_enabled
+    ai_enabled = is_ai_enabled()
+
     return render_template(
         'engagement_view.html',
         engagement=engagement,
         customer=customer,
         linked_notes=linked_notes,
         unassigned_notes=unassigned_notes,
+        ai_enabled=ai_enabled,
     )
 
 

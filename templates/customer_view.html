@@ -28,6 +28,14 @@
     .story-completeness .progress {
         height: 4px;
     }
+    .opp-mini-card {
+        background-color: rgba(0, 0, 0, 0.03);
+        border: 1px solid rgba(0, 0, 0, 0.06);
+    }
+    html[data-bs-theme="dark"] .opp-mini-card {
+        background-color: rgba(255, 255, 255, 0.05);
+        border-color: rgba(255, 255, 255, 0.08);
+    }
 </style>
 
 <!-- Header -->
@@ -74,11 +82,6 @@
             <div class="card-header d-flex justify-content-between align-items-center">
                 <h5 class="mb-0"><i class="bi bi-sticky"></i> Account Context</h5>
                 <div class="d-flex gap-2">
-                    {% if ai_enabled and notes %}
-                    <button type="button" class="btn btn-sm btn-outline-success" id="generateContextBtn" onclick="generateEngagementSummary()" title="Use AI to generate an account context summary from all notes">
-                        <i class="bi bi-stars"></i> Generate
-                    </button>
-                    {% endif %}
                     <button type="button" class="btn btn-sm btn-outline-primary" id="editContextBtn" onclick="toggleContextEdit()">
                         <i class="bi bi-pencil"></i> Edit
                     </button>
@@ -90,12 +93,6 @@
                 </div>
                 <div id="contextEmpty" {% if customer.account_context %}style="display: none;"{% endif %}>
                     <p class="text-muted mb-0">No account context yet. Click Edit to add high-level context about this account.</p>
-                </div>
-                <div id="contextGenerating" style="display: none;">
-                    <div class="d-flex align-items-center gap-2 text-muted">
-                        <div class="spinner-border spinner-border-sm" role="status"></div>
-                        <span>Analyzing {{ notes|length }} note{{ 's' if notes|length != 1 else '' }}...</span>
-                    </div>
                 </div>
                 <form id="contextForm" action="{{ url_for('customers.customer_update_overview', id=customer.id) }}" method="post" style="display: none;">
                     <textarea class="form-control mb-2" name="account_context" id="contextTextarea" rows="10" placeholder="High-level account context: key contacts, strategic priorities, ongoing initiatives...">{{ customer.account_context or '' }}</textarea>
@@ -110,36 +107,6 @@
                 </form>
             </div>
         </div>
-
-        <!-- Customer Opportunities Card -->
-        {% if customer.opportunities.count() > 0 %}
-        <div class="card mb-3">
-            <div class="card-header">
-                <h5 class="mb-0"><i class="bi bi-briefcase"></i> Opportunities</h5>
-            </div>
-            <div class="card-body">
-                {% for opp in customer.opportunities.order_by(None).all()|sort(attribute='name') %}
-                    <div class="{% if not loop.last %}mb-3 pb-3 border-bottom{% endif %}">
-                        <div class="d-flex justify-content-between align-items-start">
-                            <a href="{{ url_for('opportunities.opportunity_view', id=opp.id) }}" class="fw-bold text-decoration-none">
-                                <i class="bi bi-briefcase"></i> {{ opp.name }}
-                            </a>
-                        </div>
-                        {% set opp_milestones = opp.milestones.all() %}
-                        {% if opp_milestones %}
-                            <div class="mt-1">
-                                {% for ms in opp_milestones %}
-                                    <span class="badge {% if ms.msx_status == 'On Track' %}bg-success{% elif ms.msx_status == 'At Risk' %}bg-warning text-dark{% elif ms.msx_status == 'Blocked' %}bg-danger{% elif ms.msx_status == 'Completed' %}bg-info{% else %}bg-secondary{% endif %}" title="{{ ms.display_text }}">
-                                        <i class="bi bi-flag"></i> {{ ms.display_text[:20] }}{% if ms.display_text|length > 20 %}...{% endif %}
-                                    </span>
-                                {% endfor %}
-                            </div>
-                        {% endif %}
-                    </div>
-                {% endfor %}
-            </div>
-        </div>
-        {% endif %}
 
         {% if revenue_analyses %}
         <div class="card mb-3">
@@ -188,6 +155,45 @@
                             <div class="small text-danger mt-1">
                                 <i class="bi bi-exclamation-triangle"></i> ${{ "{:,.0f}".format(analysis.dollars_at_risk) }} at risk
                             </div>
+                        {% endif %}
+                    </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Customer Opportunities Card -->
+        {% if customer.opportunities.count() > 0 %}
+        <div class="card mb-3">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-briefcase"></i> Opportunities</h5>
+            </div>
+            <div class="card-body p-2">
+                {% for opp in customer.opportunities.order_by(None).all()|sort(attribute='name') %}
+                    <div class="opp-mini-card rounded p-2 {% if not loop.last %}mb-2{% endif %}">
+                        <a href="{{ url_for('opportunities.opportunity_view', id=opp.id) }}" class="fw-bold text-decoration-none d-block{% if opp.milestones.count() > 0 %} mb-1{% endif %}" title="{{ opp.name }}">
+                            <i class="bi bi-briefcase"></i> {{ opp.name }}
+                        </a>
+                        {% set opp_milestones = opp.milestones.all() %}
+                        {% if opp_milestones %}
+                            {% for ms in opp_milestones %}
+                                <div class="d-flex align-items-start gap-2 {% if not loop.last %}mb-1{% endif %}" style="padding-left: 0.25rem;">
+                                    <i class="bi bi-{% if ms.msx_status == 'On Track' %}check-circle text-success{% elif ms.msx_status == 'At Risk' %}exclamation-triangle text-warning{% elif ms.msx_status == 'Blocked' %}x-circle text-danger{% elif ms.msx_status == 'Completed' %}check2-circle text-info{% else %}flag text-secondary{% endif %}" style="margin-top: 2px;" title="{{ ms.msx_status or 'Unknown' }}"></i>
+                                    <div class="min-width-0 flex-grow-1" style="min-width: 0;">
+                                        <div class="d-flex justify-content-between align-items-baseline gap-1">
+                                            <a href="{{ url_for('milestones.milestone_view', id=ms.id) }}" class="text-decoration-none small text-truncate d-block" title="{{ ms.display_text }}">
+                                                {{ ms.display_text }}
+                                            </a>
+                                            {% if ms.dollar_value %}
+                                                <span class="small text-muted flex-shrink-0">${{ "{:,.0f}".format(ms.dollar_value) }}/mo</span>
+                                            {% endif %}
+                                        </div>
+                                        {% if ms.workload %}
+                                            <div class="text-muted text-truncate" style="font-size: 0.7em;" title="{{ ms.workload }}">{{ ms.workload }}</div>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                            {% endfor %}
                         {% endif %}
                     </div>
                 {% endfor %}
@@ -438,58 +444,6 @@ function cancelContextEdit() {
         document.getElementById('contextDisplay').style.display = 'none';
         document.getElementById('contextEmpty').style.display = 'block';
     }
-}
-
-function generateEngagementSummary() {
-    const btn = document.getElementById('generateContextBtn');
-    const editBtn = document.getElementById('editContextBtn');
-    const generating = document.getElementById('contextGenerating');
-    const display = document.getElementById('contextDisplay');
-    const empty = document.getElementById('contextEmpty');
-
-    // Show loading state
-    btn.disabled = true;
-    btn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status"></span> Generating...';
-    display.style.display = 'none';
-    empty.style.display = 'none';
-    generating.style.display = 'block';
-
-    fetch('/api/ai/generate-engagement-summary', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest'},
-        body: JSON.stringify({customer_id: {{ customer.id }}})
-    })
-    .then(r => r.json())
-    .then(data => {
-        generating.style.display = 'none';
-        if (data.success) {
-            // Open the edit form with the generated summary pre-filled
-            const textarea = document.getElementById('contextTextarea');
-            textarea.value = data.summary;
-            textarea.rows = Math.max(10, data.summary.split('\n').length + 2);
-            document.getElementById('contextForm').style.display = 'block';
-            btn.style.display = 'none';
-            editBtn.style.display = 'none';
-            textarea.focus();
-        } else {
-            alert('Failed to generate summary: ' + (data.error || 'Unknown error'));
-            // Restore original display
-            const hasContext = document.getElementById('contextTextarea').defaultValue.trim().length > 0;
-            if (hasContext) display.style.display = 'block';
-            else empty.style.display = 'block';
-        }
-        btn.disabled = false;
-        btn.innerHTML = '<i class="bi bi-stars"></i> Generate';
-    })
-    .catch(err => {
-        generating.style.display = 'none';
-        alert('Error: ' + err.message);
-        const hasContext = document.getElementById('contextTextarea').defaultValue.trim().length > 0;
-        if (hasContext) display.style.display = 'block';
-        else empty.style.display = 'block';
-        btn.disabled = false;
-        btn.innerHTML = '<i class="bi bi-stars"></i> Generate';
-    });
 }
 </script>
 {% endblock %}
