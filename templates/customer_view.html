@@ -194,7 +194,12 @@
                                                     <span class="small text-muted">${{ "{:,.0f}".format(ms.dollar_value) }}/mo</span>
                                                 {% endif %}
                                                 {% if ms.due_date %}
-                                                    <div class="text-muted" style="font-size: 0.7em;"><i class="bi bi-calendar"></i> {{ ms.due_date.strftime('%b %d, %Y') }}</div>
+                                                    {% set days_until = (ms.due_date - today).days %}
+                                                    {% if ms.msx_status == 'Completed' %}
+                                                    <div style="font-size: 0.7em;" class="text-success"><i class="bi bi-calendar-check"></i> {{ ms.due_date.strftime('%b %d, %Y') }}</div>
+                                                    {% else %}
+                                                    <div style="font-size: 0.7em;" class="{% if days_until < 0 %}text-danger{% elif days_until <= 30 %}text-warning{% elif days_until <= 90 %}text-success{% else %}text-muted{% endif %}"><i class="bi bi-calendar"></i> {{ ms.due_date.strftime('%b %d, %Y') }}{% if days_until < 0 %} <span class="fw-semibold">(overdue)</span>{% elif days_until <= 30 %} <span class="fw-semibold">({{ days_until }}d)</span>{% endif %}</div>
+                                                    {% endif %}
                                                 {% endif %}
                                             </div>
                                         </div>

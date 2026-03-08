@@ -727,5 +727,6 @@ def inject_preferences():
         revenue_sync_state=revenue_sync_state,
         get_seller_color=get_seller_color,
         update_available=update_available,
+        today=datetime.today(),
     )
 
