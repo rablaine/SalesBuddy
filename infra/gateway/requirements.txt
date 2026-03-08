@@ -1,0 +1,5 @@
+flask>=3.0
+gunicorn>=21.2
+openai>=1.0
+azure-identity>=1.15
+opencensus-ext-azure>=1.1

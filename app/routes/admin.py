@@ -183,31 +183,44 @@ def api_admin_domain_add():
 
 @admin_bp.route('/api/admin/ai-config/test', methods=['POST'])
 def api_admin_ai_config_test():
-    """Test AI configuration by making a sample API call using Entra ID auth.
-    
-    All connection details are read from environment variables.
+    """Test AI configuration by making a sample API call.
+
+    In gateway mode, pings the APIM gateway.
+    In direct mode, calls Azure OpenAI via service-principal.
     """
     import os
+    from app.gateway_client import is_gateway_enabled, gateway_call, GatewayError
+
+    # ---- Gateway path ----
+    if is_gateway_enabled():
+        try:
+            result = gateway_call("/v1/ping", {})
+            return jsonify({
+                'success': True,
+                'message': 'Gateway connection successful!',
+                'response': result.get('response', ''),
+                'mode': 'gateway',
+            })
+        except GatewayError as e:
+            return jsonify({'success': False, 'error': f'Gateway test failed: {e}'}), 400
+
+    # ---- Direct / legacy path ----
     from app.routes.ai import get_azure_openai_client, get_openai_deployment
-    
+
     endpoint_url = os.environ.get('AZURE_OPENAI_ENDPOINT', '')
     deployment_name = get_openai_deployment()
-    
-    # Validate required fields
+
     if not endpoint_url or not deployment_name:
         return jsonify({'error': 'Missing AZURE_OPENAI_ENDPOINT or AZURE_OPENAI_DEPLOYMENT in .env file'}), 400
-    
-    # Check for service principal credentials in environment
+
     client_id = os.environ.get('AZURE_CLIENT_ID')
     client_secret = os.environ.get('AZURE_CLIENT_SECRET')
     tenant_id = os.environ.get('AZURE_TENANT_ID')
-    
     if not all([client_id, client_secret, tenant_id]):
-        return jsonify({'error': 'Missing Azure service principal environment variables (AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, AZURE_TENANT_ID)'}), 400
-    
+        return jsonify({'error': 'Missing Azure service principal environment variables'}), 400
+
     try:
         client = get_azure_openai_client()
-        
         response = client.chat.completions.create(
             messages=[
                 {"role": "system", "content": "You are a helpful assistant."},
@@ -216,13 +229,15 @@ def api_admin_ai_config_test():
             max_tokens=20,
             model=deployment_name
         )
-        
         result = response.choices[0].message.content.strip()
-        return jsonify({'success': True, 'message': 'Connection successful!', 'response': result})
-    
+        return jsonify({
+            'success': True,
+            'message': 'Connection successful!',
+            'response': result,
+            'mode': 'direct',
+        })
     except Exception as e:
-        error_msg = str(e)
-        return jsonify({'success': False, 'error': f'Connection failed: {error_msg}'}), 400
+        return jsonify({'success': False, 'error': f'Connection failed: {e}'}), 400
 
 
 @admin_bp.route('/api/admin/update-check', methods=['GET'])
