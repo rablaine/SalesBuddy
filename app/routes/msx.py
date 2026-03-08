@@ -313,8 +313,8 @@ def az_login_complete():
     set_subscription()
     token_ok = refresh_token()
 
-    # Clear gateway subscription key cache so a fresh key is fetched
-    from app.gateway_client import clear_key_cache as clear_gw_cache
+    # Clear gateway token cache so fresh consent is used
+    from app.gateway_client import clear_token_cache as clear_gw_cache
     clear_gw_cache()
 
     auth = get_msx_auth_status()

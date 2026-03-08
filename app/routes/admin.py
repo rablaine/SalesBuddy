@@ -144,7 +144,7 @@ def api_admin_ai_config_test():
     In direct mode, calls Azure OpenAI via service-principal.
     """
     import os
-    from app.gateway_client import is_gateway_enabled, gateway_call, GatewayError, GatewayAuthError
+    from app.gateway_client import is_gateway_enabled, gateway_call, GatewayError, GatewayConsentError
 
     # ---- Gateway path ----
     if is_gateway_enabled():
@@ -156,11 +156,11 @@ def api_admin_ai_config_test():
                 'response': result.get('response', ''),
                 'mode': 'gateway',
             })
-        except GatewayAuthError as e:
+        except GatewayConsentError as e:
             return jsonify({
                 'success': False,
                 'error': str(e),
-                'needs_login': True,
+                'needs_relogin': True,
             }), 403
         except GatewayError as e:
             return jsonify({'success': False, 'error': f'Gateway test failed: {e}'}), 400
@@ -201,14 +201,14 @@ def api_admin_ai_config_test():
         return jsonify({'success': False, 'error': f'Connection failed: {e}'}), 400
 
 
-@admin_bp.route('/api/admin/ai-auth-check', methods=['GET'])
-def api_admin_ai_auth_check():
-    """Check if the APIM subscription key can be fetched.
+@admin_bp.route('/api/admin/ai-consent-check', methods=['GET'])
+def api_admin_ai_consent_check():
+    """Check if the user has consented to the AI gateway app.
 
-    Returns JSON with ``authenticated`` and ``error``.
+    Returns JSON with ``consented``, ``error``, ``needs_relogin``.
     """
-    from app.gateway_client import check_gateway_auth
-    return jsonify(check_gateway_auth())
+    from app.gateway_client import check_ai_consent
+    return jsonify(check_ai_consent())
 
 
 @admin_bp.route('/api/admin/update-check', methods=['GET'])
