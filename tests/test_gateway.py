@@ -24,72 +24,122 @@ class TestGatewayClientModule:
         from app.gateway_client import is_gateway_enabled
         assert is_gateway_enabled() is True
 
-    def test_verify_tenant_rejects_wrong_tenant(self):
-        """_verify_tenant raises GatewayConsentError for non-Microsoft tenants."""
-        import base64
-        import json as _json
-        from app.gateway_client import _verify_tenant, GatewayConsentError
-
-        # Build a fake JWT with wrong tenant
-        header = base64.urlsafe_b64encode(b'{"alg":"RS256"}').rstrip(b"=").decode()
-        payload_data = {"tid": "96d12531-723e-46c1-842b-0480739c7419", "aud": "test"}
-        payload = base64.urlsafe_b64encode(
-            _json.dumps(payload_data).encode()
-        ).rstrip(b"=").decode()
-        fake_jwt = f"{header}.{payload}.fakesig"
-
-        with pytest.raises(GatewayConsentError, match="non-Microsoft account"):
-            _verify_tenant(fake_jwt)
-
-    def test_verify_tenant_accepts_microsoft_tenant(self):
-        """_verify_tenant passes silently for Microsoft corporate tenant."""
-        import base64
-        import json as _json
-        from app.gateway_client import _verify_tenant
-
-        header = base64.urlsafe_b64encode(b'{"alg":"RS256"}').rstrip(b"=").decode()
-        payload_data = {"tid": "72f988bf-86f1-41af-91ab-2d7cd011db47", "aud": "test"}
-        payload = base64.urlsafe_b64encode(
-            _json.dumps(payload_data).encode()
-        ).rstrip(b"=").decode()
-        fake_jwt = f"{header}.{payload}.fakesig"
-
-        # Should not raise
-        _verify_tenant(fake_jwt)
-
-    def test_check_consent_wrong_tenant_returns_needs_relogin(self):
-        """check_ai_consent returns needs_relogin when logged into wrong tenant."""
-        import base64
-        import json as _json
-        from app.gateway_client import check_ai_consent
-
-        header = base64.urlsafe_b64encode(b'{"alg":"RS256"}').rstrip(b"=").decode()
-        payload_data = {"tid": "96d12531-723e-46c1-842b-0480739c7419"}
-        payload = base64.urlsafe_b64encode(
-            _json.dumps(payload_data).encode()
-        ).rstrip(b"=").decode()
-        fake_jwt = f"{header}.{payload}.fakesig"
+    def test_get_subscription_key_success(self):
+        """_get_subscription_key fetches and caches the APIM subscription key."""
+        import app.gateway_client as gc
+        gc._cached_sub_key = None
+        gc._key_fetched_at = 0
 
         mock_token = MagicMock()
-        mock_token.token = fake_jwt
-        mock_token.expires_on = 9999999999.0
+        mock_token.token = "fake-mgmt-token"
 
-        with patch("app.gateway_client.AzureCliCredential") as mock_cred_cls:
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "primaryKey": "test-sub-key-123",
+            "secondaryKey": "test-sub-key-456",
+        }
+
+        with patch("azure.identity.AzureCliCredential") as mock_cred_cls, \
+             patch("app.gateway_client.requests.post", return_value=mock_resp):
             mock_cred = MagicMock()
             mock_cred.get_token.return_value = mock_token
             mock_cred_cls.return_value = mock_cred
 
-            # Clear any cached state
-            import app.gateway_client as gc
-            gc._credential = None
-            gc._cached_token = None
-            gc._token_expiry = 0
+            key = gc._get_subscription_key()
 
-            result = check_ai_consent()
+        assert key == "test-sub-key-123"
+        assert gc._cached_sub_key == "test-sub-key-123"
 
-        assert result["consented"] is False
-        assert result["needs_relogin"] is True
-        assert "non-Microsoft" in result["error"]
+    def test_get_subscription_key_not_logged_in(self):
+        """_get_subscription_key raises GatewayAuthError when not logged in."""
+        import app.gateway_client as gc
+        gc._cached_sub_key = None
+        gc._key_fetched_at = 0
+
+        with patch("azure.identity.AzureCliCredential") as mock_cred_cls:
+            mock_cred = MagicMock()
+            mock_cred.get_token.side_effect = Exception("az login required")
+            mock_cred_cls.return_value = mock_cred
+
+            with pytest.raises(gc.GatewayAuthError, match="Not signed in"):
+                gc._get_subscription_key()
+
+    def test_get_subscription_key_forbidden(self):
+        """_get_subscription_key raises GatewayAuthError on 403."""
+        import app.gateway_client as gc
+        gc._cached_sub_key = None
+        gc._key_fetched_at = 0
+
+        mock_token = MagicMock()
+        mock_token.token = "fake-mgmt-token"
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 403
+        mock_resp.text = "Forbidden"
+
+        with patch("azure.identity.AzureCliCredential") as mock_cred_cls, \
+             patch("app.gateway_client.requests.post", return_value=mock_resp):
+            mock_cred = MagicMock()
+            mock_cred.get_token.return_value = mock_token
+            mock_cred_cls.return_value = mock_cred
+
+            with pytest.raises(gc.GatewayAuthError, match="lacks permission"):
+                gc._get_subscription_key()
+
+    def test_check_gateway_auth_success(self):
+        """check_gateway_auth returns authenticated=True when key is fetchable."""
+        import app.gateway_client as gc
+        gc._cached_sub_key = None
+        gc._key_fetched_at = 0
+
+        with patch.object(gc, "_get_subscription_key", return_value="test-key"):
+            result = gc.check_gateway_auth()
+
+        assert result["authenticated"] is True
+        assert result["error"] is None
+
+    def test_check_gateway_auth_not_logged_in(self):
+        """check_gateway_auth returns authenticated=False when not logged in."""
+        import app.gateway_client as gc
+        gc._cached_sub_key = None
+        gc._key_fetched_at = 0
+
+        with patch.object(gc, "_get_subscription_key",
+                         side_effect=gc.GatewayAuthError("Not signed in")):
+            result = gc.check_gateway_auth()
+
+        assert result["authenticated"] is False
+        assert "Not signed in" in result["error"]
+
+    def test_clear_key_cache(self):
+        """clear_key_cache resets the cached subscription key."""
+        import app.gateway_client as gc
+        gc._cached_sub_key = "old-key"
+        gc._key_fetched_at = 9999999999
+
+        gc.clear_key_cache()
+
+        assert gc._cached_sub_key is None
+        assert gc._key_fetched_at == 0
+
+    def test_gateway_call_sends_subscription_key_header(self):
+        """gateway_call sends Ocp-Apim-Subscription-Key header."""
+        import app.gateway_client as gc
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {"success": True}
+
+        with patch.object(gc, "_get_subscription_key", return_value="my-sub-key"), \
+             patch("app.gateway_client.requests.post", return_value=mock_resp) as mock_post:
+            result = gc.gateway_call("/v1/ping", {})
+
+        assert result == {"success": True}
+        call_kwargs = mock_post.call_args
+        headers = call_kwargs.kwargs.get("headers") or call_kwargs[1].get("headers")
+        assert headers["Ocp-Apim-Subscription-Key"] == "my-sub-key"
+        assert "Authorization" not in headers
 
 
 class TestIsAIEnabledGatewayMode:

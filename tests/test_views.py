@@ -299,64 +299,65 @@ def test_admin_panel_has_shutdown_button(client):
 # =============================================================================
 
 def test_admin_ai_card_shows_gateway_info(client):
-    """Admin AI card shows gateway-based UI with test button and consent status div."""
+    """Admin AI card shows gateway-based UI with test button and auth status div."""
     response = client.get('/admin')
     html = response.data.decode()
 
     # Gateway-based card always shows these elements
     assert 'APIM gateway' in html
     assert 'id="aiTestBtn"' in html
-    assert 'id="aiConsentStatus"' in html
-    assert 'id="aiReloginBtn"' in html
+    assert 'id="aiAuthStatus"' in html
+    # Re-login button removed — auth uses existing az login
+    assert 'id="aiReloginBtn"' not in html
     # Should NOT show old env var checklist
     assert 'AZURE_OPENAI_ENDPOINT' not in html
     assert 'AZURE_CLIENT_SECRET' not in html
 
 
-def test_admin_ai_consent_check_endpoint_ok(client):
-    """AI consent check endpoint returns ok when consent is valid."""
-    mock_result = {"consented": True, "error": None, "needs_relogin": False, "status": "ok"}
-    with patch('app.gateway_client.check_ai_consent', return_value=mock_result):
-        response = client.get('/api/admin/ai-consent-check')
+def test_admin_ai_auth_check_endpoint_ok(client):
+    """AI auth check endpoint returns authenticated=True when key is fetchable."""
+    mock_result = {"authenticated": True, "error": None, "status": "ok"}
+    with patch('app.gateway_client.check_gateway_auth', return_value=mock_result):
+        response = client.get('/api/admin/ai-auth-check')
         data = response.get_json()
 
     assert response.status_code == 200
-    assert data['consented'] is True
+    assert data['authenticated'] is True
 
 
-def test_admin_ai_consent_check_endpoint_needs_relogin(client):
-    """AI consent check endpoint returns needs_relogin when consent is missing."""
-    mock_result = {"consented": False, "error": "consent_required", "needs_relogin": True, "status": "needs_relogin"}
-    with patch('app.gateway_client.check_ai_consent', return_value=mock_result):
-        response = client.get('/api/admin/ai-consent-check')
+def test_admin_ai_auth_check_endpoint_not_logged_in(client):
+    """AI auth check endpoint returns authenticated=False when not logged in."""
+    mock_result = {"authenticated": False, "error": "Not signed in to Azure CLI", "status": "error"}
+    with patch('app.gateway_client.check_gateway_auth', return_value=mock_result):
+        response = client.get('/api/admin/ai-auth-check')
         data = response.get_json()
 
     assert response.status_code == 200
-    assert data['consented'] is False
-    assert data['needs_relogin'] is True
+    assert data['authenticated'] is False
+    assert 'Not signed in' in data['error']
 
 
-def test_admin_ai_consent_check_endpoint_error(client):
-    """AI consent check endpoint handles unexpected errors gracefully."""
-    mock_result = {"consented": False, "error": "boom", "needs_relogin": False, "status": "error"}
-    with patch('app.gateway_client.check_ai_consent', return_value=mock_result):
-        response = client.get('/api/admin/ai-consent-check')
+def test_admin_ai_auth_check_endpoint_error(client):
+    """AI auth check endpoint handles unexpected errors gracefully."""
+    mock_result = {"authenticated": False, "error": "boom", "status": "error"}
+    with patch('app.gateway_client.check_gateway_auth', return_value=mock_result):
+        response = client.get('/api/admin/ai-auth-check')
         data = response.get_json()
 
     assert response.status_code == 200
-    assert data['consented'] is False
+    assert data['authenticated'] is False
 
 
-def test_admin_ai_test_consent_error_returns_needs_relogin(client):
-    """AI test connection returns needs_relogin when GatewayConsentError is raised."""
-    from app.gateway_client import GatewayConsentError
+def test_admin_ai_test_auth_error_returns_needs_login(client):
+    """AI test connection returns needs_login when GatewayAuthError is raised."""
+    from app.gateway_client import GatewayAuthError
     with patch('app.gateway_client.is_gateway_enabled', return_value=True), \
-         patch('app.gateway_client.gateway_call', side_effect=GatewayConsentError('consent_required')):
+         patch('app.gateway_client.gateway_call', side_effect=GatewayAuthError('Not signed in')):
         response = client.post('/api/admin/ai-config/test')
         data = response.get_json()
 
     assert response.status_code == 403
-    assert data['needs_relogin'] is True
+    assert data['needs_login'] is True
 
 
 # =============================================================================

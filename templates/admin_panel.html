@@ -257,16 +257,13 @@
                             AI features use the centralized APIM gateway.
                             Requires <code>az login</code> with your Microsoft account.
                         </p>
-                        <!-- Consent status (loaded via JS) -->
-                        <div id="aiConsentStatus" class="mb-2">
-                            <span class="text-muted small"><i class="bi bi-hourglass-split"></i> Checking AI consent...</span>
+                        <!-- Auth status (loaded via JS) -->
+                        <div id="aiAuthStatus" class="mb-2">
+                            <span class="text-muted small"><i class="bi bi-hourglass-split"></i> Checking AI auth...</span>
                         </div>
                         <div class="d-flex align-items-center gap-2">
                             <button class="btn btn-outline-success btn-sm" id="aiTestBtn">
                                 <i class="bi bi-lightning"></i> Test Connection
-                            </button>
-                            <button class="btn btn-outline-warning btn-sm d-none" id="aiReloginBtn">
-                                <i class="bi bi-arrow-repeat"></i> Re-login to enable AI
                             </button>
                         </div>
                         <div id="aiTestResult" class="mt-2"></div>
@@ -1298,71 +1295,22 @@ document.getElementById('adminRerunWizardBtn').addEventListener('click', async f
     }
 });
 
-// --- AI Consent Check (runs on page load) ---
-async function checkAiConsent() {
-    const statusDiv = document.getElementById('aiConsentStatus');
-    const reloginBtn = document.getElementById('aiReloginBtn');
+// --- AI Auth Check (runs on page load) ---
+async function checkAiAuth() {
+    const statusDiv = document.getElementById('aiAuthStatus');
     try {
-        const resp = await fetch('/api/admin/ai-consent-check');
+        const resp = await fetch('/api/admin/ai-auth-check');
         const data = await resp.json();
-        if (data.consented) {
-            statusDiv.innerHTML = '<span class="text-success small"><i class="bi bi-check-circle-fill"></i> AI gateway consent granted</span>';
-            reloginBtn.classList.add('d-none');
-        } else if (data.needs_relogin) {
-            statusDiv.innerHTML = `<span class="text-warning small"><i class="bi bi-exclamation-triangle-fill"></i> ${data.error || 'AI consent required &mdash; sign out and sign back in to grant permission'}</span>`;
-            reloginBtn.classList.remove('d-none');
+        if (data.authenticated) {
+            statusDiv.innerHTML = '<span class="text-success small"><i class="bi bi-check-circle-fill"></i> APIM subscription key ready</span>';
         } else {
-            statusDiv.innerHTML = `<span class="text-danger small"><i class="bi bi-x-circle-fill"></i> ${data.error || 'Unable to check AI consent'}</span>`;
-            reloginBtn.classList.add('d-none');
+            statusDiv.innerHTML = `<span class="text-warning small"><i class="bi bi-exclamation-triangle-fill"></i> ${data.error || 'Not authenticated — sign in via MSX Integration'}</span>`;
         }
     } catch (err) {
         statusDiv.innerHTML = `<span class="text-danger small"><i class="bi bi-x-circle-fill"></i> ${err.message}</span>`;
     }
 }
-checkAiConsent();
-
-// AI Re-login button — logout then start login with gateway scope
-const aiReloginBtn = document.getElementById('aiReloginBtn');
-if (aiReloginBtn) {
-    aiReloginBtn.addEventListener('click', async function() {
-        const btn = this;
-        btn.disabled = true;
-        btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Signing out...';
-        try {
-            await fetch('/api/msx/az-logout', { method: 'POST' });
-            btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Opening login...';
-            const resp = await fetch('/api/msx/az-login/start', { method: 'POST' });
-            const data = await resp.json();
-            if (data.success) {
-                btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Waiting for sign-in...';
-                // Poll for login completion
-                const poll = setInterval(async () => {
-                    const statusResp = await fetch('/api/msx/az-login/status');
-                    const statusData = await statusResp.json();
-                    if (!statusData.running) {
-                        clearInterval(poll);
-                        // Complete the login (sets subscription + refreshes tokens)
-                        await fetch('/api/msx/az-login/complete', { method: 'POST' });
-                        btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> Re-login to enable AI';
-                        btn.disabled = false;
-                        // Re-check consent
-                        checkAiConsent();
-                        // Refresh MSX status too
-                        if (typeof loadMsxStatus === 'function') loadMsxStatus();
-                    }
-                }, 2000);
-            } else {
-                alert(data.error || 'Failed to launch login');
-                btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> Re-login to enable AI';
-                btn.disabled = false;
-            }
-        } catch (err) {
-            alert('Error: ' + err.message);
-            btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> Re-login to enable AI';
-            btn.disabled = false;
-        }
-    });
-}
+checkAiAuth();
 
 // AI Connection Test
 const aiTestBtn = document.getElementById('aiTestBtn');
@@ -1385,15 +1333,15 @@ if (aiTestBtn) {
                         <small class="text-muted">Response: ${data.response}</small>
                     </div>
                 `;
-                checkAiConsent();  // Refresh consent status
-            } else if (data.needs_relogin) {
+                checkAiAuth();  // Refresh auth status
+            } else if (data.needs_login) {
                 resultDiv.innerHTML = `
                     <div class="alert alert-warning py-2">
-                        <i class="bi bi-exclamation-triangle-fill"></i> <strong>AI consent required</strong><br>
-                        <small>Click "Re-login to enable AI" above to grant permission.</small>
+                        <i class="bi bi-exclamation-triangle-fill"></i> <strong>Not signed in</strong><br>
+                        <small>Sign in via MSX Integration to enable AI features.</small>
                     </div>
                 `;
-                checkAiConsent();
+                checkAiAuth();
             } else {
                 resultDiv.innerHTML = `
                     <div class="alert alert-danger py-2">
