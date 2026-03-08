@@ -55,51 +55,228 @@
     </div>
 </div>
 
-<!-- Key Metrics Row -->
-<div class="row g-3 mb-4">
-    <div class="col-6 col-md-3">
-        <div class="card text-center h-100">
-            <div class="card-body py-2">
-                <div class="text-muted small">Last Contact</div>
-                <div class="fw-bold">
-                    {% if last_contact %}
-                        {{ last_contact.strftime('%b %d, %Y') }}
-                    {% else %}
-                        <span class="text-muted">--</span>
+<!-- Compute partner_dict for essentials card -->
+{% set partner_dict = {} %}
+{% for call in notes %}
+    {% for partner in call.partners %}
+        {% if partner.id not in partner_dict %}
+            {% set _ = partner_dict.update({partner.id: partner}) %}
+        {% endif %}
+    {% endfor %}
+{% endfor %}
+
+<!-- Main Layout: Sidebar (left) + Content (right) -->
+<div class="row">
+    <!-- Sidebar -->
+    <div class="col-md-4">
+        <!-- Account Context Card -->
+        <div class="card mb-3">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-sticky"></i> Account Context</h5>
+                <div class="d-flex gap-2">
+                    {% if ai_enabled and notes %}
+                    <button type="button" class="btn btn-sm btn-outline-success" id="generateContextBtn" onclick="generateEngagementSummary()" title="Use AI to generate an account context summary from all notes">
+                        <i class="bi bi-stars"></i> Generate
+                    </button>
                     {% endif %}
+                    <button type="button" class="btn btn-sm btn-outline-primary" id="editContextBtn" onclick="toggleContextEdit()">
+                        <i class="bi bi-pencil"></i> Edit
+                    </button>
+                </div>
+            </div>
+            <div class="card-body">
+                <div id="contextDisplay" {% if not customer.account_context %}style="display: none;"{% endif %}>
+                    <p class="mb-0" style="white-space: pre-wrap;">{{ customer.account_context or '' }}</p>
+                </div>
+                <div id="contextEmpty" {% if customer.account_context %}style="display: none;"{% endif %}>
+                    <p class="text-muted mb-0">No account context yet. Click Edit to add high-level context about this account.</p>
+                </div>
+                <div id="contextGenerating" style="display: none;">
+                    <div class="d-flex align-items-center gap-2 text-muted">
+                        <div class="spinner-border spinner-border-sm" role="status"></div>
+                        <span>Analyzing {{ notes|length }} note{{ 's' if notes|length != 1 else '' }}...</span>
+                    </div>
+                </div>
+                <form id="contextForm" action="{{ url_for('customers.customer_update_overview', id=customer.id) }}" method="post" style="display: none;">
+                    <textarea class="form-control mb-2" name="account_context" id="contextTextarea" rows="10" placeholder="High-level account context: key contacts, strategic priorities, ongoing initiatives...">{{ customer.account_context or '' }}</textarea>
+                    <div class="d-flex gap-2">
+                        <button type="submit" class="btn btn-sm btn-primary">
+                            <i class="bi bi-check-lg"></i> Save
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="cancelContextEdit()">
+                            Cancel
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Customer Opportunities Card -->
+        {% if customer.opportunities.count() > 0 %}
+        <div class="card mb-3">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-briefcase"></i> Opportunities</h5>
+            </div>
+            <div class="card-body">
+                {% for opp in customer.opportunities.order_by(None).all()|sort(attribute='name') %}
+                    <div class="{% if not loop.last %}mb-3 pb-3 border-bottom{% endif %}">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <a href="{{ url_for('opportunities.opportunity_view', id=opp.id) }}" class="fw-bold text-decoration-none">
+                                <i class="bi bi-briefcase"></i> {{ opp.name }}
+                            </a>
+                        </div>
+                        {% set opp_milestones = opp.milestones.all() %}
+                        {% if opp_milestones %}
+                            <div class="mt-1">
+                                {% for ms in opp_milestones %}
+                                    <span class="badge {% if ms.msx_status == 'On Track' %}bg-success{% elif ms.msx_status == 'At Risk' %}bg-warning text-dark{% elif ms.msx_status == 'Blocked' %}bg-danger{% elif ms.msx_status == 'Completed' %}bg-info{% else %}bg-secondary{% endif %}" title="{{ ms.display_text }}">
+                                        <i class="bi bi-flag"></i> {{ ms.display_text[:20] }}{% if ms.display_text|length > 20 %}...{% endif %}
+                                    </span>
+                                {% endfor %}
+                            </div>
+                        {% endif %}
+                    </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+
+        {% if revenue_analyses %}
+        <div class="card mb-3">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-graph-up"></i> Revenue Analyzer</h5>
+                <a href="{{ url_for('revenue.revenue_customer_view', customer_id=customer.id) }}" class="btn btn-sm btn-outline-primary">
+                    <i class="bi bi-eye"></i> Details
+                </a>
+            </div>
+            <div class="card-body">
+                {% for analysis in revenue_analyses %}
+                    <div class="{% if not loop.last %}mb-3 pb-3 border-bottom{% endif %}">
+                        <div class="d-flex justify-content-between align-items-start mb-2">
+                            <strong>{{ analysis.bucket }}</strong>
+                            <span class="badge 
+                                {% if analysis.category == 'CHURN_RISK' %}bg-danger
+                                {% elif analysis.category == 'RECENT_DIP' %}bg-warning text-dark
+                                {% elif analysis.category == 'EXPANSION_OPPORTUNITY' %}bg-success
+                                {% elif analysis.category == 'VOLATILE' %}bg-info
+                                {% elif analysis.category == 'STAGNANT' %}bg-secondary
+                                {% elif analysis.category == 'HEALTHY' %}bg-success
+                                {% elif analysis.category == 'NEW_CUSTOMER' %}bg-primary
+                                {% elif analysis.category == 'CHURNED' %}bg-dark
+                                {% else %}bg-secondary{% endif %}">
+                                {{ analysis.category|replace('_', ' ')|title }}
+                            </span>
+                        </div>
+                        
+                        {% if analysis.recommended_action and analysis.recommended_action != 'NO ACTION' %}
+                            <div class="small text-muted mb-1">
+                                <i class="bi bi-exclamation-circle"></i> {{ analysis.recommended_action }}
+                            </div>
+                        {% endif %}
+                        
+                        <div class="small">
+                            <span class="text-muted">Avg:</span> ${{ "{:,.0f}".format(analysis.avg_revenue) }}/mo
+                            {% if analysis.trend_slope %}
+                                <span class="ms-2 {% if analysis.trend_slope > 0 %}text-success{% elif analysis.trend_slope < 0 %}text-danger{% endif %}">
+                                    <i class="bi bi-{% if analysis.trend_slope > 0 %}arrow-up{% elif analysis.trend_slope < 0 %}arrow-down{% else %}dash{% endif %}"></i>
+                                    {{ "{:.1f}%".format(analysis.trend_slope * 100) }}
+                                </span>
+                            {% endif %}
+                        </div>
+                        
+                        {% if analysis.dollars_at_risk and analysis.dollars_at_risk > 0 %}
+                            <div class="small text-danger mt-1">
+                                <i class="bi bi-exclamation-triangle"></i> ${{ "{:,.0f}".format(analysis.dollars_at_risk) }} at risk
+                            </div>
+                        {% endif %}
+                    </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- Main Content -->
+    <div class="col-md-8">
+        <!-- Essentials panel (Azure portal style) -->
+        <div class="card mb-3">
+            <div class="card-body py-3">
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        {% if customer.tpid %}
+                        <div class="mb-2">
+                            <div class="text-muted small">TPID</div>
+                            <div>
+                                {% if customer.tpid_url %}
+                                    <a href="{{ customer.tpid_url }}" target="_blank">{{ customer.tpid }}</a>
+                                {% else %}
+                                    {{ customer.tpid }}
+                                {% endif %}
+                            </div>
+                        </div>
+                        {% endif %}
+                        <div class="mb-2">
+                            <div class="text-muted small">Seller</div>
+                            <div>
+                                {% if customer.seller %}
+                                    <a href="{{ url_for('sellers.seller_view', id=customer.seller.id) }}" class="badge bg-secondary text-decoration-none"><i class="bi bi-person"></i> {{ customer.seller.name }}</a>
+                                    {% if customer.seller.seller_type %}
+                                        <span class="badge {% if customer.seller.seller_type == 'Growth' %}bg-success{% else %}bg-info{% endif %}">{{ customer.seller.seller_type }}</span>
+                                    {% endif %}
+                                {% else %}
+                                    <span class="text-muted">Unassigned</span>
+                                {% endif %}
+                            </div>
+                        </div>
+                        <div class="mb-2">
+                            <div class="text-muted small">Territory</div>
+                            <div>
+                                {% if customer.territory %}
+                                    <a href="{{ url_for('territories.territory_view', id=customer.territory.id) }}" class="badge bg-info text-dark text-decoration-none"><i class="bi bi-geo-alt"></i> {{ customer.territory.name }}</a>
+                                {% else %}
+                                    <span class="text-muted">Unassigned</span>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="mb-2">
+                            <div class="text-muted small">Last Contact</div>
+                            <div>
+                                {% if last_contact %}
+                                    {{ last_contact.strftime('%b %d, %Y') }}
+                                {% else %}
+                                    <span class="text-muted">--</span>
+                                {% endif %}
+                            </div>
+                        </div>
+                        {% if customer.verticals|length > 0 %}
+                        <div class="mb-2">
+                            <div class="text-muted small">Verticals</div>
+                            <div>
+                                {% for vertical in customer.verticals|sort(attribute='name') %}
+                                    <span class="badge bg-primary">{{ vertical.name }}</span>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        {% endif %}
+                        {% if partner_dict %}
+                        <div class="mb-2">
+                            <div class="text-muted small">Partners</div>
+                            <div>
+                                {% for partner_id, partner in partner_dict.items()|sort(attribute='1.name') %}
+                                    <a href="{{ url_for('partners.partner_view', id=partner.id) }}" class="text-decoration-none" style="color: #a78bfa;">
+                                        <i class="bi bi-building"></i> {{ partner.name }}
+                                    </a>{% if not loop.last %}, {% endif %}
+                                {% endfor %}
+                            </div>
+                        </div>
+                        {% endif %}
+                    </div>
                 </div>
             </div>
         </div>
-    </div>
-    <div class="col-6 col-md-3">
-        <div class="card text-center h-100">
-            <div class="card-body py-2">
-                <div class="text-muted small">Active Engagements</div>
-                <div class="fw-bold">{{ active_engagements|length }}</div>
-            </div>
-        </div>
-    </div>
-    <div class="col-6 col-md-3">
-        <div class="card text-center h-100">
-            <div class="card-body py-2">
-                <div class="text-muted small">Active Milestones</div>
-                <div class="fw-bold">{{ active_milestone_count }}</div>
-            </div>
-        </div>
-    </div>
-    <div class="col-6 col-md-3">
-        <div class="card text-center h-100">
-            <div class="card-body py-2">
-                <div class="text-muted small">Opportunities</div>
-                <div class="fw-bold">{{ opportunity_count }}</div>
-            </div>
-        </div>
-    </div>
-</div>
 
-<div class="row">
-    <!-- Main Content Column -->
-    <div class="col-md-8">
         <!-- Engagements Section -->
         {% if engagements %}
         <div class="card mb-3">
@@ -228,223 +405,6 @@
                 {% endif %}
             </div>
         </div>
-    </div>
-
-    <!-- Sidebar -->
-    <div class="col-md-4">
-        <!-- Details Card -->
-        <div class="card mb-3">
-            <div class="card-header">
-                <h5 class="mb-0">Details</h5>
-            </div>
-            <div class="card-body">
-                <p><strong>TPID:</strong> 
-                    {% if customer.tpid_url %}
-                        <a href="{{ customer.tpid_url }}" target="_blank">{{ customer.tpid }}</a>
-                    {% else %}
-                        {{ customer.tpid }}
-                    {% endif %}
-                </p>
-                <p><strong>Seller:</strong> 
-                    {% if customer.seller %}
-                        <a href="{{ url_for('sellers.seller_view', id=customer.seller.id) }}" class="badge bg-secondary text-decoration-none"><i class="bi bi-person"></i> {{ customer.seller.name }}</a>
-                        {% if customer.seller.seller_type %}
-                            <span class="badge {% if customer.seller.seller_type == 'Growth' %}bg-success{% else %}bg-info{% endif %}">{{ customer.seller.seller_type }}</span>
-                        {% endif %}
-                    {% else %}
-                        <span class="badge bg-secondary text-muted">No seller assigned</span>
-                    {% endif %}
-                </p>
-                <p><strong>Territory:</strong> 
-                    {% if customer.territory %}
-                        <a href="{{ url_for('territories.territory_view', id=customer.territory.id) }}" class="badge bg-secondary text-decoration-none"><i class="bi bi-geo-alt"></i> {{ customer.territory.name }}</a>
-                    {% else %}
-                        <span class="badge bg-secondary text-muted">No territory assigned</span>
-                    {% endif %}
-                </p>
-                {% if customer.verticals %}
-                    <p><strong>Verticals:</strong><br>
-                        {% for vertical in customer.verticals|sort(attribute='name') %}
-                            <span class="badge bg-primary">{{ vertical.name }}</span>{% if not loop.last %} {% endif %}
-                        {% endfor %}
-                    </p>
-                {% endif %}
-                <p><strong>Total Notes:</strong> {{ notes|length }}</p>
-                
-                {% set partner_dict = {} %}
-                {% for call in notes %}
-                    {% for partner in call.partners %}
-                        {% if partner.id not in partner_dict %}
-                            {% set _ = partner_dict.update({partner.id: partner}) %}
-                        {% endif %}
-                    {% endfor %}
-                {% endfor %}
-                {% if partner_dict %}
-                <p><strong>Partners:</strong><br>
-                    {% for partner_id, partner in partner_dict.items()|sort(attribute='1.name') %}
-                        <a href="{{ url_for('partners.partner_view', id=partner.id) }}" class="badge text-decoration-none" style="background-color: #6f42c1;">
-                            <i class="bi bi-building"></i> {{ partner.name }}
-                        </a>
-                    {% endfor %}
-                </p>
-                {% endif %}
-            </div>
-        </div>
-
-        <!-- Account Context Card -->
-        <div class="card mb-3">
-            <div class="card-header d-flex justify-content-between align-items-center">
-                <h5 class="mb-0"><i class="bi bi-sticky"></i> Account Context</h5>
-                <div class="d-flex gap-2">
-                    {% if ai_enabled and notes %}
-                    <button type="button" class="btn btn-sm btn-outline-success" id="generateContextBtn" onclick="generateEngagementSummary()" title="Use AI to generate an account context summary from all notes">
-                        <i class="bi bi-stars"></i> Generate
-                    </button>
-                    {% endif %}
-                    <button type="button" class="btn btn-sm btn-outline-primary" id="editContextBtn" onclick="toggleContextEdit()">
-                        <i class="bi bi-pencil"></i> Edit
-                    </button>
-                </div>
-            </div>
-            <div class="card-body">
-                <div id="contextDisplay" {% if not customer.account_context %}style="display: none;"{% endif %}>
-                    <p class="mb-0" style="white-space: pre-wrap;">{{ customer.account_context or '' }}</p>
-                </div>
-                <div id="contextEmpty" {% if customer.account_context %}style="display: none;"{% endif %}>
-                    <p class="text-muted mb-0">No account context yet. Click Edit to add high-level context about this account.</p>
-                </div>
-                <div id="contextGenerating" style="display: none;">
-                    <div class="d-flex align-items-center gap-2 text-muted">
-                        <div class="spinner-border spinner-border-sm" role="status"></div>
-                        <span>Analyzing {{ notes|length }} note{{ 's' if notes|length != 1 else '' }}...</span>
-                    </div>
-                </div>
-                <form id="contextForm" action="{{ url_for('customers.customer_update_overview', id=customer.id) }}" method="post" style="display: none;">
-                    <textarea class="form-control mb-2" name="account_context" id="contextTextarea" rows="10" placeholder="High-level account context: key contacts, strategic priorities, ongoing initiatives...">{{ customer.account_context or '' }}</textarea>
-                    <div class="d-flex gap-2">
-                        <button type="submit" class="btn btn-sm btn-primary">
-                            <i class="bi bi-check-lg"></i> Save
-                        </button>
-                        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="cancelContextEdit()">
-                            Cancel
-                        </button>
-                    </div>
-                </form>
-            </div>
-        </div>
-        
-        {% set milestone_dict = {} %}
-        {% for call in notes %}
-            {% for milestone in call.milestones %}
-                {% if milestone.id not in milestone_dict %}
-                    {% set _ = milestone_dict.update({milestone.id: milestone}) %}
-                {% endif %}
-            {% endfor %}
-        {% endfor %}
-        {% if milestone_dict %}
-        <!-- Customer Milestones Card -->
-        <div class="card mb-3">
-            <div class="card-header">
-                <h5 class="mb-0"><i class="bi bi-flag"></i> Milestones</h5>
-            </div>
-            <div class="card-body">
-                {% for milestone_id, milestone in milestone_dict.items()|sort(attribute='1.created_at', reverse=true) %}
-                    <div class="{% if not loop.last %}mb-2{% endif %}">
-                        <a href="{{ url_for('milestones.milestone_view', id=milestone.id) }}" class="badge bg-success text-decoration-none" title="{{ milestone.display_text }}">
-                            <i class="bi bi-flag"></i> {{ milestone.display_text[:35] }}{% if milestone.display_text|length > 35 %}...{% endif %}
-                        </a>
-                        {% if milestone.msx_status %}
-                        <span class="badge {% if milestone.msx_status == 'On Track' %}bg-success{% elif milestone.msx_status == 'At Risk' %}bg-warning text-dark{% elif milestone.msx_status == 'Blocked' %}bg-danger{% elif milestone.msx_status == 'Completed' %}bg-info{% else %}bg-secondary{% endif %}">{{ milestone.msx_status }}</span>
-                        {% endif %}
-                    </div>
-                {% endfor %}
-            </div>
-        </div>
-        {% endif %}
-        
-        <!-- Customer Opportunities Card -->
-        {% if customer.opportunities.count() > 0 %}
-        <div class="card mb-3">
-            <div class="card-header">
-                <h5 class="mb-0"><i class="bi bi-briefcase"></i> Opportunities</h5>
-            </div>
-            <div class="card-body">
-                {% for opp in customer.opportunities.order_by(None).all()|sort(attribute='name') %}
-                    <div class="{% if not loop.last %}mb-3 pb-3 border-bottom{% endif %}">
-                        <div class="d-flex justify-content-between align-items-start">
-                            <a href="{{ url_for('opportunities.opportunity_view', id=opp.id) }}" class="fw-bold text-decoration-none">
-                                <i class="bi bi-briefcase"></i> {{ opp.name }}
-                            </a>
-                        </div>
-                        {% set opp_milestones = opp.milestones.all() %}
-                        {% if opp_milestones %}
-                            <div class="mt-1">
-                                {% for ms in opp_milestones %}
-                                    <span class="badge {% if ms.msx_status == 'On Track' %}bg-success{% elif ms.msx_status == 'At Risk' %}bg-warning text-dark{% elif ms.msx_status == 'Blocked' %}bg-danger{% elif ms.msx_status == 'Completed' %}bg-info{% else %}bg-secondary{% endif %}" title="{{ ms.display_text }}">
-                                        <i class="bi bi-flag"></i> {{ ms.display_text[:20] }}{% if ms.display_text|length > 20 %}...{% endif %}
-                                    </span>
-                                {% endfor %}
-                            </div>
-                        {% endif %}
-                    </div>
-                {% endfor %}
-            </div>
-        </div>
-        {% endif %}
-
-        {% if revenue_analyses %}
-        <div class="card mb-3">
-            <div class="card-header d-flex justify-content-between align-items-center">
-                <h5 class="mb-0"><i class="bi bi-graph-up"></i> Revenue Analyzer</h5>
-                <a href="{{ url_for('revenue.revenue_customer_view', customer_id=customer.id) }}" class="btn btn-sm btn-outline-primary">
-                    <i class="bi bi-eye"></i> Details
-                </a>
-            </div>
-            <div class="card-body">
-                {% for analysis in revenue_analyses %}
-                    <div class="{% if not loop.last %}mb-3 pb-3 border-bottom{% endif %}">
-                        <div class="d-flex justify-content-between align-items-start mb-2">
-                            <strong>{{ analysis.bucket }}</strong>
-                            <span class="badge 
-                                {% if analysis.category == 'CHURN_RISK' %}bg-danger
-                                {% elif analysis.category == 'RECENT_DIP' %}bg-warning text-dark
-                                {% elif analysis.category == 'EXPANSION_OPPORTUNITY' %}bg-success
-                                {% elif analysis.category == 'VOLATILE' %}bg-info
-                                {% elif analysis.category == 'STAGNANT' %}bg-secondary
-                                {% elif analysis.category == 'HEALTHY' %}bg-success
-                                {% elif analysis.category == 'NEW_CUSTOMER' %}bg-primary
-                                {% elif analysis.category == 'CHURNED' %}bg-dark
-                                {% else %}bg-secondary{% endif %}">
-                                {{ analysis.category|replace('_', ' ')|title }}
-                            </span>
-                        </div>
-                        
-                        {% if analysis.recommended_action and analysis.recommended_action != 'NO ACTION' %}
-                            <div class="small text-muted mb-1">
-                                <i class="bi bi-exclamation-circle"></i> {{ analysis.recommended_action }}
-                            </div>
-                        {% endif %}
-                        
-                        <div class="small">
-                            <span class="text-muted">Avg:</span> ${{ "{:,.0f}".format(analysis.avg_revenue) }}/mo
-                            {% if analysis.trend_slope %}
-                                <span class="ms-2 {% if analysis.trend_slope > 0 %}text-success{% elif analysis.trend_slope < 0 %}text-danger{% endif %}">
-                                    <i class="bi bi-{% if analysis.trend_slope > 0 %}arrow-up{% elif analysis.trend_slope < 0 %}arrow-down{% else %}dash{% endif %}"></i>
-                                    {{ "{:.1f}%".format(analysis.trend_slope * 100) }}
-                                </span>
-                            {% endif %}
-                        </div>
-                        
-                        {% if analysis.dollars_at_risk and analysis.dollars_at_risk > 0 %}
-                            <div class="small text-danger mt-1">
-                                <i class="bi bi-exclamation-triangle"></i> ${{ "{:,.0f}".format(analysis.dollars_at_risk) }} at risk
-                            </div>
-                        {% endif %}
-                    </div>
-                {% endfor %}
-            </div>
-        </div>
-        {% endif %}
     </div>
 </div>
 {% endblock %}

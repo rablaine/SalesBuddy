@@ -37,41 +37,37 @@
                     <p><strong>Type:</strong> <span class="badge bg-secondary">{{ seller.seller_type }}</span></p>
                 {% endif %}
                 
-                <p><strong>PODs:</strong></p>
+                {% set pods = [] %}
                 {% if seller.territories|length > 0 %}
-                    {% set pods = [] %}
                     {% for territory in seller.territories %}
                         {% if territory.pod and territory.pod not in pods %}
                             {% set _ = pods.append(territory.pod) %}
                         {% endif %}
                     {% endfor %}
-                    {% if pods|length > 0 %}
-                        <div class="d-flex flex-wrap gap-2 mb-3">
-                            {% for pod in pods|sort(attribute='name') %}
-                                <a href="{{ url_for('pods.pod_view', id=pod.id) }}" class="badge bg-info text-dark text-decoration-none">
-                                    <i class="bi bi-diagram-3"></i> {{ pod.name }}
-                                </a>
-                            {% endfor %}
-                        </div>
-                    {% else %}
-                        <p class="text-muted">No PODs assigned</p>
-                    {% endif %}
-                {% else %}
-                    <p class="text-muted">No territories/PODs assigned</p>
                 {% endif %}
+                <p><strong>PODs:</strong>
+                    {% if pods|length > 0 %}
+                        {% for pod in pods|sort(attribute='name') %}
+                            <a href="{{ url_for('pods.pod_view', id=pod.id) }}" class="badge bg-info text-dark text-decoration-none">
+                                <i class="bi bi-diagram-3"></i> {{ pod.name }}
+                            </a>
+                        {% endfor %}
+                    {% else %}
+                        <span class="text-muted">None</span>
+                    {% endif %}
+                </p>
                 
-                <p><strong>Territories:</strong></p>
-                {% if seller.territories|length > 0 %}
-                    <div class="d-flex flex-wrap gap-2 mb-3">
+                <p><strong>Territories:</strong>
+                    {% if seller.territories|length > 0 %}
                         {% for territory in seller.territories|sort(attribute='name') %}
                             <a href="{{ url_for('territories.territory_view', id=territory.id) }}" class="badge bg-secondary text-decoration-none">
                                 <i class="bi bi-geo-alt"></i> {{ territory.name }}
                             </a>
                         {% endfor %}
-                    </div>
-                {% else %}
-                    <p class="text-muted">No territories assigned</p>
-                {% endif %}
+                    {% else %}
+                        <span class="text-muted">None</span>
+                    {% endif %}
+                </p>
                 <p><strong>Total Customers:</strong> {{ customers|length }}</p>
             </div>
         </div>
