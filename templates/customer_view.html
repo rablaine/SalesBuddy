@@ -180,17 +180,24 @@
                                 <div class="d-flex align-items-start gap-2 {% if not loop.last %}mb-1{% endif %}" style="padding-left: 0.25rem;">
                                     <i class="bi bi-{% if ms.msx_status == 'On Track' %}check-circle text-success{% elif ms.msx_status == 'At Risk' %}exclamation-triangle text-warning{% elif ms.msx_status == 'Blocked' %}x-circle text-danger{% elif ms.msx_status == 'Completed' %}check2-circle text-info{% else %}flag text-secondary{% endif %}" style="margin-top: 2px;" title="{{ ms.msx_status or 'Unknown' }}"></i>
                                     <div class="min-width-0 flex-grow-1" style="min-width: 0;">
-                                        <div class="d-flex justify-content-between align-items-baseline gap-1">
-                                            <a href="{{ url_for('milestones.milestone_view', id=ms.id) }}" class="text-decoration-none small text-truncate d-block" title="{{ ms.display_text }}">
-                                                {{ ms.display_text }}
-                                            </a>
-                                            {% if ms.dollar_value %}
-                                                <span class="small text-muted flex-shrink-0">${{ "{:,.0f}".format(ms.dollar_value) }}/mo</span>
-                                            {% endif %}
+                                        <div class="d-flex justify-content-between align-items-start gap-1">
+                                            <div style="min-width: 0; flex: 1;">
+                                                <a href="{{ url_for('milestones.milestone_view', id=ms.id) }}" class="text-decoration-none small text-truncate d-block" title="{{ ms.display_text }}">
+                                                    {{ ms.display_text }}
+                                                </a>
+                                                {% if ms.workload %}
+                                                    <div class="text-muted text-truncate" style="font-size: 0.7em;" title="{{ ms.workload }}">{{ ms.workload }}</div>
+                                                {% endif %}
+                                            </div>
+                                            <div class="text-end flex-shrink-0">
+                                                {% if ms.dollar_value %}
+                                                    <span class="small text-muted">${{ "{:,.0f}".format(ms.dollar_value) }}/mo</span>
+                                                {% endif %}
+                                                {% if ms.due_date %}
+                                                    <div class="text-muted" style="font-size: 0.7em;"><i class="bi bi-calendar"></i> {{ ms.due_date.strftime('%b %d, %Y') }}</div>
+                                                {% endif %}
+                                            </div>
                                         </div>
-                                        {% if ms.workload %}
-                                            <div class="text-muted text-truncate" style="font-size: 0.7em;" title="{{ ms.workload }}">{{ ms.workload }}</div>
-                                        {% endif %}
                                     </div>
                                 </div>
                             {% endfor %}
