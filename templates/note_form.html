@@ -326,6 +326,13 @@
                                                     {{ milestone.msx_status }}
                                                 </span>
                                                 {% endif %}
+                                                {% if milestone.due_date %}
+                                                <span class="text-muted small ms-1">
+                                                    <i class="bi bi-calendar3"></i>
+                                                    {% if milestone.msx_status == 'Completed' %}Completed{% else %}Est.{% endif %}
+                                                    {{ milestone.due_date.strftime('%b %Y') }}
+                                                </span>
+                                                {% endif %}
                                                 {% if milestone.opportunity_name %}
                                                 <br><small class="text-muted">{{ milestone.opportunity_name }}</small>
                                                 {% endif %}
@@ -482,6 +489,7 @@
                     
                     <div id="meetingNoResults" class="alert alert-warning" style="display: none;">
                         <i class="bi bi-calendar-x"></i> No meetings found for this date.
+                        <br><small>The calendar service occasionally returns empty results &mdash; close this dialog and try again.</small>
                     </div>
                     
                     <div class="list-group" id="meetingList">
@@ -1416,9 +1424,20 @@ function renderMilestoneDropdown() {
         const monthlyUsage = milestone.monthly_usage;
         const usedIn = milestone.used_in_notes || 0;
         const statusClass = getStatusBadgeClass(status);
+        const dueDate = milestone.due_date;
         
         // Format monthly usage as currency
         const usageDisplay = monthlyUsage ? '$' + monthlyUsage.toLocaleString() : '';
+        
+        // Format due date for display
+        let dateDisplay = '';
+        if (dueDate) {
+            const d = new Date(dueDate);
+            if (!isNaN(d)) {
+                dateDisplay = d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+            }
+        }
+        const dateLabel = status === 'Completed' ? 'Completed' : 'Est.';
         
         return `<button type="button" class="list-group-item list-group-item-action ${index === selectedMilestoneIndex ? 'active' : ''}" 
             data-milestone-index="${index}"
@@ -1429,6 +1448,7 @@ function renderMilestoneDropdown() {
                     <i class="bi bi-flag"></i> <strong>${name}</strong>
                     ${number ? '<span class="text-muted small">(' + number + ')</span>' : ''}
                     <span class="badge ${statusClass} ms-1">${status}</span>
+                    ${dateDisplay ? '<span class="text-muted small ms-1"><i class="bi bi-calendar3"></i> ' + dateLabel + ' ' + dateDisplay + '</span>' : ''}
                     ${milestone.on_my_team ? '<span class="badge bg-primary ms-1" title="On my team"><i class="bi bi-people-fill"></i> On Team</span>' : ''}
                     ${usedIn > 0 ? '<span class="badge bg-info ms-1" title="Used in ' + usedIn + ' note(s)"><i class="bi bi-journal-text"></i> ' + usedIn + '</span>' : ''}
                 </div>
@@ -1466,10 +1486,21 @@ function selectMilestone(milestone) {
     const workload = milestone.workload || '';
     const monthlyUsage = milestone.monthly_usage;
     const url = milestone.url || '';
+    const dueDate = milestone.due_date;
     const statusClass = getStatusBadgeClass(status);
     
     // Format monthly usage as currency
     const usageDisplay = monthlyUsage ? '$' + monthlyUsage.toLocaleString() + '/mo' : '';
+    
+    // Format due date for selected card
+    let selDateDisplay = '';
+    if (dueDate) {
+        const d = new Date(dueDate);
+        if (!isNaN(d)) {
+            const selDateLabel = status === 'Completed' ? 'Completed' : 'Est.';
+            selDateDisplay = selDateLabel + ' ' + d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+        }
+    }
     
     selectedMilestoneContainer.innerHTML = `
         <div class="card border-success" data-msx-milestone-id="${msxId}">
@@ -1482,6 +1513,7 @@ function selectMilestone(milestone) {
                         </strong>
                         ${number ? '<span class="text-muted small">(' + number + ')</span>' : ''}
                         <span class="badge ${statusClass} ms-1">${status}</span>
+                        ${selDateDisplay ? '<span class="text-muted small ms-1"><i class="bi bi-calendar3"></i> ' + selDateDisplay + '</span>' : ''}
                         ${milestone.on_my_team ? '<span class="badge bg-primary ms-1" title="On my team"><i class="bi bi-people-fill"></i> On Team</span>' : ''}
                         ${usageDisplay ? '<span class="badge bg-success ms-1">' + usageDisplay + '</span>' : ''}
                         ${oppName ? '<br><small class="text-muted">' + oppName + '</small>' : ''}
