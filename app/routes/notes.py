@@ -6,7 +6,7 @@ from flask import Blueprint, render_template, request, redirect, url_for, flash,
 from datetime import datetime
 import logging
 
-from app.models import db, Note, Customer, Seller, Territory, Topic, Partner, Milestone, MsxTask, UserPreference
+from app.models import db, Note, Customer, Seller, Territory, Topic, Partner, Milestone, MsxTask, UserPreference, NoteTemplate
 from app.services.msx_api import TASK_CATEGORIES
 from app.services.backup import backup_customer as _backup_customer
 
@@ -309,12 +309,29 @@ def note_create():
     user_prompt = pref.workiq_summary_prompt if pref and pref.workiq_summary_prompt else DEFAULT_SUMMARY_PROMPT
     connect_impact_enabled = pref.workiq_connect_impact if pref else True
     
+    # Get note templates for the template selector dropdown
+    templates = NoteTemplate.query.order_by(NoteTemplate.name).all()
+    
+    # Determine the default template content for new notes
+    default_template_content = None
+    if pref:
+        if preselect_customer_id and pref.default_template_customer_id:
+            dt = db.session.get(NoteTemplate, pref.default_template_customer_id)
+            if dt:
+                default_template_content = dt.content
+        elif not preselect_customer_id and pref.default_template_noncustomer_id:
+            dt = db.session.get(NoteTemplate, pref.default_template_noncustomer_id)
+            if dt:
+                default_template_content = dt.content
+    
     return render_template('note_form.html', 
                          note=None, 
                          customers=customers,
                          sellers=sellers,
                          topics=topics,
                          partners=partners,
+                         templates=templates,
+                         default_template_content=default_template_content,
                          preselect_customer_id=preselect_customer_id,
                          preselect_customer=preselect_customer,
                          preselect_topic_id=preselect_topic_id,
@@ -422,12 +439,16 @@ def note_edit(id):
     topics = Topic.query.order_by(Topic.name).all()
     partners = Partner.query.order_by(Partner.name).all()
     
+    # Get note templates for the template selector dropdown
+    templates = NoteTemplate.query.order_by(NoteTemplate.name).all()
+    
     return render_template('note_form.html',
                          note=note,
                          customers=customers,
                          sellers=sellers,
                          topics=topics,
                          partners=partners,
+                         templates=templates,
                          preselect_customer_id=None,
                          preselect_topic_id=None,
                          workiq_connect_impact=True)

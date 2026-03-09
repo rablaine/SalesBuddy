@@ -16,7 +16,7 @@ Write-Host ""
 
 # -- Stop the running server ---------------------------------------------------
 # Read port from .env
-$Port = 5000
+$Port = 5151
 $envFile = Join-Path $RepoRoot '.env'
 if (Test-Path $envFile) {
     Get-Content $envFile | ForEach-Object {

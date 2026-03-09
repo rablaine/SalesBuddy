@@ -3,7 +3,7 @@ REM NoteHelper Stop - kills the running server on the configured PORT
 REM Auto-elevates (admin) only if PORT < 1024 (e.g. port 80)
 cd /d "%~dp0"
 
-set PORT=5000
+set PORT=5151
 if exist .env (
     for /f "tokens=1,2 delims==" %%a in (.env) do (
         if "%%a"=="PORT" set PORT=%%b

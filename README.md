@@ -32,7 +32,7 @@ The script will:
 2. Create a Python virtual environment (if one doesn't exist)
 3. Install all dependencies from `requirements.txt`
 4. Create a `.env` file with a generated secret key (if one doesn't exist)
-5. Start the server on `http://localhost:5000`
+5. Start the server on `http://localhost:5151`
 
 On subsequent runs, the script detects the existing venv and `.env`, installs any new dependencies, and launches the app.
 
@@ -73,7 +73,7 @@ python -c "import secrets; print(secrets.token_hex(32))"
 flask run
 ```
 
-6. **Visit** `http://localhost:5000` in your browser
+6. **Visit** `http://localhost:5151` in your browser
 
 > **Note:** The database will be created automatically in `data/notehelper.db` on first run.
 
@@ -314,7 +314,7 @@ If you prefer to use Windows Task Scheduler instead of the built-in background s
 2. Set the trigger to **Daily** at your preferred time
 3. Set the action to run:
    ```
-   powershell.exe -Command "Invoke-RestMethod -Method POST -Uri http://localhost:5000/api/milestone-tracker/sync"
+   powershell.exe -Command "Invoke-RestMethod -Method POST -Uri http://localhost:5151/api/milestone-tracker/sync"
    ```
 4. NoteHelper must be running when the task fires
 

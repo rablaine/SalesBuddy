@@ -12,7 +12,7 @@ import os
 import re
 
 from app.models import (db, Note, Customer, Seller, Territory, Topic,
-                        UserPreference, User, SyncStatus)
+                        UserPreference, NoteTemplate, User, SyncStatus)
 
 # Create blueprint
 main_bp = Blueprint('main', __name__)
@@ -316,8 +316,144 @@ def search():
 
 @main_bp.route('/preferences')
 def preferences():
-    """Redirect to admin panel (settings moved there)."""
-    return redirect(url_for('admin.admin_panel'))
+    """User settings page with Appearance, WorkIQ, and Note Templates."""
+    pref = UserPreference.query.first()
+    templates = NoteTemplate.query.order_by(NoteTemplate.name).all()
+
+    from app.services.workiq_service import DEFAULT_SUMMARY_PROMPT
+    workiq_prompt = pref.workiq_summary_prompt if pref and pref.workiq_summary_prompt else DEFAULT_SUMMARY_PROMPT
+
+    return render_template('settings.html',
+                         pref=pref,
+                         templates=templates,
+                         workiq_prompt=workiq_prompt,
+                         default_workiq_prompt=DEFAULT_SUMMARY_PROMPT)
+
+
+# =============================================================================
+# Note Template CRUD
+# =============================================================================
+
+@main_bp.route('/templates/new')
+def template_create():
+    """Show blank template editor."""
+    return render_template('note_template_form.html', template=None)
+
+
+@main_bp.route('/templates/<int:id>/edit')
+def template_edit(id):
+    """Show template editor with existing content."""
+    template = NoteTemplate.query.get_or_404(id)
+    return render_template('note_template_form.html', template=template)
+
+
+@main_bp.route('/templates', methods=['POST'])
+def template_save():
+    """Create a new template."""
+    name = request.form.get('name', '').strip()
+    content = request.form.get('content', '').strip()
+
+    if not name:
+        flash('Template name is required.', 'danger')
+        return redirect(url_for('main.template_create'))
+
+    if not content:
+        flash('Template content is required.', 'danger')
+        return redirect(url_for('main.template_create'))
+
+    template = NoteTemplate(name=name, content=content)
+    db.session.add(template)
+    db.session.commit()
+
+    flash(f'Template "{name}" created.', 'success')
+    return redirect(url_for('main.preferences'))
+
+
+@main_bp.route('/templates/<int:id>', methods=['POST'])
+def template_update(id):
+    """Update an existing template."""
+    template = NoteTemplate.query.get_or_404(id)
+    name = request.form.get('name', '').strip()
+    content = request.form.get('content', '').strip()
+
+    if not name:
+        flash('Template name is required.', 'danger')
+        return redirect(url_for('main.template_edit', id=id))
+
+    if not content:
+        flash('Template content is required.', 'danger')
+        return redirect(url_for('main.template_edit', id=id))
+
+    template.name = name
+    template.content = content
+    db.session.commit()
+
+    flash(f'Template "{name}" updated.', 'success')
+    return redirect(url_for('main.preferences'))
+
+
+# =============================================================================
+# Note Template API Endpoints
+# =============================================================================
+
+@main_bp.route('/api/templates')
+def api_templates_list():
+    """Return all templates as JSON (for dropdowns)."""
+    templates = NoteTemplate.query.order_by(NoteTemplate.name).all()
+    return jsonify([{
+        'id': t.id,
+        'name': t.name,
+    } for t in templates])
+
+
+@main_bp.route('/api/templates/<int:id>')
+def api_template_get(id):
+    """Return template content as JSON (for AJAX on note form)."""
+    template = NoteTemplate.query.get_or_404(id)
+    return jsonify({
+        'id': template.id,
+        'name': template.name,
+        'content': template.content,
+    })
+
+
+@main_bp.route('/api/templates/<int:id>/delete', methods=['POST'])
+def api_template_delete(id):
+    """Delete a template. Clears any default references."""
+    template = NoteTemplate.query.get_or_404(id)
+
+    # Clear default references in UserPreference
+    pref = UserPreference.query.first()
+    if pref:
+        if pref.default_template_customer_id == id:
+            pref.default_template_customer_id = None
+        if pref.default_template_noncustomer_id == id:
+            pref.default_template_noncustomer_id = None
+
+    db.session.delete(template)
+    db.session.commit()
+
+    flash(f'Template "{template.name}" deleted.', 'success')
+    return redirect(url_for('main.preferences'))
+
+
+@main_bp.route('/api/preferences/default-templates', methods=['POST'])
+def api_save_default_templates():
+    """Save default template preferences for customer and non-customer notes."""
+    pref = UserPreference.query.first()
+    if not pref:
+        pref = UserPreference()
+        db.session.add(pref)
+
+    customer_id = request.form.get('default_template_customer_id')
+    noncustomer_id = request.form.get('default_template_noncustomer_id')
+
+    pref.default_template_customer_id = int(customer_id) if customer_id else None
+    pref.default_template_noncustomer_id = int(noncustomer_id) if noncustomer_id else None
+    db.session.commit()
+
+    flash('Default templates saved.', 'success')
+    return redirect(url_for('main.preferences'))
 
 
 @main_bp.route('/analytics')

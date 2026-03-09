@@ -142,6 +142,13 @@ def run_migrations(db):
     # Migration: Add ai_enabled column to user_preferences
     _add_column_if_not_exists(db, inspector, 'user_preferences', 'ai_enabled', 'BOOLEAN DEFAULT 0 NOT NULL')
 
+    # Migration: Add default template FK columns to user_preferences
+    _add_column_if_not_exists(db, inspector, 'user_preferences', 'default_template_customer_id', 'INTEGER REFERENCES note_templates(id) ON DELETE SET NULL')
+    _add_column_if_not_exists(db, inspector, 'user_preferences', 'default_template_noncustomer_id', 'INTEGER REFERENCES note_templates(id) ON DELETE SET NULL')
+
+    # Migration: Seed built-in note templates if table is empty
+    _seed_note_templates(db, inspector)
+
     # =========================================================================
     # End migrations
     # =========================================================================
@@ -927,3 +934,44 @@ def _rename_overview_to_account_context(db, inspector):
             ))
             conn.commit()
         print("  Renamed column 'customers.overview' -> 'account_context'")
+
+
+def _seed_note_templates(db, inspector):
+    """Seed built-in note templates if the table is empty."""
+    if not _table_exists(inspector, 'note_templates'):
+        return
+
+    with db.engine.connect() as conn:
+        count = conn.execute(text("SELECT COUNT(*) FROM note_templates")).scalar()
+        if count > 0:
+            return  # Already has templates
+
+        templates = [
+            (
+                'Standard Call Log',
+                '<h2>Attendees</h2><ul><li><br></li></ul>'
+                '<h2>Discussion Points</h2><ul><li><br></li></ul>'
+                '<h2>Action Items</h2><ul><li><br></li></ul>'
+                '<h2>Next Steps</h2><ul><li><br></li></ul>',
+            ),
+            (
+                'Quick Check-In',
+                '<h2>Summary</h2><p><br></p>'
+                '<h2>Follow-up</h2><ul><li><br></li></ul>',
+            ),
+            (
+                'Technical Deep Dive',
+                '<h2>Architecture Discussed</h2><p><br></p>'
+                '<h2>Challenges</h2><ul><li><br></li></ul>'
+                '<h2>Recommendations</h2><ul><li><br></li></ul>'
+                '<h2>Resources Shared</h2><ul><li><br></li></ul>',
+            ),
+        ]
+
+        for name, content in templates:
+            conn.execute(text(
+                "INSERT INTO note_templates (name, content, is_builtin, created_at, updated_at) "
+                "VALUES (:name, :content, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+            ), {"name": name, "content": content})
+        conn.commit()
+        print(f"  Seeded {len(templates)} built-in note templates")

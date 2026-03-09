@@ -326,12 +326,23 @@
                     <button class="btn btn-success" id="navNewNote" data-bs-toggle="modal" data-bs-target="#quickNoteModal">
                         <i class="bi bi-plus-circle"></i> New Note
                     </button>
-                    <a href="{{ url_for('admin.admin_panel') }}" class="btn btn-light position-relative" title="Admin Panel">
-                        <i class="bi bi-gear"></i>
-                        <span class="position-absolute top-0 start-100 translate-middle p-1 bg-danger border border-light rounded-circle{{ '' if update_available else ' d-none' }}" id="updateBadge" title="Update available">
-                            <span class="visually-hidden">Update available</span>
-                        </span>
-                    </a>
+                    <div class="dropdown">
+                        <button class="btn btn-light position-relative" type="button" id="gearMenuDropdown" data-bs-toggle="dropdown" aria-expanded="false" title="Settings & Admin">
+                            <i class="bi bi-gear"></i>
+                            <span class="position-absolute top-0 start-100 translate-middle p-1 bg-danger border border-light rounded-circle{{ '' if update_available else ' d-none' }}" id="updateBadge" title="Update available">
+                                <span class="visually-hidden">Update available</span>
+                            </span>
+                        </button>
+                        <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="gearMenuDropdown">
+                            <li><a class="dropdown-item" href="{{ url_for('main.preferences') }}"><i class="bi bi-sliders"></i> Settings</a></li>
+                            <li>
+                                <a class="dropdown-item" href="{{ url_for('admin.admin_panel') }}">
+                                    <i class="bi bi-shield-lock"></i> Admin Panel
+                                    <span class="badge bg-danger ms-1{{ '' if update_available else ' d-none' }}" id="updateMenuBadge">Update</span>
+                                </a>
+                            </li>
+                        </ul>
+                    </div>
                 </div>
             </div>
         </div>
@@ -514,7 +525,7 @@
                                 <div class="d-flex justify-content-between align-items-center">
                                     <div>
                                         <h6 class="card-title mb-1"><i class="bi bi-moon-stars text-primary"></i> Choose Your Theme</h6>
-                                        <p class="text-muted small mb-0">You can always change this later in the Admin Panel</p>
+                                        <p class="text-muted small mb-0">You can always change this later in <i class="bi bi-gear"></i> Settings</p>
                                     </div>
                                     <div class="d-flex align-items-center gap-2 ms-3">
                                         <span class="small text-nowrap" style="cursor: pointer;" onclick="document.getElementById('onboardDarkModeToggle').click()"><i class="bi bi-sun-fill text-warning"></i> Light</span>

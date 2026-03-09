@@ -235,11 +235,21 @@
                     <div class="mb-3">
                         <div class="d-flex justify-content-between align-items-center mb-2">
                             <label class="form-label mb-0">Notes *</label>
-                            {% if not note %}
-                            <button type="button" class="btn btn-sm btn-outline-info" id="importMeetingBtn" onclick="openMeetingImport()">
-                                <i class="bi bi-calendar-event"></i> Import from Meeting
-                            </button>
-                            {% endif %}
+                            <div class="d-flex align-items-center gap-2">
+                                {% if templates %}
+                                <select class="form-select form-select-sm" id="templateSelect" style="width: auto;">
+                                    <option value="">Apply template...</option>
+                                    {% for t in templates %}
+                                    <option value="{{ t.id }}">{{ t.name }}</option>
+                                    {% endfor %}
+                                </select>
+                                {% endif %}
+                                {% if not note %}
+                                <button type="button" class="btn btn-sm btn-outline-info" id="importMeetingBtn" onclick="openMeetingImport()">
+                                    <i class="bi bi-calendar-event"></i> Import from Meeting
+                                </button>
+                                {% endif %}
+                            </div>
                         </div>
                         <div id="editor" style="height: 400px;">{{ note.content|safe if note else '' }}</div>
                         <textarea name="content" id="content" style="display:none;"></textarea>
@@ -525,6 +535,30 @@
 </div>
 {% endif %}
 
+<!-- Template Apply Modal (Replace / Prepend / Cancel) -->
+<div class="modal fade" id="templateApplyModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-file-earmark-text"></i> Apply Template</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p>The editor already has content. How would you like to apply the template "<strong id="templateApplyName"></strong>"?</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-outline-primary" id="templatePrependBtn">
+                    <i class="bi bi-arrow-bar-up"></i> Prepend
+                </button>
+                <button type="button" class="btn btn-primary" id="templateReplaceBtn">
+                    <i class="bi bi-arrow-repeat"></i> Replace
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
 {% endblock %}
 
 {% block extra_js %}
@@ -566,6 +600,66 @@ document.getElementById('noteForm').onsubmit = function(e) {
     
     return true;
 };
+
+// --- Template selector logic ---
+(function() {
+    var templateSelect = document.getElementById('templateSelect');
+    if (!templateSelect) return;
+
+    var pendingContent = '';
+    var pendingName = '';
+
+    function isEditorEmpty() {
+        var text = quill.getText().trim();
+        return text.length === 0;
+    }
+
+    function applyReplace(html) {
+        quill.root.innerHTML = html;
+    }
+
+    function applyPrepend(html) {
+        var existing = quill.root.innerHTML;
+        quill.root.innerHTML = html + '<hr>' + existing;
+    }
+
+    templateSelect.addEventListener('change', function() {
+        var id = this.value;
+        if (!id) return;
+
+        fetch('/api/templates/' + id)
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (isEditorEmpty()) {
+                    applyReplace(data.content);
+                    templateSelect.value = '';
+                } else {
+                    pendingContent = data.content;
+                    pendingName = data.name;
+                    document.getElementById('templateApplyName').textContent = data.name;
+                    var modal = new bootstrap.Modal(document.getElementById('templateApplyModal'));
+                    modal.show();
+                }
+            });
+    });
+
+    document.getElementById('templateReplaceBtn').addEventListener('click', function() {
+        applyReplace(pendingContent);
+        templateSelect.value = '';
+        bootstrap.Modal.getInstance(document.getElementById('templateApplyModal')).hide();
+    });
+
+    document.getElementById('templatePrependBtn').addEventListener('click', function() {
+        applyPrepend(pendingContent);
+        templateSelect.value = '';
+        bootstrap.Modal.getInstance(document.getElementById('templateApplyModal')).hide();
+    });
+
+    // Reset dropdown when modal is dismissed without action
+    document.getElementById('templateApplyModal').addEventListener('hidden.bs.modal', function() {
+        templateSelect.value = '';
+    });
+})();
 
 // --- Engagement multi-select dropdown ---
 (function() {
@@ -2224,6 +2318,16 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Initialize auto-save if customer is preselected
     startAutoSave();
+    
+    // Auto-populate default template for new notes (draft takes priority)
+    {% if not note and default_template_content %}
+    (function() {
+        var text = quill.getText().trim();
+        if (text.length === 0) {
+            quill.root.innerHTML = {{ default_template_content|tojson }};
+        }
+    })();
+    {% endif %}
     
     {% if previous_calls %}
     // Match previous calls card height to new call log card height

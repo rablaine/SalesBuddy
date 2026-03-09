@@ -735,11 +735,36 @@ class UserPreference(db.Model):
     workiq_summary_prompt = db.Column(db.Text, nullable=True)  # Custom WorkIQ meeting summary prompt (null = use default)
     workiq_connect_impact = db.Column(db.Boolean, default=True, nullable=False)  # Extract Connect impact signals from WorkIQ summaries
     ai_enabled = db.Column(db.Boolean, default=False, nullable=False)  # True once user explicitly grants AI gateway consent
+    default_template_customer_id = db.Column(db.Integer, db.ForeignKey('note_templates.id', ondelete='SET NULL'), nullable=True)  # Default template for customer notes
+    default_template_noncustomer_id = db.Column(db.Integer, db.ForeignKey('note_templates.id', ondelete='SET NULL'), nullable=True)  # Default template for non-customer notes
     created_at = db.Column(db.DateTime, default=utc_now, nullable=False)
     updated_at = db.Column(db.DateTime, default=utc_now, onupdate=utc_now, nullable=False)
     
+    # Relationships
+    default_template_customer = db.relationship('NoteTemplate', foreign_keys=[default_template_customer_id])
+    default_template_noncustomer = db.relationship('NoteTemplate', foreign_keys=[default_template_noncustomer_id])
+    
     def __repr__(self) -> str:
         return f'<UserPreference dark_mode={self.dark_mode} customer_view_grouped={self.customer_view_grouped} customer_sort_by={self.customer_sort_by} topic_sort_by_calls={self.topic_sort_by_calls} territory_view_accounts={self.territory_view_accounts} show_customers_without_calls={self.show_customers_without_calls} first_run_modal_dismissed={self.first_run_modal_dismissed}>'
+
+
+# =============================================================================
+# Note Templates Model
+# =============================================================================
+
+class NoteTemplate(db.Model):
+    """Reusable template for pre-filling note content in the Quill editor."""
+    __tablename__ = 'note_templates'
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(200), nullable=False)
+    content = db.Column(db.Text, nullable=False)  # Stored as HTML (Quill output)
+    is_builtin = db.Column(db.Boolean, default=False, nullable=False)  # Seed templates
+    created_at = db.Column(db.DateTime, default=utc_now, nullable=False)
+    updated_at = db.Column(db.DateTime, default=utc_now, onupdate=utc_now, nullable=False)
+
+    def __repr__(self) -> str:
+        return f'<NoteTemplate {self.id}: {self.name}>'
 
 
 # =============================================================================

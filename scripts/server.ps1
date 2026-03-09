@@ -234,7 +234,7 @@ Write-Host ""
 # Skips all prereq checks (Python, Git, venv, etc.) for instant execution.
 if ($StopOnly) {
     $envConfig = Read-EnvFile
-    $Port = if ($envConfig['PORT']) { [int]$envConfig['PORT'] } else { 5000 }
+    $Port = if ($envConfig['PORT']) { [int]$envConfig['PORT'] } else { 5151 }
     if (Test-ServerRunning -Port $Port) {
         Stop-Server -Port $Port
         if (-not (Test-ServerRunning -Port $Port)) {
@@ -390,7 +390,7 @@ if (-not (Test-Path $envFile)) {
 
 # -- Step 8: Read config ------------------------------------------------------
 $envConfig = Read-EnvFile
-$Port = if ($envConfig['PORT']) { [int]$envConfig['PORT'] } else { 5000 }
+$Port = if ($envConfig['PORT']) { [int]$envConfig['PORT'] } else { 5151 }
 Write-Host "  [OK] Port: $Port" -ForegroundColor Green
 
 # -- Step 9: Check current state -----------------------------------------------

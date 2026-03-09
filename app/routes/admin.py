@@ -55,17 +55,7 @@ def admin_panel():
             Customer.favicon_b64.isnot(None), Customer.favicon_b64 != '').count(),
     }
     
-    # WorkIQ preferences for settings card
-    from app.services.workiq_service import DEFAULT_SUMMARY_PROMPT
-    pref = UserPreference.query.first()
-    workiq_connect_impact = pref.workiq_connect_impact if pref else True
-    workiq_summary_prompt = pref.workiq_summary_prompt if pref else None
-    default_workiq_prompt = DEFAULT_SUMMARY_PROMPT
-    
-    return render_template('admin_panel.html', stats=stats,
-                         workiq_connect_impact=workiq_connect_impact,
-                         workiq_summary_prompt=workiq_summary_prompt,
-                         default_workiq_prompt=default_workiq_prompt)
+    return render_template('admin_panel.html', stats=stats)
 
 
 @admin_bp.route('/admin/ai-logs')
@@ -274,7 +264,7 @@ def api_shutdown_server():
     Sends the response first, then terminates the process after a short
     delay so the client receives a clean JSON reply.
     """
-    port = os.environ.get('PORT', '5000')
+    port = os.environ.get('PORT', '5151')
 
     def _shutdown():
         os.kill(os.getpid(), signal.SIGTERM)

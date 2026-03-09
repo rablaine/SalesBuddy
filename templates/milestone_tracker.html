@@ -155,7 +155,7 @@
                 <select id="areaFilter" class="form-select form-select-sm">
                     <option value="">All Areas</option>
                     {% for area in areas %}
-                        <option value="{{ area }}"{% if area == 'Data' %} selected{% endif %}>{{ area }}</option>
+                        <option value="{{ area }}">{{ area }}</option>
                     {% endfor %}
                 </select>
             </div>
@@ -167,6 +167,9 @@
             </div>
             <div class="col-md-2 text-end">
                 <span id="filteredCount" class="text-muted small">{{ milestones|length }} milestones</span>
+                <button type="button" class="btn btn-sm btn-outline-secondary ms-1" id="resetFiltersBtn" title="Reset all filters" style="display: none;">
+                    <i class="bi bi-x-circle"></i> Reset
+                </button>
             </div>
         </div>
     </div>
@@ -569,6 +572,66 @@ function syncMilestones() {
 // =============================================================================
 // Client-side Filtering
 // =============================================================================
+const FILTER_STORAGE_KEY = 'notehelper_milestone_filters';
+
+function saveFilters() {
+    const selectedQuarters = Array.from(document.querySelectorAll('.quarter-checkbox:checked')).map(cb => cb.value);
+    const allQuarters = Array.from(document.querySelectorAll('.quarter-checkbox')).map(cb => cb.value);
+    const state = {
+        quarters: selectedQuarters,
+        seller: document.getElementById('sellerFilter').value,
+        status: document.getElementById('statusFilter').value,
+        area: document.getElementById('areaFilter').value,
+        myTeam: document.getElementById('myTeamFilter').checked,
+        allQuarters: allQuarters
+    };
+    localStorage.setItem(FILTER_STORAGE_KEY, JSON.stringify(state));
+}
+
+function restoreFilters() {
+    const raw = localStorage.getItem(FILTER_STORAGE_KEY);
+    if (!raw) return;
+    try {
+        const state = JSON.parse(raw);
+        // Restore quarter checkboxes (only if the available quarters haven't changed)
+        const currentQuarters = Array.from(document.querySelectorAll('.quarter-checkbox')).map(cb => cb.value);
+        if (state.allQuarters && JSON.stringify(state.allQuarters) === JSON.stringify(currentQuarters)) {
+            document.querySelectorAll('.quarter-checkbox').forEach(cb => {
+                cb.checked = state.quarters.includes(cb.value);
+            });
+        }
+        if (state.seller) document.getElementById('sellerFilter').value = state.seller;
+        if (state.status) document.getElementById('statusFilter').value = state.status;
+        if (state.area) document.getElementById('areaFilter').value = state.area;
+        if (state.myTeam) document.getElementById('myTeamFilter').checked = state.myTeam;
+    } catch (e) {
+        localStorage.removeItem(FILTER_STORAGE_KEY);
+    }
+}
+
+function isFiltersDefault() {
+    const allQuartersChecked = document.querySelectorAll('.quarter-checkbox').length === document.querySelectorAll('.quarter-checkbox:checked').length;
+    return allQuartersChecked &&
+        document.getElementById('sellerFilter').value === '' &&
+        document.getElementById('statusFilter').value === '' &&
+        !document.getElementById('myTeamFilter').checked;
+}
+
+function updateResetButton() {
+    const btn = document.getElementById('resetFiltersBtn');
+    btn.style.display = isFiltersDefault() ? 'none' : '';
+}
+
+function resetFilters() {
+    document.querySelectorAll('.quarter-checkbox').forEach(cb => cb.checked = true);
+    document.getElementById('sellerFilter').value = '';
+    document.getElementById('statusFilter').value = '';
+    document.getElementById('myTeamFilter').checked = false;
+    // Preserve area (workload) filter — save current state instead of removing
+    saveFilters();
+    applyFilters();
+}
+
 function applyFilters() {
     const selectedQuarters = Array.from(document.querySelectorAll('.quarter-checkbox:checked')).map(cb => cb.value);
     const sellerFilter = document.getElementById('sellerFilter').value;
@@ -620,6 +683,10 @@ function applyFilters() {
     
     // Update dropdown button text
     updateQuarterButtonText();
+    
+    // Save filter state and update reset button visibility
+    saveFilters();
+    updateResetButton();
 }
 
 function updateQuarterButtonText() {
@@ -654,8 +721,10 @@ document.getElementById('sellerFilter').addEventListener('change', applyFilters)
 document.getElementById('statusFilter').addEventListener('change', applyFilters);
 document.getElementById('areaFilter').addEventListener('change', applyFilters);
 document.getElementById('myTeamFilter').addEventListener('change', applyFilters);
+document.getElementById('resetFiltersBtn').addEventListener('click', resetFilters);
 
-// Apply default filter on page load (Area defaults to "Data")
+// Restore saved filters and apply
+restoreFilters();
 applyFilters();
 
 // =============================================================================

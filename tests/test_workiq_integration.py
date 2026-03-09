@@ -21,19 +21,19 @@ from app import db
 class TestWorkiqPromptPreferences:
     """Tests for custom WorkIQ summary prompt in user preferences."""
 
-    def test_admin_page_shows_prompt_section(self, client, app):
-        """Admin panel should display the WorkIQ prompt textarea."""
-        response = client.get('/admin')
+    def test_settings_page_shows_prompt_section(self, client, app):
+        """Settings page should display the WorkIQ prompt textarea."""
+        response = client.get('/preferences')
         assert response.status_code == 200
         html = response.data.decode()
         assert 'WorkIQ' in html
         assert 'workiqPrompt' in html
         assert 'Meeting Summary Prompt' in html
 
-    def test_admin_page_shows_default_prompt(self, client, app):
-        """Admin panel should display the default prompt when no custom prompt is set."""
+    def test_settings_page_shows_default_prompt(self, client, app):
+        """Settings page should display the default prompt when no custom prompt is set."""
         from app.services.workiq_service import DEFAULT_SUMMARY_PROMPT
-        response = client.get('/admin')
+        response = client.get('/preferences')
         html = response.data.decode()
         assert 'Summarize the meeting' in html
 

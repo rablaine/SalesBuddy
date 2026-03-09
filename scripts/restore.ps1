@@ -280,7 +280,7 @@ Write-Host ""
 
 # Step 1: Stop server
 $envConfig = Read-EnvFile
-$Port = if ($envConfig['PORT']) { [int]$envConfig['PORT'] } else { 5000 }
+$Port = if ($envConfig['PORT']) { [int]$envConfig['PORT'] } else { 5151 }
 
 if (Test-ServerRunning -Port $Port) {
     Stop-Server -Port $Port

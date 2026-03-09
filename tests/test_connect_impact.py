@@ -328,22 +328,22 @@ class TestConnectImpactPreference:
 class TestConnectImpactUI:
     """Tests for Connect impact UI elements."""
 
-    def test_admin_page_shows_toggle(self, client, app):
-        """Admin panel should display the Connect impact toggle."""
-        response = client.get('/admin')
+    def test_settings_page_shows_toggle(self, client, app):
+        """Settings page should display the Connect impact toggle."""
+        response = client.get('/preferences')
         assert response.status_code == 200
         html = response.data.decode()
         assert 'connectImpactSwitch' in html
         assert 'Extract Connect Impact Signals' in html
 
-    def test_admin_toggle_checked_by_default(self, client, app):
+    def test_settings_toggle_checked_by_default(self, client, app):
         """Toggle should be checked when preference is True (default)."""
         # Ensure preference is True
         client.post('/api/preferences/workiq-connect-impact',
                      json={'workiq_connect_impact': True},
                      content_type='application/json')
 
-        response = client.get('/admin')
+        response = client.get('/preferences')
         html = response.data.decode()
         # The checkbox should have 'checked' attribute
         assert 'connectImpactSwitch' in html
