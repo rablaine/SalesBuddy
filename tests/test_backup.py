@@ -521,3 +521,820 @@ class TestBackupRunAPI:
             response = client.post('/api/admin/backup/run')
 
         assert response.status_code == 400
+
+
+# =========================================================================
+# Export / Import round-trip tests
+# =========================================================================
+
+class TestCustomerToDict:
+    """Tests for _customer_to_dict serialization."""
+
+    def test_export_version_3(self, app):
+        """Exported dict should have _version 3."""
+        from app.models import db, Customer, Seller, Territory
+        from app.services.backup import _customer_to_dict
+
+        with app.app_context():
+            seller = Seller(name='Test Seller', alias='ts', seller_type='Growth')
+            territory = Territory(name='Test Territory')
+            db.session.add_all([seller, territory])
+            db.session.flush()
+            customer = Customer(
+                name='Export Test', tpid=5000,
+                seller_id=seller.id, territory_id=territory.id,
+            )
+            db.session.add(customer)
+            db.session.commit()
+
+            data = _customer_to_dict(customer)
+            assert data["_version"] == 3
+            assert data["_notehelper_backup"] is True
+            assert "engagements" in data
+            assert "notes" in data
+
+    def test_export_includes_note_milestones(self, app):
+        """Notes should include linked milestone IDs."""
+        from app.models import (
+            db, Customer, Note, Milestone, Opportunity, Seller, Territory,
+        )
+        from app.services.backup import _customer_to_dict
+
+        with app.app_context():
+            seller = Seller(name='S', alias='s', seller_type='Growth')
+            territory = Territory(name='T')
+            db.session.add_all([seller, territory])
+            db.session.flush()
+
+            customer = Customer(
+                name='MS Test', tpid=5001,
+                seller_id=seller.id, territory_id=territory.id,
+            )
+            db.session.add(customer)
+            db.session.flush()
+
+            opp = Opportunity(
+                msx_opportunity_id='OPP-AAA', name='Opp A',
+                customer_id=customer.id,
+            )
+            db.session.add(opp)
+            db.session.flush()
+
+            ms = Milestone(
+                msx_milestone_id='MS-111', url='https://example.com/ms1',
+                title='Milestone 1', customer_id=customer.id,
+                opportunity_id=opp.id,
+            )
+            db.session.add(ms)
+            db.session.flush()
+
+            note = Note(
+                customer_id=customer.id,
+                call_date=datetime(2025, 1, 15, 10, 0, tzinfo=timezone.utc),
+                content='Test note with milestone',
+            )
+            note.milestones.append(ms)
+            db.session.add(note)
+            db.session.commit()
+
+            data = _customer_to_dict(customer)
+            assert len(data["notes"]) == 1
+            assert data["notes"][0]["milestones"] == ["MS-111"]
+
+    def test_export_includes_engagements_with_story_fields(self, app):
+        """Engagements should include all story fields and relationships."""
+        from app.models import (
+            db, Customer, Note, Engagement, Milestone, Opportunity,
+            Seller, Territory,
+        )
+        from app.services.backup import _customer_to_dict
+
+        with app.app_context():
+            seller = Seller(name='S', alias='s', seller_type='Growth')
+            territory = Territory(name='T')
+            db.session.add_all([seller, territory])
+            db.session.flush()
+
+            customer = Customer(
+                name='Eng Test', tpid=5002,
+                seller_id=seller.id, territory_id=territory.id,
+            )
+            db.session.add(customer)
+            db.session.flush()
+
+            opp = Opportunity(
+                msx_opportunity_id='OPP-BBB', name='Opp B',
+                customer_id=customer.id,
+            )
+            db.session.add(opp)
+            db.session.flush()
+
+            ms = Milestone(
+                msx_milestone_id='MS-222', url='https://example.com/ms2',
+                title='Milestone 2', customer_id=customer.id,
+                opportunity_id=opp.id,
+            )
+            db.session.add(ms)
+            db.session.flush()
+
+            note = Note(
+                customer_id=customer.id,
+                call_date=datetime(2025, 2, 1, 14, 0, tzinfo=timezone.utc),
+                content='Engagement linked note',
+            )
+            db.session.add(note)
+            db.session.flush()
+
+            from datetime import date as date_type
+            eng = Engagement(
+                customer_id=customer.id,
+                title='Cloud Migration',
+                status='Active',
+                key_individuals='CTO John',
+                technical_problem='Legacy on-prem',
+                business_impact='$2M annual savings',
+                solution_resources='Azure Migrate',
+                estimated_acr='$500K',
+                target_date=date_type(2025, 6, 30),
+            )
+            eng.notes.append(note)
+            eng.opportunities.append(opp)
+            eng.milestones.append(ms)
+            db.session.add(eng)
+            db.session.commit()
+
+            data = _customer_to_dict(customer)
+            assert len(data["engagements"]) == 1
+
+            eng_data = data["engagements"][0]
+            assert eng_data["title"] == "Cloud Migration"
+            assert eng_data["status"] == "Active"
+            assert eng_data["key_individuals"] == "CTO John"
+            assert eng_data["technical_problem"] == "Legacy on-prem"
+            assert eng_data["business_impact"] == "$2M annual savings"
+            assert eng_data["solution_resources"] == "Azure Migrate"
+            assert eng_data["estimated_acr"] == "$500K"
+            assert eng_data["target_date"] == "2025-06-30"
+            assert len(eng_data["linked_notes"]) == 1
+            assert eng_data["linked_opportunities"] == ["OPP-BBB"]
+            assert eng_data["linked_milestones"] == ["MS-222"]
+
+    def test_export_customer_without_engagements(self, app):
+        """Customers with no engagements should have empty engagements list."""
+        from app.models import db, Customer, Seller, Territory
+        from app.services.backup import _customer_to_dict
+
+        with app.app_context():
+            seller = Seller(name='S', alias='s', seller_type='Growth')
+            territory = Territory(name='T')
+            db.session.add_all([seller, territory])
+            db.session.flush()
+
+            customer = Customer(
+                name='No Eng Customer', tpid=5003,
+                seller_id=seller.id, territory_id=territory.id,
+            )
+            db.session.add(customer)
+            db.session.commit()
+
+            data = _customer_to_dict(customer)
+            assert data["engagements"] == []
+
+
+class TestRestoreFromBackup:
+    """Tests for restore_from_backup with v3 format."""
+
+    def _make_v3_backup(
+        self,
+        tpid: int = 5010,
+        notes: list = None,
+        engagements: list = None,
+        account_context: str = None,
+    ) -> dict:
+        """Helper to build a v3 backup payload."""
+        return {
+            "_notehelper_backup": True,
+            "_version": 3,
+            "_exported_at": datetime.now(timezone.utc).isoformat(),
+            "customer": {
+                "name": "Restore Test",
+                "nickname": "RT",
+                "tpid": tpid,
+                "tpid_url": "https://example.com/rt",
+                "account_context": account_context,
+                "seller_name": "Seller",
+                "territory_name": "Territory",
+                "verticals": [],
+            },
+            "notes": notes or [],
+            "engagements": engagements or [],
+        }
+
+    def test_restore_invalid_payload(self, app):
+        """Non-backup payload should be rejected."""
+        from app.services.backup import restore_from_backup
+
+        with app.app_context():
+            result = restore_from_backup({"foo": "bar"})
+            assert result["success"] is False
+            assert "Invalid" in result["error"]
+
+    def test_restore_missing_tpid(self, app):
+        """Backup without TPID should be rejected."""
+        from app.services.backup import restore_from_backup
+
+        with app.app_context():
+            data = {"_notehelper_backup": True, "customer": {}}
+            result = restore_from_backup(data)
+            assert result["success"] is False
+            assert "TPID" in result["error"]
+
+    def test_restore_customer_not_found(self, app):
+        """Should fail if customer with TPID doesn't exist."""
+        from app.services.backup import restore_from_backup
+
+        with app.app_context():
+            data = self._make_v3_backup(tpid=99999)
+            result = restore_from_backup(data)
+            assert result["success"] is False
+            assert "not found" in result["error"]
+
+    def test_restore_creates_notes(self, app):
+        """Restore should create notes that don't exist yet."""
+        from app.models import db, Customer, Note
+        from app.services.backup import restore_from_backup
+
+        with app.app_context():
+            customer = Customer(name='Restore Notes', tpid=5010)
+            db.session.add(customer)
+            db.session.commit()
+
+            data = self._make_v3_backup(notes=[
+                {
+                    "call_date": "2025-03-01T10:00:00+00:00",
+                    "content": "First note",
+                    "topics": ["Azure VM"],
+                    "partners": ["Contoso"],
+                    "milestones": [],
+                },
+                {
+                    "call_date": "2025-03-02T10:00:00+00:00",
+                    "content": "Second note",
+                    "topics": [],
+                    "partners": [],
+                    "milestones": [],
+                },
+            ])
+
+            result = restore_from_backup(data)
+            assert result["success"] is True
+            assert result["logs_created"] == 2
+            assert result["logs_skipped"] == 0
+
+            notes = Note.query.filter_by(customer_id=customer.id).all()
+            assert len(notes) == 2
+
+    def test_restore_deduplicates_notes_by_date(self, app):
+        """Existing notes with same call_date should be skipped."""
+        from app.models import db, Customer, Note
+        from app.services.backup import restore_from_backup
+
+        with app.app_context():
+            customer = Customer(name='Dedup Test', tpid=5011)
+            db.session.add(customer)
+            db.session.flush()
+
+            existing = Note(
+                customer_id=customer.id,
+                call_date=datetime(2025, 3, 1, 10, 0, tzinfo=timezone.utc),
+                content='Already exists',
+            )
+            db.session.add(existing)
+            db.session.commit()
+
+            data = self._make_v3_backup(tpid=5011, notes=[
+                {
+                    "call_date": "2025-03-01T10:00:00+00:00",
+                    "content": "Duplicate",
+                    "topics": [],
+                    "partners": [],
+                    "milestones": [],
+                },
+                {
+                    "call_date": "2025-03-05T10:00:00+00:00",
+                    "content": "New one",
+                    "topics": [],
+                    "partners": [],
+                    "milestones": [],
+                },
+            ])
+
+            result = restore_from_backup(data)
+            assert result["logs_created"] == 1
+            assert result["logs_skipped"] == 1
+
+    def test_restore_links_note_milestones(self, app):
+        """Restored notes should be linked to milestones by msx_milestone_id."""
+        from app.models import db, Customer, Note, Milestone, Opportunity
+        from app.services.backup import restore_from_backup
+
+        with app.app_context():
+            customer = Customer(name='MS Link Test', tpid=5012)
+            db.session.add(customer)
+            db.session.flush()
+
+            opp = Opportunity(
+                msx_opportunity_id='OPP-RESTORE', name='Restore Opp',
+                customer_id=customer.id,
+            )
+            db.session.add(opp)
+            db.session.flush()
+
+            ms = Milestone(
+                msx_milestone_id='MS-RESTORE-1',
+                url='https://example.com/ms',
+                title='Restore MS',
+                customer_id=customer.id,
+                opportunity_id=opp.id,
+            )
+            db.session.add(ms)
+            db.session.commit()
+
+            data = self._make_v3_backup(tpid=5012, notes=[
+                {
+                    "call_date": "2025-04-01T10:00:00+00:00",
+                    "content": "Note with milestone",
+                    "topics": [],
+                    "partners": [],
+                    "milestones": ["MS-RESTORE-1"],
+                },
+            ])
+
+            result = restore_from_backup(data)
+            assert result["success"] is True
+            assert result["logs_created"] == 1
+
+            note = Note.query.filter_by(customer_id=customer.id).first()
+            assert len(note.milestones) == 1
+            assert note.milestones[0].msx_milestone_id == "MS-RESTORE-1"
+
+    def test_restore_relinks_milestones_on_existing_notes(self, app):
+        """Skipped (existing) notes should still get missing milestone links."""
+        from app.models import db, Customer, Note, Milestone, Opportunity
+        from app.services.backup import restore_from_backup
+
+        with app.app_context():
+            customer = Customer(name='Relink Test', tpid=5013)
+            db.session.add(customer)
+            db.session.flush()
+
+            opp = Opportunity(
+                msx_opportunity_id='OPP-RL', name='Relink Opp',
+                customer_id=customer.id,
+            )
+            db.session.add(opp)
+            db.session.flush()
+
+            ms = Milestone(
+                msx_milestone_id='MS-RELINK',
+                url='https://example.com/rl',
+                title='Relink MS',
+                customer_id=customer.id,
+                opportunity_id=opp.id,
+            )
+            db.session.add(ms)
+            db.session.flush()
+
+            # Existing note WITHOUT the milestone link
+            existing = Note(
+                customer_id=customer.id,
+                call_date=datetime(2025, 4, 10, 10, 0, tzinfo=timezone.utc),
+                content='Existing without milestone',
+            )
+            db.session.add(existing)
+            db.session.commit()
+
+            assert len(existing.milestones) == 0
+
+            data = self._make_v3_backup(tpid=5013, notes=[
+                {
+                    "call_date": "2025-04-10T10:00:00+00:00",
+                    "content": "Same note",
+                    "topics": [],
+                    "partners": [],
+                    "milestones": ["MS-RELINK"],
+                },
+            ])
+
+            result = restore_from_backup(data)
+            assert result["logs_skipped"] == 1  # Note existed
+
+            # Milestone link should now be present
+            db.session.refresh(existing)
+            assert len(existing.milestones) == 1
+            assert existing.milestones[0].msx_milestone_id == "MS-RELINK"
+
+    def test_restore_creates_engagements(self, app):
+        """Restore should create engagements with all story fields."""
+        from app.models import db, Customer, Engagement
+        from app.services.backup import restore_from_backup
+
+        with app.app_context():
+            customer = Customer(name='Eng Restore', tpid=5020)
+            db.session.add(customer)
+            db.session.commit()
+
+            data = self._make_v3_backup(tpid=5020, engagements=[
+                {
+                    "title": "Cloud Migration",
+                    "status": "Active",
+                    "key_individuals": "CTO Jane",
+                    "technical_problem": "Legacy systems",
+                    "business_impact": "Cost savings",
+                    "solution_resources": "Azure Migrate",
+                    "estimated_acr": "$300K",
+                    "target_date": "2025-12-31",
+                    "created_at": "2025-01-01T00:00:00+00:00",
+                    "updated_at": "2025-01-15T00:00:00+00:00",
+                    "linked_notes": [],
+                    "linked_opportunities": [],
+                    "linked_milestones": [],
+                },
+            ])
+
+            result = restore_from_backup(data)
+            assert result["success"] is True
+            assert result["engagements_created"] == 1
+            assert result["engagements_skipped"] == 0
+
+            eng = Engagement.query.filter_by(customer_id=customer.id).first()
+            assert eng.title == "Cloud Migration"
+            assert eng.status == "Active"
+            assert eng.key_individuals == "CTO Jane"
+            assert eng.technical_problem == "Legacy systems"
+            assert eng.business_impact == "Cost savings"
+            assert eng.solution_resources == "Azure Migrate"
+            assert eng.estimated_acr == "$300K"
+            assert eng.target_date.isoformat() == "2025-12-31"
+
+    def test_restore_deduplicates_engagements_by_title(self, app):
+        """Existing engagement with same title should be skipped."""
+        from app.models import db, Customer, Engagement
+        from app.services.backup import restore_from_backup
+
+        with app.app_context():
+            customer = Customer(name='Eng Dedup', tpid=5021)
+            db.session.add(customer)
+            db.session.flush()
+
+            existing = Engagement(
+                customer_id=customer.id,
+                title='Already Exists',
+                status='Active',
+            )
+            db.session.add(existing)
+            db.session.commit()
+
+            data = self._make_v3_backup(tpid=5021, engagements=[
+                {
+                    "title": "Already Exists",
+                    "status": "Won",
+                    "linked_notes": [],
+                    "linked_opportunities": [],
+                    "linked_milestones": [],
+                },
+                {
+                    "title": "Brand New",
+                    "status": "Active",
+                    "linked_notes": [],
+                    "linked_opportunities": [],
+                    "linked_milestones": [],
+                },
+            ])
+
+            result = restore_from_backup(data)
+            assert result["engagements_created"] == 1
+            assert result["engagements_skipped"] == 1
+
+    def test_restore_links_engagement_to_notes(self, app):
+        """Restored engagement should be linked to notes by call_date."""
+        from app.models import db, Customer, Note, Engagement
+        from app.services.backup import restore_from_backup
+
+        with app.app_context():
+            customer = Customer(name='Eng Note Link', tpid=5022)
+            db.session.add(customer)
+            db.session.flush()
+
+            # Pre-existing note
+            note = Note(
+                customer_id=customer.id,
+                call_date=datetime(2025, 5, 1, 10, 0, tzinfo=timezone.utc),
+                content='Existing note',
+            )
+            db.session.add(note)
+            db.session.commit()
+
+            data = self._make_v3_backup(tpid=5022, engagements=[
+                {
+                    "title": "Linked Engagement",
+                    "status": "Active",
+                    "linked_notes": ["2025-05-01T10:00:00+00:00"],
+                    "linked_opportunities": [],
+                    "linked_milestones": [],
+                },
+            ])
+
+            result = restore_from_backup(data)
+            assert result["engagements_created"] == 1
+
+            eng = Engagement.query.filter_by(
+                customer_id=customer.id, title="Linked Engagement"
+            ).first()
+            assert len(eng.notes) == 1
+            assert eng.notes[0].content == "Existing note"
+
+    def test_restore_links_engagement_to_opportunities_and_milestones(self, app):
+        """Restored engagement should be linked to opps and milestones."""
+        from app.models import (
+            db, Customer, Engagement, Milestone, Opportunity,
+        )
+        from app.services.backup import restore_from_backup
+
+        with app.app_context():
+            customer = Customer(name='Eng Full Link', tpid=5023)
+            db.session.add(customer)
+            db.session.flush()
+
+            opp = Opportunity(
+                msx_opportunity_id='OPP-ENG',
+                name='Eng Opp',
+                customer_id=customer.id,
+            )
+            db.session.add(opp)
+            db.session.flush()
+
+            ms = Milestone(
+                msx_milestone_id='MS-ENG',
+                url='https://example.com/eng-ms',
+                title='Eng Milestone',
+                customer_id=customer.id,
+                opportunity_id=opp.id,
+            )
+            db.session.add(ms)
+            db.session.commit()
+
+            data = self._make_v3_backup(tpid=5023, engagements=[
+                {
+                    "title": "Full Links",
+                    "status": "Active",
+                    "linked_notes": [],
+                    "linked_opportunities": ["OPP-ENG"],
+                    "linked_milestones": ["MS-ENG"],
+                },
+            ])
+
+            result = restore_from_backup(data)
+            assert result["engagements_created"] == 1
+
+            eng = Engagement.query.filter_by(
+                customer_id=customer.id, title="Full Links"
+            ).first()
+            assert len(eng.opportunities) == 1
+            assert eng.opportunities[0].msx_opportunity_id == "OPP-ENG"
+            assert len(eng.milestones) == 1
+            assert eng.milestones[0].msx_milestone_id == "MS-ENG"
+
+    def test_restore_v2_backup_no_engagements(self, app):
+        """v2 backups without engagements key should restore notes only."""
+        from app.models import db, Customer, Note
+        from app.services.backup import restore_from_backup
+
+        with app.app_context():
+            customer = Customer(name='V2 Compat', tpid=5030)
+            db.session.add(customer)
+            db.session.commit()
+
+            data = {
+                "_notehelper_backup": True,
+                "_version": 2,
+                "customer": {
+                    "name": "V2 Compat",
+                    "tpid": 5030,
+                },
+                "notes": [
+                    {
+                        "call_date": "2025-01-10T09:00:00+00:00",
+                        "content": "V2 note",
+                        "topics": [],
+                        "partners": [],
+                    },
+                ],
+            }
+
+            result = restore_from_backup(data)
+            assert result["success"] is True
+            assert result["logs_created"] == 1
+            assert result["engagements_created"] == 0
+            assert result["engagements_skipped"] == 0
+
+            notes = Note.query.filter_by(customer_id=customer.id).all()
+            assert len(notes) == 1
+
+    def test_restore_account_context(self, app):
+        """Should restore account_context if customer has none."""
+        from app.models import db, Customer
+        from app.services.backup import restore_from_backup
+
+        with app.app_context():
+            customer = Customer(name='Context Test', tpid=5040)
+            db.session.add(customer)
+            db.session.commit()
+
+            data = self._make_v3_backup(
+                tpid=5040, account_context="Important context"
+            )
+
+            result = restore_from_backup(data)
+            assert result["success"] is True
+
+            db.session.refresh(customer)
+            assert customer.account_context == "Important context"
+
+    def test_restore_does_not_overwrite_existing_context(self, app):
+        """Should NOT overwrite existing account_context."""
+        from app.models import db, Customer
+        from app.services.backup import restore_from_backup
+
+        with app.app_context():
+            customer = Customer(
+                name='Context Keep', tpid=5041,
+                account_context="Original context",
+            )
+            db.session.add(customer)
+            db.session.commit()
+
+            data = self._make_v3_backup(
+                tpid=5041, account_context="Backup context trying to overwrite"
+            )
+
+            result = restore_from_backup(data)
+            assert result["success"] is True
+
+            db.session.refresh(customer)
+            assert customer.account_context == "Original context"
+
+    def test_full_round_trip(self, app):
+        """Export a customer then restore into empty state — full round trip."""
+        from app.models import (
+            db, Customer, Note, Engagement, Milestone, Opportunity,
+            Seller, Territory, Topic, Partner,
+        )
+        from app.services.backup import _customer_to_dict, restore_from_backup
+
+        with app.app_context():
+            # --- Build rich customer data ---
+            seller = Seller(name='RT Seller', alias='rts', seller_type='Growth')
+            territory = Territory(name='RT Territory')
+            db.session.add_all([seller, territory])
+            db.session.flush()
+
+            customer = Customer(
+                name='Round Trip Co', tpid=6000, nickname='RTC',
+                account_context='Strategic customer',
+                seller_id=seller.id, territory_id=territory.id,
+            )
+            db.session.add(customer)
+            db.session.flush()
+
+            topic = Topic(name='Kubernetes')
+            partner = Partner(name='Partner Corp')
+            db.session.add_all([topic, partner])
+            db.session.flush()
+
+            opp = Opportunity(
+                msx_opportunity_id='OPP-RT', name='RT Opp',
+                customer_id=customer.id,
+            )
+            db.session.add(opp)
+            db.session.flush()
+
+            ms = Milestone(
+                msx_milestone_id='MS-RT',
+                url='https://example.com/rt-ms',
+                title='RT Milestone',
+                customer_id=customer.id,
+                opportunity_id=opp.id,
+            )
+            db.session.add(ms)
+            db.session.flush()
+
+            note1 = Note(
+                customer_id=customer.id,
+                call_date=datetime(2025, 6, 1, 10, 0, tzinfo=timezone.utc),
+                content='<p>Note with <img src="data:image/png;base64,abc123"> image</p>',
+            )
+            note1.topics.append(topic)
+            note1.partners.append(partner)
+            note1.milestones.append(ms)
+            db.session.add(note1)
+
+            note2 = Note(
+                customer_id=customer.id,
+                call_date=datetime(2025, 6, 15, 14, 0, tzinfo=timezone.utc),
+                content='<p>Second note</p>',
+            )
+            db.session.add(note2)
+            db.session.flush()
+
+            from datetime import date as date_type
+            eng = Engagement(
+                customer_id=customer.id,
+                title='AKS Deployment',
+                status='Active',
+                key_individuals='CTO, VP Eng',
+                technical_problem='Container orchestration',
+                business_impact='Faster releases',
+                solution_resources='AKS + Arc',
+                estimated_acr='$200K',
+                target_date=date_type(2025, 9, 30),
+            )
+            eng.notes.append(note1)
+            eng.opportunities.append(opp)
+            eng.milestones.append(ms)
+            db.session.add(eng)
+            db.session.commit()
+
+            # --- Export ---
+            exported = _customer_to_dict(customer)
+
+            # --- Verify export structure ---
+            assert exported["_version"] == 3
+            assert len(exported["notes"]) == 2
+            assert len(exported["engagements"]) == 1
+            assert exported["engagements"][0]["title"] == "AKS Deployment"
+            assert "data:image/png;base64,abc123" in exported["notes"][0]["content"] or \
+                   "data:image/png;base64,abc123" in exported["notes"][1]["content"]
+
+            # --- Wipe customer-specific data (simulate disaster) ---
+            for n in customer.notes:
+                n.topics.clear()
+                n.partners.clear()
+                n.milestones.clear()
+            for e in customer.engagements:
+                e.notes.clear()
+                e.opportunities.clear()
+                e.milestones.clear()
+            db.session.flush()
+
+            Engagement.query.filter_by(customer_id=customer.id).delete()
+            Note.query.filter_by(customer_id=customer.id).delete()
+            customer.account_context = None
+            db.session.commit()
+
+            assert Note.query.filter_by(customer_id=customer.id).count() == 0
+            assert Engagement.query.filter_by(customer_id=customer.id).count() == 0
+
+            # --- Restore ---
+            result = restore_from_backup(exported)
+            assert result["success"] is True
+            assert result["logs_created"] == 2
+            assert result["engagements_created"] == 1
+
+            # Verify notes restored
+            notes = Note.query.filter_by(customer_id=customer.id).order_by(
+                Note.call_date
+            ).all()
+            assert len(notes) == 2
+
+            # Verify inline image survived round trip
+            image_note = [n for n in notes if "base64" in n.content]
+            assert len(image_note) == 1
+
+            # Verify topics and partners restored
+            topics_restored = [t.name for n in notes for t in n.topics]
+            assert "Kubernetes" in topics_restored
+            partners_restored = [p.name for n in notes for p in n.partners]
+            assert "Partner Corp" in partners_restored
+
+            # Verify note→milestone link restored
+            ms_note = [n for n in notes if len(n.milestones) > 0]
+            assert len(ms_note) == 1
+            assert ms_note[0].milestones[0].msx_milestone_id == "MS-RT"
+
+            # Verify engagement restored with story fields
+            eng = Engagement.query.filter_by(customer_id=customer.id).first()
+            assert eng.title == "AKS Deployment"
+            assert eng.key_individuals == "CTO, VP Eng"
+            assert eng.estimated_acr == "$200K"
+
+            # Verify engagement links
+            assert len(eng.notes) == 1
+            assert len(eng.opportunities) == 1
+            assert eng.opportunities[0].msx_opportunity_id == "OPP-RT"
+            assert len(eng.milestones) == 1
+            assert eng.milestones[0].msx_milestone_id == "MS-RT"
+
+            # Verify account context restored
+            db.session.refresh(customer)
+            assert customer.account_context == "Strategic customer"

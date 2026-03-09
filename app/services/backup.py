@@ -30,7 +30,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from app.models import Note, Customer, db
+from app.models import Note, Customer, Engagement, db
 
 logger = logging.getLogger(__name__)
 
@@ -259,7 +259,10 @@ def _sanitize_folder_name(name: str) -> str:
 
 
 def _customer_to_dict(customer: Customer) -> Dict[str, Any]:
-    """Serialize a customer and all call logs to a backup dict.
+    """Serialize a customer and all related data to a backup dict.
+
+    Includes notes (with milestone links), engagements (with story fields
+    and links to notes/opportunities/milestones), and customer metadata.
 
     Args:
         customer: Customer with eagerly-loaded relationships.
@@ -271,9 +274,13 @@ def _customer_to_dict(customer: Customer) -> Dict[str, Any]:
         customer.notes, key=lambda cl: cl.call_date, reverse=True
     )
 
+    engagements: List[Engagement] = sorted(
+        customer.engagements, key=lambda e: e.created_at, reverse=True
+    )
+
     return {
         "_notehelper_backup": True,
-        "_version": 2,
+        "_version": 3,
         "_exported_at": datetime.now(timezone.utc).isoformat(),
         "customer": {
             "name": customer.name,
@@ -293,8 +300,38 @@ def _customer_to_dict(customer: Customer) -> Dict[str, Any]:
                 "updated_at": cl.updated_at.isoformat() if cl.updated_at else None,
                 "topics": [t.name for t in cl.topics],
                 "partners": [p.name for p in cl.partners],
+                "milestones": [
+                    m.msx_milestone_id for m in cl.milestones
+                    if m.msx_milestone_id
+                ],
             }
             for cl in notes
+        ],
+        "engagements": [
+            {
+                "title": eng.title,
+                "status": eng.status,
+                "key_individuals": eng.key_individuals,
+                "technical_problem": eng.technical_problem,
+                "business_impact": eng.business_impact,
+                "solution_resources": eng.solution_resources,
+                "estimated_acr": eng.estimated_acr,
+                "target_date": eng.target_date.isoformat() if eng.target_date else None,
+                "created_at": eng.created_at.isoformat() if eng.created_at else None,
+                "updated_at": eng.updated_at.isoformat() if eng.updated_at else None,
+                "linked_notes": [
+                    n.call_date.isoformat() for n in eng.notes
+                ],
+                "linked_opportunities": [
+                    o.msx_opportunity_id for o in eng.opportunities
+                    if o.msx_opportunity_id
+                ],
+                "linked_milestones": [
+                    m.msx_milestone_id for m in eng.milestones
+                    if m.msx_milestone_id
+                ],
+            }
+            for eng in engagements
         ],
     }
 
@@ -323,6 +360,10 @@ def backup_customer(customer_id: int) -> bool:
             db.joinedload(Customer.verticals),
             db.joinedload(Customer.notes).joinedload(Note.topics),
             db.joinedload(Customer.notes).joinedload(Note.partners),
+            db.joinedload(Customer.notes).joinedload(Note.milestones),
+            db.joinedload(Customer.engagements).joinedload(Engagement.notes),
+            db.joinedload(Customer.engagements).joinedload(Engagement.opportunities),
+            db.joinedload(Customer.engagements).joinedload(Engagement.milestones),
         )
         .filter_by(id=customer_id)
         .first()
@@ -364,13 +405,17 @@ def backup_all_customers() -> Dict[str, int]:
 
     customers = (
         Customer.query
-        .filter(Customer.notes.any())
+        .filter(db.or_(Customer.notes.any(), Customer.engagements.any()))
         .options(
             db.joinedload(Customer.seller),
             db.joinedload(Customer.territory),
             db.joinedload(Customer.verticals),
             db.joinedload(Customer.notes).joinedload(Note.topics),
             db.joinedload(Customer.notes).joinedload(Note.partners),
+            db.joinedload(Customer.notes).joinedload(Note.milestones),
+            db.joinedload(Customer.engagements).joinedload(Engagement.notes),
+            db.joinedload(Customer.engagements).joinedload(Engagement.opportunities),
+            db.joinedload(Customer.engagements).joinedload(Engagement.milestones),
         )
         .all()
     )
@@ -499,11 +544,31 @@ def restore_all_from_folder(notes_dir: Optional[str] = None) -> Dict[str, Any]:
     }
 
 
-def restore_from_backup(data: Dict[str, Any]) -> Dict[str, Any]:
-    """Restore call logs from a backup JSON dict.
+def _normalize_date_iso(dt: datetime) -> str:
+    """Return an isoformat string with UTC timezone for dedup comparisons."""
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.isoformat()
 
-    Matches the customer by TPID, then creates any call logs that don't
-    already exist (deduplicates by call_date).
+
+def _build_note_date_index(customer: Customer) -> Dict[str, "Note"]:
+    """Build a mapping of normalized isoformat date → Note for a customer."""
+    index: Dict[str, Note] = {}
+    for note in customer.notes:
+        key = _normalize_date_iso(note.call_date)
+        index[key] = note
+    return index
+
+
+def restore_from_backup(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Restore notes and engagements from a backup JSON dict.
+
+    Matches the customer by TPID, then restores:
+    - Notes (deduped by call_date) with topic, partner, and milestone links
+    - Engagements (deduped by title) with story fields and links to
+      notes, opportunities, and milestones
+
+    Handles v2 backups (no engagements/milestone data) gracefully.
 
     Args:
         data: Parsed backup JSON dict.
@@ -511,8 +576,7 @@ def restore_from_backup(data: Dict[str, Any]) -> Dict[str, Any]:
     Returns:
         Result dict with success status and counts.
     """
-    from flask import g
-    from app.models import Partner, Topic
+    from app.models import Milestone, Opportunity, Partner, Topic
 
     if not data.get("_notehelper_backup"):
         return {"success": False, "error": "Invalid backup payload"}
@@ -529,13 +593,12 @@ def restore_from_backup(data: Dict[str, Any]) -> Dict[str, Any]:
             "error": f"Customer with TPID {tpid} not found. Import accounts first.",
         }
 
-    existing_dates = set()
-    for cl in customer.notes:
-        # Normalize to UTC-aware datetime then compare as isoformat
-        dt = cl.call_date
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        existing_dates.add(dt.isoformat())
+    # ------------------------------------------------------------------
+    # Restore notes
+    # ------------------------------------------------------------------
+    note_index = _build_note_date_index(customer)
+    existing_dates = set(note_index.keys())
+
     logs_created = 0
     logs_skipped = 0
 
@@ -551,9 +614,13 @@ def restore_from_backup(data: Dict[str, Any]) -> Dict[str, Any]:
             logs_skipped += 1
             continue
 
-        # Normalize for dedup comparison
-        normalized = call_date if call_date.tzinfo else call_date.replace(tzinfo=timezone.utc)
-        if normalized.isoformat() in existing_dates:
+        normalized = _normalize_date_iso(call_date)
+
+        if normalized in existing_dates:
+            # Note already exists — still re-link milestones if missing
+            existing_note = note_index[normalized]
+            _restore_note_milestones(existing_note, cl_data.get("milestones", []),
+                                     Milestone)
             logs_skipped += 1
             continue
 
@@ -562,6 +629,7 @@ def restore_from_backup(data: Dict[str, Any]) -> Dict[str, Any]:
             call_date=call_date,
             content=cl_data.get("content", ""),
         )
+        db.session.add(note)
 
         for topic_name in cl_data.get("topics", []):
             topic = Topic.query.filter_by(name=topic_name).first()
@@ -579,14 +647,77 @@ def restore_from_backup(data: Dict[str, Any]) -> Dict[str, Any]:
                 db.session.flush()
             note.partners.append(partner)
 
-        db.session.add(note)
-        existing_dates.add(normalized.isoformat())
+        db.session.flush()  # Get note.id for milestone linking
+
+        _restore_note_milestones(note, cl_data.get("milestones", []), Milestone)
+
+        note_index[normalized] = note
+        existing_dates.add(normalized)
         logs_created += 1
+
+    db.session.flush()
+
+    # ------------------------------------------------------------------
+    # Restore engagements (v3+ backups only)
+    # ------------------------------------------------------------------
+    engagements_created = 0
+    engagements_skipped = 0
+
+    for eng_data in data.get("engagements", []):
+        title = eng_data.get("title")
+        if not title:
+            engagements_skipped += 1
+            continue
+
+        # Dedup by title within this customer
+        existing_eng = Engagement.query.filter_by(
+            customer_id=customer.id, title=title
+        ).first()
+
+        if existing_eng:
+            # Update links on existing engagement even if it already exists
+            _restore_engagement_links(
+                existing_eng, eng_data, note_index, Milestone, Opportunity
+            )
+            engagements_skipped += 1
+            continue
+
+        target_date = None
+        td_str = eng_data.get("target_date")
+        if td_str:
+            try:
+                from datetime import date as date_type
+                target_date = date_type.fromisoformat(td_str)
+            except (ValueError, TypeError):
+                pass
+
+        eng = Engagement(
+            customer_id=customer.id,
+            title=title,
+            status=eng_data.get("status", "Active"),
+            key_individuals=eng_data.get("key_individuals"),
+            technical_problem=eng_data.get("technical_problem"),
+            business_impact=eng_data.get("business_impact"),
+            solution_resources=eng_data.get("solution_resources"),
+            estimated_acr=eng_data.get("estimated_acr"),
+            target_date=target_date,
+        )
+        db.session.add(eng)
+        db.session.flush()
+
+        _restore_engagement_links(eng, eng_data, note_index, Milestone, Opportunity)
+        engagements_created += 1
 
     db.session.commit()
 
-    # Restore customer account context if present in backup and customer has none yet
-    backup_context = cust_data.get("account_context") or cust_data.get("overview") or cust_data.get("notes")
+    # ------------------------------------------------------------------
+    # Restore customer account context if missing
+    # ------------------------------------------------------------------
+    backup_context = (
+        cust_data.get("account_context")
+        or cust_data.get("overview")
+        or cust_data.get("notes")
+    )
     if backup_context and not customer.account_context:
         customer.account_context = backup_context
         db.session.commit()
@@ -596,4 +727,66 @@ def restore_from_backup(data: Dict[str, Any]) -> Dict[str, Any]:
         "customer_name": customer.name,
         "logs_created": logs_created,
         "logs_skipped": logs_skipped,
+        "engagements_created": engagements_created,
+        "engagements_skipped": engagements_skipped,
     }
+
+
+def _restore_note_milestones(
+    note: Note,
+    milestone_ids: List[str],
+    milestone_cls: type,
+) -> None:
+    """Link a note to milestones by msx_milestone_id, skipping duplicates."""
+    if not milestone_ids:
+        return
+    existing_ids = {m.msx_milestone_id for m in note.milestones}
+    for ms_id in milestone_ids:
+        if ms_id in existing_ids:
+            continue
+        milestone = milestone_cls.query.filter_by(msx_milestone_id=ms_id).first()
+        if milestone:
+            note.milestones.append(milestone)
+            existing_ids.add(ms_id)
+
+
+def _restore_engagement_links(
+    eng: Engagement,
+    eng_data: Dict[str, Any],
+    note_index: Dict[str, Note],
+    milestone_cls: type,
+    opportunity_cls: type,
+) -> None:
+    """Restore links from an engagement to notes, opportunities, and milestones."""
+    # Link to notes by call_date
+    existing_note_ids = {n.id for n in eng.notes}
+    for date_str in eng_data.get("linked_notes", []):
+        try:
+            dt = datetime.fromisoformat(date_str)
+        except (ValueError, TypeError):
+            continue
+        key = _normalize_date_iso(dt)
+        note = note_index.get(key)
+        if note and note.id not in existing_note_ids:
+            eng.notes.append(note)
+            existing_note_ids.add(note.id)
+
+    # Link to opportunities by msx_opportunity_id
+    existing_opp_ids = {o.msx_opportunity_id for o in eng.opportunities}
+    for opp_id in eng_data.get("linked_opportunities", []):
+        if opp_id in existing_opp_ids:
+            continue
+        opp = opportunity_cls.query.filter_by(msx_opportunity_id=opp_id).first()
+        if opp:
+            eng.opportunities.append(opp)
+            existing_opp_ids.add(opp_id)
+
+    # Link to milestones by msx_milestone_id
+    existing_ms_ids = {m.msx_milestone_id for m in eng.milestones}
+    for ms_id in eng_data.get("linked_milestones", []):
+        if ms_id in existing_ms_ids:
+            continue
+        milestone = milestone_cls.query.filter_by(msx_milestone_id=ms_id).first()
+        if milestone:
+            eng.milestones.append(milestone)
+            existing_ms_ids.add(ms_id)
