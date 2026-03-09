@@ -423,9 +423,20 @@
                             </button>
                             {% endif %}
                         </div>
+                        {% if next_url %}
+                        <a href="{{ next_url }}" class="btn btn-secondary">
+                            <i class="bi bi-x-circle"></i> Cancel
+                        </a>
+                        <input type="hidden" name="next" value="{{ next_url }}">
+                        {% elif note %}
+                        <a href="{{ url_for('notes.note_view', id=note.id) }}" class="btn btn-secondary">
+                            <i class="bi bi-x-circle"></i> Cancel
+                        </a>
+                        {% else %}
                         <a href="{{ url_for('notes.notes_list') }}" class="btn btn-secondary">
                             <i class="bi bi-x-circle"></i> Cancel
                         </a>
+                        {% endif %}
                     </div>
                 </form>
             </div>

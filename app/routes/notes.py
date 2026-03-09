@@ -342,14 +342,25 @@ def note_create():
                          now_time=now_time,
                          workiq_prompt=user_prompt,
                          default_workiq_prompt=DEFAULT_SUMMARY_PROMPT,
-                         workiq_connect_impact=connect_impact_enabled)
+                         workiq_connect_impact=connect_impact_enabled,
+                         next_url='')
 
 
 @notes_bp.route('/note/<int:id>')
 def note_view(id):
     """View call log details (FR010)."""
     note = Note.query.filter_by(id=id).first_or_404()
-    return render_template('note_view.html', note=note)
+
+    # Capture where the user came from so Edit → Save/Cancel can return there.
+    # Ignore self-referrals (the note view or edit page itself).
+    back_url = request.args.get('next') or ''
+    if not back_url and request.referrer:
+        from urllib.parse import urlparse
+        ref_path = urlparse(request.referrer).path
+        if not ref_path.startswith(f'/note/{id}'):
+            back_url = ref_path
+
+    return render_template('note_view.html', note=note, back_url=back_url)
 
 
 @notes_bp.route('/note/<int:id>/edit', methods=['GET', 'POST'])
@@ -431,9 +442,15 @@ def note_edit(id):
                 logger.debug("Backup skipped", exc_info=True)
         
         flash('Note updated successfully!', 'success')
+
+        # Redirect back to where the user originally came from (e.g. customer page)
+        next_url = request.form.get('next', '')
+        if next_url:
+            return redirect(next_url)
         return redirect(url_for('notes.note_view', id=note.id))
     
     # GET request - load form
+    next_url = request.args.get('next', '')
     customers = Customer.query.order_by(Customer.name).all()
     sellers = Seller.query.order_by(Seller.name).all()
     topics = Topic.query.order_by(Topic.name).all()
@@ -459,7 +476,8 @@ def note_edit(id):
                          preselect_topic_id=None,
                          workiq_prompt=user_prompt,
                          default_workiq_prompt=DEFAULT_SUMMARY_PROMPT,
-                         workiq_connect_impact=connect_impact_enabled)
+                         workiq_connect_impact=connect_impact_enabled,
+                         next_url=next_url)
 
 
 @notes_bp.route('/note/<int:id>/delete', methods=['POST'])

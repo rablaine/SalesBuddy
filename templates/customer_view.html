@@ -92,7 +92,7 @@
                     <p class="mb-0" style="white-space: pre-wrap;">{{ customer.account_context or '' }}</p>
                 </div>
                 <div id="contextEmpty" {% if customer.account_context %}style="display: none;"{% endif %}>
-                    <p class="text-muted mb-0">No account context yet. Click Edit to add high-level context about this account.</p>
+                    <p class="text-muted mb-0">This space is yours — jot down anything you'd want to see every time you open this customer. Key contacts, strategic context, reminders, whatever's useful to you.</p>
                 </div>
                 <form id="contextForm" action="{{ url_for('customers.customer_update_overview', id=customer.id) }}" method="post" style="display: none;">
                     <textarea class="form-control mb-2" name="account_context" id="contextTextarea" rows="10" placeholder="High-level account context: key contacts, strategic priorities, ongoing initiatives...">{{ customer.account_context or '' }}</textarea>
