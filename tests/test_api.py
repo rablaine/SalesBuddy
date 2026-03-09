@@ -86,18 +86,6 @@ def test_show_customers_without_calls_preference_post(client):
     assert data['show_customers_without_calls'] is True
 
 
-def test_topic_autocomplete(client, sample_data):
-    """Test topic autocomplete endpoint."""
-    # Skip test - autocomplete endpoint not yet implemented
-    pass
-
-
-def test_topic_autocomplete_empty_query(client):
-    """Test topic autocomplete with empty query."""
-    # Skip test - autocomplete endpoint not yet implemented
-    pass
-
-
 def test_api_customers_endpoint(client, sample_customer):
     """Test the /api/customers endpoint returns customer list."""
     response = client.get('/api/customers')

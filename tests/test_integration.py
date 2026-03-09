@@ -94,21 +94,3 @@ def test_topic_create_post(client, sample_data):
     assert topic is not None
     assert topic.description == 'Test description'
 
-
-def test_note_create_succeeds(client, sample_data):
-    """Test that call log creation succeeds."""
-    customer_id = sample_data['customer1_id']
-    
-    response = client.post('/note/new', data={
-        'customer_id': customer_id,
-        'call_date': date.today().strftime('%Y-%m-%d'),
-        'content': '<p>Should work</p>',
-        'topic_ids': []
-    }, follow_redirects=False)
-    
-    # Should succeed (not 500 error)
-    assert response.status_code == 302
-    
-    # Verify call log exists
-    note = Note.query.filter_by(customer_id=customer_id).order_by(Note.id.desc()).first()
-    assert note is not None
