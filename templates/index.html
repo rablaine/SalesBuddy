@@ -225,8 +225,7 @@
                 {% if has_engagements %}
                 <li class="nav-item" role="presentation">
                     <button class="nav-link" id="engagements-tab" data-bs-toggle="pill" data-bs-target="#engagements-view" type="button" role="tab" aria-controls="engagements-view" aria-selected="false">
-                        <i class="bi bi-kanban"></i> Engagements
-                        <span class="badge bg-success ms-1" id="engagements-count" style="display:none;"></span>
+                        <i class="bi bi-kanban"></i> Engagements <span class="text-muted fw-normal" id="engagements-count" style="font-size:0.8em;">({{ engagement_count }})</span>
                     </button>
                 </li>
                 {% endif %}
@@ -328,11 +327,10 @@
                             <select class="form-select form-select-sm" id="engSortSelect" style="width:auto;display:inline-block;">
                                 <option value="updated">Last Updated</option>
                                 <option value="target">Target Date</option>
-                                <option value="customer">Customer</option>
                             </select>
                         </div>
                     </div>
-                    <div class="card-body p-0" id="engagementsListBody">
+                    <div class="card-body p-2" id="engagementsListBody">
                         <div class="text-center py-4">
                             <div class="spinner-border spinner-border-sm" role="status"></div> Loading engagements...
                         </div>
@@ -1005,7 +1003,7 @@
                     // Update count badge
                     const badge = document.getElementById('engagements-count');
                     if (badge && data.count > 0) {
-                        badge.textContent = data.count;
+                        badge.textContent = '(' + data.count + ')';
                         badge.style.display = 'inline';
                     }
                     renderEngagements();
@@ -1028,13 +1026,11 @@
             items = items.filter(e => e.status === engStatusFilter);
         }
 
-        // Sort
+        // Sort within groups
         if (engSortBy === 'updated') {
             items.sort((a, b) => (b.updated_at || '').localeCompare(a.updated_at || ''));
         } else if (engSortBy === 'target') {
             items.sort((a, b) => (a.target_date || '9999').localeCompare(b.target_date || '9999'));
-        } else if (engSortBy === 'customer') {
-            items.sort((a, b) => (a.customer_name || '').localeCompare(b.customer_name || ''));
         }
 
         if (items.length === 0) {
@@ -1049,64 +1045,83 @@
             return d.innerHTML;
         }
 
-        body.innerHTML = '<div class="list-group list-group-flush">' + items.map(eng => {
-            const statusClass = eng.status === 'Active' ? 'bg-success' : 'bg-warning text-dark';
-            const completeness = eng.story_completeness || 0;
-            const barClass = completeness >= 80 ? 'bg-success' : completeness >= 40 ? 'bg-warning' : 'bg-danger';
-
-            // Format target date
-            let targetDisplay = '';
-            if (eng.target_date) {
-                const d = new Date(eng.target_date + 'T00:00:00');
-                if (!isNaN(d)) {
-                    targetDisplay = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-                }
+        // Group by customer
+        const groups = new Map();
+        items.forEach(eng => {
+            const key = eng.customer_id || 0;
+            if (!groups.has(key)) {
+                groups.set(key, { name: eng.customer_name, id: eng.customer_id, seller: eng.seller_name, favicon: eng.customer_favicon, items: [] });
             }
+            groups.get(key).items.push(eng);
+        });
 
-            // Format updated_at
-            let updatedDisplay = '';
-            if (eng.updated_at) {
-                const d = new Date(eng.updated_at);
-                if (!isNaN(d)) {
-                    updatedDisplay = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        // Sort groups by most-recently-updated engagement in each
+        const sortedGroups = [...groups.values()].sort((a, b) => {
+            const aMax = Math.max(...a.items.map(e => new Date(e.updated_at || 0).getTime()));
+            const bMax = Math.max(...b.items.map(e => new Date(e.updated_at || 0).getTime()));
+            return bMax - aMax;
+        });
+
+        body.innerHTML = sortedGroups.map(group => {
+            const cards = group.items.map(eng => {
+                const statusClass = eng.status === 'Active' ? 'bg-success' : 'bg-warning text-dark';
+                const completeness = eng.story_completeness || 0;
+                const barClass = completeness >= 80 ? 'bg-success' : completeness >= 40 ? 'bg-warning' : 'bg-danger';
+
+                let targetDisplay = '';
+                if (eng.target_date) {
+                    const d = new Date(eng.target_date + 'T00:00:00');
+                    if (!isNaN(d)) targetDisplay = d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
                 }
-            }
+                let updatedDisplay = '';
+                if (eng.updated_at) {
+                    const d = new Date(eng.updated_at);
+                    if (!isNaN(d)) updatedDisplay = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                }
 
-            // Quick stats
-            const stats = [];
-            if (eng.linked_note_count > 0) stats.push('<i class="bi bi-journal-text"></i> ' + eng.linked_note_count + ' note' + (eng.linked_note_count !== 1 ? 's' : ''));
-            if (eng.opportunity_count > 0) stats.push('<i class="bi bi-briefcase"></i> ' + eng.opportunity_count);
-            if (eng.milestone_count > 0) stats.push('<i class="bi bi-flag"></i> ' + eng.milestone_count);
+                const stats = [];
+                if (eng.linked_note_count > 0) stats.push('<i class="bi bi-journal-text"></i> ' + eng.linked_note_count);
+                if (eng.opportunity_count > 0) stats.push('<i class="bi bi-briefcase"></i> ' + eng.opportunity_count);
+                if (eng.milestone_count > 0) stats.push('<i class="bi bi-flag"></i> ' + eng.milestone_count);
 
-            return `<a href="/engagement/${eng.id}" class="list-group-item list-group-item-action">
-                <div class="d-flex justify-content-between align-items-start">
-                    <div class="me-2" style="min-width:0;">
-                        <div class="d-flex align-items-center flex-wrap gap-1 mb-1">
-                            <strong class="text-truncate">${escapeHtml(eng.title)}</strong>
-                            <span class="badge ${statusClass} flex-shrink-0">${escapeHtml(eng.status)}</span>
-                        </div>
-                        <div class="text-muted small mb-1">
-                            <i class="bi bi-building"></i> <a href="/customer/${eng.customer_id}" class="text-decoration-none" onclick="event.stopPropagation();">${escapeHtml(eng.customer_name)}</a>
-                            ${eng.seller_name ? ' <span class="text-muted">&middot; <i class="bi bi-person"></i> ' + escapeHtml(eng.seller_name) + '</span>' : ''}
+                return `<div class="col"><div class="card h-100 border" style="cursor:pointer;" onclick="if(!event.target.closest('a')){window.location='/engagement/${eng.id}'}">
+                    <div class="card-body p-2">
+                        <div class="d-flex justify-content-between align-items-start mb-1">
+                            <div class="d-flex align-items-center gap-1" style="min-width:0;">
+                                <strong class="text-truncate" style="font-size:0.9rem;">${escapeHtml(eng.title)}</strong>
+                                <span class="badge ${statusClass} flex-shrink-0" style="font-size:0.65rem;">${escapeHtml(eng.status)}</span>
+                            </div>
+                            ${updatedDisplay ? '<span class="text-muted text-nowrap flex-shrink-0 ms-2" style="font-size:0.7rem;"><i class="bi bi-clock"></i> ' + updatedDisplay + '</span>' : ''}
                         </div>
                         <div class="d-flex align-items-center gap-2 mb-1">
-                            <span class="text-muted" style="font-size:0.75rem;">Story ${completeness}%</span>
-                            <div class="progress flex-grow-1" style="height:4px;max-width:120px;">
+                            <span class="text-muted" style="font-size:0.7rem;">Story ${completeness}%</span>
+                            <div class="progress flex-grow-1" style="height:3px;max-width:80px;">
                                 <div class="progress-bar ${barClass}" style="width:${completeness}%"></div>
                             </div>
                         </div>
-                        <div class="d-flex gap-3 text-muted" style="font-size:0.8rem;">
-                            ${stats.join(' ')}
+                        <div class="d-flex flex-wrap gap-2 text-muted" style="font-size:0.75rem;">
+                            ${stats.length ? '<span>' + stats.join('</span><span>') + '</span>' : ''}
                             ${eng.estimated_acr ? '<span><i class="bi bi-currency-dollar"></i> ' + escapeHtml(eng.estimated_acr) + '</span>' : ''}
+                            ${targetDisplay ? '<span><i class="bi bi-calendar"></i> ' + targetDisplay + '</span>' : ''}
                         </div>
                     </div>
-                    <div class="text-end text-nowrap flex-shrink-0" style="font-size:0.8rem;">
-                        ${targetDisplay ? '<div class="text-muted"><i class="bi bi-calendar"></i> ' + targetDisplay + '</div>' : ''}
-                        ${updatedDisplay ? '<div class="text-muted"><i class="bi bi-clock"></i> ' + updatedDisplay + '</div>' : ''}
-                    </div>
+                </div></div>`;
+            }).join('');
+
+            const iconHtml = group.favicon
+                ? '<img src="data:image/png;base64,' + group.favicon + '" width="16" height="16" alt="" style="vertical-align:middle;">'
+                : '<i class="bi bi-building text-muted"></i>';
+
+            return `<div class="mb-2">
+                <div class="d-flex align-items-center gap-2 mb-1 px-1">
+                    ${iconHtml}
+                    <a href="/customer/${group.id}" class="fw-semibold text-decoration-none" style="font-size:0.9rem;">${escapeHtml(group.name)}</a>
+                    ${group.seller ? '<span class="text-muted" style="font-size:0.8rem;">&middot; <i class="bi bi-person"></i> ' + escapeHtml(group.seller) + '</span>' : ''}
+                    <span class="badge bg-secondary" style="font-size:0.65rem;">${group.items.length}</span>
                 </div>
-            </a>`;
-        }).join('') + '</div>';
+                <div class="row row-cols-1 row-cols-md-2 row-cols-xl-3 g-2">${cards}</div>
+            </div>`;
+        }).join('');
     }
     {% endif %}
 </script>

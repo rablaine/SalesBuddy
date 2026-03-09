@@ -685,11 +685,21 @@ def _parse_summary_response(response: str) -> Dict[str, Any]:
     )
     if impact_match:
         impact_lines = impact_match.group(1).strip().split('\n')
-        result['connect_impact'] = [
+        raw_items = [
             re.sub(r'^\s*[-*]\s*', '', line).strip()
             for line in impact_lines
             if line.strip() and re.sub(r'^\s*[-*]\s*', '', line).strip()
         ]
+        # Strip citation-style markdown links and plain citation references
+        cleaned_items = []
+        for item in raw_items:
+            item = re.sub(r'\s*\[\d+\]\([^\)]+\)', '', item)
+            item = re.sub(r'\s*\[\d+\]', '', item)
+            item = re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', item)
+            item = item.strip()
+            if item:
+                cleaned_items.append(item)
+        result['connect_impact'] = cleaned_items
     
     # Remove CONNECT_IMPACT block from response before further parsing
     response = re.sub(

@@ -244,9 +244,11 @@
                                     {% endfor %}
                                 </select>
                                 {% endif %}
+                                {% if not note %}
                                 <button type="button" class="btn btn-sm btn-outline-info" id="importMeetingBtn" onclick="openMeetingImport()">
                                     <i class="bi bi-calendar-event"></i> Import from Meeting
                                 </button>
+                                {% endif %}
                             </div>
                         </div>
                         <div id="editor" style="height: 400px;">{{ note.content|safe if note else '' }}</div>
@@ -500,7 +502,7 @@
                 <div id="meetingSummaryLoading" class="text-center py-4" style="display: none;">
                     <div class="spinner-border text-success" role="status"></div>
                     <p class="mt-2">Generating meeting summary...</p>
-                    <small class="text-muted">This may take up to 2 minutes for long transcripts</small>
+                    <small class="text-muted">This may take a few minutes for longer transcripts</small>
                 </div>
                 
                 <!-- Custom Prompt Section -->

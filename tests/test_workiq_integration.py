@@ -325,8 +325,10 @@ class TestWorkiqUIElements:
             if note:
                 response = client.get(f'/note/{note.id}/edit')
                 html = response.data.decode()
-                assert 'autoFillBtn' not in html
-                assert 'importMeetingBtn' not in html
+                # The actual button elements should not be rendered in edit mode
+                # (JS may still reference the IDs, but the buttons themselves are hidden)
+                assert 'id="autoFillBtn"' not in html
+                assert 'id="importMeetingBtn"' not in html
 
 
 # =============================================================================

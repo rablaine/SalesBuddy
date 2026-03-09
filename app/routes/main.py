@@ -115,14 +115,15 @@ def index():
         'topics': Topic.query.count()
     }
     has_milestones = SyncStatus.is_complete('milestones')
-    has_engagements = Engagement.query.filter(
+    engagement_count = Engagement.query.filter(
         Engagement.status.in_(['Active', 'On Hold'])
-    ).count() > 0
+    ).count()
     return render_template(
         'index.html',
         stats=stats,
         has_milestones=has_milestones,
-        has_engagements=has_engagements,
+        has_engagements=engagement_count > 0,
+        engagement_count=engagement_count,
     )
 
 
@@ -258,6 +259,9 @@ def api_active_engagements():
             'customer_id': eng.customer_id,
             'seller_name': (eng.customer.seller.name
                            if eng.customer and eng.customer.seller else None),
+            'customer_favicon': (eng.customer.favicon_b64
+                                if eng.customer and eng.customer.favicon_b64
+                                else None),
             'estimated_acr': eng.estimated_acr,
             'target_date': eng.target_date.isoformat() if eng.target_date else None,
             'story_completeness': eng.story_completeness,

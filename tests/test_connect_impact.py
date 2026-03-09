@@ -147,6 +147,42 @@ class TestConnectImpactParser:
         assert 'AKS cluster' in result['task_description']
         assert len(result['connect_impact']) == 1
 
+    def test_impact_strips_citation_links(self):
+        """Citation-style links [1](url) in impact signals should be stripped."""
+        from app.services.workiq_service import _parse_summary_response
+        response = (
+            "Meeting summary.\n\n"
+            "CONNECT_IMPACT:\n"
+            "- Customer engaged in Fabric adoption as a strategic data platform. "
+            "[1](https://teams.microsoft.com/l/meeting/details?eventId=AAMk123)\n"
+            "- Alignment established between Azure specialists and customer leadership. "
+            "[1](https://teams.microsoft.com/l/meeting/details?eventId=AAMk456)\n"
+        )
+        result = _parse_summary_response(response)
+
+        assert len(result['connect_impact']) == 2
+        for item in result['connect_impact']:
+            assert '[1]' not in item
+            assert 'teams.microsoft.com' not in item
+            assert '](http' not in item
+        assert 'Fabric adoption' in result['connect_impact'][0]
+        assert 'Alignment established' in result['connect_impact'][1]
+
+    def test_impact_strips_plain_citation_brackets(self):
+        """Plain citation references [1] in impact signals should be stripped."""
+        from app.services.workiq_service import _parse_summary_response
+        response = (
+            "Summary.\n\n"
+            "CONNECT_IMPACT:\n"
+            "- Customer committed to Azure migration. [1]\n"
+            "- Partner engagement confirmed for implementation. [2]\n"
+        )
+        result = _parse_summary_response(response)
+
+        assert len(result['connect_impact']) == 2
+        assert result['connect_impact'][0] == 'Customer committed to Azure migration.'
+        assert result['connect_impact'][1] == 'Partner engagement confirmed for implementation.'
+
 
 # =============================================================================
 # Prompt Suffix Tests
