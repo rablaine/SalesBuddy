@@ -2263,7 +2263,7 @@
             const response = await _origFetch.apply(this, args);
             // Only check /api/ calls to MSX-related endpoints
             const url = (typeof args[0] === 'string') ? args[0] : (args[0]?.url || '');
-            if (url.includes('/api/msx/') || url.includes('/api/milestone')) {
+            if (url.includes('/api/msx/') || url.includes('/api/milestone') || url.includes('/api/opportunity/')) {
                 // Skip body inspection for streaming responses (SSE) — they can't be cloned safely
                 const ct = response.headers.get('content-type') || '';
                 const isStream = ct.includes('text/event-stream') || ct.includes('octet-stream');
