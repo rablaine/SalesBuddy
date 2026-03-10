@@ -1602,6 +1602,7 @@
                                 '<li>' + (cs.created || 0) + ' milestones created, ' + (cs.updated || 0) + ' updated' +
                                     (cs.deactivated ? ', ' + cs.deactivated + ' deactivated' : '') + '</li>' +
                                 (cs.opportunities_created ? '<li>' + cs.opportunities_created + ' opportunities created</li>' : '') +
+                                ((cs.tasks_created || cs.tasks_updated) ? '<li>' + (cs.tasks_created || 0) + ' tasks created' + (cs.tasks_updated ? ', ' + cs.tasks_updated + ' updated' : '') + '</li>' : '') +
                                 (cs.duration ? '<li>Completed in ' + cs.duration + 's</li>' : '') +
                                 '</ul>';
                         }

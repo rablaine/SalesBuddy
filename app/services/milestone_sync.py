@@ -14,12 +14,16 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional, Generator, Tuple
 
-from app.models import db, Customer, Milestone, Opportunity, User, SyncStatus
+from app.models import db, Customer, Milestone, MsxTask, Opportunity, User, SyncStatus
 from app.services.msx_api import (
     extract_account_id_from_url,
     get_milestones_by_account,
     get_my_milestone_team_ids,
+    get_tasks_for_milestones,
     build_milestone_url,
+    build_task_url,
+    TASK_CATEGORIES,
+    HOK_TASK_CATEGORIES,
 )
 from app.services.msx_auth import is_vpn_blocked
 
@@ -62,6 +66,8 @@ def sync_all_customer_milestones() -> Dict[str, Any]:
         "milestones_updated": 0,
         "milestones_deactivated": 0,
         "opportunities_created": 0,
+        "tasks_created": 0,
+        "tasks_updated": 0,
         "errors": [],
         "duration_seconds": 0,
     }
@@ -98,6 +104,12 @@ def sync_all_customer_milestones() -> Dict[str, Any]:
                 results["milestones_deactivated"] += customer_result["deactivated"]
                 results["opportunities_created"] += customer_result.get(
                     "opportunities_created", 0
+                )
+                results["tasks_created"] += customer_result.get(
+                    "tasks_created", 0
+                )
+                results["tasks_updated"] += customer_result.get(
+                    "tasks_updated", 0
                 )
             else:
                 results["customers_failed"] += 1
@@ -287,6 +299,8 @@ def sync_all_customer_milestones_stream(
     total_updated = 0
     total_deactivated = 0
     total_opps_created = 0
+    total_tasks_created = 0
+    total_tasks_updated = 0
     errors: List[str] = []
 
     write_count = len(customer_tasks)
@@ -319,6 +333,17 @@ def sync_all_customer_milestones_stream(
                 total_updated += wr['updated']
                 total_deactivated += wr['deactivated']
                 total_opps_created += wr['opportunities_created']
+
+                # Sync tasks for this customer's milestones
+                task_result = _sync_customer_tasks(customer)
+                total_tasks_created += task_result.get('tasks_created', 0)
+                total_tasks_updated += task_result.get('tasks_updated', 0)
+                if not task_result.get('success'):
+                    logger.warning(
+                        f"Task sync failed for {cust_name}: "
+                        f"{task_result.get('error')}"
+                    )
+
                 pct = 70 + int((i / write_count) * 25)
                 yield _sse_event('progress', {
                     'current': fetched + i,
@@ -354,6 +379,8 @@ def sync_all_customer_milestones_stream(
             'created': total_created, 'updated': total_updated,
             'deactivated': total_deactivated,
             'opportunities_created': total_opps_created,
+            'tasks_created': total_tasks_created,
+            'tasks_updated': total_tasks_updated,
         }),
     )
 
@@ -366,6 +393,8 @@ def sync_all_customer_milestones_stream(
         'updated': total_updated,
         'deactivated': total_deactivated,
         'opportunities_created': total_opps_created,
+        'tasks_created': total_tasks_created,
+        'tasks_updated': total_tasks_updated,
         'duration': duration,
         'errors': errors[:5],
     })
@@ -403,11 +432,25 @@ def sync_customer_milestones(
         return {
             "success": False, "created": 0, "updated": 0,
             "deactivated": 0, "opportunities_created": 0,
+            "tasks_created": 0, "tasks_updated": 0,
             "error": fetch_result.get("error", "Unknown MSX error"),
         }
-    return _apply_customer_milestones(
+    result = _apply_customer_milestones(
         customer, fetch_result.get("milestones", [])
     )
+
+    # Sync tasks after milestones are committed
+    if result.get("success"):
+        task_result = _sync_customer_tasks(customer)
+        result["tasks_created"] = task_result.get("tasks_created", 0)
+        result["tasks_updated"] = task_result.get("tasks_updated", 0)
+        if not task_result.get("success"):
+            logger.warning(
+                f"Task sync failed for {customer.get_display_name()}: "
+                f"{task_result.get('error')}"
+            )
+
+    return result
 
 
 def _fetch_customer_milestones(customer: Customer) -> Dict[str, Any]:
@@ -533,6 +576,121 @@ def _apply_customer_milestones(
         result["error"] = f"Database error: {str(e)}"
         logger.exception(f"Error saving milestones for customer {customer.id}")
     
+    return result
+
+
+def _sync_customer_tasks(
+    customer: Customer,
+) -> Dict[str, Any]:
+    """
+    Fetch and upsert the current user's MSX tasks for a customer's milestones.
+
+    Queries MSX for tasks owned by the current user that are linked to any
+    of this customer's synced milestones, then creates or updates local
+    MsxTask records.
+
+    Args:
+        customer: The Customer model instance.
+
+    Returns:
+        Dict with:
+        - success: bool
+        - tasks_created: int
+        - tasks_updated: int
+        - error: str if failed
+    """
+    result = {"success": False, "tasks_created": 0, "tasks_updated": 0, "error": ""}
+
+    # Collect all milestone MSX IDs for this customer
+    milestones = Milestone.query.filter_by(customer_id=customer.id).filter(
+        Milestone.msx_milestone_id.isnot(None),
+    ).all()
+
+    if not milestones:
+        result["success"] = True
+        return result
+
+    # Build a lookup from MSX milestone GUID -> local Milestone.id
+    ms_id_map: Dict[str, int] = {
+        ms.msx_milestone_id.lower(): ms.id for ms in milestones
+    }
+    msx_ids = list(ms_id_map.keys())
+
+    # Fetch user's tasks from MSX
+    fetch_result = get_tasks_for_milestones(msx_ids)
+    if not fetch_result.get("success"):
+        result["error"] = fetch_result.get("error", "Task fetch failed")
+        return result
+
+    msx_tasks = fetch_result.get("tasks", [])
+    if not msx_tasks:
+        result["success"] = True
+        return result
+
+    # Pre-load existing MsxTask records by msx_task_id
+    existing_task_ids = [t["task_id"] for t in msx_tasks]
+    existing_tasks_map: Dict[str, MsxTask] = {}
+    for task in MsxTask.query.filter(
+        MsxTask.msx_task_id.in_(existing_task_ids)
+    ).all():
+        existing_tasks_map[task.msx_task_id] = task
+
+    # Category lookup for enrichment
+    cat_lookup = {
+        c["value"]: {"name": c["label"], "is_hok": c["is_hok"]}
+        for c in TASK_CATEGORIES
+    }
+
+    for t in msx_tasks:
+        task_id = t["task_id"]
+        milestone_msx_id = t.get("milestone_msx_id", "").lower()
+        local_milestone_id = ms_id_map.get(milestone_msx_id)
+        if not local_milestone_id:
+            continue
+
+        category_code = t.get("task_category")
+        cat_info = cat_lookup.get(category_code, {})
+        due_date = _parse_msx_date(t.get("due_date"))
+
+        existing = existing_tasks_map.get(task_id)
+        if existing:
+            # Update
+            existing.subject = t.get("subject") or existing.subject
+            existing.description = t.get("description")
+            existing.task_category = category_code or existing.task_category
+            existing.task_category_name = cat_info.get("name") or existing.task_category_name
+            existing.is_hok = cat_info.get("is_hok", existing.is_hok)
+            existing.duration_minutes = t.get("duration_minutes") or existing.duration_minutes
+            existing.due_date = due_date
+            existing.msx_task_url = t.get("task_url") or existing.msx_task_url
+            existing.milestone_id = local_milestone_id
+            result["tasks_updated"] += 1
+        else:
+            new_task = MsxTask(
+                msx_task_id=task_id,
+                msx_task_url=t.get("task_url"),
+                subject=t.get("subject", ""),
+                description=t.get("description"),
+                task_category=category_code or 0,
+                task_category_name=cat_info.get("name"),
+                is_hok=cat_info.get("is_hok", False),
+                duration_minutes=t.get("duration_minutes") or 60,
+                due_date=due_date,
+                milestone_id=local_milestone_id,
+                # note_id left NULL — synced tasks aren't linked to a note
+            )
+            db.session.add(new_task)
+            existing_tasks_map[task_id] = new_task
+            result["tasks_created"] += 1
+
+    try:
+        db.session.commit()
+        result["success"] = True
+    except Exception as e:
+        db.session.rollback()
+        result["error"] = f"Database error saving tasks: {str(e)}"
+        logger.exception(f"Error saving tasks for customer {customer.id}")
+
     return result
 
 

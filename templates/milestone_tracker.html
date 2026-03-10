@@ -540,9 +540,16 @@ function syncMilestones() {
                     if (data.opportunities_created > 0) {
                         oppText = ` Opportunities: ${data.opportunities_created} new.`;
                     }
+                    let taskText = '';
+                    if (data.tasks_created > 0 || data.tasks_updated > 0) {
+                        let taskParts = [];
+                        if (data.tasks_created > 0) taskParts.push(`${data.tasks_created} new`);
+                        if (data.tasks_updated > 0) taskParts.push(`${data.tasks_updated} updated`);
+                        taskText = ` Tasks: ${taskParts.join(', ')}.`;
+                    }
                     msg.innerHTML = `<i class="bi bi-check-circle-fill"></i> Sync complete! ` +
                         `${data.synced} of ${data.total} customers synced in ${data.duration}s. ` +
-                        `Milestones: ${summary}.${oppText}`;
+                        `Milestones: ${summary}.${oppText}${taskText}`;
                     if (data.errors && data.errors.length > 0) {
                         msg.innerHTML += `<br><small class="text-warning"><i class="bi bi-exclamation-triangle"></i> ` +
                             `${data.errors.length} error(s): ${data.errors.slice(0, 3).join('; ')}</small>`;

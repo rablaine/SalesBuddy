@@ -429,6 +429,384 @@ class TestMilestoneSyncService:
                 db.session.delete(ms)
                 db.session.commit()
 
+    @patch('app.services.milestone_sync.get_tasks_for_milestones')
+    @patch('app.services.milestone_sync.get_milestones_by_account')
+    def test_sync_creates_tasks_from_msx(self, mock_get_ms, mock_get_tasks, app, sample_data):
+        """Sync should create MsxTask records for user's tasks in MSX."""
+        customer_id = self._create_test_customer_with_tpid_url(app, sample_data)
+
+        mock_get_ms.return_value = {
+            "success": True,
+            "milestones": [
+                {
+                    "id": "ms-guid-task-test",
+                    "name": "Task Test Milestone",
+                    "number": "7-400001",
+                    "status": "On Track",
+                    "status_code": 861980000,
+                    "status_sort": 1,
+                    "opportunity_name": "Task Opp",
+                    "workload": "Azure SQL",
+                    "monthly_usage": 1000.0,
+                    "due_date": "2026-04-01T00:00:00Z",
+                    "dollar_value": 50000.0,
+                    "url": "https://example.com/ms-task-test",
+                },
+            ],
+            "count": 1,
+        }
+        mock_get_tasks.return_value = {
+            "success": True,
+            "tasks": [
+                {
+                    "task_id": "task-guid-001",
+                    "subject": "ADS Session",
+                    "description": "Architecture Design Session for SQL migration",
+                    "task_category": 861980004,
+                    "task_category_name": "Architecture Design Session",
+                    "is_hok": True,
+                    "duration_minutes": 120,
+                    "due_date": "2026-03-20T00:00:00Z",
+                    "milestone_msx_id": "ms-guid-task-test",
+                    "task_url": "https://example.com/task-001",
+                },
+            ],
+        }
+
+        with app.app_context():
+            from app.models import db, Customer, Milestone, MsxTask
+            from app.services.milestone_sync import sync_customer_milestones
+
+            customer = db.session.get(Customer, customer_id)
+            result = sync_customer_milestones(customer)
+
+            assert result["success"] is True
+            assert result["created"] == 1
+            assert result["tasks_created"] == 1
+            assert result["tasks_updated"] == 0
+
+            # Verify task was created with correct fields
+            task = MsxTask.query.filter_by(msx_task_id="task-guid-001").first()
+            assert task is not None
+            assert task.subject == "ADS Session"
+            assert task.description == "Architecture Design Session for SQL migration"
+            assert task.task_category == 861980004
+            assert task.task_category_name == "Architecture Design Session"
+            assert task.is_hok is True
+            assert task.duration_minutes == 120
+            assert task.msx_task_url == "https://example.com/task-001"
+            assert task.note_id is None  # Synced tasks aren't linked to notes
+
+            # Verify task is linked to the correct milestone
+            ms = Milestone.query.filter_by(msx_milestone_id="ms-guid-task-test").first()
+            assert task.milestone_id == ms.id
+
+            # Cleanup
+            db.session.delete(task)
+            db.session.delete(ms)
+            db.session.commit()
+
+    @patch('app.services.milestone_sync.get_tasks_for_milestones')
+    @patch('app.services.milestone_sync.get_milestones_by_account')
+    def test_sync_updates_existing_tasks(self, mock_get_ms, mock_get_tasks, app, sample_data):
+        """Sync should update existing MsxTask records with fresh MSX data."""
+        customer_id = self._create_test_customer_with_tpid_url(app, sample_data)
+
+        # Create milestone and existing task first
+        with app.app_context():
+            from app.models import db, Milestone, MsxTask
+
+            ms = Milestone(
+                msx_milestone_id="ms-guid-update-task",
+                url="https://example.com/ms-update",
+                title="Update Task Milestone",
+                msx_status="On Track",
+                customer_id=customer_id,
+            )
+            db.session.add(ms)
+            db.session.flush()
+
+            existing_task = MsxTask(
+                msx_task_id="task-guid-update",
+                subject="Old Subject",
+                description="Old description",
+                task_category=861980002,
+                task_category_name="Demo",
+                is_hok=True,
+                duration_minutes=30,
+                milestone_id=ms.id,
+            )
+            db.session.add(existing_task)
+            db.session.commit()
+            ms_id = ms.id
+            task_id = existing_task.id
+
+        mock_get_ms.return_value = {
+            "success": True,
+            "milestones": [
+                {
+                    "id": "ms-guid-update-task",
+                    "name": "Update Task Milestone",
+                    "number": "7-500001",
+                    "status": "On Track",
+                    "status_code": 861980000,
+                    "status_sort": 1,
+                    "opportunity_name": "Update Opp",
+                    "workload": "Azure AI",
+                    "monthly_usage": 2000.0,
+                    "due_date": "2026-05-01T00:00:00Z",
+                    "dollar_value": 75000.0,
+                    "url": "https://example.com/ms-update",
+                },
+            ],
+            "count": 1,
+        }
+        mock_get_tasks.return_value = {
+            "success": True,
+            "tasks": [
+                {
+                    "task_id": "task-guid-update",
+                    "subject": "Updated Subject",
+                    "description": "Updated description",
+                    "task_category": 861980004,
+                    "task_category_name": "Architecture Design Session",
+                    "is_hok": True,
+                    "duration_minutes": 90,
+                    "due_date": "2026-04-15T00:00:00Z",
+                    "milestone_msx_id": "ms-guid-update-task",
+                    "task_url": "https://example.com/task-updated",
+                },
+            ],
+        }
+
+        with app.app_context():
+            from app.models import db, Customer, Milestone, MsxTask
+            from app.services.milestone_sync import sync_customer_milestones
+
+            customer = db.session.get(Customer, customer_id)
+            result = sync_customer_milestones(customer)
+
+            assert result["success"] is True
+            assert result["tasks_created"] == 0
+            assert result["tasks_updated"] == 1
+
+            # Verify task was updated
+            task = db.session.get(MsxTask, task_id)
+            assert task.subject == "Updated Subject"
+            assert task.description == "Updated description"
+            assert task.task_category == 861980004
+            assert task.task_category_name == "Architecture Design Session"
+            assert task.duration_minutes == 90
+            assert task.msx_task_url == "https://example.com/task-updated"
+
+            # Cleanup
+            db.session.delete(task)
+            ms = db.session.get(Milestone, ms_id)
+            db.session.delete(ms)
+            db.session.commit()
+
+    @patch('app.services.milestone_sync.get_tasks_for_milestones')
+    @patch('app.services.milestone_sync.get_milestones_by_account')
+    def test_sync_with_no_tasks(self, mock_get_ms, mock_get_tasks, app, sample_data):
+        """Sync should succeed when user has no tasks in MSX."""
+        customer_id = self._create_test_customer_with_tpid_url(app, sample_data)
+
+        mock_get_ms.return_value = {
+            "success": True,
+            "milestones": [
+                {
+                    "id": "ms-guid-no-tasks",
+                    "name": "No Tasks Milestone",
+                    "number": "7-600001",
+                    "status": "On Track",
+                    "status_code": 861980000,
+                    "status_sort": 1,
+                    "opportunity_name": "No Task Opp",
+                    "workload": "Azure VM",
+                    "monthly_usage": 500.0,
+                    "due_date": "2026-06-01T00:00:00Z",
+                    "dollar_value": 25000.0,
+                    "url": "https://example.com/ms-no-tasks",
+                },
+            ],
+            "count": 1,
+        }
+        mock_get_tasks.return_value = {
+            "success": True,
+            "tasks": [],
+        }
+
+        with app.app_context():
+            from app.models import db, Customer, Milestone
+            from app.services.milestone_sync import sync_customer_milestones
+
+            customer = db.session.get(Customer, customer_id)
+            result = sync_customer_milestones(customer)
+
+            assert result["success"] is True
+            assert result["created"] == 1
+            assert result["tasks_created"] == 0
+            assert result["tasks_updated"] == 0
+
+            # Cleanup
+            ms = Milestone.query.filter_by(msx_milestone_id="ms-guid-no-tasks").first()
+            if ms:
+                db.session.delete(ms)
+                db.session.commit()
+
+    @patch('app.services.milestone_sync.get_tasks_for_milestones')
+    @patch('app.services.milestone_sync.get_milestones_by_account')
+    def test_sync_task_fetch_failure_graceful(self, mock_get_ms, mock_get_tasks, app, sample_data):
+        """Milestone sync should succeed even if task fetch fails."""
+        customer_id = self._create_test_customer_with_tpid_url(app, sample_data)
+
+        mock_get_ms.return_value = {
+            "success": True,
+            "milestones": [
+                {
+                    "id": "ms-guid-task-fail",
+                    "name": "Task Fail Milestone",
+                    "number": "7-700001",
+                    "status": "On Track",
+                    "status_code": 861980000,
+                    "status_sort": 1,
+                    "opportunity_name": "Task Fail Opp",
+                    "workload": "Azure Storage",
+                    "monthly_usage": 800.0,
+                    "due_date": "2026-07-01T00:00:00Z",
+                    "dollar_value": 30000.0,
+                    "url": "https://example.com/ms-task-fail",
+                },
+            ],
+            "count": 1,
+        }
+        mock_get_tasks.return_value = {
+            "success": False,
+            "tasks": [],
+            "error": "Task API unavailable",
+        }
+
+        with app.app_context():
+            from app.models import db, Customer, Milestone
+            from app.services.milestone_sync import sync_customer_milestones
+
+            customer = db.session.get(Customer, customer_id)
+            result = sync_customer_milestones(customer)
+
+            # Milestone sync should still succeed
+            assert result["success"] is True
+            assert result["created"] == 1
+            # Task counts should be 0 since fetch failed
+            assert result["tasks_created"] == 0
+            assert result["tasks_updated"] == 0
+
+            # Cleanup
+            ms = Milestone.query.filter_by(msx_milestone_id="ms-guid-task-fail").first()
+            if ms:
+                db.session.delete(ms)
+                db.session.commit()
+
+    @patch('app.services.milestone_sync.get_tasks_for_milestones')
+    @patch('app.services.milestone_sync.get_milestones_by_account')
+    def test_sync_links_tasks_to_correct_milestones(self, mock_get_ms, mock_get_tasks, app, sample_data):
+        """Tasks should be linked to the correct local milestone by MSX ID."""
+        customer_id = self._create_test_customer_with_tpid_url(app, sample_data)
+
+        mock_get_ms.return_value = {
+            "success": True,
+            "milestones": [
+                {
+                    "id": "ms-guid-link-a",
+                    "name": "Milestone A",
+                    "number": "7-800001",
+                    "status": "On Track",
+                    "status_code": 861980000,
+                    "status_sort": 1,
+                    "opportunity_name": "Link Test Opp",
+                    "workload": "Azure SQL",
+                    "monthly_usage": 1000.0,
+                    "due_date": "2026-08-01T00:00:00Z",
+                    "dollar_value": 40000.0,
+                    "url": "https://example.com/ms-link-a",
+                },
+                {
+                    "id": "ms-guid-link-b",
+                    "name": "Milestone B",
+                    "number": "7-800002",
+                    "status": "On Track",
+                    "status_code": 861980000,
+                    "status_sort": 1,
+                    "opportunity_name": "Link Test Opp",
+                    "workload": "Azure AI",
+                    "monthly_usage": 2000.0,
+                    "due_date": "2026-09-01T00:00:00Z",
+                    "dollar_value": 60000.0,
+                    "url": "https://example.com/ms-link-b",
+                },
+            ],
+            "count": 2,
+        }
+        mock_get_tasks.return_value = {
+            "success": True,
+            "tasks": [
+                {
+                    "task_id": "task-for-a",
+                    "subject": "Task for Milestone A",
+                    "description": None,
+                    "task_category": 861980002,
+                    "task_category_name": "Demo",
+                    "is_hok": True,
+                    "duration_minutes": 60,
+                    "due_date": "2026-08-15T00:00:00Z",
+                    "milestone_msx_id": "ms-guid-link-a",
+                    "task_url": "https://example.com/task-a",
+                },
+                {
+                    "task_id": "task-for-b",
+                    "subject": "Task for Milestone B",
+                    "description": None,
+                    "task_category": 861980004,
+                    "task_category_name": "Architecture Design Session",
+                    "is_hok": True,
+                    "duration_minutes": 120,
+                    "due_date": "2026-09-15T00:00:00Z",
+                    "milestone_msx_id": "ms-guid-link-b",
+                    "task_url": "https://example.com/task-b",
+                },
+            ],
+        }
+
+        with app.app_context():
+            from app.models import db, Customer, Milestone, MsxTask
+            from app.services.milestone_sync import sync_customer_milestones
+
+            customer = db.session.get(Customer, customer_id)
+            result = sync_customer_milestones(customer)
+
+            assert result["success"] is True
+            assert result["created"] == 2
+            assert result["tasks_created"] == 2
+
+            # Verify tasks are linked to correct milestones
+            ms_a = Milestone.query.filter_by(msx_milestone_id="ms-guid-link-a").first()
+            ms_b = Milestone.query.filter_by(msx_milestone_id="ms-guid-link-b").first()
+
+            task_a = MsxTask.query.filter_by(msx_task_id="task-for-a").first()
+            task_b = MsxTask.query.filter_by(msx_task_id="task-for-b").first()
+
+            assert task_a.milestone_id == ms_a.id
+            assert task_a.subject == "Task for Milestone A"
+
+            assert task_b.milestone_id == ms_b.id
+            assert task_b.subject == "Task for Milestone B"
+
+            # Cleanup
+            db.session.delete(task_a)
+            db.session.delete(task_b)
+            db.session.delete(ms_a)
+            db.session.delete(ms_b)
+            db.session.commit()
+
 
 class TestMilestoneTrackerData:
     """Test the tracker data retrieval function."""

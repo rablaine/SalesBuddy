@@ -1362,6 +1362,148 @@ def create_task(
         return {"success": False, "error": str(e)}
 
 
+def get_tasks_for_milestones(
+    milestone_msx_ids: List[str],
+) -> Dict[str, Any]:
+    """
+    Fetch the current user's tasks from MSX for a list of milestones.
+
+    Queries the tasks entity filtered by ownerid = current user AND
+    regardingobjectid in the given milestone GUIDs. OData doesn't support
+    ``in`` on lookup fields, so we batch milestones into OR groups of 15
+    to stay within Dynamics 365 filter-length limits.
+
+    Args:
+        milestone_msx_ids: List of milestone GUIDs (msp_engagementmilestoneid).
+
+    Returns:
+        Dict with:
+        - success: bool
+        - tasks: List of task dicts (keyed by milestone GUID)
+        - error: str if failed
+    """
+    if not milestone_msx_ids:
+        return {"success": True, "tasks": []}
+
+    user_id = get_current_user_id()
+    if not user_id:
+        return {"success": False, "tasks": [], "error": "Could not determine current user."}
+
+    # Build a lookup from task_category value -> {name, is_hok}
+    cat_lookup = {
+        c["value"]: {"name": c["label"], "is_hok": c["is_hok"]}
+        for c in TASK_CATEGORIES
+    }
+
+    all_tasks: List[Dict[str, Any]] = []
+
+    # Batch milestones in groups of 15 to keep OData filter length sane
+    batch_size = 15
+    for i in range(0, len(milestone_msx_ids), batch_size):
+        batch = milestone_msx_ids[i:i + batch_size]
+
+        # Build OR clause for regarding milestone IDs
+        regarding_clauses = " or ".join(
+            f"_regardingobjectid_value eq '{mid}'" for mid in batch
+        )
+        filter_str = (
+            f"_ownerid_value eq '{user_id}'"
+            f" and ({regarding_clauses})"
+        )
+
+        url = (
+            f"{CRM_BASE_URL}/tasks"
+            f"?$filter={filter_str}"
+            f"&$select=activityid,subject,description,"
+            f"msp_taskcategory,scheduleddurationminutes,"
+            f"scheduledend,_regardingobjectid_value"
+            f"&$top=5000"
+        )
+
+        try:
+            response = _msx_request('GET', url)
+
+            if response.status_code == 200:
+                data = response.json()
+                for raw in data.get("value", []):
+                    task_id = raw.get("activityid")
+                    if not task_id:
+                        continue
+
+                    category_code = raw.get("msp_taskcategory")
+                    cat_info = cat_lookup.get(category_code, {})
+
+                    due_date_str = raw.get("scheduledend")
+
+                    all_tasks.append({
+                        "task_id": task_id,
+                        "subject": raw.get("subject", ""),
+                        "description": raw.get("description"),
+                        "task_category": category_code,
+                        "task_category_name": cat_info.get("name"),
+                        "is_hok": cat_info.get("is_hok", False),
+                        "duration_minutes": raw.get("scheduleddurationminutes") or 60,
+                        "due_date": due_date_str,
+                        "milestone_msx_id": (
+                            raw.get("_regardingobjectid_value") or ""
+                        ).lower(),
+                        "task_url": build_task_url(task_id),
+                    })
+
+                # Follow pagination
+                next_link = data.get("@odata.nextLink")
+                while next_link:
+                    resp = _msx_request('GET', next_link)
+                    if resp.status_code == 200:
+                        page_data = resp.json()
+                        for raw in page_data.get("value", []):
+                            task_id = raw.get("activityid")
+                            if not task_id:
+                                continue
+                            category_code = raw.get("msp_taskcategory")
+                            cat_info = cat_lookup.get(category_code, {})
+                            all_tasks.append({
+                                "task_id": task_id,
+                                "subject": raw.get("subject", ""),
+                                "description": raw.get("description"),
+                                "task_category": category_code,
+                                "task_category_name": cat_info.get("name"),
+                                "is_hok": cat_info.get("is_hok", False),
+                                "duration_minutes": raw.get("scheduleddurationminutes") or 60,
+                                "due_date": raw.get("scheduledend"),
+                                "milestone_msx_id": (
+                                    raw.get("_regardingobjectid_value") or ""
+                                ).lower(),
+                                "task_url": build_task_url(task_id),
+                            })
+                        next_link = page_data.get("@odata.nextLink")
+                    else:
+                        break
+
+            elif response.status_code == 401:
+                return {"success": False, "tasks": [], "error": "Not authenticated. Run 'az login' first."}
+            elif response.status_code == 403:
+                if is_vpn_blocked():
+                    return {"success": False, "tasks": [], "error": "IP address is blocked — connect to VPN and retry.", "vpn_blocked": True}
+                return {"success": False, "tasks": [], "error": "Access denied querying tasks."}
+            else:
+                return {
+                    "success": False, "tasks": [],
+                    "error": f"HTTP {response.status_code}: {response.text[:200]}",
+                }
+
+        except requests.exceptions.Timeout:
+            return {"success": False, "tasks": [], "error": "Request timed out. Check VPN connection."}
+        except requests.exceptions.ConnectionError as e:
+            return {"success": False, "tasks": [], "error": f"Connection error (VPN?): {str(e)[:100]}"}
+        except Exception as e:
+            logger.exception("Error fetching tasks for milestones")
+            return {"success": False, "tasks": [], "error": str(e)}
+
+    logger.info(f"Fetched {len(all_tasks)} user tasks across {len(milestone_msx_ids)} milestones")
+    return {"success": True, "tasks": all_tasks}
+
+
 # =============================================================================
 # MSX Exploration / Schema Discovery Functions
 # =============================================================================
