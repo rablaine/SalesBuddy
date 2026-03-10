@@ -619,6 +619,29 @@ def get_meeting_summary(meeting_title: str, date_str: str = None,
     
     try:
         response = query_workiq(question, timeout=120)
+
+        # Guard against WorkIQ echoing back the question/prompt text.
+        # This can happen when WorkIQ can't find a transcript for the meeting.
+        # Strip the full question, then any remaining instruction fragments
+        # that should never appear in an actual meeting summary.
+        if question in response:
+            response = response.replace(question, '', 1)
+        for suffix in [_TASK_PROMPT_SUFFIX, _TOPIC_SUGGESTION_SUFFIX, _CONNECT_IMPACT_SUFFIX]:
+            response = response.replace(suffix, '')
+        response = response.strip()
+
+        if not response:
+            return {
+                'summary': '',
+                'topics': [],
+                'action_items': [],
+                'task_subject': '',
+                'task_description': '',
+                'connect_impact': [],
+                'engagement_signals': {},
+                'retry_suggested': True
+            }
+
         return _parse_summary_response(response)
     except TimeoutError:
         logger.warning(f"Meeting summary timed out for: {meeting_title}")

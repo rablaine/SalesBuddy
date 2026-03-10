@@ -244,11 +244,9 @@
                                     {% endfor %}
                                 </select>
                                 {% endif %}
-                                {% if not note %}
                                 <button type="button" class="btn btn-sm btn-outline-info" id="importMeetingBtn" onclick="openMeetingImport()">
                                     <i class="bi bi-calendar-event"></i> Import from Meeting
                                 </button>
-                                {% endif %}
                             </div>
                         </div>
                         <div id="editor" style="height: 400px;">{{ note.content|safe if note else '' }}</div>
@@ -514,6 +512,14 @@
                     <div class="spinner-border text-success" role="status"></div>
                     <p class="mt-2">Generating meeting summary...</p>
                     <small class="text-muted">This may take a few minutes for longer transcripts</small>
+                </div>
+                
+                <div id="meetingSummaryRetry" class="text-center py-4" style="display: none;">
+                    <i class="bi bi-arrow-repeat fs-1 text-warning"></i>
+                    <p class="mt-2">WorkIQ didn't return an expected response, try the import again if you'd like <span class="text-muted">:)</span></p>
+                    <button type="button" class="btn btn-success" id="retrySummaryBtn">
+                        <i class="bi bi-arrow-clockwise"></i> Try Again
+                    </button>
                 </div>
                 
                 <!-- Custom Prompt Section -->
@@ -2543,6 +2549,7 @@ function openMeetingImportForAutoFill(meetings) {
     document.getElementById('meetingImportLoading').style.display = 'none';
     document.getElementById('meetingImportError').style.display = 'none';
     document.getElementById('meetingSummaryLoading').style.display = 'none';
+    document.getElementById('meetingSummaryRetry').style.display = 'none';
     document.getElementById('meetingAutoSelectNote').style.display = 'none';
     document.getElementById('meetingNoResults').style.display = 'none';
     
@@ -2596,6 +2603,22 @@ function proceedWithMeeting(meeting, dateStr) {
             
             if (!data.success) {
                 showAutoFillError('Failed to get meeting summary: ' + (data.error || 'Unknown error'));
+                return;
+            }
+            
+            // WorkIQ returned empty/echoed response — show retry option
+            if (data.retry_suggested) {
+                var errEl = document.getElementById('autoFillError');
+                errEl.innerHTML = "WorkIQ didn't return an expected response. " +
+                    '<a href="#" class="alert-link">Try again</a>';
+                errEl.querySelector('a').onclick = function(e) {
+                    e.preventDefault();
+                    errEl.style.display = 'none';
+                    setAutoFillStep(2, 'loading');
+                    proceedWithMeeting(meeting, dateStr);
+                };
+                errEl.style.display = 'block';
+                document.getElementById('autoFillBtn').disabled = false;
                 return;
             }
             
@@ -2803,6 +2826,7 @@ function openMeetingImport() {
     document.getElementById('meetingImportError').style.display = 'none';
     document.getElementById('meetingImportContent').style.display = 'none';
     document.getElementById('meetingSummaryLoading').style.display = 'none';
+    document.getElementById('meetingSummaryRetry').style.display = 'none';
     document.getElementById('meetingAutoSelectNote').style.display = 'none';
     document.getElementById('meetingNoResults').style.display = 'none';
     document.getElementById('importSelectedMeetingBtn').disabled = true;
@@ -3029,6 +3053,18 @@ function importSelectedMeeting() {
                 document.getElementById('meetingSummaryLoading').style.display = 'none';
                 document.getElementById('meetingImportContent').style.display = 'block';
                 document.getElementById('importSelectedMeetingBtn').disabled = false;
+                return;
+            }
+            
+            // WorkIQ returned empty/echoed response — show retry UI
+            if (data.retry_suggested) {
+                document.getElementById('meetingSummaryLoading').style.display = 'none';
+                document.getElementById('meetingSummaryRetry').style.display = 'block';
+                // Wire up retry button to re-import the same meeting
+                document.getElementById('retrySummaryBtn').onclick = function() {
+                    document.getElementById('meetingSummaryRetry').style.display = 'none';
+                    importSelectedMeeting();
+                };
                 return;
             }
             

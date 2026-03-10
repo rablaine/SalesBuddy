@@ -317,18 +317,18 @@ class TestWorkiqUIElements:
         assert 'meetingCustomPrompt' in html
         assert 'Customize summary prompt' in html
 
-    def test_edit_note_hides_workiq_buttons(self, client, app, sample_data):
-        """Edit call log form should NOT show WorkIQ import buttons."""
+    def test_edit_note_hides_autofill_but_shows_import(self, client, app, sample_data):
+        """Edit call log form hides auto-fill but keeps Import from Meeting."""
         with app.app_context():
             from app.models import Note
             note = Note.query.first()
             if note:
                 response = client.get(f'/note/{note.id}/edit')
                 html = response.data.decode()
-                # The actual button elements should not be rendered in edit mode
-                # (JS may still reference the IDs, but the buttons themselves are hidden)
+                # Auto-fill is only for new notes
                 assert 'id="autoFillBtn"' not in html
-                assert 'id="importMeetingBtn"' not in html
+                # Import from Meeting is available on both new and edit pages
+                assert 'id="importMeetingBtn"' in html
 
 
 # =============================================================================

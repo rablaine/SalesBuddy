@@ -621,6 +621,7 @@ def api_get_meeting_summary():
             'task_description': result.get('task_description', ''),
             'connect_impact': result.get('connect_impact', []),
             'engagement_signals': result.get('engagement_signals', {}),
+            'retry_suggested': result.get('retry_suggested', False),
             'success': True
         })
     except Exception as e:
