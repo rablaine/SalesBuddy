@@ -1385,6 +1385,17 @@ function checkForUpdates(refresh) {
                 if (navMenuBadge) navMenuBadge.classList.add('d-none');
             }
             
+            // Dynamically update card styling based on update availability
+            const card = document.getElementById('updateCheckCard');
+            const cardHeader = card ? card.querySelector('.card-header') : null;
+            if (data.available) {
+                if (card) card.classList.add('border-danger');
+                if (cardHeader) { cardHeader.classList.add('bg-danger', 'text-white'); }
+            } else {
+                if (card) card.classList.remove('border-danger');
+                if (cardHeader) { cardHeader.classList.remove('bg-danger', 'text-white'); }
+            }
+
             if (data.available) {
                 let restartHtml = '';
                 if (data.restart_needed) {
@@ -1401,9 +1412,11 @@ function checkForUpdates(refresh) {
                     <div class="mt-2 small text-muted">
                         ${data.restart_needed ? 'Running' : 'Current'}: <code>${data.boot_commit || data.local_commit}</code> &rarr; Latest: <code>${data.remote_commit}</code>
                     </div>
-                    <div class="mt-3 alert alert-info mb-0 py-2">
-                        <i class="bi bi-terminal"></i> To update, double-click <strong>update.bat</strong> in the NoteHelper folder. If the server runs on a low port, you may see a UAC prompt.
-                        ${!data.dismissed ? '<button class="btn btn-outline-secondary btn-sm ms-2" onclick="dismissUpdate()"><i class="bi bi-bell-slash"></i> Dismiss</button>' : ''}
+                    <div class="mt-3 d-flex align-items-center gap-2">
+                        <button class="btn btn-success btn-sm" id="applyUpdateBtn" onclick="applyUpdate()">
+                            <i class="bi bi-download"></i> Update Now
+                        </button>
+                        ${!data.dismissed ? '<button class="btn btn-outline-secondary btn-sm" onclick="dismissUpdate()"><i class="bi bi-bell-slash"></i> Dismiss</button>' : ''}
                     </div>
                     ${restartHtml}
                 `;
@@ -1429,6 +1442,84 @@ function checkForUpdates(refresh) {
             btn.innerHTML = '<i class="bi bi-arrow-clockwise"></i> Check Now';
             statusEl.innerHTML = '<span class="text-warning"><i class="bi bi-exclamation-triangle"></i> Failed to check for updates</span>';
         });
+}
+
+function applyUpdate() {
+    const card = document.getElementById('updateCheckContent');
+    const btn = document.getElementById('applyUpdateBtn');
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status"></span> Updating...';
+    }
+    card.innerHTML = `
+        <div class="text-center py-3">
+            <div class="spinner-border text-primary mb-3" role="status"></div>
+            <div class="fw-bold">Updating NoteHelper...</div>
+            <div class="text-muted small mt-1" id="updateProgressMsg">Stopping server and pulling latest code...</div>
+        </div>
+    `;
+
+    fetch('/api/admin/update-apply', { method: 'POST', headers: { 'Content-Type': 'application/json' } })
+        .then(r => r.json())
+        .then(data => {
+            if (!data.success) {
+                card.innerHTML = `<div class="alert alert-danger mb-0"><i class="bi bi-exclamation-triangle"></i> ${data.error || 'Update failed.'}</div>`;
+                return;
+            }
+            const msgEl = document.getElementById('updateProgressMsg');
+            if (msgEl) msgEl.textContent = 'Waiting for server to restart...';
+            // Start a display timer and poll /health independently
+            startUpdateTimer();
+            setTimeout(() => pollForServer(0), 3000);
+        })
+        .catch(() => {
+            // Connection lost means the server is restarting -- that's expected
+            const msgEl = document.getElementById('updateProgressMsg');
+            if (msgEl) msgEl.textContent = 'Server is restarting...';
+            startUpdateTimer();
+            setTimeout(() => pollForServer(0), 3000);
+        });
+}
+
+function pollForServer(attempts) {
+    const maxAttempts = 60;  // Give up after 60 seconds
+
+    if (attempts >= maxAttempts) {
+        // Stop the display timer
+        if (window._updateTimerId) clearInterval(window._updateTimerId);
+        const card = document.getElementById('updateCheckContent');
+        if (card) card.innerHTML = `
+            <div class="alert alert-warning mb-0">
+                <i class="bi bi-clock"></i> Server hasn't come back yet. It may still be installing dependencies.
+                <button class="btn btn-sm btn-outline-primary ms-2" onclick="location.reload()">Retry</button>
+            </div>`;
+        return;
+    }
+
+    fetch('/health', { cache: 'no-store' })
+        .then(r => {
+            if (r.ok) {
+                if (window._updateTimerId) clearInterval(window._updateTimerId);
+                const msgEl = document.getElementById('updateProgressMsg');
+                if (msgEl) msgEl.textContent = 'Server is back! Reloading...';
+                setTimeout(() => location.reload(), 500);
+            } else {
+                setTimeout(() => pollForServer(attempts + 1), 1000);
+            }
+        })
+        .catch(() => {
+            setTimeout(() => pollForServer(attempts + 1), 1000);
+        });
+}
+
+// Separate display timer so the seconds count isn't slowed by network timeouts
+function startUpdateTimer() {
+    let seconds = 0;
+    const msgEl = document.getElementById('updateProgressMsg');
+    window._updateTimerId = setInterval(() => {
+        seconds++;
+        if (msgEl) msgEl.textContent = `Waiting for server... (${seconds}s)`;
+    }, 1000);
 }
 
 function dismissUpdate() {

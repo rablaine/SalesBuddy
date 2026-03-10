@@ -462,7 +462,7 @@ class TestAccountContext:
         cid = engagement_data['customer_id']
         resp = client.get(f'/customer/{cid}')
         assert resp.status_code == 200
-        assert b'No account context yet' in resp.data
+        assert b'This space is yours' in resp.data
 
 
 class TestStoryCompleteness:

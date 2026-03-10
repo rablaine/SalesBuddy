@@ -276,6 +276,70 @@ def api_shutdown_server():
     })
 
 
+@admin_bp.route('/api/admin/update-apply', methods=['POST'])
+def api_update_apply():
+    """Trigger a full update cycle (stop → pull → install → migrate → restart).
+
+    Spawns server.ps1 -Force as a fully detached process so it survives
+    this server instance being killed.  Returns immediately; the client
+    should poll /health to detect when the new server is back up.
+    """
+    if sys.platform != 'win32':
+        return jsonify({'error': 'Update is only supported on Windows'}), 400
+
+    repo_root = Path(__file__).resolve().parent.parent.parent
+    server_script = repo_root / 'scripts' / 'server.ps1'
+
+    if not server_script.exists():
+        return jsonify({'error': 'server.ps1 not found'}), 500
+
+    # Read PORT from .env so we can pass through elevation if needed
+    port = int(os.environ.get('PORT', '5151'))
+
+    # Strategy: We need server.ps1 -Force to run in a process that:
+    #   1. Has a real console host (so Write-Host works)
+    #   2. Survives this Flask process being killed (SIGTERM)
+    #   3. Runs invisibly (no console window flash)
+    #
+    # CREATE_NO_WINDOW (0x08000000) is the key: unlike DETACHED_PROCESS, it
+    # gives the child a real (but invisible) console, so Write-Host works.
+    # The child also survives parent SIGTERM.
+    CREATE_NO_WINDOW = 0x08000000
+
+    cmd = [
+        'powershell.exe', '-ExecutionPolicy', 'Bypass',
+        '-File', str(server_script), '-Force'
+    ]
+
+    try:
+        log_file = repo_root / 'data' / 'update.log'
+        with open(log_file, 'w') as lf:
+            # Write-Host goes to console host, not stdout, so the log will
+            # only capture stdout/stderr (pip, git, etc.).  That's fine —
+            # the important thing is the process actually runs.
+            subprocess.Popen(
+                cmd,
+                cwd=str(repo_root),
+                creationflags=CREATE_NO_WINDOW,
+                stdout=lf,
+                stderr=subprocess.STDOUT,
+            )
+    except Exception as e:
+        return jsonify({'error': f'Failed to launch update: {e}'}), 500
+
+    # Cooperatively shut ourselves down after a short delay so server.ps1
+    # finds the port free. The detached child will start a fresh server.
+    def _self_terminate():
+        os.kill(os.getpid(), signal.SIGTERM)
+
+    threading.Timer(1.5, _self_terminate).start()
+
+    return jsonify({
+        'success': True,
+        'message': 'Update started. The server will restart momentarily.',
+    })
+
+
 @admin_bp.route('/api/admin/update-dismiss', methods=['POST'])
 def api_update_dismiss():
     """Dismiss the current update notification."""
