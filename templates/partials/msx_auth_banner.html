@@ -102,7 +102,6 @@
     }
 
     async function checkMsxAuth() {
-        showBannerState('msxAuthChecking');
         try {
             const resp = await fetch('/api/msx/status');
             const data = await resp.json();
@@ -126,7 +125,7 @@
                 showBannerState('msxAuthNoCli');
             } else if (azData.logged_in) {
                 // Logged in to az but no CRM token — complete the flow silently
-                await completeMsxLogin(azData.user_email);
+                await completeMsxLogin(azData.user_email, true);
             } else {
                 showBannerState('msxAuthNeeded');
             }
@@ -195,7 +194,7 @@
                     loginHandled = true;
                     clearInterval(pollTimer); pollTimer = null;
                     clearInterval(elapsedTimer); elapsedTimer = null;
-                    await completeMsxLogin(data.user_email);
+                    await completeMsxLogin(data.user_email, false);
                 }
             } catch (err) {
                 console.error('MSX auth poll error:', err);
@@ -203,24 +202,29 @@
         }, POLL_INTERVAL_MS);
     }
 
-    async function completeMsxLogin(userEmail) {
-        // Update the waiting banner text for silent token acquisition
-        // (vs. the browser sign-in flow which uses the default text)
-        const waitingHeader = document.querySelector('#msxAuthWaiting strong');
-        if (waitingHeader) waitingHeader.textContent = 'Connecting to MSX - this only takes a moment...';
-        const statusEl = document.getElementById('msxBannerWaitingStatus');
-        if (statusEl) statusEl.textContent = '';
-        showBannerState('msxAuthWaiting');
+    async function completeMsxLogin(userEmail, silent) {
+        if (!silent) {
+            // User-initiated sign-in: show connecting banner
+            const waitingHeader = document.querySelector('#msxAuthWaiting strong');
+            if (waitingHeader) waitingHeader.textContent = 'Connecting to MSX - this only takes a moment...';
+            const statusEl = document.getElementById('msxBannerWaitingStatus');
+            if (statusEl) statusEl.textContent = '';
+            showBannerState('msxAuthWaiting');
+        }
         try {
             const resp = await fetch('/api/msx/az-login/complete', { method: 'POST' });
             const data = await resp.json();
             if (data.success) {
-                showBannerState('msxAuthSuccess');
-                const emailEl = document.getElementById('msxBannerEmail');
-                const email = userEmail || data.user_email;
-                if (emailEl && email) emailEl.textContent = 'Signed in as ' + email;
-                // Auto-hide the success banner after 3 seconds
-                setTimeout(hideBanner, 3000);
+                if (!silent) {
+                    showBannerState('msxAuthSuccess');
+                    const emailEl = document.getElementById('msxBannerEmail');
+                    const email = userEmail || data.user_email;
+                    if (emailEl && email) emailEl.textContent = 'Signed in as ' + email;
+                    // Auto-hide the success banner after 3 seconds
+                    setTimeout(hideBanner, 3000);
+                } else {
+                    hideBanner();
+                }
                 // Dispatch event so page-specific JS can react to auth success
                 document.dispatchEvent(new CustomEvent('msxAuthSuccess'));
             } else {

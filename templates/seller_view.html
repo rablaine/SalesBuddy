@@ -287,6 +287,12 @@
         if (!this.src || this.src === 'about:blank') return;
         try {
             const doc = this.contentDocument;
+            // Force all links inside the iframe to open in a new tab
+            if (!doc.querySelector('base[target]')) {
+                const base = doc.createElement('base');
+                base.target = '_blank';
+                doc.head.appendChild(base);
+            }
             this.style.height = Math.min(doc.documentElement.scrollHeight, window.innerHeight * 0.85) + 'px';
             const table = doc.querySelector('table.table');
             if (table) {
@@ -340,6 +346,12 @@
         if (!this.src || this.src === 'about:blank') return;
         try {
             const doc = this.contentDocument;
+            // Force all links inside the iframe to open in a new tab
+            if (!doc.querySelector('base[target]')) {
+                const base = doc.createElement('base');
+                base.target = '_blank';
+                doc.head.appendChild(base);
+            }
             this.style.height = Math.min(doc.documentElement.scrollHeight, window.innerHeight * 0.85) + 'px';
             const table = doc.querySelector('table.table');
             if (table) {
