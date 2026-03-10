@@ -123,18 +123,34 @@
 
     <div class="row">
         <!-- Main Alert List -->
-        <div class="col-lg-9">
+        <div class="col-12">
             <div class="card">
                 <div class="card-header d-flex justify-content-between align-items-center">
                     <h5 class="mb-0"><i class="bi bi-list-check"></i> Actionable Customers ({{ analyses|length }})</h5>
-                    <div>
-                        <a href="{{ url_for('revenue.engagement_history') }}" class="btn btn-sm btn-outline-secondary me-2">
+                    <div class="d-flex align-items-center gap-2">
+                        {% if sellers_with_alerts %}
+                        <div class="dropdown">
+                            <button class="btn btn-sm btn-outline-primary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                                <i class="bi bi-people"></i> Sellers ({{ sellers_with_alerts|length }})
+                            </button>
+                            <ul class="dropdown-menu dropdown-menu-end">
+                                {% for seller_name in sellers_with_alerts %}
+                                <li>
+                                    <a class="dropdown-item" href="{{ url_for('revenue.revenue_seller_view', seller_name=seller_name) }}">
+                                        <i class="bi bi-person"></i> {{ seller_name }}
+                                    </a>
+                                </li>
+                                {% endfor %}
+                            </ul>
+                        </div>
+                        {% endif %}
+                        <a href="{{ url_for('revenue.engagement_history') }}" class="btn btn-sm btn-outline-secondary">
                             <i class="bi bi-clock-history"></i> History
                         </a>
                         {% if latest_import %}
                         <small class="text-muted">
                             Last import: {{ latest_import.imported_at.strftime('%b %d, %Y') }}
-                            ({{ latest_import.record_count }} rows)
+                            {% if months_data %}({{ months_data|length }} months){% endif %}
                         </small>
                         {% endif %}
                     </div>
@@ -177,17 +193,17 @@
                                         {% endif %}
                                     </td>
                                     <td><small>{{ a.bucket }}</small></td>
-                                    <td>
+                                    <td class="text-nowrap">
                                         {% if a.category == 'CHURN_RISK' %}
-                                        <span class="badge bg-danger">{{ a.category }}</span>
+                                        <span class="badge bg-danger">CHURN_RISK</span>
                                         {% elif a.category == 'RECENT_DIP' %}
-                                        <span class="badge bg-warning text-dark">{{ a.category }}</span>
+                                        <span class="badge bg-warning text-dark">RECENT_DIP</span>
                                         {% elif a.category == 'EXPANSION_OPPORTUNITY' %}
-                                        <span class="badge bg-success">{{ a.category }}</span>
+                                        <span class="badge bg-success">EXPANSION</span>
                                         {% elif a.category == 'VOLATILE' %}
-                                        <span class="badge bg-secondary">{{ a.category }}</span>
+                                        <span class="badge bg-secondary">VOLATILE</span>
                                         {% elif a.category == 'NEW_CUSTOMER' %}
-                                        <span class="badge bg-info">{{ a.category }}</span>
+                                        <span class="badge bg-info">NEW_CUSTOMER</span>
                                         {% else %}
                                         <span class="badge bg-light text-dark">{{ a.category }}</span>
                                         {% endif %}
@@ -205,7 +221,7 @@
                                     </td>
                                     <td>
                                         {% if a.seller_name %}
-                                        <a href="{{ url_for('revenue.revenue_seller_view', seller_name=a.seller_name) }}" class="badge bg-primary text-decoration-none">
+                                        <a href="{{ url_for('revenue.revenue_seller_view', seller_name=a.seller_name) }}" class="badge {{ get_seller_color(seller_id_map[a.seller_name]) if a.seller_name in seller_id_map else 'bg-primary' }} text-decoration-none">
                                             <i class="bi bi-person"></i> {{ a.seller_name }}
                                         </a>
                                         {% else %}
@@ -234,57 +250,6 @@
                     </div>
                     {% endif %}
                 </div>
-            </div>
-        </div>
-
-        <!-- Sidebar -->
-        <div class="col-lg-3">
-            <!-- Sellers with Alerts -->
-            <div class="card mb-3">
-                <div class="card-header">
-                    <h6 class="mb-0"><i class="bi bi-people"></i> Sellers with Alerts</h6>
-                </div>
-                <ul class="list-group list-group-flush">
-                    {% if sellers_with_alerts %}
-                    {% for seller_name in sellers_with_alerts %}
-                    <li class="list-group-item d-flex justify-content-between align-items-center">
-                        <a href="{{ url_for('revenue.revenue_seller_view', seller_name=seller_name) }}">
-                            {{ seller_name }}
-                        </a>
-                        <a href="{{ url_for('revenue.revenue_seller_export', seller_name=seller_name) }}" 
-                           class="btn btn-sm btn-outline-secondary" title="Export CSV for Teams">
-                            <i class="bi bi-download"></i>
-                        </a>
-                    </li>
-                    {% endfor %}
-                    {% else %}
-                    <li class="list-group-item text-muted">No seller alerts</li>
-                    {% endif %}
-                </ul>
-            </div>
-
-            <!-- Data Info -->
-            <div class="card">
-                <div class="card-header">
-                    <h6 class="mb-0"><i class="bi bi-calendar3"></i> Data Range</h6>
-                </div>
-                <ul class="list-group list-group-flush">
-                    {% if months_data %}
-                    {% for m in months_data[:6] %}
-                    <li class="list-group-item d-flex justify-content-between">
-                        <span>{{ m.fiscal_month }}</span>
-                        <small class="text-muted">{{ m.record_count }} records</small>
-                    </li>
-                    {% endfor %}
-                    {% if months_data|length > 6 %}
-                    <li class="list-group-item text-muted">
-                        <small>+ {{ months_data|length - 6 }} more months</small>
-                    </li>
-                    {% endif %}
-                    {% else %}
-                    <li class="list-group-item text-muted">No data imported</li>
-                    {% endif %}
-                </ul>
             </div>
         </div>
     </div>

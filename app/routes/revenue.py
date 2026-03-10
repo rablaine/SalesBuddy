@@ -54,6 +54,10 @@ def revenue_dashboard():
         RevenueAnalysis.recommended_action.notin_(["NO ACTION", "MONITOR"])
     ).distinct().all()
     sellers_with_alerts = [s[0] for s in seller_names if s[0]]
+
+    # Map seller names to IDs for color-coding badges
+    all_sellers = Seller.query.all()
+    seller_id_map = {s.name: s.id for s in all_sellers}
     
     # Get import stats
     latest_import = RevenueImport.query.order_by(RevenueImport.imported_at.desc()).first()
@@ -72,6 +76,7 @@ def revenue_dashboard():
         months_data=months_data,
         import_status=import_status,
         analysis_status=analysis_status,
+        seller_id_map=seller_id_map,
     )
 
 

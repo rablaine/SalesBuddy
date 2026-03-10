@@ -787,6 +787,7 @@ def get_milestone_tracker_data() -> Dict[str, Any]:
             "customer": {
                 "id": ms.customer.id if ms.customer else None,
                 "name": ms.customer.get_display_name() if ms.customer else "Unknown",
+                "favicon_b64": ms.customer.favicon_b64 if ms.customer else None,
             } if ms.customer else None,
             "seller": {
                 "id": ms.customer.seller.id,

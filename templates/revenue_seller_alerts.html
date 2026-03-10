@@ -101,15 +101,15 @@
                             </td>
                             <td><small class="text-muted">{{ a.tpid or '-' }}</small></td>
                             <td><small>{{ a.bucket }}</small></td>
-                            <td>
+                            <td class="text-nowrap">
                                 {% if a.category == 'CHURN_RISK' %}
-                                <span class="badge bg-danger">{{ a.category }}</span>
+                                <span class="badge bg-danger">CHURN_RISK</span>
                                 {% elif a.category == 'RECENT_DIP' %}
-                                <span class="badge bg-warning text-dark">{{ a.category }}</span>
+                                <span class="badge bg-warning text-dark">RECENT_DIP</span>
                                 {% elif a.category == 'EXPANSION_OPPORTUNITY' %}
-                                <span class="badge bg-success">{{ a.category }}</span>
+                                <span class="badge bg-success">EXPANSION</span>
                                 {% elif a.category == 'VOLATILE' %}
-                                <span class="badge bg-secondary">{{ a.category }}</span>
+                                <span class="badge bg-secondary">VOLATILE</span>
                                 {% else %}
                                 <span class="badge bg-light text-dark">{{ a.category }}</span>
                                 {% endif %}

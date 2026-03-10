@@ -110,8 +110,8 @@
 <!-- Filters -->
 <div class="card mb-4">
     <div class="card-body py-2">
-        <div class="row align-items-center">
-            <div class="col-md-2">
+        <div class="row align-items-center g-2">
+            <div class="col-md">
                 <div class="dropdown">
                     <button class="btn btn-sm btn-outline-secondary dropdown-toggle w-100 text-start text-truncate" type="button" id="quarterDropdown" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
                         <i class="bi bi-calendar3"></i> Quarters
@@ -135,7 +135,7 @@
                     </ul>
                 </div>
             </div>
-            <div class="col-md-2">
+            <div class="col-md">
                 <select id="sellerFilter" class="form-select form-select-sm">
                     <option value="">All Sellers</option>
                     {% for seller in sellers %}
@@ -143,7 +143,7 @@
                     {% endfor %}
                 </select>
             </div>
-            <div class="col-md-2">
+            <div class="col-md">
                 <select id="statusFilter" class="form-select form-select-sm">
                     <option value="">All Statuses</option>
                     <option value="On Track">On Track</option>
@@ -151,7 +151,7 @@
                     <option value="Blocked">Blocked</option>
                 </select>
             </div>
-            <div class="col-md-2">
+            <div class="col-md">
                 <select id="areaFilter" class="form-select form-select-sm">
                     <option value="">All Areas</option>
                     {% for area in areas %}
@@ -159,13 +159,21 @@
                     {% endfor %}
                 </select>
             </div>
-            <div class="col-md-2">
+            <div class="col-md">
+                <select id="urgencyFilter" class="form-select form-select-sm">
+                    <option value="">All Urgency</option>
+                    <option value="past_due">Past Due</option>
+                    <option value="this_week">Due This Week</option>
+                    <option value="this_month">Due This Month</option>
+                </select>
+            </div>
+            <div class="col-md-auto">
                 <div class="form-check form-switch mt-1 text-nowrap">
                     <input class="form-check-input" type="checkbox" id="myTeamFilter">
                     <label class="form-check-label small" for="myTeamFilter">My Team</label>
                 </div>
             </div>
-            <div class="col-md-2 text-end">
+            <div class="col-md-auto text-end">
                 <span id="filteredCount" class="text-muted small">{{ milestones|length }} milestones</span>
                 <button type="button" class="btn btn-sm btn-outline-secondary ms-1" id="resetFiltersBtn" title="Reset all filters" style="display: none;">
                     <i class="bi bi-x-circle"></i> Reset
@@ -201,6 +209,7 @@
                 data-area="{{ ms.workload_area }}"
                 data-quarter="{{ ms.fiscal_quarter }}"
                 data-on-my-team="{{ 'true' if ms.on_my_team else 'false' }}"
+                data-urgency="{{ ms.urgency }}"
                 data-customer="{{ ms.customer.name|lower if ms.customer else '' }}"
                 data-seller-name="{{ ms.seller.name|lower if ms.seller else 'zzz' }}"
                 data-status-sort="{{ ms.status_sort }}"
@@ -582,6 +591,7 @@ function saveFilters() {
         seller: document.getElementById('sellerFilter').value,
         status: document.getElementById('statusFilter').value,
         area: document.getElementById('areaFilter').value,
+        urgency: document.getElementById('urgencyFilter').value,
         myTeam: document.getElementById('myTeamFilter').checked,
         allQuarters: allQuarters
     };
@@ -603,6 +613,7 @@ function restoreFilters() {
         if (state.seller) document.getElementById('sellerFilter').value = state.seller;
         if (state.status) document.getElementById('statusFilter').value = state.status;
         if (state.area) document.getElementById('areaFilter').value = state.area;
+        if (state.urgency) document.getElementById('urgencyFilter').value = state.urgency;
         if (state.myTeam) document.getElementById('myTeamFilter').checked = state.myTeam;
     } catch (e) {
         localStorage.removeItem(FILTER_STORAGE_KEY);
@@ -614,6 +625,7 @@ function isFiltersDefault() {
     return allQuartersChecked &&
         document.getElementById('sellerFilter').value === '' &&
         document.getElementById('statusFilter').value === '' &&
+        document.getElementById('urgencyFilter').value === '' &&
         !document.getElementById('myTeamFilter').checked;
 }
 
@@ -626,6 +638,7 @@ function resetFilters() {
     document.querySelectorAll('.quarter-checkbox').forEach(cb => cb.checked = true);
     document.getElementById('sellerFilter').value = '';
     document.getElementById('statusFilter').value = '';
+    document.getElementById('urgencyFilter').value = '';
     document.getElementById('myTeamFilter').checked = false;
     // Preserve area (workload) filter — save current state instead of removing
     saveFilters();
@@ -637,10 +650,14 @@ function applyFilters() {
     const sellerFilter = document.getElementById('sellerFilter').value;
     const statusFilter = document.getElementById('statusFilter').value;
     const areaFilter = document.getElementById('areaFilter').value;
+    const urgencyFilter = document.getElementById('urgencyFilter').value;
     const myTeamOnly = document.getElementById('myTeamFilter').checked;
     
     const rows = document.querySelectorAll('.milestone-row');
     let visibleCount = 0;
+    let visibleMonthly = 0;
+    let visiblePastDue = 0;
+    let visibleThisWeek = 0;
     
     rows.forEach(row => {
         let visible = true;
@@ -669,17 +686,35 @@ function applyFilters() {
             visible = false;
         }
         
+        // Urgency filter
+        if (urgencyFilter && row.dataset.urgency !== urgencyFilter) {
+            visible = false;
+        }
+        
         // My Team filter
         if (myTeamOnly && row.dataset.onMyTeam !== 'true') {
             visible = false;
         }
         
         row.style.display = visible ? '' : 'none';
-        if (visible) visibleCount++;
+        if (visible) {
+            visibleCount++;
+            visibleMonthly += parseFloat(row.dataset.monthly) || 0;
+            if (row.dataset.urgency === 'past_due') visiblePastDue++;
+            if (row.dataset.urgency === 'this_week') visibleThisWeek++;
+        }
     });
     
     document.getElementById('filteredCount').textContent = 
         `${visibleCount} of {{ milestones|length }} milestones`;
+    
+    // Update summary cards to reflect filtered data
+    document.getElementById('totalCount').textContent = visibleCount;
+    document.getElementById('totalValue').textContent = visibleMonthly > 0
+        ? '$' + visibleMonthly.toLocaleString('en-US', { maximumFractionDigits: 0 })
+        : '$0';
+    document.getElementById('pastDueCount').textContent = visiblePastDue;
+    document.getElementById('thisWeekCount').textContent = visibleThisWeek;
     
     // Update dropdown button text
     updateQuarterButtonText();
@@ -720,6 +755,7 @@ document.getElementById('quarterSelectNone')?.addEventListener('click', function
 document.getElementById('sellerFilter').addEventListener('change', applyFilters);
 document.getElementById('statusFilter').addEventListener('change', applyFilters);
 document.getElementById('areaFilter').addEventListener('change', applyFilters);
+document.getElementById('urgencyFilter').addEventListener('change', applyFilters);
 document.getElementById('myTeamFilter').addEventListener('change', applyFilters);
 document.getElementById('resetFiltersBtn').addEventListener('click', resetFilters);
 
