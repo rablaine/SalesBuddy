@@ -730,6 +730,16 @@ let currentSort = { column: 'monthly', direction: 'desc' };
 
 // Restore saved filters and apply
 restoreFilters();
+
+// URL param override: ?seller=ID pre-selects the seller filter
+(function() {
+    const params = new URLSearchParams(window.location.search);
+    const sellerParam = params.get('seller');
+    if (sellerParam) {
+        document.getElementById('sellerFilter').value = sellerParam;
+    }
+})();
+
 applyFilters();
 
 // Show initial sort indicator (default: monthly desc)

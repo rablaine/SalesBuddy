@@ -451,7 +451,7 @@ class TestMilestoneViewPage:
 
         assert 'Orphan Milestone' in html
         assert 'Not linked to a customer or opportunity' in html
-    """Tests for the opportunity view page route."""
+    """Tests for the opportunity view page route and MSX details API."""
 
     def _make_msx_opportunity(self, **overrides):
         """Helper to build a mock MSX opportunity response."""
@@ -479,9 +479,8 @@ class TestMilestoneViewPage:
         data.update(overrides)
         return data
 
-    @patch('app.routes.opportunities.get_opportunity')
-    def test_opportunity_view_success(self, mock_get_opp, app, client, db_session, sample_user):
-        """Test viewing an opportunity with successful MSX fetch."""
+    def test_opportunity_view_renders_immediately(self, app, client, db_session, sample_user):
+        """Test page renders with local data without calling MSX API."""
         customer = Customer(
             name='View Test Corp', tpid=6001,
         )
@@ -496,7 +495,6 @@ class TestMilestoneViewPage:
         db_session.add(opp)
         db_session.flush()
 
-        # Add a milestone linked to this opp
         ms = Milestone(
             msx_milestone_id='ms-view-1',
             url='https://example.com/ms-view-1',
@@ -507,30 +505,226 @@ class TestMilestoneViewPage:
         db_session.add(ms)
         db_session.commit()
 
-        mock_get_opp.return_value = {
-            "success": True,
-            "opportunity": self._make_msx_opportunity(),
-        }
+        # No MSX API mock needed — route no longer calls get_opportunity()
+        response = client.get(f'/opportunity/{opp.id}')
+        assert response.status_code == 200
+        html = response.data.decode()
+
+        # Local data rendered immediately
+        assert 'View Test Opp' in html
+        assert 'Open in MSX' in html
+        assert 'Deploy Phase 1' in html
+        assert 'View Test Corp' in html
+
+        # MSX details loaded via JS, so these should NOT be in the HTML
+        assert 'Looking good' not in html
+        assert 'Jane Seller' not in html
+
+    def test_opportunity_view_shows_loading_spinners(self, app, client, db_session, sample_user):
+        """Test page shows spinner placeholders for async MSX content."""
+        opp = Opportunity(
+            msx_opportunity_id='opp-spinner-test',
+            name='Spinner Test Opp',
+        )
+        db_session.add(opp)
+        db_session.commit()
 
         response = client.get(f'/opportunity/{opp.id}')
         assert response.status_code == 200
         html = response.data.decode()
 
-        # Check page renders key content
-        assert 'View Test Opp' in html
-        assert 'Open in MSX' in html
-        assert 'Deploy Phase 1' in html
-        assert 'Looking good' in html
-        assert 'Customer confirmed budget' in html
-        assert '$50,000' in html
-        assert 'Jane Seller' in html
+        assert 'detailsSpinner' in html
+        assert 'commentsSpinner' in html
+        assert 'Loading details from MSX' in html
+        assert 'Loading comments from MSX' in html
+
+    def test_opportunity_view_404(self, client):
+        """Test viewing a nonexistent opportunity returns 404."""
+        response = client.get('/opportunity/99999')
+        assert response.status_code == 404
 
     @patch('app.routes.opportunities.get_opportunity')
-    def test_opportunity_view_msx_error(self, mock_get_opp, app, client, db_session, sample_user):
-        """Test viewing an opportunity when MSX fetch fails."""
+    def test_msx_details_api_success(self, mock_get_opp, app, client, db_session, sample_user):
+        """Test the MSX details API endpoint returns opportunity data."""
         opp = Opportunity(
-            msx_opportunity_id='opp-error-test',
-            name='Error Test Opp',
+            msx_opportunity_id='opp-api-details',
+            name='API Details Opp',
+        )
+        db_session.add(opp)
+        db_session.commit()
+
+        mock_get_opp.return_value = {
+            "success": True,
+            "opportunity": self._make_msx_opportunity(),
+        }
+
+        response = client.get(f'/api/opportunity/{opp.id}/msx-details')
+        assert response.status_code == 200
+        data = response.get_json()
+
+        assert data['success'] is True
+        assert data['opportunity']['name'] == 'Test Opportunity'
+        assert data['opportunity']['estimated_value'] == 50000.0
+        assert len(data['opportunity']['comments']) == 2
+        assert data['opportunity']['owner'] == 'Jane Seller'
+
+    @patch('app.routes.opportunities.get_opportunity')
+    def test_msx_details_api_caches_to_db(self, mock_get_opp, app, client, db_session, sample_user):
+        """Test that successful MSX fetch saves details back to local DB."""
+        opp = Opportunity(
+            msx_opportunity_id='opp-cache-test',
+            name='Cache Test Opp',
+        )
+        db_session.add(opp)
+        db_session.commit()
+        opp_id = opp.id
+
+        mock_get_opp.return_value = {
+            "success": True,
+            "opportunity": self._make_msx_opportunity(),
+        }
+
+        response = client.get(f'/api/opportunity/{opp_id}/msx-details')
+        assert response.status_code == 200
+
+        # Verify the data was cached in the DB
+        db_session.expire_all()
+        opp = db_session.get(Opportunity, opp_id)
+        assert opp.opportunity_number == '7-TEST123'
+        assert opp.statecode == 0
+        assert opp.state == 'Open'
+        assert opp.status_reason == 'In Progress'
+        assert opp.estimated_value == 50000.0
+        assert opp.estimated_close_date == '2026-03-15T00:00:00Z'
+        assert opp.owner_name == 'Jane Seller'
+        assert opp.compete_threat == 'Medium'
+        assert opp.customer_need == 'Migrate workloads to Azure'
+        assert opp.description == 'Big cloud migration deal'
+        assert opp.details_fetched_at is not None
+
+    @patch('app.routes.opportunities.get_opportunity')
+    def test_msx_details_api_caches_comments_to_db(self, mock_get_opp, app, client, db_session, sample_user):
+        """Test that successful MSX fetch saves comments as JSON to local DB."""
+        import json
+        opp = Opportunity(
+            msx_opportunity_id='opp-cache-comments',
+            name='Cache Comments Opp',
+        )
+        db_session.add(opp)
+        db_session.commit()
+        opp_id = opp.id
+
+        mock_get_opp.return_value = {
+            "success": True,
+            "opportunity": self._make_msx_opportunity(),
+        }
+
+        response = client.get(f'/api/opportunity/{opp_id}/msx-details')
+        assert response.status_code == 200
+
+        # Verify comments were cached in the DB
+        db_session.expire_all()
+        opp = db_session.get(Opportunity, opp_id)
+        assert opp.cached_comments_json is not None
+        comments = json.loads(opp.cached_comments_json)
+        assert len(comments) == 2
+        assert comments[0]['comment'] == 'Looking good'
+        assert comments[1]['comment'] == 'Customer confirmed budget'
+
+    def test_opportunity_view_shows_cached_comments(self, app, client, db_session, sample_user):
+        """Test page renders cached comments immediately on load."""
+        import json
+        from datetime import datetime, timezone
+        comments = [
+            {"displayName": "Jane Doe", "modifiedOn": "2026-03-07", "comment": "Pipeline review notes"},
+            {"displayName": "John Smith", "modifiedOn": "2026-03-08", "comment": "Updated forecast"},
+        ]
+        opp = Opportunity(
+            msx_opportunity_id='opp-cached-comments-view',
+            name='Cached Comments View Opp',
+            cached_comments_json=json.dumps(comments),
+            details_fetched_at=datetime(2026, 3, 8, tzinfo=timezone.utc),
+        )
+        db_session.add(opp)
+        db_session.commit()
+
+        response = client.get(f'/opportunity/{opp.id}')
+        assert response.status_code == 200
+        html = response.data.decode()
+
+        # Cached comments should appear in the HTML
+        assert 'Jane Doe' in html
+        assert 'Pipeline review notes' in html
+        assert 'John Smith' in html
+        assert 'Updated forecast' in html
+        assert 'Refreshing comments from MSX' in html  # different spinner text
+        assert '2 comments' in html  # badge count
+
+    def test_opportunity_view_no_cached_comments_shows_loading(self, app, client, db_session, sample_user):
+        """Test page shows loading spinner when no cached comments exist."""
+        opp = Opportunity(
+            msx_opportunity_id='opp-no-cached-comments',
+            name='No Cached Comments Opp',
+        )
+        db_session.add(opp)
+        db_session.commit()
+
+        response = client.get(f'/opportunity/{opp.id}')
+        assert response.status_code == 200
+        html = response.data.decode()
+
+        assert 'Loading comments from MSX' in html
+        assert 'commentsCached' in html  # div exists but hidden
+        """Test page renders cached MSX details immediately without API call."""
+        from datetime import datetime, timezone
+        opp = Opportunity(
+            msx_opportunity_id='opp-cached-view',
+            name='Cached View Opp',
+            opportunity_number='7-CACHED',
+            statecode=0,
+            state='Open',
+            status_reason='In Progress',
+            estimated_value=75000.0,
+            owner_name='Bob Seller',
+            details_fetched_at=datetime(2026, 3, 8, tzinfo=timezone.utc),
+        )
+        db_session.add(opp)
+        db_session.commit()
+
+        response = client.get(f'/opportunity/{opp.id}')
+        assert response.status_code == 200
+        html = response.data.decode()
+
+        # Cached data should appear in the HTML
+        assert '7-CACHED' in html
+        assert 'Open' in html
+        assert '$75,000' in html
+        assert 'Bob Seller' in html
+        assert 'Refreshing from MSX' in html  # different spinner text for cached
+
+    def test_opportunity_view_no_cache_shows_loading(self, app, client, db_session, sample_user):
+        """Test page shows loading spinner when no cached data exists."""
+        opp = Opportunity(
+            msx_opportunity_id='opp-no-cache',
+            name='No Cache Opp',
+        )
+        db_session.add(opp)
+        db_session.commit()
+
+        response = client.get(f'/opportunity/{opp.id}')
+        assert response.status_code == 200
+        html = response.data.decode()
+
+        assert 'Loading details from MSX' in html
+        # Should NOT have cached content visible
+        assert 'detailsCached' in html  # div exists but hidden
+
+    @patch('app.routes.opportunities.get_opportunity')
+    def test_msx_details_api_error(self, mock_get_opp, app, client, db_session, sample_user):
+        """Test the MSX details API endpoint when MSX returns error."""
+        opp = Opportunity(
+            msx_opportunity_id='opp-api-error',
+            name='API Error Opp',
         )
         db_session.add(opp)
         db_session.commit()
@@ -540,21 +734,44 @@ class TestMilestoneViewPage:
             "error": "Not authenticated. Run 'az login' first.",
         }
 
-        response = client.get(f'/opportunity/{opp.id}')
+        response = client.get(f'/api/opportunity/{opp.id}/msx-details')
         assert response.status_code == 200
-        html = response.data.decode()
+        data = response.get_json()
 
-        assert 'Error Test Opp' in html
-        assert 'Not authenticated' in html
+        assert data['success'] is False
+        assert 'Not authenticated' in data['error']
 
-    def test_opportunity_view_404(self, client):
-        """Test viewing a nonexistent opportunity returns 404."""
-        response = client.get('/opportunity/99999')
+    @patch('app.routes.opportunities.get_opportunity')
+    def test_msx_details_api_vpn_blocked(self, mock_get_opp, app, client, db_session, sample_user):
+        """Test the MSX details API endpoint when VPN is blocked."""
+        opp = Opportunity(
+            msx_opportunity_id='opp-api-vpn',
+            name='API VPN Opp',
+        )
+        db_session.add(opp)
+        db_session.commit()
+
+        mock_get_opp.return_value = {
+            "success": False,
+            "error": "IP address is blocked — connect to VPN and retry.",
+            "vpn_blocked": True,
+        }
+
+        response = client.get(f'/api/opportunity/{opp.id}/msx-details')
+        assert response.status_code == 200
+        data = response.get_json()
+
+        assert data['success'] is False
+        assert data['vpn_blocked'] is True
+
+    def test_msx_details_api_404(self, client):
+        """Test the MSX details API endpoint for nonexistent opportunity."""
+        response = client.get('/api/opportunity/99999/msx-details')
         assert response.status_code == 404
 
     @patch('app.routes.opportunities.get_opportunity')
-    def test_opportunity_view_no_comments(self, mock_get_opp, app, client, db_session, sample_user):
-        """Test viewing an opportunity with empty comments list."""
+    def test_msx_details_api_no_comments(self, mock_get_opp, app, client, db_session, sample_user):
+        """Test MSX details API with empty comments list."""
         opp = Opportunity(
             msx_opportunity_id='opp-no-comments',
             name='No Comments Opp',
@@ -567,10 +784,12 @@ class TestMilestoneViewPage:
             "opportunity": self._make_msx_opportunity(comments=[], comments_plain=""),
         }
 
-        response = client.get(f'/opportunity/{opp.id}')
+        response = client.get(f'/api/opportunity/{opp.id}/msx-details')
         assert response.status_code == 200
-        html = response.data.decode()
-        assert 'No forecast comments yet' in html
+        data = response.get_json()
+
+        assert data['success'] is True
+        assert data['opportunity']['comments'] == []
 
 
 class TestOpportunityCommentRoute:

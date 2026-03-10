@@ -573,6 +573,20 @@ class Opportunity(db.Model):
     opportunity_number = db.Column(db.String(50), nullable=True)  # e.g., "7-3FU4Q45URI"
     name = db.Column(db.String(500), nullable=False)
     
+    # MSX details (cached on read from the MSX API)
+    statecode = db.Column(db.Integer, nullable=True)  # 0=Open, 1=Won, 2=Lost
+    state = db.Column(db.String(50), nullable=True)  # Formatted: "Open", "Won", "Lost"
+    status_reason = db.Column(db.String(100), nullable=True)  # Detailed status: "In Progress", etc.
+    estimated_value = db.Column(db.Float, nullable=True)  # Dollar value
+    estimated_close_date = db.Column(db.String(30), nullable=True)  # ISO date string from MSX
+    owner_name = db.Column(db.String(200), nullable=True)  # Opportunity owner display name
+    compete_threat = db.Column(db.String(100), nullable=True)  # Compete threat level
+    customer_need = db.Column(db.Text, nullable=True)  # Customer need description
+    description = db.Column(db.Text, nullable=True)  # Opportunity description
+    msx_url = db.Column(db.String(500), nullable=True)  # Direct link to MSX record
+    cached_comments_json = db.Column(db.Text, nullable=True)  # Forecast comments cached as JSON string
+    details_fetched_at = db.Column(db.DateTime, nullable=True)  # When MSX details were last cached
+    
     # Relationships
     customer_id = db.Column(db.Integer, db.ForeignKey('customers.id'), nullable=True)
     created_at = db.Column(db.DateTime, default=utc_now, nullable=False)

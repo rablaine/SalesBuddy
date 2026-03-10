@@ -24,7 +24,9 @@
 </div>
 
 <div class="row">
-    <div class="col-md-4">
+    <!-- Left column: Details + Customers -->
+    <div class="col-lg-4">
+        <!-- Details Card -->
         <div class="card mb-3">
             <div class="card-header">
                 <h5 class="mb-0">Details</h5>
@@ -72,6 +74,58 @@
             </div>
         </div>
         
+        <!-- Customers Card (compact, scrollable) -->
+        <div class="card mb-3">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-building"></i> Customers <span class="badge bg-secondary">{{ customers|length }}</span></h5>
+            </div>
+            <div class="card-body p-0">
+                {% if customers %}
+                <div style="max-height: 280px; overflow-y: auto;">
+                    <table class="table table-hover table-sm mb-0">
+                        <thead class="sticky-top bg-body">
+                            <tr>
+                                <th style="font-size: 0.8rem;">Customer</th>
+                                <th style="font-size: 0.8rem;">Last Note</th>
+                                <th style="font-size: 0.8rem; width: 40px;"></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for customer_data in customers %}
+                            <tr>
+                                <td style="font-size: 0.85rem;">
+                                    <a href="{{ url_for('customers.customer_view', id=customer_data.customer.id) }}" class="text-decoration-none">
+                                        {{ customer_favicon(customer_data.customer) }} {{ customer_data.customer.name }}
+                                    </a>
+                                </td>
+                                <td style="font-size: 0.8rem;">
+                                    {% if customer_data.last_note %}
+                                        <a href="{{ url_for('notes.note_view', id=customer_data.last_note.id) }}" class="text-decoration-none text-muted">
+                                            {{ customer_data.last_note.call_date.strftime('%b %d, %Y') }}
+                                        </a>
+                                    {% else %}
+                                        <span class="text-muted">No notes yet</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <a href="{{ url_for('notes.note_create', customer_id=customer_data.customer.id) }}" class="btn btn-sm btn-success py-0 px-1" title="New Note">
+                                        <i class="bi bi-plus"></i>
+                                    </a>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                    <div class="p-3 text-muted">No customers assigned to this seller yet.</div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Middle column: Revenue Analyzer -->
+    <div class="col-lg-4">
         {% if revenue_alerts %}
         <div class="card mb-3 border-warning">
             <div class="card-header bg-warning text-dark d-flex justify-content-between align-items-center">
@@ -117,66 +171,269 @@
                 {% endif %}
             </div>
         </div>
-        {% endif %}
-    </div>
-    
-    <div class="col-md-8">
+        {% else %}
         <div class="card mb-3">
             <div class="card-header">
-                <h5 class="mb-0">Customers (sorted by most recent call)</h5>
+                <h5 class="mb-0"><i class="bi bi-graph-up"></i> Revenue Analyzer</h5>
             </div>
-            <div class="card-body">
-                {% if customers %}
-                    <div class="table-responsive">
-                        <table class="table table-hover">
-                            <thead>
-                                <tr>
-                                    <th>Customer</th>
-                                    <th>Most Recent Call</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {% for customer_data in customers %}
-                                    <tr>
-                                        <td>
-                                            <a href="{{ url_for('customers.customer_view', id=customer_data.customer.id) }}">
-                                                {{ customer_favicon(customer_data.customer) }} {{ customer_data.customer.name }}
-                                            </a>
-                                        </td>
-                                        <td>
-                                            <div class="d-flex justify-content-between align-items-center">
-                                                <div>
-                                                    {% if customer_data.last_call %}
-                                                        <a href="{{ url_for('notes.note_view', id=customer_data.last_call.id) }}">
-                                                            {{ customer_data.last_call.call_date.strftime('%b %d, %Y') }}{% if customer_data.last_call.call_date.hour != 0 or customer_data.last_call.call_date.minute != 0 %} {{ customer_data.last_call.call_date.strftime('%I:%M %p') }}{% endif %}
-                                                        </a>
-                                                    {% else %}
-                                                        <span class="text-muted">No calls yet</span>
-                                                    {% endif %}
-                                                </div>
-                                                <a href="{{ url_for('notes.note_create', customer_id=customer_data.customer.id) }}" class="btn btn-sm btn-success ms-2">
-                                                    <i class="bi bi-plus-circle"></i> New Note
-                                                </a>
-                                            </div>
-                                        </td>
-                                    </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
-                    </div>
-                {% else %}
-                    <p class="text-muted">No customers assigned to this seller yet.</p>
+            <div class="card-body text-center text-muted py-4">
+                <i class="bi bi-graph-up" style="font-size: 2rem;"></i>
+                <p class="mt-2 mb-0">No revenue insights yet</p>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- Right column: Milestones -->
+    <div class="col-lg-4">
+        {% if milestones %}
+        <div class="card mb-3 border-info">
+            <div class="card-header bg-info text-dark d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-flag"></i> Milestones <span class="badge bg-dark">{{ milestones|length }}</span></h5>
+                <a href="{{ url_for('milestones.milestone_tracker') }}?seller={{ seller.id }}" class="btn btn-sm btn-outline-dark">
+                    <i class="bi bi-eye"></i> Full View
+                </a>
+            </div>
+            <div class="card-body p-0">
+                <div class="list-group list-group-flush">
+                    {% for ms in milestones[:10] %}
+                    <a href="{{ url_for('milestones.milestone_view', id=ms.id) }}" class="list-group-item list-group-item-action p-2">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <div class="text-truncate me-2" style="min-width: 0;">
+                                <div class="fw-semibold text-truncate" style="font-size: 0.85rem;">{{ ms.title }}</div>
+                                <div class="text-muted small text-truncate">{{ ms.customer_name }}</div>
+                            </div>
+                            <div class="text-end flex-shrink-0">
+                                <span class="badge {% if ms.status == 'On Track' %}bg-success{% elif ms.status == 'At Risk' %}bg-warning text-dark{% else %}bg-danger{% endif %}" style="font-size: 0.65rem;">{{ ms.status }}</span>
+                                {% if ms.due_date %}
+                                <div class="small {% if ms.urgency == 'past_due' %}text-danger fw-bold{% elif ms.urgency == 'this_week' %}text-warning{% else %}text-muted{% endif %}" style="font-size: 0.75rem;">
+                                    {{ ms.due_date.strftime('%b %d') }}
+                                    {% if ms.days_until_due is not none %}
+                                        {% if ms.days_until_due < 0 %}({{ -ms.days_until_due }}d overdue){% elif ms.days_until_due == 0 %}(today){% else %}({{ ms.days_until_due }}d){% endif %}
+                                    {% endif %}
+                                </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                        {% if ms.monthly_usage and ms.monthly_usage > 0 %}
+                        <div class="small text-muted mt-1" style="font-size: 0.75rem;">
+                            <i class="bi bi-graph-up"></i> ${{ "{:,.0f}".format(ms.monthly_usage) }}/mo
+                            {% if ms.workload %}&middot; {{ ms.workload }}{% endif %}
+                        </div>
+                        {% elif ms.workload %}
+                        <div class="small text-muted mt-1" style="font-size: 0.75rem;">{{ ms.workload }}</div>
+                        {% endif %}
+                    </a>
+                    {% endfor %}
+                </div>
+                {% if milestones|length > 10 %}
+                <div class="text-center py-2">
+                    <a href="{{ url_for('milestones.milestone_tracker') }}?seller={{ seller.id }}" class="btn btn-sm btn-info">
+                        View all {{ milestones|length }} milestones
+                    </a>
+                </div>
                 {% endif %}
+            </div>
+        </div>
+        {% else %}
+        <div class="card mb-3">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-flag"></i> Milestones</h5>
+            </div>
+            <div class="card-body text-center text-muted py-4">
+                <i class="bi bi-flag" style="font-size: 2rem;"></i>
+                <p class="mt-2 mb-0">No active milestones</p>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Full-width Engagements section -->
+<div class="row">
+    <div class="col-12">
+        <div class="card mb-3">
+            <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+                <h5 class="mb-0"><i class="bi bi-kanban"></i> Engagements <span class="badge bg-secondary" id="engCount" style="display:none;"></span></h5>
+                <div class="d-flex align-items-center gap-2">
+                    <div class="btn-group btn-group-sm" id="engStatusFilter" role="group" aria-label="Status filter">
+                        <button type="button" class="btn btn-outline-secondary active" data-status="">All</button>
+                        <button type="button" class="btn btn-outline-success" data-status="Active">Active</button>
+                        <button type="button" class="btn btn-outline-warning" data-status="On Hold">On Hold</button>
+                    </div>
+                    <select class="form-select form-select-sm" id="engSortSelect" style="width:auto;">
+                        <option value="updated">Last Updated</option>
+                        <option value="target">Target Date</option>
+                    </select>
+                </div>
+            </div>
+            <div class="card-body p-2" id="engagementsBody">
+                <div class="text-center py-4">
+                    <div class="spinner-border spinner-border-sm" role="status"></div> Loading engagements...
+                </div>
             </div>
         </div>
     </div>
 </div>
+
+<script>
+// ===== SELLER ENGAGEMENTS =====
+const SELLER_ID = {{ seller.id }};
+let engagementsData = null;
+let engStatusFilter = '';
+let engSortBy = 'updated';
+
+// Load on page ready
+document.addEventListener('DOMContentLoaded', loadEngagements);
+
+// Status filter buttons
+document.querySelectorAll('#engStatusFilter button').forEach(btn => {
+    btn.addEventListener('click', function() {
+        document.querySelectorAll('#engStatusFilter button').forEach(b => b.classList.remove('active'));
+        this.classList.add('active');
+        engStatusFilter = this.dataset.status;
+        if (engagementsData) renderEngagements();
+    });
+});
+
+// Sort select
+document.getElementById('engSortSelect').addEventListener('change', function() {
+    engSortBy = this.value;
+    if (engagementsData) renderEngagements();
+});
+
+function loadEngagements() {
+    const body = document.getElementById('engagementsBody');
+    body.innerHTML = '<div class="text-center py-4"><div class="spinner-border spinner-border-sm" role="status"></div> Loading engagements...</div>';
+
+    fetch(`/api/seller/${SELLER_ID}/engagements`)
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                engagementsData = data.engagements;
+                const badge = document.getElementById('engCount');
+                if (badge && data.count > 0) {
+                    badge.textContent = data.count;
+                    badge.style.display = 'inline';
+                }
+                renderEngagements();
+            } else {
+                body.innerHTML = '<div class="text-center py-4 text-danger">Error loading engagements</div>';
+            }
+        })
+        .catch(err => {
+            console.error('Error loading engagements:', err);
+            body.innerHTML = '<div class="text-center py-4 text-danger">Error loading engagements</div>';
+        });
+}
+
+function renderEngagements() {
+    const body = document.getElementById('engagementsBody');
+    let items = engagementsData.slice();
+
+    // Filter by status
+    if (engStatusFilter) {
+        items = items.filter(e => e.status === engStatusFilter);
+    }
+
+    // Sort
+    if (engSortBy === 'updated') {
+        items.sort((a, b) => (b.updated_at || '').localeCompare(a.updated_at || ''));
+    } else if (engSortBy === 'target') {
+        items.sort((a, b) => (a.target_date || '9999').localeCompare(b.target_date || '9999'));
+    }
+
+    if (items.length === 0) {
+        body.innerHTML = '<div class="text-center py-4 text-muted">No engagements found for this seller.</div>';
+        return;
+    }
+
+    function escapeHtml(text) {
+        if (!text) return '';
+        const d = document.createElement('div');
+        d.textContent = text;
+        return d.innerHTML;
+    }
+
+    // Group by customer
+    const groups = new Map();
+    items.forEach(eng => {
+        const key = eng.customer_id || 0;
+        if (!groups.has(key)) {
+            groups.set(key, { name: eng.customer_name, id: eng.customer_id, favicon: eng.customer_favicon, items: [] });
+        }
+        groups.get(key).items.push(eng);
+    });
+
+    // Sort groups by most-recently-updated engagement
+    const sortedGroups = [...groups.values()].sort((a, b) => {
+        const aMax = Math.max(...a.items.map(e => new Date(e.updated_at || 0).getTime()));
+        const bMax = Math.max(...b.items.map(e => new Date(e.updated_at || 0).getTime()));
+        return bMax - aMax;
+    });
+
+    body.innerHTML = sortedGroups.map(group => {
+        const cards = group.items.map(eng => {
+            const statusClass = eng.status === 'Active' ? 'bg-success' : 'bg-warning text-dark';
+            const completeness = eng.story_completeness || 0;
+            const barClass = completeness >= 80 ? 'bg-success' : completeness >= 40 ? 'bg-warning' : 'bg-danger';
+
+            let targetDisplay = '';
+            if (eng.target_date) {
+                const d = new Date(eng.target_date + 'T00:00:00');
+                if (!isNaN(d)) targetDisplay = d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+            }
+            let updatedDisplay = '';
+            if (eng.updated_at) {
+                const d = new Date(eng.updated_at);
+                if (!isNaN(d)) updatedDisplay = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+            }
+
+            const stats = [];
+            if (eng.linked_note_count > 0) stats.push('<i class="bi bi-journal-text"></i> ' + eng.linked_note_count);
+            if (eng.opportunity_count > 0) stats.push('<i class="bi bi-briefcase"></i> ' + eng.opportunity_count);
+            if (eng.milestone_count > 0) stats.push('<i class="bi bi-flag"></i> ' + eng.milestone_count);
+
+            return `<div class="col"><div class="card h-100 border" style="cursor:pointer;" onclick="if(!event.target.closest('a')){window.location='/engagement/${eng.id}'}">
+                <div class="card-body p-2">
+                    <div class="d-flex justify-content-between align-items-start mb-1">
+                        <div class="d-flex align-items-center gap-1" style="min-width:0;">
+                            <strong class="text-truncate" style="font-size:0.9rem;">${escapeHtml(eng.title)}</strong>
+                            <span class="badge ${statusClass} flex-shrink-0" style="font-size:0.65rem;">${escapeHtml(eng.status)}</span>
+                        </div>
+                        ${updatedDisplay ? '<span class="text-muted text-nowrap flex-shrink-0 ms-2" style="font-size:0.7rem;"><i class="bi bi-clock"></i> ' + updatedDisplay + '</span>' : ''}
+                    </div>
+                    <div class="d-flex align-items-center gap-2 mb-1">
+                        <span class="text-muted" style="font-size:0.7rem;">Story ${completeness}%</span>
+                        <div class="progress flex-grow-1" style="height:3px;max-width:80px;">
+                            <div class="progress-bar ${barClass}" style="width:${completeness}%"></div>
+                        </div>
+                    </div>
+                    <div class="d-flex flex-wrap gap-2 text-muted" style="font-size:0.75rem;">
+                        ${stats.length ? '<span>' + stats.join('</span><span>') + '</span>' : ''}
+                        ${eng.estimated_acr ? '<span><i class="bi bi-currency-dollar"></i> ' + escapeHtml(eng.estimated_acr) + '</span>' : ''}
+                        ${targetDisplay ? '<span><i class="bi bi-calendar"></i> ' + targetDisplay + '</span>' : ''}
+                    </div>
+                </div>
+            </div></div>`;
+        }).join('');
+
+        const iconHtml = group.favicon
+            ? '<img src="data:image/png;base64,' + group.favicon + '" width="16" height="16" alt="" style="vertical-align:middle;">'
+            : '<i class="bi bi-building text-muted"></i>';
+
+        return `<div class="mb-3">
+            <div class="d-flex align-items-center gap-2 mb-1 px-1">
+                ${iconHtml}
+                <a href="/customer/${group.id}" class="fw-semibold text-decoration-none" style="font-size:0.95rem;">${escapeHtml(group.name)}</a>
+                <span class="badge bg-secondary" style="font-size:0.65rem;">${group.items.length}</span>
+            </div>
+            <div class="row row-cols-1 row-cols-md-2 row-cols-xl-3 g-2">${cards}</div>
+        </div>`;
+    }).join('');
+}
+</script>
 {% endblock %}
-
-
-
-
-
 
 
 
