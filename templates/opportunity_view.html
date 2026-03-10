@@ -21,11 +21,9 @@
                 {{ customer_favicon(opportunity.customer) }} {{ opportunity.customer.get_display_name() }}
             </a>
         {% endif %}
-        {% if msx_data %}
-            <a href="{{ msx_data.url }}" target="_blank" class="btn btn-outline-primary text-nowrap">
-                <i class="bi bi-box-arrow-up-right"></i> Open in MSX
-            </a>
-        {% endif %}
+        <a href="{{ msx_url }}" target="_blank" class="btn btn-outline-primary text-nowrap">
+            <i class="bi bi-box-arrow-up-right"></i> Open in MSX
+        </a>
     </div>
 </div>
 
@@ -37,66 +35,70 @@
             <div class="card-header">
                 <h5 class="mb-0">Details</h5>
             </div>
-            <div class="card-body">
-                {% if msx_data %}
-                    <!-- Deal Team Status -->
-                    <div class="mb-3 pb-3 border-bottom" id="dealTeamRow">
+            <div class="card-body" id="detailsBody">
+                <!-- Cached data shown immediately (if we've fetched before) -->
+                <div id="detailsCached" {% if not opportunity.details_fetched_at %}style="display:none;"{% endif %}>
+                    {% if opportunity.details_fetched_at %}
+                    <!-- Deal Team row -->
+                    <div class="mb-3 pb-3 border-bottom" id="dealTeamRowCached">
                         <strong>Deal Team:</strong>
                         {% if opportunity.on_deal_team %}
                         <span class="badge bg-success ms-2"><i class="bi bi-people-fill"></i> On Team</span>
                         {% else %}
-                        <button class="btn btn-outline-primary btn-sm ms-2" id="joinDealTeamBtn" onclick="joinDealTeam({{ opportunity.id }})">
+                        <button class="btn btn-outline-primary btn-sm ms-2" id="joinDealTeamBtnCached" onclick="joinDealTeam({{ opportunity.id }})" disabled>
                             <i class="bi bi-person-plus"></i> Join Deal Team
                         </button>
                         {% endif %}
                     </div>
-                    {% if msx_data.number %}
-                        <p><strong>Opp Number:</strong> {{ msx_data.number }}</p>
+                    {% if opportunity.opportunity_number %}
+                        <p><strong>Opp Number:</strong> {{ opportunity.opportunity_number }}</p>
                     {% endif %}
+                    {% if opportunity.state %}
                     <p><strong>Status:</strong>
-                        <span class="badge {% if msx_data.statecode == 0 %}bg-success{% elif msx_data.statecode == 1 %}bg-primary{% else %}bg-danger{% endif %}">
-                            {{ msx_data.state }}
+                        <span class="badge {% if opportunity.statecode == 0 %}bg-success{% elif opportunity.statecode == 1 %}bg-primary{% else %}bg-danger{% endif %}">
+                            {{ opportunity.state }}
                         </span>
-                        {% if msx_data.status %}
-                            <span class="badge bg-secondary">{{ msx_data.status }}</span>
+                        {% if opportunity.status_reason %}
+                            <span class="badge bg-secondary">{{ opportunity.status_reason }}</span>
                         {% endif %}
                     </p>
-                    {% if msx_data.estimated_value %}
-                        <p><strong>Estimated Value:</strong> ${{ "{:,.0f}".format(msx_data.estimated_value) }}</p>
                     {% endif %}
-                    {% if msx_data.estimated_close_date %}
-                        <p><strong>Est. Close:</strong> {{ msx_data.estimated_close_date[:10] }}</p>
+                    {% if opportunity.estimated_value %}
+                        <p><strong>Estimated Value:</strong> ${{ "{:,.0f}".format(opportunity.estimated_value) }}</p>
                     {% endif %}
-                    {% if msx_data.owner %}
-                        <p><strong>Owner:</strong> {{ msx_data.owner }}</p>
+                    {% if opportunity.estimated_close_date %}
+                        <p><strong>Est. Close:</strong> {{ opportunity.estimated_close_date[:10] }}</p>
                     {% endif %}
-                    {% if msx_data.compete_threat %}
-                        <p><strong>Compete Threat:</strong> {{ msx_data.compete_threat }}</p>
+                    {% if opportunity.owner_name %}
+                        <p><strong>Owner:</strong> {{ opportunity.owner_name }}</p>
                     {% endif %}
-                    {% if msx_data.customer_need %}
+                    {% if opportunity.compete_threat %}
+                        <p><strong>Compete Threat:</strong> {{ opportunity.compete_threat }}</p>
+                    {% endif %}
+                    {% if opportunity.customer_need %}
                         <p><strong>Customer Need:</strong></p>
-                        <p class="small" style="white-space: pre-wrap;">{{ msx_data.customer_need }}</p>
+                        <p class="small" style="white-space: pre-wrap;">{{ opportunity.customer_need }}</p>
                     {% endif %}
-                    {% if msx_data.description %}
+                    {% if opportunity.description %}
                         <p><strong>Description:</strong></p>
-                        <p class="small" style="white-space: pre-wrap;">{{ msx_data.description }}</p>
+                        <p class="small" style="white-space: pre-wrap;">{{ opportunity.description }}</p>
                     {% endif %}
-                {% elif vpn_blocked %}
-                    <div class="alert alert-secondary mb-0">
-                        <i class="bi bi-shield-lock"></i> <strong>VPN Required</strong><br>
-                        <small>Connect to VPN to load opportunity details.</small>
-                    </div>
-                {% elif msx_error %}
-                    <div class="alert alert-warning mb-0">
-                        <i class="bi bi-exclamation-triangle"></i> {{ msx_error }}
-                    </div>
-                {% else %}
-                    <p class="text-muted">No MSX data available.</p>
+                    {% endif %}
+                </div>
+                {% if not opportunity.details_fetched_at and opportunity.opportunity_number %}
+                    <p><strong>Opp Number:</strong> {{ opportunity.opportunity_number }}</p>
                 {% endif %}
+                <!-- Spinner while fetching fresh MSX data -->
+                <div id="detailsSpinner" class="text-center py-3">
+                    <div class="spinner-border spinner-border-sm" role="status"></div>
+                    <small class="text-muted ms-1">{% if opportunity.details_fetched_at %}Refreshing from MSX...{% else %}Loading details from MSX...{% endif %}</small>
+                </div>
+                <div id="detailsMsx" style="display:none;"></div>
+                <div id="detailsError" style="display:none;"></div>
             </div>
         </div>
-        
-        <!-- Milestones Card -->
+
+        <!-- Milestones Card (from local DB — renders immediately) -->
         <div class="card mb-3">
             <div class="card-header">
                 <h5 class="mb-0"><i class="bi bi-flag"></i> Milestones ({{ milestones|length }})</h5>
@@ -143,29 +145,19 @@
             </div>
         </div>
     </div>
-    
-    <!-- Right column: Comments -->
+
+    <!-- Right column: Comments (lazy-loaded) -->
     <div class="col-md-8">
         <div class="card mb-3">
             <div class="card-header d-flex justify-content-between align-items-center">
                 <h5 class="mb-0"><i class="bi bi-chat-dots"></i> Forecast Comments</h5>
-                {% if msx_data and msx_data.comments %}
-                    <span class="badge bg-secondary">{{ msx_data.comments|length }} comment{{ 's' if msx_data.comments|length != 1 }}</span>
-                {% endif %}
+                <span class="badge bg-secondary" id="commentCount" {% if not cached_comments %}style="display:none;"{% endif %}>{% if cached_comments %}{{ cached_comments|length }} comment{{ 's' if cached_comments|length != 1 else '' }}{% endif %}</span>
             </div>
-            <div class="card-body">
-                {% if vpn_blocked %}
-                    <div class="alert alert-secondary">
-                        <i class="bi bi-shield-lock"></i> <strong>VPN Required</strong><br>
-                        <small>Connect to VPN to load forecast comments.</small>
-                    </div>
-                {% elif msx_error %}
-                    <div class="alert alert-warning">
-                        <i class="bi bi-exclamation-triangle"></i> Could not load comments: {{ msx_error }}
-                    </div>
-                {% elif msx_data %}
-                    <!-- Add Comment Form -->
-                    <form action="{{ url_for('opportunities.opportunity_add_comment', id=opportunity.id) }}" method="post" class="mb-4">
+            <div class="card-body" id="commentsBody">
+                <!-- Comment form (always visible when we have cached data) -->
+                <div id="commentFormCached" {% if not cached_comments %}style="display:none;"{% endif %}>
+                    {% if cached_comments is not none %}
+                    <form action="/opportunity/{{ opportunity.id }}/comment" method="post" class="mb-4">
                         <div class="input-group">
                             <textarea class="form-control" name="comment" rows="2" placeholder="Add a forecast comment..." required></textarea>
                             <button type="submit" class="btn btn-primary">
@@ -174,27 +166,35 @@
                         </div>
                         <small class="text-muted">This comment will be posted to the MSX opportunity record.</small>
                     </form>
-                    
-                    {% if msx_data.comments %}
-                        <div class="list-group">
-                            {% for comment in msx_data.comments|reverse %}
-                                <div class="list-group-item">
-                                    <div class="d-flex w-100 justify-content-between mb-1">
-                                        <strong>{{ comment.displayName|default('Unknown') }}</strong>
-                                        <small class="text-muted">
-                                            <i class="bi bi-clock"></i> {{ comment.modifiedOn }}
-                                        </small>
-                                    </div>
-                                    <p class="mb-0" style="white-space: pre-wrap;">{{ comment.comment }}</p>
-                                </div>
-                            {% endfor %}
-                        </div>
-                    {% else %}
-                        <p class="text-muted">No forecast comments yet. Be the first to add one!</p>
                     {% endif %}
-                {% else %}
-                    <p class="text-muted">Comments not available (MSX connection required).</p>
-                {% endif %}
+                </div>
+                <!-- Spinner between form and comments -->
+                <div id="commentsSpinner" class="text-center py-3 mb-3">
+                    <div class="spinner-border spinner-border-sm" role="status"></div>
+                    <span class="text-muted ms-1">{% if cached_comments is not none %}Refreshing comments from MSX...{% else %}Loading comments from MSX...{% endif %}</span>
+                </div>
+                <!-- Cached comments shown immediately -->
+                <div id="commentsCached" {% if not cached_comments %}style="display:none;"{% endif %}>
+                    {% if cached_comments is not none %}
+                    {% if cached_comments %}
+                    <div class="list-group">
+                        {% for c in cached_comments|reverse %}
+                        <div class="list-group-item">
+                            <div class="d-flex w-100 justify-content-between mb-1">
+                                <strong>{{ c.displayName or 'Unknown' }}</strong>
+                                <small class="text-muted"><i class="bi bi-clock"></i> {{ c.modifiedOn or '' }}</small>
+                            </div>
+                            <p class="mb-0" style="white-space:pre-wrap;">{{ c.comment or '' }}</p>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% else %}
+                    <p class="text-muted">No forecast comments yet. Be the first to add one!</p>
+                    {% endif %}
+                    {% endif %}
+                </div>
+                <div id="commentsMsx" style="display:none;"></div>
+                <div id="commentsError" style="display:none;"></div>
             </div>
         </div>
     </div>
@@ -203,22 +203,199 @@
 
 {% block extra_js %}
 <script>
-// Disable join-team button when VPN is blocked
-fetch('/api/msx/vpn-status').then(r => r.json()).then(data => {
-    if (data.blocked) {
-        const btn = document.getElementById('joinDealTeamBtn');
-        if (btn) {
-            btn.disabled = true;
-            btn.classList.replace('btn-outline-primary', 'btn-outline-secondary');
-            btn.title = 'VPN required — connect to corpnet first';
+const OPP_ID = {{ opportunity.id }};
+const OPP_ON_DEAL_TEAM = {{ 'true' if opportunity.on_deal_team else 'false' }};
+
+// ── Fetch MSX details + comments (auto-retry once on failure) ───────
+function fetchMsxDetails(retriesLeft) {
+    fetch(`/api/opportunity/${OPP_ID}/msx-details`)
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                renderDetails(data.opportunity);
+                renderComments(data.opportunity);
+            } else if (retriesLeft > 0) {
+                setTimeout(() => fetchMsxDetails(retriesLeft - 1), 1500);
+            } else {
+                renderError(data.error, data.vpn_blocked);
+            }
+        })
+        .catch(err => {
+            if (retriesLeft > 0) {
+                setTimeout(() => fetchMsxDetails(retriesLeft - 1), 1500);
+            } else {
+                renderError('Network error: ' + err.message, false);
+            }
+        });
+}
+document.addEventListener('DOMContentLoaded', () => fetchMsxDetails(1));
+
+function escapeHtml(str) {
+    if (!str) return '';
+    const d = document.createElement('div');
+    d.textContent = str;
+    return d.innerHTML;
+}
+
+function formatCurrency(val) {
+    if (val == null) return '';
+    return '$' + Number(val).toLocaleString('en-US', { maximumFractionDigits: 0 });
+}
+
+// ── Render MSX details into the Details card ────────────────────────
+function renderDetails(opp) {
+    document.getElementById('detailsSpinner').style.display = 'none';
+    // Hide cached content — fresh data replaces it
+    const cached = document.getElementById('detailsCached');
+    if (cached) cached.style.display = 'none';
+    const el = document.getElementById('detailsMsx');
+    el.style.display = '';
+
+    let html = '';
+
+    // Deal Team row
+    html += '<div class="mb-3 pb-3 border-bottom" id="dealTeamRow"><strong>Deal Team:</strong> ';
+    if (OPP_ON_DEAL_TEAM) {
+        html += '<span class="badge bg-success ms-2"><i class="bi bi-people-fill"></i> On Team</span>';
+    } else {
+        html += `<button class="btn btn-outline-primary btn-sm ms-2" id="joinDealTeamBtn" onclick="joinDealTeam(${OPP_ID})">` +
+                '<i class="bi bi-person-plus"></i> Join Deal Team</button>';
+    }
+    html += '</div>';
+
+    if (opp.number) html += `<p><strong>Opp Number:</strong> ${escapeHtml(opp.number)}</p>`;
+
+    // Status badges
+    if (opp.state) {
+        const stateClass = opp.statecode === 0 ? 'bg-success' : opp.statecode === 1 ? 'bg-primary' : 'bg-danger';
+        html += `<p><strong>Status:</strong> <span class="badge ${stateClass}">${escapeHtml(opp.state)}</span>`;
+        if (opp.status) html += ` <span class="badge bg-secondary">${escapeHtml(opp.status)}</span>`;
+        html += '</p>';
+    }
+
+    if (opp.estimated_value) html += `<p><strong>Estimated Value:</strong> ${formatCurrency(opp.estimated_value)}</p>`;
+    if (opp.estimated_close_date) html += `<p><strong>Est. Close:</strong> ${escapeHtml(opp.estimated_close_date.slice(0, 10))}</p>`;
+    if (opp.owner) html += `<p><strong>Owner:</strong> ${escapeHtml(opp.owner)}</p>`;
+    if (opp.compete_threat) html += `<p><strong>Compete Threat:</strong> ${escapeHtml(opp.compete_threat)}</p>`;
+    if (opp.customer_need) html += `<p><strong>Customer Need:</strong></p><p class="small" style="white-space:pre-wrap;">${escapeHtml(opp.customer_need)}</p>`;
+    if (opp.description) html += `<p><strong>Description:</strong></p><p class="small" style="white-space:pre-wrap;">${escapeHtml(opp.description)}</p>`;
+
+    el.innerHTML = html;
+
+    // Check VPN status for deal team button
+    fetch('/api/msx/vpn-status').then(r => r.json()).then(data => {
+        if (data.blocked) {
+            const btn = document.getElementById('joinDealTeamBtn');
+            if (btn) {
+                btn.disabled = true;
+                btn.classList.replace('btn-outline-primary', 'btn-outline-secondary');
+                btn.title = 'VPN required — connect to corpnet first';
+            }
+        }
+    }).catch(() => {});
+}
+
+// ── Render comments into the Comments card ──────────────────────────
+function renderComments(opp) {
+    document.getElementById('commentsSpinner').style.display = 'none';
+    // Hide cached content — fresh data replaces it
+    const cached = document.getElementById('commentsCached');
+    if (cached) cached.style.display = 'none';
+    const cachedForm = document.getElementById('commentFormCached');
+    if (cachedForm) cachedForm.style.display = 'none';
+    const el = document.getElementById('commentsMsx');
+    el.style.display = '';
+    const badge = document.getElementById('commentCount');
+
+    const comments = opp.comments || [];
+    if (comments.length > 0) {
+        badge.style.display = '';
+        badge.textContent = comments.length + ' comment' + (comments.length !== 1 ? 's' : '');
+    }
+
+    // Comment form
+    let html = `
+        <form action="/opportunity/${OPP_ID}/comment" method="post" class="mb-4">
+            <div class="input-group">
+                <textarea class="form-control" name="comment" rows="2" placeholder="Add a forecast comment..." required></textarea>
+                <button type="submit" class="btn btn-primary">
+                    <i class="bi bi-send"></i> Post
+                </button>
+            </div>
+            <small class="text-muted">This comment will be posted to the MSX opportunity record.</small>
+        </form>
+    `;
+
+    if (comments.length > 0) {
+        html += '<div class="list-group">';
+        // Reverse to show newest first
+        for (const c of [...comments].reverse()) {
+            html += `
+                <div class="list-group-item">
+                    <div class="d-flex w-100 justify-content-between mb-1">
+                        <strong>${escapeHtml(c.displayName || 'Unknown')}</strong>
+                        <small class="text-muted"><i class="bi bi-clock"></i> ${escapeHtml(c.modifiedOn || '')}</small>
+                    </div>
+                    <p class="mb-0" style="white-space:pre-wrap;">${escapeHtml(c.comment || '')}</p>
+                </div>`;
+        }
+        html += '</div>';
+    } else {
+        html += '<p class="text-muted">No forecast comments yet. Be the first to add one!</p>';
+    }
+
+    el.innerHTML = html;
+}
+
+// ── Render error state ──────────────────────────────────────────────
+function renderError(errorMsg, vpnBlocked) {
+    // Details card — hide spinner, but keep cached data visible if present
+    document.getElementById('detailsSpinner').style.display = 'none';
+    const cached = document.getElementById('detailsCached');
+    const hasCachedData = cached && cached.innerHTML.trim().length > 0 && cached.style.display !== 'none';
+
+    if (!hasCachedData) {
+        // No cached data — show error in the error div
+        const errEl = document.getElementById('detailsError');
+        errEl.style.display = '';
+        if (vpnBlocked) {
+            errEl.innerHTML = `<div class="alert alert-secondary mb-0">
+                <i class="bi bi-shield-lock"></i> <strong>VPN Required</strong><br>
+                <small>Connect to VPN to load opportunity details.</small>
+            </div>`;
+        } else {
+            errEl.innerHTML = `<div class="alert alert-warning mb-0">
+                <i class="bi bi-exclamation-triangle"></i> ${escapeHtml(errorMsg)}
+            </div>`;
         }
     }
-}).catch(() => {});
+    // If we have cached data, it stays visible — no error shown for details
 
+    // Comments card — keep cached comments visible if present
+    document.getElementById('commentsSpinner').style.display = 'none';
+    const cachedComments = document.getElementById('commentsCached');
+    const hasCachedComments = cachedComments && cachedComments.innerHTML.trim().length > 0 && cachedComments.style.display !== 'none';
+
+    if (!hasCachedComments) {
+        const commErr = document.getElementById('commentsError');
+        commErr.style.display = '';
+        if (vpnBlocked) {
+            commErr.innerHTML = `<div class="alert alert-secondary mb-0">
+                <i class="bi bi-shield-lock"></i> <strong>VPN Required</strong><br>
+                <small>Connect to VPN to load forecast comments.</small>
+            </div>`;
+        } else {
+            commErr.innerHTML = `<div class="alert alert-warning mb-0">
+                <i class="bi bi-exclamation-triangle"></i> Could not load comments: ${escapeHtml(errorMsg)}
+            </div>`;
+        }
+    }
+}
+
+// ── Join Deal Team ──────────────────────────────────────────────────
 async function joinDealTeam(opportunityId) {
     const btn = document.getElementById('joinDealTeamBtn');
     if (!btn) return;
-    // Pre-flight VPN check
     if (window.isVpnBlocked && window.isVpnBlocked()) {
         window.showVpnBanner();
         return;

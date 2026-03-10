@@ -2,7 +2,10 @@
 Opportunity routes for NoteHelper.
 Handles viewing opportunity details (fetched fresh from MSX) and posting comments.
 """
+import json
 import logging
+from datetime import datetime, timezone
+
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, g
 
 from app.models import db, Opportunity, Milestone
@@ -18,36 +21,87 @@ opportunities_bp = Blueprint('opportunities', __name__)
 def opportunity_view(id: int):
     """
     View opportunity details.
-    
-    Loads the local Opportunity record for customer/milestone context,
-    then fetches fresh details from MSX (comments, status, value, etc.).
+
+    Loads the local Opportunity record and milestones immediately.
+    MSX details (status, value, comments) are lazy-loaded via JS fetch
+    to /api/opportunity/<id>/msx-details so the page renders instantly.
     """
     opportunity = Opportunity.query.get_or_404(id)
-    
+
     # Get local milestones linked to this opportunity
     milestones = Milestone.query.filter_by(
         opportunity_id=opportunity.id
     ).order_by(Milestone.msx_status, Milestone.title).all()
-    
-    # Fetch fresh opportunity data from MSX
-    msx_data = None
-    msx_error = None
-    vpn_blocked = False
-    msx_result = get_opportunity(opportunity.msx_opportunity_id)
-    if msx_result.get("success"):
-        msx_data = msx_result["opportunity"]
-    else:
-        msx_error = msx_result.get("error", "Could not fetch from MSX")
-        vpn_blocked = msx_result.get("vpn_blocked", False)
-    
+
+    # Build the MSX URL from the GUID so the "Open in MSX" link works immediately
+    msx_url = build_opportunity_url(opportunity.msx_opportunity_id)
+
+    # Parse cached comments if available
+    cached_comments = None
+    if opportunity.cached_comments_json:
+        try:
+            cached_comments = json.loads(opportunity.cached_comments_json)
+        except (json.JSONDecodeError, TypeError):
+            cached_comments = None
+
     return render_template(
         'opportunity_view.html',
         opportunity=opportunity,
         milestones=milestones,
-        msx_data=msx_data,
-        msx_error=msx_error,
-        vpn_blocked=vpn_blocked,
+        msx_url=msx_url,
+        cached_comments=cached_comments,
     )
+
+
+@opportunities_bp.route('/api/opportunity/<int:id>/msx-details')
+def api_opportunity_msx_details(id: int):
+    """
+    API endpoint to fetch fresh MSX opportunity details (details + comments).
+
+    Called via JS after the page loads so the initial render is instant.
+    On success, caches the fetched details back to the local DB so subsequent
+    page loads show the last-known data immediately.
+    """
+    opportunity = Opportunity.query.get_or_404(id)
+
+    msx_result = get_opportunity(opportunity.msx_opportunity_id)
+    if msx_result.get("success"):
+        opp_data = msx_result["opportunity"]
+
+        # Cache details back to local DB
+        try:
+            opportunity.name = opp_data.get("name") or opportunity.name
+            opportunity.opportunity_number = opp_data.get("number") or opportunity.opportunity_number
+            opportunity.statecode = opp_data.get("statecode")
+            opportunity.state = opp_data.get("state")
+            opportunity.status_reason = opp_data.get("status")
+            opportunity.estimated_value = opp_data.get("estimated_value")
+            opportunity.estimated_close_date = opp_data.get("estimated_close_date")
+            opportunity.owner_name = opp_data.get("owner")
+            opportunity.compete_threat = opp_data.get("compete_threat")
+            opportunity.customer_need = opp_data.get("customer_need")
+            opportunity.description = opp_data.get("description")
+            opportunity.msx_url = opp_data.get("url")
+            # Cache comments as JSON string
+            comments = opp_data.get("comments")
+            if comments is not None:
+                opportunity.cached_comments_json = json.dumps(comments)
+            opportunity.details_fetched_at = datetime.now(timezone.utc)
+            db.session.commit()
+        except Exception:
+            logger.exception(f"Failed to cache MSX details for opportunity {id}")
+            db.session.rollback()
+
+        return jsonify({
+            "success": True,
+            "opportunity": opp_data,
+        })
+    else:
+        return jsonify({
+            "success": False,
+            "error": msx_result.get("error", "Could not fetch from MSX"),
+            "vpn_blocked": msx_result.get("vpn_blocked", False),
+        })
 
 
 @opportunities_bp.route('/opportunity/<int:id>/comment', methods=['POST'])

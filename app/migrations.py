@@ -149,6 +149,9 @@ def run_migrations(db):
     # Migration: Seed built-in note templates if table is empty
     _seed_note_templates(db, inspector)
 
+    # Migration: Add MSX detail columns to opportunities (cache-on-read)
+    _migrate_opportunity_details_columns(db, inspector)
+
     # =========================================================================
     # End migrations
     # =========================================================================
@@ -975,3 +978,26 @@ def _seed_note_templates(db, inspector):
             ), {"name": name, "content": content})
         conn.commit()
         print(f"  Seeded {len(templates)} built-in note templates")
+
+
+def _migrate_opportunity_details_columns(db, inspector):
+    """Add MSX detail columns to opportunities table (cache-on-read pattern)."""
+    if not _table_exists(inspector, 'opportunities'):
+        return
+
+    columns = [
+        ('statecode', 'INTEGER'),
+        ('state', 'VARCHAR(50)'),
+        ('status_reason', 'VARCHAR(100)'),
+        ('estimated_value', 'FLOAT'),
+        ('estimated_close_date', 'VARCHAR(30)'),
+        ('owner_name', 'VARCHAR(200)'),
+        ('compete_threat', 'VARCHAR(100)'),
+        ('customer_need', 'TEXT'),
+        ('description', 'TEXT'),
+        ('msx_url', 'VARCHAR(500)'),
+        ('cached_comments_json', 'TEXT'),
+        ('details_fetched_at', 'DATETIME'),
+    ]
+    for col_name, col_def in columns:
+        _add_column_if_not_exists(db, inspector, 'opportunities', col_name, col_def)

@@ -316,26 +316,13 @@
             <!-- Engagements Tab -->
             {% if has_engagements %}
             <div class="tab-pane fade" id="engagements-view" role="tabpanel" aria-labelledby="engagements-tab">
-                <div class="card">
-                    <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
-                        <div class="btn-group btn-group-sm" id="engStatusFilter" role="group" aria-label="Status filter">
-                            <button type="button" class="btn btn-outline-secondary active" data-status="">All</button>
-                            <button type="button" class="btn btn-outline-success" data-status="Active">Active</button>
-                            <button type="button" class="btn btn-outline-warning" data-status="On Hold">On Hold</button>
-                        </div>
-                        <div>
-                            <select class="form-select form-select-sm" id="engSortSelect" style="width:auto;display:inline-block;">
-                                <option value="updated">Last Updated</option>
-                                <option value="target">Target Date</option>
-                            </select>
-                        </div>
-                    </div>
-                    <div class="card-body p-2" id="engagementsListBody">
-                        <div class="text-center py-4">
-                            <div class="spinner-border spinner-border-sm" role="status"></div> Loading engagements...
-                        </div>
-                    </div>
-                </div>
+                {% set eng_api_url = '/api/engagements/active' %}
+                {% set eng_auto_load = false %}
+                {% set eng_show_seller = true %}
+                {% set eng_body_id = 'engagementsListBody' %}
+                {% set eng_count_id = 'eng-panel-count' %}
+                {% set eng_empty_msg = 'No engagements match the current filter.' %}
+                {% include 'partials/engagements_panel.html' %}
             </div>
             {% endif %}
         </div>
@@ -962,167 +949,14 @@
 
     {% if has_engagements %}
     // ===== ENGAGEMENTS TAB =====
-    let engagementsData = null;  // cache
     let engagementsLoaded = false;
-    let engStatusFilter = '';
-    let engSortBy = 'updated';
-
     document.getElementById('engagements-tab').addEventListener('shown.bs.tab', function() {
         localStorage.setItem(TAB_STORAGE_KEY, 'engagements');
         if (!engagementsLoaded) {
-            loadEngagements();
+            engagementsLoaded = true;
+            window.engLoad_engagementsListBody();
         }
     });
-
-    // Status filter buttons
-    document.querySelectorAll('#engStatusFilter button').forEach(btn => {
-        btn.addEventListener('click', function() {
-            document.querySelectorAll('#engStatusFilter button').forEach(b => b.classList.remove('active'));
-            this.classList.add('active');
-            engStatusFilter = this.dataset.status;
-            if (engagementsData) renderEngagements();
-        });
-    });
-
-    // Sort select
-    document.getElementById('engSortSelect').addEventListener('change', function() {
-        engSortBy = this.value;
-        if (engagementsData) renderEngagements();
-    });
-
-    function loadEngagements() {
-        const body = document.getElementById('engagementsListBody');
-        body.innerHTML = '<div class="text-center py-4"><div class="spinner-border spinner-border-sm" role="status"></div> Loading engagements...</div>';
-
-        fetch('/api/engagements/active')
-            .then(r => r.json())
-            .then(data => {
-                if (data.success) {
-                    engagementsData = data.engagements;
-                    engagementsLoaded = true;
-                    // Update count badge
-                    const badge = document.getElementById('engagements-count');
-                    if (badge && data.count > 0) {
-                        badge.textContent = '(' + data.count + ')';
-                        badge.style.display = 'inline';
-                    }
-                    renderEngagements();
-                } else {
-                    body.innerHTML = '<div class="text-center py-4 text-danger">Error loading engagements</div>';
-                }
-            })
-            .catch(err => {
-                console.error('Error loading engagements:', err);
-                body.innerHTML = '<div class="text-center py-4 text-danger">Error loading engagements</div>';
-            });
-    }
-
-    function renderEngagements() {
-        const body = document.getElementById('engagementsListBody');
-        let items = engagementsData.slice();
-
-        // Filter by status
-        if (engStatusFilter) {
-            items = items.filter(e => e.status === engStatusFilter);
-        }
-
-        // Sort within groups
-        if (engSortBy === 'updated') {
-            items.sort((a, b) => (b.updated_at || '').localeCompare(a.updated_at || ''));
-        } else if (engSortBy === 'target') {
-            items.sort((a, b) => (a.target_date || '9999').localeCompare(b.target_date || '9999'));
-        }
-
-        if (items.length === 0) {
-            body.innerHTML = '<div class="text-center py-4 text-muted">No engagements match the current filter.</div>';
-            return;
-        }
-
-        function escapeHtml(text) {
-            if (!text) return '';
-            const d = document.createElement('div');
-            d.textContent = text;
-            return d.innerHTML;
-        }
-
-        // Group by customer
-        const groups = new Map();
-        items.forEach(eng => {
-            const key = eng.customer_id || 0;
-            if (!groups.has(key)) {
-                groups.set(key, { name: eng.customer_name, id: eng.customer_id, seller: eng.seller_name, favicon: eng.customer_favicon, items: [] });
-            }
-            groups.get(key).items.push(eng);
-        });
-
-        // Sort groups by most-recently-updated engagement in each
-        const sortedGroups = [...groups.values()].sort((a, b) => {
-            const aMax = Math.max(...a.items.map(e => new Date(e.updated_at || 0).getTime()));
-            const bMax = Math.max(...b.items.map(e => new Date(e.updated_at || 0).getTime()));
-            return bMax - aMax;
-        });
-
-        body.innerHTML = sortedGroups.map(group => {
-            const cards = group.items.map(eng => {
-                const statusClass = eng.status === 'Active' ? 'bg-success' : 'bg-warning text-dark';
-                const completeness = eng.story_completeness || 0;
-                const barClass = completeness >= 80 ? 'bg-success' : completeness >= 40 ? 'bg-warning' : 'bg-danger';
-
-                let targetDisplay = '';
-                if (eng.target_date) {
-                    const d = new Date(eng.target_date + 'T00:00:00');
-                    if (!isNaN(d)) targetDisplay = d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
-                }
-                let updatedDisplay = '';
-                if (eng.updated_at) {
-                    const d = new Date(eng.updated_at);
-                    if (!isNaN(d)) updatedDisplay = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-                }
-
-                const stats = [];
-                if (eng.linked_note_count > 0) stats.push('<i class="bi bi-journal-text"></i> ' + eng.linked_note_count);
-                if (eng.opportunity_count > 0) stats.push('<i class="bi bi-briefcase"></i> ' + eng.opportunity_count);
-                if (eng.milestone_count > 0) stats.push('<i class="bi bi-flag"></i> ' + eng.milestone_count);
-
-                return `<div class="col"><div class="card h-100 border" style="cursor:pointer;" onclick="if(!event.target.closest('a')){window.location='/engagement/${eng.id}'}">
-                    <div class="card-body p-2">
-                        <div class="d-flex justify-content-between align-items-start mb-1">
-                            <div class="d-flex align-items-center gap-1" style="min-width:0;">
-                                <strong class="text-truncate" style="font-size:0.9rem;">${escapeHtml(eng.title)}</strong>
-                                <span class="badge ${statusClass} flex-shrink-0" style="font-size:0.65rem;">${escapeHtml(eng.status)}</span>
-                            </div>
-                            ${updatedDisplay ? '<span class="text-muted text-nowrap flex-shrink-0 ms-2" style="font-size:0.7rem;"><i class="bi bi-clock"></i> ' + updatedDisplay + '</span>' : ''}
-                        </div>
-                        <div class="d-flex align-items-center gap-2 mb-1">
-                            <span class="text-muted" style="font-size:0.7rem;">Story ${completeness}%</span>
-                            <div class="progress flex-grow-1" style="height:3px;max-width:80px;">
-                                <div class="progress-bar ${barClass}" style="width:${completeness}%"></div>
-                            </div>
-                        </div>
-                        <div class="d-flex flex-wrap gap-2 text-muted" style="font-size:0.75rem;">
-                            ${stats.length ? '<span>' + stats.join('</span><span>') + '</span>' : ''}
-                            ${eng.estimated_acr ? '<span><i class="bi bi-currency-dollar"></i> ' + escapeHtml(eng.estimated_acr) + '</span>' : ''}
-                            ${targetDisplay ? '<span><i class="bi bi-calendar"></i> ' + targetDisplay + '</span>' : ''}
-                        </div>
-                    </div>
-                </div></div>`;
-            }).join('');
-
-            const iconHtml = group.favicon
-                ? '<img src="data:image/png;base64,' + group.favicon + '" width="16" height="16" alt="" style="vertical-align:middle;">'
-                : '<i class="bi bi-building text-muted"></i>';
-
-            return `<div class="mb-2">
-                <div class="d-flex align-items-center gap-2 mb-1 px-1">
-                    ${iconHtml}
-                    <a href="/customer/${group.id}" class="fw-semibold text-decoration-none" style="font-size:0.9rem;">${escapeHtml(group.name)}</a>
-                    ${group.seller ? '<span class="text-muted" style="font-size:0.8rem;">&middot; <i class="bi bi-person"></i> ' + escapeHtml(group.seller) + '</span>' : ''}
-                    <span class="badge bg-secondary" style="font-size:0.65rem;">${group.items.length}</span>
-                </div>
-                <div class="row row-cols-1 row-cols-md-2 row-cols-xl-3 g-2">${cards}</div>
-            </div>`;
-        }).join('');
-    }
     {% endif %}
 </script>
 

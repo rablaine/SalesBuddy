@@ -1,0 +1,234 @@
+{#
+  Shared engagements panel — used on seller page and homepage.
+
+  Parameters (set before including):
+    eng_api_url       - API endpoint to fetch engagements (required)
+    eng_auto_load     - If true, load on DOMContentLoaded. If false, caller triggers load.
+    eng_show_seller   - If true, group by seller first, then by customer within.
+    eng_body_id       - ID for the card-body container (default: 'engagementsBody')
+    eng_count_id      - ID for the count badge (default: 'engCount')
+    eng_empty_msg     - Empty state message
+#}
+{% set body_id = eng_body_id | default('engagementsBody') %}
+{% set count_id = eng_count_id | default('engCount') %}
+{% set empty_msg = eng_empty_msg | default('No engagements found.') %}
+
+<div class="card mb-3">
+    <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <h5 class="mb-0"><i class="bi bi-kanban"></i> Engagements <span class="badge bg-secondary" id="{{ count_id }}" style="display:none;"></span></h5>
+        <div class="d-flex align-items-center gap-2">
+            <div class="btn-group btn-group-sm" id="{{ body_id }}_statusFilter" role="group" aria-label="Status filter">
+                <button type="button" class="btn btn-outline-secondary active" data-status="">All</button>
+                <button type="button" class="btn btn-outline-success" data-status="Active">Active</button>
+                <button type="button" class="btn btn-outline-warning" data-status="On Hold">On Hold</button>
+            </div>
+            <select class="form-select form-select-sm" id="{{ body_id }}_sortSelect" style="width:auto;">
+                <option value="updated">Last Updated</option>
+                <option value="target">Target Date</option>
+            </select>
+        </div>
+    </div>
+    <div class="card-body p-2" id="{{ body_id }}">
+        <div class="text-center py-4">
+            <div class="spinner-border spinner-border-sm" role="status"></div> Loading engagements...
+        </div>
+    </div>
+</div>
+
+<script>
+(function() {
+    const API_URL = {{ eng_api_url | tojson }};
+    const BODY_ID = {{ body_id | tojson }};
+    const COUNT_ID = {{ count_id | tojson }};
+    const SHOW_SELLER = {{ (eng_show_seller | default(false)) | tojson }};
+    const EMPTY_MSG = {{ empty_msg | tojson }};
+
+    let rawData = null;
+    let statusFilter = '';
+    let sortBy = 'updated';
+
+    // Filter buttons
+    document.querySelectorAll('#' + BODY_ID + '_statusFilter button').forEach(btn => {
+        btn.addEventListener('click', function() {
+            document.querySelectorAll('#' + BODY_ID + '_statusFilter button').forEach(b => b.classList.remove('active'));
+            this.classList.add('active');
+            statusFilter = this.dataset.status;
+            if (rawData) render();
+        });
+    });
+
+    // Sort select
+    document.getElementById(BODY_ID + '_sortSelect').addEventListener('change', function() {
+        sortBy = this.value;
+        if (rawData) render();
+    });
+
+    function load() {
+        const body = document.getElementById(BODY_ID);
+        body.innerHTML = '<div class="text-center py-4"><div class="spinner-border spinner-border-sm" role="status"></div> Loading engagements...</div>';
+
+        fetch(API_URL)
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    rawData = data.engagements;
+                    const badge = document.getElementById(COUNT_ID);
+                    if (badge && data.count > 0) {
+                        badge.textContent = data.count;
+                        badge.style.display = 'inline';
+                    }
+                    render();
+                } else {
+                    body.innerHTML = '<div class="text-center py-4 text-danger">Error loading engagements</div>';
+                }
+            })
+            .catch(err => {
+                console.error('Error loading engagements:', err);
+                body.innerHTML = '<div class="text-center py-4 text-danger">Error loading engagements</div>';
+            });
+    }
+
+    function escapeHtml(text) {
+        if (!text) return '';
+        const d = document.createElement('div');
+        d.textContent = text;
+        return d.innerHTML;
+    }
+
+    function buildCard(eng) {
+        const statusClass = eng.status === 'Active' ? 'bg-success' : 'bg-warning text-dark';
+        const completeness = eng.story_completeness || 0;
+        const barClass = completeness >= 80 ? 'bg-success' : completeness >= 40 ? 'bg-warning' : 'bg-danger';
+
+        let targetDisplay = '';
+        if (eng.target_date) {
+            const d = new Date(eng.target_date + 'T00:00:00');
+            if (!isNaN(d)) targetDisplay = d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+        }
+        let updatedDisplay = '';
+        if (eng.updated_at) {
+            const d = new Date(eng.updated_at);
+            if (!isNaN(d)) updatedDisplay = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        }
+
+        const stats = [];
+        if (eng.linked_note_count > 0) stats.push('<i class="bi bi-journal-text"></i> ' + eng.linked_note_count);
+        if (eng.opportunity_count > 0) stats.push('<i class="bi bi-briefcase"></i> ' + eng.opportunity_count);
+        if (eng.milestone_count > 0) stats.push('<i class="bi bi-flag"></i> ' + eng.milestone_count);
+
+        return `<div style="width:300px; flex-shrink:0;"><div class="card h-100 border" style="cursor:pointer;" onclick="if(!event.target.closest('a')){window.location='/engagement/${eng.id}'}">
+            <div class="card-body p-2">
+                <div class="d-flex justify-content-between align-items-start mb-1">
+                    <div class="d-flex align-items-center gap-1" style="min-width:0;">
+                        <strong class="text-truncate" style="font-size:0.9rem;">${escapeHtml(eng.title)}</strong>
+                        <span class="badge ${statusClass} flex-shrink-0" style="font-size:0.65rem;">${escapeHtml(eng.status)}</span>
+                    </div>
+                    ${updatedDisplay ? '<span class="text-muted text-nowrap flex-shrink-0 ms-2" style="font-size:0.7rem;"><i class="bi bi-clock"></i> ' + updatedDisplay + '</span>' : ''}
+                </div>
+                <div class="d-flex align-items-center gap-2 mb-1">
+                    <span class="text-muted" style="font-size:0.7rem;">Story ${completeness}%</span>
+                    <div class="progress flex-grow-1" style="height:3px;max-width:80px;">
+                        <div class="progress-bar ${barClass}" style="width:${completeness}%"></div>
+                    </div>
+                </div>
+                <div class="d-flex flex-wrap gap-2 text-muted" style="font-size:0.75rem;">
+                    ${stats.length || eng.estimated_acr || targetDisplay
+                        ? (stats.length ? '<span>' + stats.join('</span><span>') + '</span>' : '')
+                          + (eng.estimated_acr ? '<span><i class="bi bi-currency-dollar"></i> ' + escapeHtml(eng.estimated_acr) + '</span>' : '')
+                          + (targetDisplay ? '<span><i class="bi bi-calendar"></i> ' + targetDisplay + '</span>' : '')
+                        : '<span>&nbsp;</span>'}
+                </div>
+            </div>
+        </div></div>`;
+    }
+
+    function buildCustomerGroup(group) {
+        const cards = group.items.map(buildCard).join('');
+        const iconHtml = group.favicon
+            ? '<img src="data:image/png;base64,' + group.favicon + '" width="16" height="16" alt="" style="vertical-align:middle;">'
+            : '<i class="bi bi-building text-muted"></i>';
+
+        return `<div style="flex: 0 1 auto;">
+            <div class="d-flex align-items-center gap-2 mb-1 px-1">
+                ${iconHtml}
+                <a href="/customer/${group.id}" class="fw-semibold text-decoration-none" style="font-size:0.9rem;">${escapeHtml(group.name)}</a>
+                <span class="badge bg-secondary" style="font-size:0.65rem;">${group.items.length}</span>
+            </div>
+            <div class="d-flex flex-wrap gap-2">${cards}</div>
+        </div>`;
+    }
+
+    function groupByCustomer(items) {
+        const groups = new Map();
+        items.forEach(eng => {
+            const key = eng.customer_id || 0;
+            if (!groups.has(key)) {
+                groups.set(key, { name: eng.customer_name, id: eng.customer_id, seller: eng.seller_name, favicon: eng.customer_favicon, items: [] });
+            }
+            groups.get(key).items.push(eng);
+        });
+        return [...groups.values()].sort((a, b) => {
+            const aMax = Math.max(...a.items.map(e => new Date(e.updated_at || 0).getTime()));
+            const bMax = Math.max(...b.items.map(e => new Date(e.updated_at || 0).getTime()));
+            return bMax - aMax;
+        });
+    }
+
+    function render() {
+        const body = document.getElementById(BODY_ID);
+        let items = rawData.slice();
+
+        if (statusFilter) {
+            items = items.filter(e => e.status === statusFilter);
+        }
+
+        if (sortBy === 'updated') {
+            items.sort((a, b) => (b.updated_at || '').localeCompare(a.updated_at || ''));
+        } else if (sortBy === 'target') {
+            items.sort((a, b) => (a.target_date || '9999').localeCompare(b.target_date || '9999'));
+        }
+
+        if (items.length === 0) {
+            body.innerHTML = '<div class="text-center py-4 text-muted">' + escapeHtml(EMPTY_MSG) + '</div>';
+            return;
+        }
+
+        if (SHOW_SELLER) {
+            // Group by seller first, then customer within
+            const sellerMap = new Map();
+            items.forEach(eng => {
+                const key = eng.seller_name || 'Unassigned';
+                if (!sellerMap.has(key)) sellerMap.set(key, []);
+                sellerMap.get(key).push(eng);
+            });
+            // Sort sellers by most recent engagement
+            const sortedSellers = [...sellerMap.entries()].sort((a, b) => {
+                const aMax = Math.max(...a[1].map(e => new Date(e.updated_at || 0).getTime()));
+                const bMax = Math.max(...b[1].map(e => new Date(e.updated_at || 0).getTime()));
+                return bMax - aMax;
+            });
+
+            body.innerHTML = sortedSellers.map(([sellerName, sellerItems]) => {
+                const customerGroups = groupByCustomer(sellerItems);
+                return `<div class="mb-3">
+                    <div class="fw-semibold mb-2 px-1" style="font-size:0.95rem;"><i class="bi bi-person"></i> ${escapeHtml(sellerName)}</div>
+                    <div class="d-flex flex-wrap gap-3 align-items-start">${customerGroups.map(buildCustomerGroup).join('')}</div>
+                </div>`;
+            }).join('');
+        } else {
+            // Just group by customer
+            const customerGroups = groupByCustomer(items);
+            body.innerHTML = '<div class="d-flex flex-wrap gap-3 align-items-start">' +
+                customerGroups.map(buildCustomerGroup).join('') +
+                '</div>';
+        }
+    }
+
+    // Expose load function globally so callers can trigger it
+    window['engLoad_' + BODY_ID] = load;
+
+    {% if eng_auto_load | default(false) %}
+    document.addEventListener('DOMContentLoaded', load);
+    {% endif %}
+})();
+</script>

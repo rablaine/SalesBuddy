@@ -23,8 +23,10 @@
     </div>
 </div>
 
-<div class="row">
-    <div class="col-md-4">
+<div class="row" style="height: 600px;">
+    <!-- Left column: Details + Customers -->
+    <div class="col-lg-4 d-flex flex-column" style="height: 100%;">
+        <!-- Details Card -->
         <div class="card mb-3">
             <div class="card-header">
                 <h5 class="mb-0">Details</h5>
@@ -32,9 +34,6 @@
             <div class="card-body">
                 {% if seller.alias %}
                     <p><strong>Email:</strong> <a href="mailto:{{ seller.alias }}@microsoft.com">{{ seller.alias }}@microsoft.com</a></p>
-                {% endif %}
-                {% if seller.seller_type %}
-                    <p><strong>Type:</strong> <span class="badge bg-secondary">{{ seller.seller_type }}</span></p>
                 {% endif %}
                 
                 {% set pods = [] %}
@@ -45,7 +44,12 @@
                         {% endif %}
                     {% endfor %}
                 {% endif %}
-                <p><strong>PODs:</strong>
+                <p>
+                    {% if seller.seller_type %}
+                        <strong>Type:</strong> <span class="badge bg-secondary">{{ seller.seller_type }}</span>
+                    {% endif %}
+                    {% if seller.seller_type and pods|length > 0 %}&nbsp; {% endif %}
+                    <strong>POD:</strong>
                     {% if pods|length > 0 %}
                         {% for pod in pods|sort(attribute='name') %}
                             <a href="{{ url_for('pods.pod_view', id=pod.id) }}" class="badge bg-info text-dark text-decoration-none">
@@ -68,115 +72,185 @@
                         <span class="text-muted">None</span>
                     {% endif %}
                 </p>
-                <p><strong>Total Customers:</strong> {{ customers|length }}</p>
             </div>
         </div>
         
+        <!-- Customers Card (compact, scrollable) -->
+        <div class="card mb-3 flex-grow-1 d-flex flex-column" style="min-height: 0;">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-building"></i> Customers <span class="badge bg-secondary">{{ customers|length }}</span></h5>
+            </div>
+            <div class="card-body p-0 ps-2 flex-grow-1" style="overflow-y: auto; min-height: 0;">
+                {% if customers %}
+                <div>
+                    <table class="table table-hover table-sm mb-0" style="--bs-table-bg: transparent;">
+                        <thead class="sticky-top" style="background: var(--bs-card-bg, var(--bs-body-bg));">
+                            <tr>
+                                <th style="font-size: 0.8rem;">Customer</th>
+                                <th style="font-size: 0.8rem;">Last Note</th>
+                                <th style="font-size: 0.8rem; width: 40px;"></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for customer_data in customers %}
+                            <tr>
+                                <td style="font-size: 0.85rem;">
+                                    <a href="{{ url_for('customers.customer_view', id=customer_data.customer.id) }}" class="text-decoration-none">
+                                        {{ customer_favicon(customer_data.customer) }} {{ customer_data.customer.name }}
+                                    </a>
+                                </td>
+                                <td style="font-size: 0.8rem;">
+                                    {% if customer_data.last_note %}
+                                        <a href="{{ url_for('notes.note_view', id=customer_data.last_note.id) }}" class="text-decoration-none text-muted">
+                                            {{ customer_data.last_note.call_date.strftime('%b %d, %Y') }}
+                                        </a>
+                                    {% else %}
+                                        <span class="text-muted">No notes yet</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <a href="{{ url_for('notes.note_create', customer_id=customer_data.customer.id) }}" class="btn btn-sm btn-success py-0 px-1" title="New Note">
+                                        <i class="bi bi-plus"></i>
+                                    </a>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                    <div class="p-3 text-muted">No customers assigned to this seller yet.</div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Middle column: Revenue Analyzer -->
+    <div class="col-lg-4 d-flex flex-column" style="height: 100%;">
         {% if revenue_alerts %}
-        <div class="card mb-3 border-warning">
+        <div class="card mb-3 border-warning flex-grow-1 d-flex flex-column" style="min-height: 0;">
             <div class="card-header bg-warning text-dark d-flex justify-content-between align-items-center">
-                <h5 class="mb-0"><i class="bi bi-exclamation-triangle"></i> Revenue Analyzer</h5>
+                <h5 class="mb-0"><i class="bi bi-exclamation-triangle"></i> Revenue Analyzer <span class="badge bg-dark">{{ revenue_alerts|length }}</span></h5>
                 <a href="{{ url_for('revenue.revenue_seller_view', seller_name=seller.name) }}" class="btn btn-sm btn-outline-dark">
                     <i class="bi bi-eye"></i> Full View
                 </a>
             </div>
-            <div class="card-body">
-                {% for alert in revenue_alerts[:5] %}
-                    <div class="{% if not loop.last %}mb-3 pb-3 border-bottom{% endif %}">
-                        <div class="d-flex justify-content-between align-items-start mb-1">
-                            <strong>{{ alert.customer_name }}</strong>
-                            <span class="badge 
-                                {% if alert.category == 'CHURN_RISK' %}bg-danger
-                                {% elif alert.category == 'RECENT_DIP' %}bg-warning text-dark
-                                {% elif alert.category == 'EXPANSION_OPPORTUNITY' %}bg-success
-                                {% elif alert.category == 'VOLATILE' %}bg-info
-                                {% else %}bg-secondary{% endif %}"
-                                style="font-size: 0.7em;">
-                                {{ alert.category|replace('_', ' ')|title }}
-                            </span>
+            <div class="card-body p-0 flex-grow-1" style="overflow-y: auto; min-height: 0;">
+                <div class="list-group list-group-flush">
+                {% for alert in revenue_alerts %}
+                    <div class="list-group-item p-2">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <div class="text-truncate me-2" style="min-width: 0;">
+                                <div class="fw-semibold text-truncate" style="font-size: 0.85rem;">{{ alert.customer_name }}</div>
+                                <div class="text-muted text-truncate" style="font-size: 0.75rem;">{{ alert.bucket }}</div>
+                            </div>
+                            <div class="text-end flex-shrink-0">
+                                <span class="badge
+                                    {% if alert.category == 'CHURN_RISK' %}bg-danger
+                                    {% elif alert.category == 'RECENT_DIP' %}bg-warning text-dark
+                                    {% elif alert.category == 'EXPANSION_OPPORTUNITY' %}bg-success
+                                    {% elif alert.category == 'VOLATILE' %}bg-info
+                                    {% else %}bg-secondary{% endif %}"
+                                    style="font-size: 0.65rem;">
+                                    {{ alert.category|replace('_', ' ')|title }}
+                                </span>
+                                {% if alert.dollars_at_risk and alert.dollars_at_risk > 0 %}
+                                <div class="text-danger" style="font-size: 0.7rem;">${{ "{:,.0f}".format(alert.dollars_at_risk) }} at risk</div>
+                                {% else %}
+                                <div style="font-size: 0.7rem;">&nbsp;</div>
+                                {% endif %}
+                            </div>
                         </div>
-                        <div class="small text-muted">{{ alert.bucket }}</div>
                         {% if alert.recommended_action and alert.recommended_action != 'NO ACTION' %}
-                            <div class="small mt-1">
-                                <i class="bi bi-arrow-right"></i> {{ alert.recommended_action }}
-                            </div>
-                        {% endif %}
-                        {% if alert.dollars_at_risk and alert.dollars_at_risk > 0 %}
-                            <div class="small text-danger mt-1">
-                                ${{ "{:,.0f}".format(alert.dollars_at_risk) }} at risk
-                            </div>
+                        <div class="text-muted mt-1" style="font-size: 0.75rem;">
+                            <i class="bi bi-arrow-right"></i> {{ alert.recommended_action }}
+                        </div>
                         {% endif %}
                     </div>
                 {% endfor %}
-                {% if revenue_alerts|length > 5 %}
-                    <div class="text-center mt-2">
-                        <a href="{{ url_for('revenue.revenue_seller_view', seller_name=seller.name) }}" class="btn btn-sm btn-warning">
-                            View all {{ revenue_alerts|length }} insights
-                        </a>
-                    </div>
-                {% endif %}
+                </div>
+            </div>
+        </div>
+        {% else %}
+        <div class="card mb-3">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-graph-up"></i> Revenue Analyzer</h5>
+            </div>
+            <div class="card-body text-center text-muted py-4">
+                <i class="bi bi-graph-up" style="font-size: 2rem;"></i>
+                <p class="mt-2 mb-0">No revenue insights yet</p>
             </div>
         </div>
         {% endif %}
     </div>
-    
-    <div class="col-md-8">
-        <div class="card mb-3">
-            <div class="card-header">
-                <h5 class="mb-0">Customers (sorted by most recent call)</h5>
+
+    <!-- Right column: Milestones -->
+    <div class="col-lg-4 d-flex flex-column" style="height: 100%;">
+        {% if milestones %}
+        <div class="card mb-3 border-info flex-grow-1 d-flex flex-column" style="min-height: 0;">
+            <div class="card-header bg-info text-dark d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-flag"></i> Milestones <span class="badge bg-dark">{{ milestones|length }}</span></h5>
+                <a href="{{ url_for('milestones.milestone_tracker') }}?seller={{ seller.id }}" class="btn btn-sm btn-outline-dark">
+                    <i class="bi bi-eye"></i> Full View
+                </a>
             </div>
-            <div class="card-body">
-                {% if customers %}
-                    <div class="table-responsive">
-                        <table class="table table-hover">
-                            <thead>
-                                <tr>
-                                    <th>Customer</th>
-                                    <th>Most Recent Call</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {% for customer_data in customers %}
-                                    <tr>
-                                        <td>
-                                            <a href="{{ url_for('customers.customer_view', id=customer_data.customer.id) }}">
-                                                {{ customer_favicon(customer_data.customer) }} {{ customer_data.customer.name }}
-                                            </a>
-                                        </td>
-                                        <td>
-                                            <div class="d-flex justify-content-between align-items-center">
-                                                <div>
-                                                    {% if customer_data.last_call %}
-                                                        <a href="{{ url_for('notes.note_view', id=customer_data.last_call.id) }}">
-                                                            {{ customer_data.last_call.call_date.strftime('%b %d, %Y') }}{% if customer_data.last_call.call_date.hour != 0 or customer_data.last_call.call_date.minute != 0 %} {{ customer_data.last_call.call_date.strftime('%I:%M %p') }}{% endif %}
-                                                        </a>
-                                                    {% else %}
-                                                        <span class="text-muted">No calls yet</span>
-                                                    {% endif %}
-                                                </div>
-                                                <a href="{{ url_for('notes.note_create', customer_id=customer_data.customer.id) }}" class="btn btn-sm btn-success ms-2">
-                                                    <i class="bi bi-plus-circle"></i> New Note
-                                                </a>
-                                            </div>
-                                        </td>
-                                    </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
-                    </div>
-                {% else %}
-                    <p class="text-muted">No customers assigned to this seller yet.</p>
-                {% endif %}
+            <div class="card-body p-0 flex-grow-1" style="overflow-y: auto; min-height: 0;">
+                <div class="list-group list-group-flush">
+                    {% for ms in milestones %}
+                    <a href="{{ url_for('milestones.milestone_view', id=ms.id) }}" class="list-group-item list-group-item-action p-2">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <div class="text-truncate me-2" style="min-width: 0;">
+                                <div class="fw-semibold text-truncate" style="font-size: 0.85rem;">{{ ms.title }}</div>
+                                <div class="text-muted text-truncate" style="font-size: 0.75rem;">{{ ms.customer_name }}</div>
+                            </div>
+                            <div class="text-end flex-shrink-0">
+                                <span class="badge {% if ms.status == 'On Track' %}bg-success{% elif ms.status == 'At Risk' %}bg-warning text-dark{% else %}bg-danger{% endif %}" style="font-size: 0.65rem;">{{ ms.status }}</span>
+                                {% if ms.due_date %}
+                                <div class="{% if ms.urgency == 'past_due' %}text-danger fw-bold{% elif ms.urgency == 'this_week' %}text-warning{% else %}text-muted{% endif %}" style="font-size: 0.7rem;">
+                                    {{ ms.due_date.strftime('%b %d') }}{% if ms.days_until_due is not none %} {% if ms.days_until_due < 0 %}({{ -ms.days_until_due }}d){% elif ms.days_until_due == 0 %}(today){% else %}({{ ms.days_until_due }}d){% endif %}{% endif %}
+                                </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                        {% if ms.monthly_usage and ms.monthly_usage > 0 %}
+                        <div class="small text-muted mt-1" style="font-size: 0.75rem;">
+                            <span class="text-success"><i class="bi bi-graph-up"></i> ${{ "{:,.0f}".format(ms.monthly_usage) }}/mo</span>
+                            {% if ms.workload %}&middot; {{ ms.workload }}{% endif %}
+                        </div>
+                        {% elif ms.workload %}
+                        <div class="small text-muted mt-1" style="font-size: 0.75rem;">{{ ms.workload }}</div>
+                        {% endif %}
+                    </a>
+                    {% endfor %}
+                </div>
             </div>
         </div>
+        {% else %}
+        <div class="card mb-3">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-flag"></i> Milestones</h5>
+            </div>
+            <div class="card-body text-center text-muted py-4">
+                <i class="bi bi-flag" style="font-size: 2rem;"></i>
+                <p class="mt-2 mb-0">No active milestones</p>
+            </div>
+        </div>
+        {% endif %}
     </div>
 </div>
+
+<!-- Engagements section -->
+<div class="row">
+    <div class="col-12">
+        {% set eng_api_url = '/api/seller/' ~ seller.id ~ '/engagements' %}
+        {% set eng_auto_load = true %}
+        {% set eng_show_seller = false %}
+        {% set eng_empty_msg = 'No engagements found for this seller.' %}
+        {% include 'partials/engagements_panel.html' %}
+    </div>
+</div>
+
 {% endblock %}
-
-
-
-
-
 
 
 
