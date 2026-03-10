@@ -349,6 +349,9 @@ function renderComments(opp) {
 
 // ── Render error state ──────────────────────────────────────────────
 function renderError(errorMsg, vpnBlocked) {
+    // Show global VPN banner when blocked
+    if (vpnBlocked && window.showVpnBanner) window.showVpnBanner();
+
     // Details card — hide spinner, but keep cached data visible if present
     document.getElementById('detailsSpinner').style.display = 'none';
     const cached = document.getElementById('detailsCached');
