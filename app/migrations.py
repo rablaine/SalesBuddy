@@ -155,6 +155,9 @@ def run_migrations(db):
     # Migration: Rename partners.notes -> overview (avoid conflict with notes relationship)
     _rename_partner_notes_to_overview(db, inspector)
 
+    # Migration: Add website and favicon_b64 columns to partners
+    _migrate_partner_favicon_columns(db, inspector)
+
     # =========================================================================
     # End migrations
     # =========================================================================
@@ -953,6 +956,14 @@ def _rename_partner_notes_to_overview(db, inspector):
             ))
             conn.commit()
         print("  Renamed column 'partners.notes' -> 'overview'")
+
+
+def _migrate_partner_favicon_columns(db, inspector):
+    """Add website and favicon_b64 columns to partners table for favicon support."""
+    if not _table_exists(inspector, 'partners'):
+        return
+    _add_column_if_not_exists(db, inspector, 'partners', 'website', 'VARCHAR(255)')
+    _add_column_if_not_exists(db, inspector, 'partners', 'favicon_b64', 'TEXT')
 
 
 def _seed_note_templates(db, inspector):

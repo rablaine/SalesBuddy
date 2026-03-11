@@ -4,6 +4,8 @@ Handles partner management, contacts, and specialties.
 """
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, g
 from app.models import db, Partner, PartnerContact, Specialty, Note
+from app.routes.admin import fetch_favicon_for_domain
+from app.routes.msx import _extract_domain
 
 partners_bp = Blueprint('partners', __name__)
 
@@ -26,6 +28,7 @@ def partner_new():
         name = request.form.get('name', '').strip()
         overview = request.form.get('overview', '').strip()
         rating_str = request.form.get('rating', '').strip()
+        website = request.form.get('website', '').strip()
         specialty_ids = request.form.getlist('specialty_ids')
         
         # Parse rating (empty string = no rating)
@@ -37,10 +40,18 @@ def partner_new():
             flash('Partner name is required', 'error')
             return redirect(request.url)
         
+        # Normalize website to clean domain and fetch favicon
+        website = _extract_domain(website) if website else None
+        favicon_b64 = None
+        if website:
+            favicon_b64 = fetch_favicon_for_domain(website)
+        
         partner = Partner(
             name=name,
             overview=overview or None,
             rating=rating,
+            website=website,
+            favicon_b64=favicon_b64,
         )
         
         # Add specialties
@@ -74,6 +85,7 @@ def partner_edit(id):
         name = request.form.get('name', '').strip()
         overview = request.form.get('overview', '').strip()
         rating_str = request.form.get('rating', '').strip()
+        website = request.form.get('website', '').strip()
         specialty_ids = request.form.getlist('specialty_ids')
         
         # Parse rating (empty string = no rating)
@@ -88,6 +100,15 @@ def partner_edit(id):
         partner.name = name
         partner.overview = overview or None
         partner.rating = rating
+        
+        # Normalize website to clean domain and refetch favicon if changed
+        website = _extract_domain(website) if website else None
+        old_website = partner.website
+        partner.website = website
+        if website and website != old_website:
+            partner.favicon_b64 = fetch_favicon_for_domain(website)
+        elif not website:
+            partner.favicon_b64 = None
         
         # Update specialties
         if specialty_ids:

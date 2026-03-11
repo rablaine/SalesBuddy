@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from 'partials/partner_favicon.html' import partner_favicon %}
 {% block title %}Partners - NoteHelper{% endblock %}
 
 {% block content %}
@@ -37,7 +38,7 @@
                         <tr>
                             <td>
                                 <a href="{{ url_for('partners.partner_view', id=partner.id) }}" class="text-decoration-none">
-                                    <i class="bi bi-building"></i> {{ partner.name }}
+                                    {{ partner_favicon(partner) }} {{ partner.name }}
                                 </a>
                             </td>
                             <td>

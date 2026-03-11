@@ -32,6 +32,17 @@
                         </div>
                         
                         <div class="mb-3">
+                            <label for="website" class="form-label">Website</label>
+                            <div class="input-group">
+                                <span class="input-group-text"><i class="bi bi-globe"></i></span>
+                                <input type="text" class="form-control" id="website" name="website" 
+                                       placeholder="acme.com or https://www.acme.com"
+                                       value="{{ partner.website if partner and partner.website else '' }}">
+                            </div>
+                            <div class="form-text">Paste a URL or domain — we'll extract the domain and fetch the favicon.</div>
+                        </div>
+                        
+                        <div class="mb-3">
                             <label for="specialty_search" class="form-label">Specialties</label>
                             <input type="text" class="form-control" id="specialty_search" 
                                    placeholder="Search and add specialties..." autocomplete="off">

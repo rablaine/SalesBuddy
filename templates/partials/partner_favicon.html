@@ -1,0 +1,18 @@
+{#
+    Partner favicon macro.
+
+    Renders either the partner's cached favicon or a fallback building icon.
+    Import in templates with:
+        from 'partials/partner_favicon.html' import partner_favicon
+
+    Usage:
+        partner_favicon(partner)            -- 16px default
+        partner_favicon(partner, size=20)   -- custom size
+#}
+{% macro partner_favicon(partner, size=16) -%}
+{%- if partner and partner.favicon_b64 -%}
+<img src="data:image/png;base64,{{ partner.favicon_b64 }}" width="{{ size }}" height="{{ size }}" alt="" class="partner-favicon" style="vertical-align: middle;">
+{%- else -%}
+<i class="bi bi-building"></i>
+{%- endif -%}
+{%- endmacro %}

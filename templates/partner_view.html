@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from 'partials/customer_favicon.html' import customer_favicon %}
+{% from 'partials/partner_favicon.html' import partner_favicon %}
 {% block title %}{{ partner.name }} - Partners - NoteHelper{% endblock %}
 
 {% block content %}
@@ -13,7 +14,7 @@
 
     <div class="row mb-4">
         <div class="col">
-            <h1><i class="bi bi-building"></i> {{ partner.name }}</h1>
+            <h1>{{ partner_favicon(partner, size=32) }} {{ partner.name }}</h1>
             <div class="mt-2">
                 {% if partner.rating is not none %}
                 <span class="me-3" title="{{ partner.rating }} out of 5 stars">

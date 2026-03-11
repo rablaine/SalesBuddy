@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from 'partials/partner_favicon.html' import partner_favicon %}
 {% block title %}{{ specialty.name }} - Specialties - NoteHelper{% endblock %}
 
 {% block content %}
@@ -43,7 +44,7 @@
                 <li class="list-group-item d-flex justify-content-between align-items-center">
                     <div>
                         <a href="{{ url_for('partners.partner_view', id=partner.id) }}" class="text-decoration-none">
-                            <i class="bi bi-building"></i> {{ partner.name }}
+                            {{ partner_favicon(partner) }} {{ partner.name }}
                         </a>
                         {% if partner.contacts %}
                         <br><small class="text-muted">{{ partner.contacts|length }} contact{{ 's' if partner.contacts|length != 1 else '' }}</small>

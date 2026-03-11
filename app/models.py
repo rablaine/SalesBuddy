@@ -394,6 +394,8 @@ class Partner(db.Model):
     name = db.Column(db.String(200), nullable=False)
     overview = db.Column(db.Text, nullable=True)  # Text notes about the partner
     rating = db.Column(db.Integer, nullable=True)  # 0-5 star rating, null = not rated
+    website = db.Column(db.String(255), nullable=True)  # Partner website domain (e.g., 'acme.com')
+    favicon_b64 = db.Column(db.Text, nullable=True)  # Base64-encoded 32x32 PNG favicon
     created_at = db.Column(db.DateTime, default=utc_now, nullable=False)
     updated_at = db.Column(db.DateTime, default=utc_now, onupdate=utc_now, nullable=False)
     
