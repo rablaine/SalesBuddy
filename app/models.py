@@ -392,7 +392,7 @@ class Partner(db.Model):
     
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(200), nullable=False)
-    notes = db.Column(db.Text, nullable=True)
+    overview = db.Column(db.Text, nullable=True)  # Text notes about the partner
     rating = db.Column(db.Integer, nullable=True)  # 0-5 star rating, null = not rated
     created_at = db.Column(db.DateTime, default=utc_now, nullable=False)
     updated_at = db.Column(db.DateTime, default=utc_now, onupdate=utc_now, nullable=False)

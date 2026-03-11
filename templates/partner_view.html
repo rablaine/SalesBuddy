@@ -48,8 +48,8 @@
                     <h5 class="mb-0"><i class="bi bi-sticky"></i> Notes</h5>
                 </div>
                 <div class="card-body">
-                    {% if partner.notes %}
-                    <p class="mb-0" style="white-space: pre-wrap;">{{ partner.notes }}</p>
+                    {% if partner.overview %}
+                    <p class="mb-0" style="white-space: pre-wrap;">{{ partner.overview }}</p>
                     {% else %}
                     <p class="text-muted mb-0">No notes yet. <a href="{{ url_for('partners.partner_edit', id=partner.id) }}">Add notes</a></p>
                     {% endif %}

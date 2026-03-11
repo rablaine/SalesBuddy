@@ -39,7 +39,7 @@ def partner_new():
         
         partner = Partner(
             name=name,
-            notes=notes or None,
+            overview=overview or None,
             rating=rating,
         )
         
@@ -86,7 +86,7 @@ def partner_edit(id):
             return redirect(request.url)
         
         partner.name = name
-        partner.notes = notes or None
+        partner.overview = overview or None
         partner.rating = rating
         
         # Update specialties

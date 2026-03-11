@@ -152,6 +152,9 @@ def run_migrations(db):
     # Migration: Add MSX detail columns to opportunities (cache-on-read)
     _migrate_opportunity_details_columns(db, inspector)
 
+    # Migration: Rename partners.notes -> overview (avoid conflict with notes relationship)
+    _rename_partner_notes_to_overview(db, inspector)
+
     # =========================================================================
     # End migrations
     # =========================================================================
@@ -937,6 +940,19 @@ def _rename_overview_to_account_context(db, inspector):
             ))
             conn.commit()
         print("  Renamed column 'customers.overview' -> 'account_context'")
+
+
+def _rename_partner_notes_to_overview(db, inspector):
+    """Rename partners.notes -> overview to avoid conflict with notes relationship."""
+    if not _table_exists(inspector, 'partners'):
+        return
+    if _column_exists(inspector, 'partners', 'notes') and not _column_exists(inspector, 'partners', 'overview'):
+        with db.engine.connect() as conn:
+            conn.execute(text(
+                "ALTER TABLE [partners] RENAME COLUMN [notes] TO [overview]"
+            ))
+            conn.commit()
+        print("  Renamed column 'partners.notes' -> 'overview'")
 
 
 def _seed_note_templates(db, inspector):
