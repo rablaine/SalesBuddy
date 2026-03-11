@@ -6,7 +6,7 @@ from flask import Blueprint, render_template, request, redirect, url_for, flash,
 from datetime import date, datetime, timedelta, timezone
 from sqlalchemy.orm import joinedload, subqueryload
 
-from app.models import db, Seller, Territory, Customer, Milestone, Engagement
+from app.models import db, Seller, Territory, Customer, Engagement
 
 # Create blueprint
 sellers_bp = Blueprint('sellers', __name__)
@@ -93,55 +93,16 @@ def seller_view(id):
     from app.services.revenue_analysis import get_seller_alerts
     revenue_alerts = get_seller_alerts(seller.name)
     
-    # Get active milestones for this seller's customers
-    customer_ids = [c.id for c in seller.customers]
-    milestones_data = []
-    if customer_ids:
-        active_statuses = {'On Track', 'At Risk', 'Blocked'}
-        milestones = (
-            Milestone.query
-            .filter(
-                Milestone.customer_id.in_(customer_ids),
-                Milestone.msx_status.in_(active_statuses)
-            )
-            .options(
-                db.joinedload(Milestone.customer),
-                db.joinedload(Milestone.opportunity),
-            )
-            .all()
-        )
-        
-        now = datetime.now(timezone.utc)
-        cutoff = now - timedelta(days=60)  # exclude milestones more than 2 months overdue
-        for ms in milestones:
-            days_until = None
-            if ms.due_date:
-                due = ms.due_date if ms.due_date.tzinfo else ms.due_date.replace(
-                    tzinfo=timezone.utc
-                )
-                # Skip if more than 2 months overdue
-                if due < cutoff:
-                    continue
-                days_until = (due - now).days
-            
-            milestones_data.append({
-                'id': ms.id,
-                'title': ms.display_text,
-                'status': ms.msx_status,
-                'urgency': ms.due_date_urgency,
-                'customer_name': ms.customer.get_display_name() if ms.customer else 'Unknown',
-                'customer_id': ms.customer.id if ms.customer else None,
-                'due_date': ms.due_date,
-                'days_until_due': days_until,
-                'monthly_usage': ms.monthly_usage,
-                'workload': ms.workload,
-                'url': ms.url,
-            })
-        
-        # Sort by due date ascending (closest to due first, nulls last)
-        milestones_data.sort(
-            key=lambda x: x['due_date'] if x['due_date'] else datetime.max
-        )
+    # Calculate revenue summary totals
+    revenue_summary = {
+        'count': len(revenue_alerts),
+        'total_at_risk': sum(a.dollars_at_risk or 0 for a in revenue_alerts),
+        'total_opportunity': sum(a.dollars_opportunity or 0 for a in revenue_alerts),
+    }
+    
+    # Get milestone tracker data filtered for this seller's customers
+    from app.services.milestone_sync import get_milestone_tracker_data_for_seller
+    milestone_data = get_milestone_tracker_data_for_seller(seller.id)
     
     return render_template(
         'seller_view.html',
@@ -149,7 +110,11 @@ def seller_view(id):
         customers=customers_data,
         can_delete=can_delete,
         revenue_alerts=revenue_alerts,
-        milestones=milestones_data,
+        revenue_summary=revenue_summary,
+        milestones=milestone_data["milestones"],
+        milestone_summary=milestone_data["summary"],
+        milestone_areas=milestone_data["areas"],
+        milestone_quarters=milestone_data["quarters"],
     )
 
 

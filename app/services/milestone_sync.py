@@ -1005,3 +1005,162 @@ def get_milestone_tracker_data() -> Dict[str, Any]:
         "areas": areas,
         "quarters": quarters,
     }
+
+
+def get_milestone_tracker_data_for_seller(seller_id: int) -> Dict[str, Any]:
+    """
+    Get milestone tracker data filtered for a specific seller's customers.
+    
+    Returns the same format as get_milestone_tracker_data, but only includes
+    milestones for customers assigned to the specified seller.
+    
+    Args:
+        seller_id: The ID of the seller to filter by
+        
+    Returns:
+        Dict with milestones, summary, areas, quarters (no sellers list needed)
+    """
+    from app.models import Seller
+    
+    # Get seller's customer IDs
+    seller = db.session.get(Seller, seller_id)
+    if not seller:
+        return {
+            "milestones": [],
+            "summary": {
+                "total_count": 0,
+                "total_monthly_usage": 0,
+                "past_due_count": 0,
+                "this_week_count": 0,
+            },
+            "areas": [],
+            "quarters": [],
+        }
+    
+    customer_ids = [c.id for c in seller.customers]
+    if not customer_ids:
+        return {
+            "milestones": [],
+            "summary": {
+                "total_count": 0,
+                "total_monthly_usage": 0,
+                "past_due_count": 0,
+                "this_week_count": 0,
+            },
+            "areas": [],
+            "quarters": [],
+        }
+    
+    # Query active milestones for this seller's customers
+    milestones = (
+        Milestone.query
+        .filter(
+            Milestone.customer_id.in_(customer_ids),
+            Milestone.msx_status.in_(ACTIVE_STATUSES)
+        )
+        .options(
+            db.joinedload(Milestone.customer).joinedload(Customer.seller),
+            db.joinedload(Milestone.customer).joinedload(Customer.territory),
+            db.joinedload(Milestone.opportunity),
+        )
+        .all()
+    )
+    
+    # Build the data structure (same format as get_milestone_tracker_data)
+    now = datetime.now(timezone.utc)
+    tracker_items = []
+    
+    total_monthly_usage = 0
+    past_due_count = 0
+    this_week_count = 0
+    
+    for ms in milestones:
+        urgency = ms.due_date_urgency
+        if urgency == 'past_due':
+            past_due_count += 1
+        elif urgency == 'this_week':
+            this_week_count += 1
+        
+        if ms.monthly_usage and ms.monthly_usage > 0:
+            total_monthly_usage += ms.monthly_usage
+        
+        # Days until due
+        days_until = None
+        fiscal_quarter = ""
+        if ms.due_date:
+            due = ms.due_date if ms.due_date.tzinfo else ms.due_date.replace(tzinfo=timezone.utc)
+            days_until = (due - now).days
+            # Microsoft fiscal year starts July 1
+            month = ms.due_date.month
+            year = ms.due_date.year
+            if month >= 7:
+                fy = year + 1
+                q = 1 if month <= 9 else 2
+            else:
+                fy = year
+                q = 3 if month <= 3 else 4
+            fiscal_quarter = f"FY{fy % 100:02d} Q{q}"
+        
+        # Extract area prefix from workload
+        workload_area = ""
+        if ms.workload and ':' in ms.workload:
+            workload_area = ms.workload.split(':', 1)[0].strip()
+        elif ms.workload:
+            workload_area = ms.workload.strip()
+        
+        tracker_items.append({
+            "id": ms.id,
+            "title": ms.display_text,
+            "milestone_number": ms.milestone_number,
+            "status": ms.msx_status,
+            "status_sort": ms.status_sort_order,
+            "opportunity_name": ms.opportunity_name,
+            "workload": ms.workload,
+            "workload_area": workload_area,
+            "monthly_usage": ms.monthly_usage,
+            "due_date": ms.due_date,
+            "dollar_value": ms.dollar_value,
+            "days_until_due": days_until,
+            "fiscal_quarter": fiscal_quarter,
+            "urgency": urgency,
+            "url": ms.url,
+            "msx_milestone_id": ms.msx_milestone_id,
+            "on_my_team": ms.on_my_team,
+            "customer": {
+                "id": ms.customer.id if ms.customer else None,
+                "name": ms.customer.get_display_name() if ms.customer else "Unknown",
+                "favicon_b64": ms.customer.favicon_b64 if ms.customer else None,
+            } if ms.customer else None,
+            "seller": {
+                "id": ms.customer.seller.id,
+                "name": ms.customer.seller.name,
+            } if ms.customer and ms.customer.seller else None,
+        })
+    
+    # Sort by due date (closest first, nulls last) to match seller view expectation
+    far_future = datetime(9999, 12, 31, tzinfo=timezone.utc)
+    tracker_items.sort(key=lambda x: x["due_date"].replace(tzinfo=timezone.utc) if x["due_date"] else far_future)
+    
+    # Get unique workload areas
+    areas = sorted(set(
+        item["workload_area"] for item in tracker_items
+        if item["workload_area"]
+    ))
+    
+    # Get unique fiscal quarters
+    quarters = sorted(set(
+        item["fiscal_quarter"] for item in tracker_items
+        if item["fiscal_quarter"]
+    ))
+    
+    return {
+        "milestones": tracker_items,
+        "summary": {
+            "total_count": len(tracker_items),
+            "total_monthly_usage": total_monthly_usage,
+            "past_due_count": past_due_count,
+            "this_week_count": this_week_count,
+        },
+        "areas": areas,
+        "quarters": quarters,
+    }

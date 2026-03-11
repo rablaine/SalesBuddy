@@ -125,7 +125,61 @@
         </div>
     </div>
 
-    <!-- Middle column: Revenue Analyzer -->
+    <!-- Middle column: Milestones -->
+    <div class="col-lg-4 d-flex flex-column" style="height: 100%;">
+        {% if milestones %}
+        <div class="card mb-3 border-info flex-grow-1 d-flex flex-column" style="min-height: 0;">
+            <div class="card-header bg-info text-dark d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-flag"></i> Milestones <span class="badge bg-dark">{{ milestones|length }}</span></h5>
+                <button type="button" class="btn btn-sm btn-outline-dark" data-bs-toggle="modal" data-bs-target="#milestonesModal">
+                    <i class="bi bi-arrows-fullscreen"></i> Full View
+                </button>
+            </div>
+            <div class="card-body p-0 flex-grow-1" style="overflow-y: auto; min-height: 0;">
+                <div class="list-group list-group-flush">
+                    {% for ms in milestones %}
+                    <a href="{{ url_for('milestones.milestone_view', id=ms.id) }}" class="list-group-item list-group-item-action p-2">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <div class="text-truncate me-2" style="min-width: 0;">
+                                <div class="fw-semibold text-truncate" style="font-size: 0.85rem;">{{ ms.title }}</div>
+                                <div class="text-muted text-truncate" style="font-size: 0.75rem;">{{ ms.customer_name }}</div>
+                            </div>
+                            <div class="text-end flex-shrink-0">
+                                <span class="badge {% if ms.status == 'On Track' %}bg-success{% elif ms.status == 'At Risk' %}bg-warning text-dark{% else %}bg-danger{% endif %}" style="font-size: 0.65rem;">{{ ms.status }}</span>
+                                {% if ms.due_date %}
+                                <div class="{% if ms.urgency == 'past_due' %}text-danger fw-bold{% elif ms.urgency == 'this_week' %}text-warning{% else %}text-muted{% endif %}" style="font-size: 0.7rem;">
+                                    {{ ms.due_date.strftime('%b %d') }}{% if ms.days_until_due is not none %} {% if ms.days_until_due < 0 %}({{ -ms.days_until_due }}d){% elif ms.days_until_due == 0 %}(today){% else %}({{ ms.days_until_due }}d){% endif %}{% endif %}
+                                </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                        {% if ms.monthly_usage and ms.monthly_usage > 0 %}
+                        <div class="small text-muted mt-1" style="font-size: 0.75rem;">
+                            <span class="text-success"><i class="bi bi-graph-up"></i> ${{ "{:,.0f}".format(ms.monthly_usage) }}/mo</span>
+                            {% if ms.workload %}&middot; {{ ms.workload }}{% endif %}
+                        </div>
+                        {% elif ms.workload %}
+                        <div class="small text-muted mt-1" style="font-size: 0.75rem;">{{ ms.workload }}</div>
+                        {% endif %}
+                    </a>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+        {% else %}
+        <div class="card mb-3">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-flag"></i> Milestones</h5>
+            </div>
+            <div class="card-body text-center text-muted py-4">
+                <i class="bi bi-flag" style="font-size: 2rem;"></i>
+                <p class="mt-2 mb-0">No active milestones</p>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- Right column: Revenue Analyzer -->
     <div class="col-lg-4 d-flex flex-column" style="height: 100%;">
         {% if revenue_alerts %}
         <div class="card mb-3 border-warning flex-grow-1 d-flex flex-column" style="min-height: 0;">
@@ -183,60 +237,6 @@
         </div>
         {% endif %}
     </div>
-
-    <!-- Right column: Milestones -->
-    <div class="col-lg-4 d-flex flex-column" style="height: 100%;">
-        {% if milestones %}
-        <div class="card mb-3 border-info flex-grow-1 d-flex flex-column" style="min-height: 0;">
-            <div class="card-header bg-info text-dark d-flex justify-content-between align-items-center">
-                <h5 class="mb-0"><i class="bi bi-flag"></i> Milestones <span class="badge bg-dark">{{ milestones|length }}</span></h5>
-                <button type="button" class="btn btn-sm btn-outline-dark" data-bs-toggle="modal" data-bs-target="#milestonesModal">
-                    <i class="bi bi-arrows-fullscreen"></i> Full View
-                </button>
-            </div>
-            <div class="card-body p-0 flex-grow-1" style="overflow-y: auto; min-height: 0;">
-                <div class="list-group list-group-flush">
-                    {% for ms in milestones %}
-                    <a href="{{ url_for('milestones.milestone_view', id=ms.id) }}" class="list-group-item list-group-item-action p-2">
-                        <div class="d-flex justify-content-between align-items-start">
-                            <div class="text-truncate me-2" style="min-width: 0;">
-                                <div class="fw-semibold text-truncate" style="font-size: 0.85rem;">{{ ms.title }}</div>
-                                <div class="text-muted text-truncate" style="font-size: 0.75rem;">{{ ms.customer_name }}</div>
-                            </div>
-                            <div class="text-end flex-shrink-0">
-                                <span class="badge {% if ms.status == 'On Track' %}bg-success{% elif ms.status == 'At Risk' %}bg-warning text-dark{% else %}bg-danger{% endif %}" style="font-size: 0.65rem;">{{ ms.status }}</span>
-                                {% if ms.due_date %}
-                                <div class="{% if ms.urgency == 'past_due' %}text-danger fw-bold{% elif ms.urgency == 'this_week' %}text-warning{% else %}text-muted{% endif %}" style="font-size: 0.7rem;">
-                                    {{ ms.due_date.strftime('%b %d') }}{% if ms.days_until_due is not none %} {% if ms.days_until_due < 0 %}({{ -ms.days_until_due }}d){% elif ms.days_until_due == 0 %}(today){% else %}({{ ms.days_until_due }}d){% endif %}{% endif %}
-                                </div>
-                                {% endif %}
-                            </div>
-                        </div>
-                        {% if ms.monthly_usage and ms.monthly_usage > 0 %}
-                        <div class="small text-muted mt-1" style="font-size: 0.75rem;">
-                            <span class="text-success"><i class="bi bi-graph-up"></i> ${{ "{:,.0f}".format(ms.monthly_usage) }}/mo</span>
-                            {% if ms.workload %}&middot; {{ ms.workload }}{% endif %}
-                        </div>
-                        {% elif ms.workload %}
-                        <div class="small text-muted mt-1" style="font-size: 0.75rem;">{{ ms.workload }}</div>
-                        {% endif %}
-                    </a>
-                    {% endfor %}
-                </div>
-            </div>
-        </div>
-        {% else %}
-        <div class="card mb-3">
-            <div class="card-header">
-                <h5 class="mb-0"><i class="bi bi-flag"></i> Milestones</h5>
-            </div>
-            <div class="card-body text-center text-muted py-4">
-                <i class="bi bi-flag" style="font-size: 2rem;"></i>
-                <p class="mt-2 mb-0">No active milestones</p>
-            </div>
-        </div>
-        {% endif %}
-    </div>
 </div>
 
 <!-- Engagements section -->
@@ -253,120 +253,41 @@
 {% if revenue_alerts %}
 <!-- Revenue Analyzer Modal -->
 <div class="modal fade" id="revenueModal" tabindex="-1" aria-labelledby="revenueModalLabel" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-scrollable" style="max-width: 75vw; transition: max-width 0.25s ease;">
-        <div class="modal-content">
+    <div class="modal-dialog modal-dialog-scrollable" style="max-width: min(1320px, calc(100vw - 3rem)); width: calc(100vw - 3rem);">
+        <div class="modal-content" style="max-height: 90vh;">
             <div class="modal-header py-2">
                 <h5 class="modal-title" id="revenueModalLabel"><i class="bi bi-exclamation-triangle"></i> Revenue Analyzer &mdash; {{ seller.name }} <a href="{{ url_for('revenue.revenue_seller_view', seller_name=seller.name) }}" class="text-muted ms-2" title="Open full page" style="font-size: 0.75em;"><i class="bi bi-box-arrow-up-right"></i></a></h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
-            <div class="modal-body p-0" style="position: relative;">
-                <div id="revenueSpinner" class="text-center py-5" style="position: absolute; inset: 0; z-index: 1; background: var(--bs-modal-bg); display: flex; align-items: center; justify-content: center;">
-                    <div class="spinner-border text-primary" role="status"><span class="visually-hidden">Loading...</span></div>
-                </div>
-                <iframe id="revenueFrame" class="w-100 border-0" style="opacity: 0; transition: opacity 0.15s ease;" title="Revenue Analyzer"></iframe>
+            <div class="modal-body p-3">
+                {% set alerts = revenue_alerts %}
+                {% set summary = revenue_summary %}
+                {% include 'partials/revenue_alerts_content.html' %}
             </div>
         </div>
     </div>
 </div>
-<script>
-    document.getElementById('revenueModal').addEventListener('shown.bs.modal', function () {
-        const frame = document.getElementById('revenueFrame');
-        // Already loaded — just show it instantly
-        if (frame.dataset.loaded) {
-            frame.style.opacity = '1';
-            return;
-        }
-        const dialog = this.querySelector('.modal-dialog');
-        const spinner = document.getElementById('revenueSpinner');
-        dialog.style.maxWidth = '75vw';
-        spinner.style.display = 'flex';
-        frame.style.opacity = '0';
-        frame.src = {{ url_for('revenue.revenue_seller_view', seller_name=seller.name, embed=1)|tojson }};
-    });
-    document.getElementById('revenueFrame').addEventListener('load', function () {
-        if (!this.src || this.src === 'about:blank') return;
-        try {
-            const doc = this.contentDocument;
-            // Force all links inside the iframe to open in a new tab
-            if (!doc.querySelector('base[target]')) {
-                const base = doc.createElement('base');
-                base.target = '_blank';
-                doc.head.appendChild(base);
-            }
-            this.style.height = Math.min(doc.documentElement.scrollHeight, window.innerHeight * 0.85) + 'px';
-            const table = doc.querySelector('table.table');
-            if (table) {
-                const orig = table.style.width;
-                table.style.width = 'auto';
-                const naturalWidth = table.offsetWidth + 100;
-                table.style.width = orig;
-                this.closest('.modal-dialog').style.maxWidth = Math.min(naturalWidth, window.innerWidth * 0.75) + 'px';
-            }
-        } catch (e) { this.style.height = '85vh'; }
-        document.getElementById('revenueSpinner').style.display = 'none';
-        this.style.opacity = '1';
-        this.dataset.loaded = '1';
-    });
-</script>
 {% endif %}
 
 {% if milestones %}
 <!-- Milestones Modal -->
 <div class="modal fade" id="milestonesModal" tabindex="-1" aria-labelledby="milestonesModalLabel" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-scrollable" style="max-width: 75vw; transition: max-width 0.25s ease;">
-        <div class="modal-content">
+    <div class="modal-dialog modal-dialog-scrollable" style="max-width: min(1320px, calc(100vw - 3rem)); width: calc(100vw - 3rem);">
+        <div class="modal-content" style="max-height: 90vh;">
             <div class="modal-header py-2">
                 <h5 class="modal-title" id="milestonesModalLabel"><i class="bi bi-flag"></i> Milestone Tracker &mdash; {{ seller.name }} <a href="{{ url_for('milestones.milestone_tracker', seller=seller.id) }}" class="text-muted ms-2" title="Open full page" style="font-size: 0.75em;"><i class="bi bi-box-arrow-up-right"></i></a></h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
-            <div class="modal-body p-0" style="position: relative;">
-                <div id="milestonesSpinner" class="text-center py-5" style="position: absolute; inset: 0; z-index: 1; background: var(--bs-modal-bg); display: flex; align-items: center; justify-content: center;">
-                    <div class="spinner-border text-primary" role="status"><span class="visually-hidden">Loading...</span></div>
-                </div>
-                <iframe id="milestonesFrame" class="w-100 border-0" style="opacity: 0; transition: opacity 0.15s ease;" title="Milestone Tracker"></iframe>
+            <div class="modal-body p-3">
+                {% set locked_seller = seller %}
+                {% set summary = milestone_summary %}
+                {% set areas = milestone_areas %}
+                {% set quarters = milestone_quarters %}
+                {% include 'partials/milestone_tracker_content.html' %}
             </div>
         </div>
     </div>
 </div>
-<script>
-    document.getElementById('milestonesModal').addEventListener('shown.bs.modal', function () {
-        const frame = document.getElementById('milestonesFrame');
-        if (frame.dataset.loaded) {
-            frame.style.opacity = '1';
-            return;
-        }
-        const dialog = this.querySelector('.modal-dialog');
-        const spinner = document.getElementById('milestonesSpinner');
-        dialog.style.maxWidth = '75vw';
-        spinner.style.display = 'flex';
-        frame.style.opacity = '0';
-        frame.src = {{ url_for('milestones.milestone_tracker', seller=seller.id, embed=1)|tojson }};
-    });
-    document.getElementById('milestonesFrame').addEventListener('load', function () {
-        if (!this.src || this.src === 'about:blank') return;
-        try {
-            const doc = this.contentDocument;
-            // Force all links inside the iframe to open in a new tab
-            if (!doc.querySelector('base[target]')) {
-                const base = doc.createElement('base');
-                base.target = '_blank';
-                doc.head.appendChild(base);
-            }
-            this.style.height = Math.min(doc.documentElement.scrollHeight, window.innerHeight * 0.85) + 'px';
-            const table = doc.querySelector('table.table');
-            if (table) {
-                const orig = table.style.width;
-                table.style.width = 'auto';
-                const naturalWidth = table.offsetWidth + 100;
-                table.style.width = orig;
-                this.closest('.modal-dialog').style.maxWidth = Math.min(naturalWidth, window.innerWidth * 0.75) + 'px';
-            }
-        } catch (e) { this.style.height = '85vh'; }
-        document.getElementById('milestonesSpinner').style.display = 'none';
-        this.style.opacity = '1';
-        this.dataset.loaded = '1';
-    });
-</script>
 {% endif %}
 
 {% endblock %}
