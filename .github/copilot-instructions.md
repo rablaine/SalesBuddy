@@ -271,6 +271,11 @@ pytest --cov=app tests/  # with coverage
 - No secrets or .env file committed
 - Tests included for new features or bug fixes
 
+**GitHub Interactions:**
+- **Use `gh` CLI for all GitHub operations** — issues, PRs, comments, labels, etc.
+- Examples: `gh issue comment 46 --body "Fixed in commit abc123"`, `gh issue list`, `gh pr create`
+- Do NOT ask about MCP tools or other methods — just use `gh` directly
+
 ## UI/UX Conventions
 
 **Visual Styling:**
