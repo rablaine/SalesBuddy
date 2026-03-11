@@ -38,6 +38,9 @@ elif os.environ.get("AI_USE_STAGING", "").lower() in ("1", "true"):
 else:
     _GATEWAY_URL = f"{_APIM_BASE}/ai"
 
+# Show which gateway we're using on startup (visible before logging is configured)
+print(f"AI Gateway URL: {_GATEWAY_URL}")
+
 # Entra app registration client ID — the audience for JWT tokens
 _GATEWAY_APP_ID = "api://0f6db4af-332c-4fd5-b894-77fadb181e5c"
 
