@@ -76,3 +76,6 @@ migrations/versions/*.pyc
 
 # Issue plans (local only)
 issue_plans/
+
+# Temp APIM policy files (may contain secrets)
+apim-policy*.json

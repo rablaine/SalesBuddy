@@ -564,7 +564,7 @@
         <div class="modal-content">
             <div class="modal-header">
                 <h5 class="modal-title"><i class="bi bi-file-earmark-text"></i> Apply Template</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body">
                 <p>The editor already has content. How would you like to apply the template "<strong id="templateApplyName"></strong>"?</p>
@@ -2158,7 +2158,7 @@ function startAutoSave() {
             alertDiv.className = 'alert alert-info alert-dismissible fade show mt-3';
             alertDiv.innerHTML = `
                 <i class="bi bi-info-circle"></i> <strong>Draft restored!</strong> Your unsaved changes have been recovered.
-                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
             `;
             document.querySelector('form').insertBefore(alertDiv, document.querySelector('form').firstChild);
             

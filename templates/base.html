@@ -273,11 +273,46 @@
             outline-color: #c084c0;
             background-color: #3a3f44;
         }
+        
+        /* Skip to main content link - accessibility */
+        .skip-link {
+            position: absolute;
+            top: -40px;
+            left: 0;
+            background: #000;
+            color: #fff;
+            padding: 8px 16px;
+            z-index: 9999;
+            text-decoration: none;
+            font-weight: 600;
+        }
+        .skip-link:focus {
+            top: 0;
+        }
+        
+        /* Keyboard shortcut styling for help modal */
+        .kbd {
+            display: inline-block;
+            padding: 0.2em 0.5em;
+            font-size: 0.85em;
+            font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 0.25rem;
+            box-shadow: 0 1px 1px rgba(0,0,0,0.05);
+        }
+        [data-bs-theme="dark"] .kbd {
+            background-color: #343a40;
+            border-color: #495057;
+        }
     </style>
     
     {% block extra_css %}{% endblock %}
 </head>
 <body>
+    <!-- Skip to main content link for keyboard/screen reader users -->
+    <a href="#main-content" class="skip-link">Skip to main content</a>
+    
     <!-- Navigation -->
     {% if not request.args.get('embed') %}
     <nav class="navbar navbar-expand-lg navbar-dark bg-primary sticky-top">
@@ -285,7 +320,7 @@
             <a class="navbar-brand d-flex align-items-center" href="{{ url_for('main.index') }}">
                 <img src="{{ url_for('static', filename='favicon.svg') }}" alt="NoteHelper" width="28" height="28" style="position:relative;top:1px;margin-right:2px;filter:drop-shadow(0 0 0.5px white) drop-shadow(0 0 0.5px white);"><span class="ms-2">NoteHelper</span>
             </a>
-            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
                 <span class="navbar-toggler-icon"></span>
             </button>
             <div class="collapse navbar-collapse" id="navbarNav">
@@ -350,14 +385,14 @@
                     </li>
                 </ul>
                 <div class="d-flex align-items-center gap-2">
-                    <button class="btn btn-outline-light" id="navQuickLookup" data-bs-toggle="modal" data-bs-target="#quickCustomerLookupModal" title="Quick customer lookup">
+                    <button class="btn btn-outline-light" id="navQuickLookup" data-bs-toggle="modal" data-bs-target="#quickCustomerLookupModal" title="Quick customer lookup (Ctrl+K)" aria-label="Quick customer lookup">
                         <i class="bi bi-building"></i>
                     </button>
-                    <button class="btn btn-success" id="navNewNote" data-bs-toggle="modal" data-bs-target="#quickNoteModal">
-                        <i class="bi bi-plus-circle"></i> New Note
+                    <button class="btn btn-success" id="navNewNote" data-bs-toggle="modal" data-bs-target="#quickNoteModal" title="Create new note (Ctrl+Shift+N)" aria-label="Create new note">
+                        <i class="bi bi-plus-circle"></i> <span class="d-none d-md-inline">New Note</span>
                     </button>
                     <div class="dropdown">
-                        <button class="btn btn-light position-relative" type="button" id="gearMenuDropdown" data-bs-toggle="dropdown" aria-expanded="false" title="Settings & Admin">
+                        <button class="btn btn-light position-relative" type="button" id="gearMenuDropdown" data-bs-toggle="dropdown" aria-expanded="false" title="Settings & Admin" aria-label="Settings and Admin menu">
                             <i class="bi bi-gear"></i>
                             <span class="position-absolute top-0 start-100 translate-middle p-1 bg-danger border border-light rounded-circle{{ '' if update_available else ' d-none' }}" id="updateBadge" title="Update available">
                                 <span class="visually-hidden">Update available</span>
@@ -401,7 +436,7 @@
                 {% for category, message in messages %}
                     <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
                         {{ message }}
-                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
                     </div>
                 {% endfor %}
             {% endif %}
@@ -904,7 +939,7 @@
     {% endif %}
 
     <!-- Main Content -->
-    <main class="container my-4">
+    <main id="main-content" class="container my-4" role="main">
         {% block content %}{% endblock %}
     </main>
 
@@ -922,6 +957,42 @@
                         <input type="text" class="form-control" id="customerSearch" placeholder="Search customers..." autocomplete="off">
                     </div>
                     <div id="customerResults" class="list-group" style="max-height: 400px; overflow-y: auto;"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Keyboard Shortcuts Help Modal -->
+    <div class="modal fade" id="keyboardShortcutsModal" tabindex="-1" aria-labelledby="keyboardShortcutsModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="keyboardShortcutsModalLabel">
+                        <i class="bi bi-keyboard"></i> Keyboard Shortcuts
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <table class="table table-sm mb-0">
+                        <tbody>
+                            <tr>
+                                <td><span class="kbd">Ctrl</span> + <span class="kbd">K</span></td>
+                                <td>Quick customer lookup</td>
+                            </tr>
+                            <tr>
+                                <td><span class="kbd">Ctrl</span> + <span class="kbd">Shift</span> + <span class="kbd">N</span></td>
+                                <td>Create new note</td>
+                            </tr>
+                            <tr>
+                                <td><span class="kbd">/</span> or <span class="kbd">?</span></td>
+                                <td>Show this help</td>
+                            </tr>
+                            <tr>
+                                <td><span class="kbd">Esc</span></td>
+                                <td>Close modal / cancel</td>
+                            </tr>
+                        </tbody>
+                    </table>
                 </div>
             </div>
         </div>
@@ -2196,6 +2267,45 @@
                 filterAndRender(this.value.trim());
             });
         }
+    </script>
+    
+    <!-- Global Keyboard Shortcuts -->
+    <script defer>
+        window.addEventListener('load', () => {
+            document.addEventListener('keydown', function(e) {
+                // Don't trigger shortcuts when typing in inputs/textareas
+                const tag = e.target.tagName.toLowerCase();
+                const isTyping = tag === 'input' || tag === 'textarea' || e.target.isContentEditable;
+                
+                // Ctrl+K: Open Quick Customer Lookup
+                if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+                    e.preventDefault();
+                    const lookupModal = document.getElementById('quickCustomerLookupModal');
+                    if (lookupModal && typeof bootstrap !== 'undefined') {
+                        const modal = bootstrap.Modal.getOrCreateInstance(lookupModal);
+                        modal.show();
+                    }
+                }
+                // Ctrl+Shift+N: Open Quick New Note
+                if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'N') {
+                    e.preventDefault();
+                    const noteModal = document.getElementById('quickNoteModal');
+                    if (noteModal && typeof bootstrap !== 'undefined') {
+                        const modal = bootstrap.Modal.getOrCreateInstance(noteModal);
+                        modal.show();
+                    }
+                }
+                // / or ?: Toggle keyboard shortcuts help (only when not typing)
+                if (!isTyping && (e.key === '/' || e.key === '?')) {
+                    e.preventDefault();
+                    const helpModal = document.getElementById('keyboardShortcutsModal');
+                    if (helpModal && typeof bootstrap !== 'undefined') {
+                        const modal = bootstrap.Modal.getOrCreateInstance(helpModal);
+                        modal.toggle();
+                    }
+                }
+            });
+        });
     </script>
     
     {% block extra_js %}{% endblock %}
