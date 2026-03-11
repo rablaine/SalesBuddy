@@ -36,6 +36,12 @@ TENANT_ID = "72f988bf-86f1-41af-91ab-2d7cd011db47"  # Microsoft corporate tenant
 # On Windows, we need shell=True for subprocess to find az in PATH
 IS_WINDOWS = sys.platform == "win32"
 
+# Cache for az CLI installed check - once confirmed installed, don't recheck
+_az_cli_installed_cache: Dict[str, Any] = {
+    "installed": None,  # None = unknown, True = confirmed installed, False = confirmed not found
+    "last_error": None,  # Stores error type for transient failures
+}
+
 # Token cache
 _token_cache: Dict[str, Any] = {
     "access_token": None,
@@ -386,13 +392,29 @@ _az_login_state: Dict[str, Any] = {
 }
 
 
-def check_az_cli_installed() -> bool:
+def check_az_cli_installed() -> tuple[bool, str | None]:
     """Check if Azure CLI is installed and in PATH.
 
     Uses ``az --version`` but checks stdout for 'azure-cli' rather than
     relying solely on the exit code, since ``az --version`` can return
     non-zero when extensions have warnings or updates are available.
+
+    Results are cached: once we confirm CLI is installed, we don't recheck.
+    This prevents false negatives when system is waking from sleep/lock.
+
+    Returns:
+        Tuple of (is_installed, error_type).
+        error_type is None if installed, or one of:
+        - "not_found": FileNotFoundError - CLI truly not installed
+        - "timeout": subprocess timed out (system busy)
+        - "check_failed": other subprocess error
     """
+    global _az_cli_installed_cache
+
+    # If we've previously confirmed it's installed, return cached result
+    if _az_cli_installed_cache["installed"] is True:
+        return (True, None)
+
     try:
         result = subprocess.run(
             "az --version" if IS_WINDOWS else ["az", "--version"],
@@ -404,11 +426,26 @@ def check_az_cli_installed() -> bool:
         # Check returncode first, but also accept non-zero if stdout
         # contains version info (az --version sometimes exits non-zero
         # due to extension warnings or update notices).
-        if result.returncode == 0:
-            return True
-        return "azure-cli" in (result.stdout or "").lower()
-    except (subprocess.SubprocessError, FileNotFoundError):
-        return False
+        if result.returncode == 0 or "azure-cli" in (result.stdout or "").lower():
+            _az_cli_installed_cache["installed"] = True
+            _az_cli_installed_cache["last_error"] = None
+            return (True, None)
+        # Got output but no azure-cli string - weird state
+        _az_cli_installed_cache["last_error"] = "check_failed"
+        return (False, "check_failed")
+    except FileNotFoundError:
+        # Definitely not installed
+        _az_cli_installed_cache["installed"] = False
+        _az_cli_installed_cache["last_error"] = "not_found"
+        return (False, "not_found")
+    except subprocess.TimeoutExpired:
+        # System might be busy (waking from sleep, etc.)
+        _az_cli_installed_cache["last_error"] = "timeout"
+        return (False, "timeout")
+    except subprocess.SubprocessError:
+        # Other subprocess error
+        _az_cli_installed_cache["last_error"] = "check_failed"
+        return (False, "check_failed")
 
 
 def check_az_logged_in() -> tuple[bool, Optional[str], Optional[str]]:
@@ -447,15 +484,23 @@ def get_az_cli_status() -> Dict[str, Any]:
     3. Whether the tenant matches the expected Microsoft tenant
 
     Returns:
-        Dict with az_installed, logged_in, wrong_tenant, user_email, message.
+        Dict with az_installed, logged_in, wrong_tenant, user_email, message, cli_error.
     """
-    if not check_az_cli_installed():
+    installed, error_type = check_az_cli_installed()
+    if not installed:
+        if error_type == "not_found":
+            message = "Azure CLI not installed"
+        elif error_type == "timeout":
+            message = "Azure CLI check timed out (system may still be waking up)"
+        else:
+            message = "Azure CLI check failed"
         return {
             "az_installed": False,
             "logged_in": False,
             "wrong_tenant": False,
             "user_email": None,
-            "message": "Azure CLI not installed",
+            "message": message,
+            "cli_error": error_type,
         }
 
     logged_in, user_email, tenant_id = check_az_logged_in()
@@ -478,6 +523,7 @@ def get_az_cli_status() -> Dict[str, Any]:
         "wrong_tenant": wrong_tenant,
         "user_email": user_email,
         "message": message,
+        "cli_error": None,
     }
 
 

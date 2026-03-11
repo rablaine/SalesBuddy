@@ -294,6 +294,18 @@ def az_logout_endpoint():
     return jsonify(az_logout())
 
 
+@msx_bp.route('/clear-cli-cache', methods=['POST'])
+def clear_cli_cache():
+    """Clear the cached Azure CLI installed check.
+
+    Used when retrying after a transient failure (timeout, etc.).
+    """
+    from app.services.msx_auth import _az_cli_installed_cache
+    _az_cli_installed_cache["installed"] = None
+    _az_cli_installed_cache["last_error"] = None
+    return jsonify({"success": True})
+
+
 @msx_bp.route('/az-login/status')
 def az_login_status():
     """Poll the az login process status (instant, no subprocess calls).

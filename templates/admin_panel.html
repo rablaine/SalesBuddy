@@ -153,10 +153,13 @@
                                     <div class="d-flex align-items-center gap-2 text-danger mb-2">
                                         <i class="bi bi-exclamation-triangle-fill fs-4"></i>
                                         <div>
-                                            <strong>Azure CLI not installed</strong><br>
-                                            <small>Install from <a href="https://aka.ms/installazurecli" target="_blank">aka.ms/installazurecli</a>, then reload.</small>
+                                            <strong id="adminAuthNoCliMsg">Azure CLI not installed</strong><br>
+                                            <small id="adminAuthNoCliHelp">Install from <a href="https://aka.ms/installazurecli" target="_blank">aka.ms/installazurecli</a>, then reload.</small>
                                         </div>
                                     </div>
+                                    <button class="btn btn-primary btn-sm d-none" id="adminAuthNoCliRetryBtn">
+                                        <i class="bi bi-arrow-clockwise"></i> Retry
+                                    </button>
                                 </div>
                             </div>
                         </div>
@@ -902,8 +905,8 @@ async function loadMsxStatus() {
         const azData = await azResp.json();
 
         if (!azData.az_installed) {
-            updateMsxStatusDisplay('disconnected', 'Azure CLI not installed');
-            showAdminAuthState('adminAuthNoCli');
+            updateMsxStatusDisplay('disconnected', azData.message || 'Azure CLI not installed');
+            showAdminAuthNoCli(azData.cli_error);
             return;
         }
 
@@ -946,6 +949,31 @@ function showAdminAuthState(stateId) {
     }
 }
 
+function showAdminAuthNoCli(cliError) {
+    // Show the No CLI state with appropriate message based on error type
+    showAdminAuthState('adminAuthNoCli');
+    const msgEl = document.getElementById('adminAuthNoCliMsg');
+    const helpEl = document.getElementById('adminAuthNoCliHelp');
+    const retryBtn = document.getElementById('adminAuthNoCliRetryBtn');
+    
+    if (cliError === 'not_found') {
+        // Truly not installed
+        msgEl.textContent = 'Azure CLI not installed';
+        helpEl.innerHTML = 'Install from <a href="https://aka.ms/installazurecli" target="_blank">aka.ms/installazurecli</a>, then reload.';
+        retryBtn.classList.add('d-none');
+    } else if (cliError === 'timeout') {
+        // System might be waking from sleep
+        msgEl.textContent = 'Azure CLI check timed out';
+        helpEl.textContent = 'The system may still be waking up. Click Retry to check again.';
+        retryBtn.classList.remove('d-none');
+    } else {
+        // Other error (check_failed)
+        msgEl.textContent = 'Azure CLI check failed';
+        helpEl.textContent = 'Could not verify Azure CLI. Click Retry or restart the app.';
+        retryBtn.classList.remove('d-none');
+    }
+}
+
 async function checkAdminAuth() {
     try {
         const resp = await fetch('/api/msx/status');
@@ -966,7 +994,7 @@ async function checkAdminAuth() {
         const azResp = await fetch('/api/msx/az-status');
         const azData = await azResp.json();
         if (!azData.az_installed) {
-            showAdminAuthState('adminAuthNoCli');
+            showAdminAuthNoCli(azData.cli_error);
         } else if (azData.logged_in) {
             await completeAdminLogin(azData.user_email);
         } else {
@@ -1084,6 +1112,11 @@ async function completeAdminLogin(userEmail, silent) {
 document.getElementById('adminStartAuthBtn').addEventListener('click', startAdminLogin);
 document.getElementById('adminAuthRetryBtn').addEventListener('click', startAdminLogin);
 document.getElementById('adminAuthCancelBtn').addEventListener('click', cancelAdminLogin);
+document.getElementById('adminAuthNoCliRetryBtn').addEventListener('click', async function() {
+    // Clear the cached CLI check result and retry
+    await fetch('/api/msx/clear-cli-cache', { method: 'POST' });
+    loadMsxStatus();
+});
 
 // MSX Refresh Token
 document.getElementById('msxRefreshBtn').addEventListener('click', async function() {

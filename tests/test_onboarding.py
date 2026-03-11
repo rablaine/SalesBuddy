@@ -555,7 +555,7 @@ class TestAzWrongTenantDetection:
     def test_get_az_cli_status_wrong_tenant_unit(self, mock_logged_in,
                                                   mock_installed, app):
         """get_az_cli_status() should set wrong_tenant when tenantId doesn't match."""
-        mock_installed.return_value = True
+        mock_installed.return_value = (True, None)
         mock_logged_in.return_value = (True, "user@contoso.com", "aaaabbbb-0000-0000-0000-ccccddddeeee")
         from app.services.msx_auth import get_az_cli_status
         result = get_az_cli_status()
@@ -567,7 +567,7 @@ class TestAzWrongTenantDetection:
     def test_get_az_cli_status_correct_tenant_unit(self, mock_logged_in,
                                                     mock_installed, app):
         """get_az_cli_status() should not flag wrong_tenant for correct tenantId."""
-        mock_installed.return_value = True
+        mock_installed.return_value = (True, None)
         mock_logged_in.return_value = (True, "user@microsoft.com", "72f988bf-86f1-41af-91ab-2d7cd011db47")
         from app.services.msx_auth import get_az_cli_status
         result = get_az_cli_status()
@@ -576,36 +576,105 @@ class TestAzWrongTenantDetection:
 
     @patch('app.services.msx_auth.subprocess.run')
     def test_check_az_cli_installed_nonzero_with_output(self, mock_run, app):
-        """check_az_cli_installed() returns True when az --version exits non-zero but outputs version info."""
+        """check_az_cli_installed() returns (True, None) when az --version exits non-zero but outputs version info."""
+        # Clear cache to ensure fresh check
+        from app.services import msx_auth
+        msx_auth._az_cli_installed_cache = {"installed": None, "last_error": None}
+        
         mock_run.return_value = type('Result', (), {
             'returncode': 2,
             'stdout': 'azure-cli                         2.67.0\ncore                              2.67.0\n',
             'stderr': 'WARNING: Extension update available\n',
         })()
         from app.services.msx_auth import check_az_cli_installed
-        assert check_az_cli_installed() is True
+        installed, error = check_az_cli_installed()
+        assert installed is True
+        assert error is None
 
     @patch('app.services.msx_auth.subprocess.run')
     def test_check_az_cli_installed_nonzero_no_output(self, mock_run, app):
-        """check_az_cli_installed() returns False when az --version exits non-zero with no version output."""
+        """check_az_cli_installed() returns (False, 'check_failed') when az --version exits non-zero with no version output."""
+        # Clear cache to ensure fresh check
+        from app.services import msx_auth
+        msx_auth._az_cli_installed_cache = {"installed": None, "last_error": None}
+        
         mock_run.return_value = type('Result', (), {
             'returncode': 1,
             'stdout': '',
             'stderr': 'az: command not found\n',
         })()
         from app.services.msx_auth import check_az_cli_installed
-        assert check_az_cli_installed() is False
+        installed, error = check_az_cli_installed()
+        assert installed is False
+        assert error == "check_failed"
 
     @patch('app.services.msx_auth.subprocess.run')
     def test_check_az_cli_installed_success(self, mock_run, app):
-        """check_az_cli_installed() returns True on returncode 0."""
+        """check_az_cli_installed() returns (True, None) on returncode 0."""
+        # Clear cache to ensure fresh check
+        from app.services import msx_auth
+        msx_auth._az_cli_installed_cache = {"installed": None, "last_error": None}
+        
         mock_run.return_value = type('Result', (), {
             'returncode': 0,
             'stdout': 'azure-cli 2.67.0\n',
             'stderr': '',
         })()
         from app.services.msx_auth import check_az_cli_installed
-        assert check_az_cli_installed() is True
+        installed, error = check_az_cli_installed()
+        assert installed is True
+        assert error is None
+
+    @patch('app.services.msx_auth.subprocess.run')
+    def test_check_az_cli_installed_timeout(self, mock_run, app):
+        """check_az_cli_installed() returns (False, 'timeout') when subprocess times out."""
+        # Clear cache to ensure fresh check
+        from app.services import msx_auth
+        msx_auth._az_cli_installed_cache = {"installed": None, "last_error": None}
+        
+        import subprocess
+        mock_run.side_effect = subprocess.TimeoutExpired(cmd="az --version", timeout=10)
+        from app.services.msx_auth import check_az_cli_installed
+        installed, error = check_az_cli_installed()
+        assert installed is False
+        assert error == "timeout"
+
+    @patch('app.services.msx_auth.subprocess.run')
+    def test_check_az_cli_installed_not_found(self, mock_run, app):
+        """check_az_cli_installed() returns (False, 'not_found') when FileNotFoundError raised."""
+        # Clear cache to ensure fresh check
+        from app.services import msx_auth
+        msx_auth._az_cli_installed_cache = {"installed": None, "last_error": None}
+        
+        mock_run.side_effect = FileNotFoundError("az not found")
+        from app.services.msx_auth import check_az_cli_installed
+        installed, error = check_az_cli_installed()
+        assert installed is False
+        assert error == "not_found"
+
+    @patch('app.services.msx_auth.subprocess.run')
+    def test_check_az_cli_installed_caches_positive_result(self, mock_run, app):
+        """Once CLI is confirmed installed, the result is cached and subprocess not called again."""
+        # Clear cache to start fresh
+        from app.services import msx_auth
+        msx_auth._az_cli_installed_cache = {"installed": None, "last_error": None}
+        
+        mock_run.return_value = type('Result', (), {
+            'returncode': 0,
+            'stdout': 'azure-cli 2.67.0\n',
+            'stderr': '',
+        })()
+        from app.services.msx_auth import check_az_cli_installed
+        
+        # First call should invoke subprocess
+        installed1, _ = check_az_cli_installed()
+        assert installed1 is True
+        assert mock_run.call_count == 1
+        
+        # Second call should use cache, not call subprocess again
+        installed2, _ = check_az_cli_installed()
+        assert installed2 is True
+        assert mock_run.call_count == 1  # Still 1 - cached
 
 
 class TestImportUiConsistency:

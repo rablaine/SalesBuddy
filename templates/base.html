@@ -680,8 +680,8 @@
                                 <!-- No CLI -->
                                 <div id="signInNoCli" class="d-none text-center">
                                     <i class="bi bi-exclamation-triangle-fill text-danger fs-3"></i>
-                                    <p class="mt-2 mb-1 fw-bold text-danger">Azure CLI Not Installed</p>
-                                    <p class="text-muted">Install from <a href="https://aka.ms/installazurecli" target="_blank">aka.ms/installazurecli</a>, then try again.</p>
+                                    <p class="mt-2 mb-1 fw-bold text-danger" id="signInNoCliMsg">Azure CLI Not Installed</p>
+                                    <p class="text-muted" id="signInNoCliHelp">Install from <a href="https://aka.ms/installazurecli" target="_blank">aka.ms/installazurecli</a>, then try again.</p>
                                     <button class="btn btn-outline-primary btn-sm" id="signInNoCliRetryBtn">
                                         <i class="bi bi-arrow-clockwise"></i> Check Again
                                     </button>
@@ -1391,11 +1391,33 @@
                     });
                 }
 
+                function showSignInNoCli(cliError) {
+                    // Show the No CLI state with appropriate message based on error type
+                    showSignInState('signInNoCli');
+                    const msgEl = document.getElementById('signInNoCliMsg');
+                    const helpEl = document.getElementById('signInNoCliHelp');
+                    
+                    if (cliError === 'not_found') {
+                        msgEl.textContent = 'Azure CLI Not Installed';
+                        helpEl.innerHTML = 'Install from <a href="https://aka.ms/installazurecli" target="_blank">aka.ms/installazurecli</a>, then try again.';
+                    } else if (cliError === 'timeout') {
+                        msgEl.textContent = 'Azure CLI Check Timed Out';
+                        helpEl.textContent = 'The system may still be waking up. Click Check Again to retry.';
+                    } else {
+                        msgEl.textContent = 'Azure CLI Check Failed';
+                        helpEl.textContent = 'Could not verify Azure CLI. Click Check Again to retry.';
+                    }
+                }
+
                 // Step 2 event listeners
                 document.getElementById('startSignInBtn').addEventListener('click', startSignIn);
                 document.getElementById('signInRetryBtn').addEventListener('click', startSignIn);
                 document.getElementById('signInCancelBtn').addEventListener('click', cancelSignIn);
-                document.getElementById('signInNoCliRetryBtn').addEventListener('click', startSignIn);
+                document.getElementById('signInNoCliRetryBtn').addEventListener('click', async () => {
+                    // Clear the cached CLI check result and retry
+                    await fetch('/api/msx/clear-cli-cache', { method: 'POST' });
+                    startSignIn();
+                });
                 document.getElementById('vpnRetryBtn').addEventListener('click', async () => {
                     const btn = document.getElementById('vpnRetryBtn');
                     btn.disabled = true;
