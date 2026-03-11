@@ -14,6 +14,7 @@ Usage::
     # result == {"success": True, "topics": [...], "usage": {...}}
 """
 import logging
+import os
 from typing import Any
 
 import requests
@@ -24,8 +25,18 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
-# Hardcoded APIM gateway URL — no env-var configuration needed
-_GATEWAY_URL = "https://apim-notehelper.azure-api.net/ai"
+# APIM gateway base URL
+_APIM_BASE = "https://apim-notehelper.azure-api.net"
+
+# AI_USE_STAGING=true → use staging gateway path (/ai-staging)
+# AI_USE_STAGING=false or unset → use production gateway path (/ai)
+# AI_GATEWAY_URL → full override (bypasses APIM entirely, useful for local testing)
+if os.environ.get("AI_GATEWAY_URL"):
+    _GATEWAY_URL = os.environ["AI_GATEWAY_URL"]
+elif os.environ.get("AI_USE_STAGING", "").lower() in ("1", "true"):
+    _GATEWAY_URL = f"{_APIM_BASE}/ai-staging"
+else:
+    _GATEWAY_URL = f"{_APIM_BASE}/ai"
 
 # Entra app registration client ID — the audience for JWT tokens
 _GATEWAY_APP_ID = "api://0f6db4af-332c-4fd5-b894-77fadb181e5c"

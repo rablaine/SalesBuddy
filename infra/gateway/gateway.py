@@ -91,6 +91,37 @@ def _error(msg: str, status: int = 400):
 
 
 # ---------------------------------------------------------------------------
+# APIM Gateway Secret validation
+# ---------------------------------------------------------------------------
+_GATEWAY_SECRET = os.environ.get("APIM_GATEWAY_SECRET")
+
+
+@app.before_request
+def _validate_gateway_secret():
+    """Reject requests that don't have the correct APIM gateway secret.
+
+    This ensures only traffic through APIM reaches the gateway.
+    The secret is injected by APIM policy as X-Gateway-Secret header.
+    """
+    # Skip validation if no secret is configured (dev mode)
+    if not _GATEWAY_SECRET:
+        return None
+
+    # Allow health checks without auth
+    if request.path == "/health":
+        return None
+
+    incoming_secret = request.headers.get("X-Gateway-Secret")
+    if incoming_secret != _GATEWAY_SECRET:
+        logger.warning(
+            "Request rejected: invalid or missing X-Gateway-Secret header"
+        )
+        return _error("Unauthorized: invalid gateway secret", 403)
+
+    return None
+
+
+# ---------------------------------------------------------------------------
 # POST /v1/suggest-topics
 # ---------------------------------------------------------------------------
 @app.route("/v1/suggest-topics", methods=["POST"])
