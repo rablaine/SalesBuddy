@@ -40,8 +40,11 @@
 
                     {% if territory_dss_grouped %}
                     <div class="mb-3">
-                        <label class="form-label">Digital Solution Specialist Assignments</label>
-                        <div class="border rounded p-3">
+                        <div class="d-flex justify-content-between align-items-center" style="cursor: pointer;" onclick="toggleDssCard({{ pod.id }})">
+                            <label class="form-label mb-0" style="cursor: pointer;">Digital Solution Specialist Assignments</label>
+                            <i class="bi bi-chevron-down" id="dssChevron"></i>
+                        </div>
+                        <div class="border rounded p-3 collapse" id="dssCardBody">
                             {% for territory, specialties in territory_dss_grouped.items() %}
                                 {% if not loop.first %}
                                     <hr class="my-2">
@@ -85,6 +88,27 @@
 
 {% block extra_js %}
 <script>
+function toggleDssCard(podId) {
+    var body = document.getElementById('dssCardBody');
+    var chevron = document.getElementById('dssChevron');
+    var isShown = body.classList.contains('show');
+    if (isShown) {
+        body.classList.remove('show');
+        chevron.classList.replace('bi-chevron-up', 'bi-chevron-down');
+        localStorage.setItem('dss_collapsed_pod_' + podId, '1');
+    } else {
+        body.classList.add('show');
+        chevron.classList.replace('bi-chevron-down', 'bi-chevron-up');
+        localStorage.removeItem('dss_collapsed_pod_' + podId);
+    }
+}
+(function() {
+    var podId = {{ pod.id }};
+    if (!localStorage.getItem('dss_collapsed_pod_' + podId)) {
+        document.getElementById('dssCardBody').classList.add('show');
+        document.getElementById('dssChevron').classList.replace('bi-chevron-down', 'bi-chevron-up');
+    }
+})();
 function saveDssSelection(territoryId, specialty, seId) {
     fetch('/territory/' + territoryId + '/dss-selection', {
         method: 'POST',
