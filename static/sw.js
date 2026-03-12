@@ -8,8 +8,3 @@ self.addEventListener('install', (event) => {
 self.addEventListener('activate', (event) => {
   event.waitUntil(clients.claim());
 });
-
-self.addEventListener('fetch', (event) => {
-  // Pass everything through to the network - no caching
-  return;
-});

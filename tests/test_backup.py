@@ -1807,12 +1807,13 @@ class TestGlobalDataExport:
         with app.app_context():
             data = _global_data_to_dict()
             assert data["_notehelper_global_backup"] is True
-            assert data["_version"] == 4
+            assert data["_version"] == 5
             assert "note_templates" in data
             assert "user_preferences" in data
             assert "specialties" in data
             assert "revenue_config" in data
             assert "connect_exports" in data
+            assert "partners" in data
 
     def test_global_data_includes_templates(self, app):
         """Should include note templates."""
@@ -1914,6 +1915,48 @@ class TestGlobalDataExport:
             assert exports[0]["note_count"] == 42
             assert exports[0]["ai_summary"] == "Strong Q1 performance"
 
+    def test_global_data_includes_partners(self, app):
+        """Should include partners with contacts and specialties."""
+        from app.models import db, Partner, PartnerContact, Specialty
+        from app.services.backup import _global_data_to_dict
+
+        with app.app_context():
+            spec = Specialty(name="Azure AI")
+            db.session.add(spec)
+            db.session.flush()
+
+            partner = Partner(
+                name="Contoso Partners",
+                overview="Cloud consultancy",
+                rating=4,
+                website="https://contoso.example.com",
+            )
+            db.session.add(partner)
+            db.session.flush()
+
+            contact = PartnerContact(
+                partner_id=partner.id,
+                name="Alice",
+                email="alice@contoso.example.com",
+                is_primary=True,
+            )
+            db.session.add(contact)
+            partner.specialties.append(spec)
+            db.session.commit()
+
+            data = _global_data_to_dict()
+            partners = [p for p in data["partners"] if p["name"] == "Contoso Partners"]
+            assert len(partners) == 1
+            p = partners[0]
+            assert p["overview"] == "Cloud consultancy"
+            assert p["rating"] == 4
+            assert p["website"] == "https://contoso.example.com"
+            assert len(p["contacts"]) == 1
+            assert p["contacts"][0]["name"] == "Alice"
+            assert p["contacts"][0]["email"] == "alice@contoso.example.com"
+            assert p["contacts"][0]["is_primary"] is True
+            assert "Azure AI" in p["specialties"]
+
 
 class TestRestoreGlobalData:
     """Tests for restore_global_data."""
@@ -1922,13 +1965,14 @@ class TestRestoreGlobalData:
         """Helper to build a global backup payload."""
         base = {
             "_notehelper_global_backup": True,
-            "_version": 4,
+            "_version": 5,
             "_exported_at": datetime.now(timezone.utc).isoformat(),
             "note_templates": [],
             "user_preferences": None,
             "specialties": [],
             "revenue_config": None,
             "connect_exports": [],
+            "partners": [],
         }
         base.update(overrides)
         return base
@@ -1954,8 +1998,8 @@ class TestRestoreGlobalData:
             assert tmpl is not None
             assert tmpl.content == "<p>Hello</p>"
 
-    def test_restore_skips_existing_templates(self, app):
-        """Should not create duplicate templates."""
+    def test_restore_enriches_existing_templates(self, app):
+        """Should update content of existing templates from backup."""
         from app.models import db, NoteTemplate
         from app.services.backup import restore_global_data
 
@@ -1975,9 +2019,9 @@ class TestRestoreGlobalData:
             assert result["note_templates"]["created"] == 1
             assert result["note_templates"]["skipped"] == 1
 
-            # Original content should be preserved
+            # Content should be updated from backup
             db.session.refresh(existing)
-            assert existing.content == "<p>Original</p>"
+            assert existing.content == "<p>Backup</p>"
 
     def test_restore_creates_specialties(self, app):
         """Should create specialties that don't exist."""
@@ -2190,3 +2234,351 @@ class TestRestoreGlobalData:
             assert result["user_preference"] == "not_in_backup"
             assert result["revenue_config"] == "not_in_backup"
             assert result["connect_exports"]["created"] == 0
+            assert result["partners"]["created"] == 0
+
+    def test_restore_creates_partners(self, app):
+        """Should create partners with contacts and specialties."""
+        from app.models import db, Partner, PartnerContact, Specialty
+        from app.services.backup import restore_global_data
+
+        with app.app_context():
+            spec = Specialty(name="Azure AI")
+            db.session.add(spec)
+            db.session.commit()
+
+            data = self._make_global_backup(
+                partners=[
+                    {
+                        "name": "Contoso Partners",
+                        "overview": "Cloud consultancy",
+                        "rating": 4,
+                        "website": "https://contoso.example.com",
+                        "contacts": [
+                            {"name": "Alice", "email": "alice@contoso.example.com", "is_primary": True},
+                        ],
+                        "specialties": ["Azure AI", "Nonexistent Specialty"],
+                    },
+                ],
+            )
+
+            result = restore_global_data(data)
+            assert result["partners"]["created"] == 1
+            assert result["partners"]["skipped"] == 0
+
+            partner = Partner.query.filter_by(name="Contoso Partners").first()
+            assert partner is not None
+            assert partner.overview == "Cloud consultancy"
+            assert partner.rating == 4
+            assert partner.website == "https://contoso.example.com"
+            assert len(partner.contacts) == 1
+            assert partner.contacts[0].name == "Alice"
+            assert partner.contacts[0].is_primary is True
+            # Only existing specialties should be linked
+            assert len(partner.specialties) == 1
+            assert partner.specialties[0].name == "Azure AI"
+
+    def test_restore_enriches_existing_partner(self, app):
+        """Should add missing fields and contacts to existing partners."""
+        from app.models import db, Partner, PartnerContact, Specialty
+        from app.services.backup import restore_global_data
+
+        with app.app_context():
+            spec = Specialty(name="Networking")
+            db.session.add(spec)
+            db.session.flush()
+
+            partner = Partner(name="Contoso Partners")
+            db.session.add(partner)
+            db.session.flush()
+
+            existing_contact = PartnerContact(
+                partner_id=partner.id,
+                name="Bob",
+                email="bob@contoso.example.com",
+                is_primary=False,
+            )
+            db.session.add(existing_contact)
+            db.session.commit()
+
+            data = self._make_global_backup(
+                partners=[
+                    {
+                        "name": "Contoso Partners",
+                        "overview": "Cloud consultancy",
+                        "rating": 4,
+                        "website": "https://contoso.example.com",
+                        "contacts": [
+                            {"name": "Bob", "email": "bob@contoso.example.com", "is_primary": False},
+                            {"name": "Alice", "email": "alice@contoso.example.com", "is_primary": True},
+                        ],
+                        "specialties": ["Networking"],
+                    },
+                ],
+            )
+
+            result = restore_global_data(data)
+            assert result["partners"]["created"] == 0
+            assert result["partners"]["skipped"] == 1
+
+            db.session.refresh(partner)
+            # Enriched fields
+            assert partner.overview == "Cloud consultancy"
+            assert partner.rating == 4
+            assert partner.website == "https://contoso.example.com"
+            # Bob skipped (exists), Alice added
+            assert len(partner.contacts) == 2
+            contact_names = {c.name for c in partner.contacts}
+            assert contact_names == {"Alice", "Bob"}
+            # Specialty linked
+            assert len(partner.specialties) == 1
+            assert partner.specialties[0].name == "Networking"
+
+
+class TestPartnerBackup:
+    """Tests for individual partner backup/delete."""
+
+    def test_partner_to_dict_serialization(self, app):
+        """Should serialize a partner to a standalone backup dict."""
+        from app.models import db, Partner, PartnerContact, Specialty
+        from app.services.backup import _partner_to_dict
+
+        with app.app_context():
+            spec = Specialty(name="Azure AI")
+            db.session.add(spec)
+            db.session.flush()
+
+            partner = Partner(
+                name="Contoso",
+                overview="Cloud partner",
+                rating=4,
+                website="contoso.com",
+            )
+            db.session.add(partner)
+            db.session.flush()
+
+            contact = PartnerContact(
+                partner_id=partner.id,
+                name="Alice",
+                email="alice@contoso.com",
+                is_primary=True,
+            )
+            db.session.add(contact)
+            partner.specialties.append(spec)
+            db.session.commit()
+
+            data = _partner_to_dict(partner)
+            assert data["_notehelper_partner_backup"] is True
+            assert data["_version"] == 1
+            p = data["partner"]
+            assert p["name"] == "Contoso"
+            assert p["overview"] == "Cloud partner"
+            assert p["rating"] == 4
+            assert p["website"] == "contoso.com"
+            assert len(p["contacts"]) == 1
+            assert p["contacts"][0]["name"] == "Alice"
+            assert "Azure AI" in p["specialties"]
+
+    def test_backup_partner_writes_file(self, app, tmp_path, monkeypatch):
+        """Should write a partner .json file to the backup directory."""
+        from app.models import db, Partner
+        from app.services import backup as backup_mod
+
+        monkeypatch.setattr(backup_mod, "_get_backup_root", lambda: str(tmp_path))
+
+        with app.app_context():
+            partner = Partner(name="Acme")
+            db.session.add(partner)
+            db.session.commit()
+
+            result = backup_mod.backup_partner(partner.id)
+            assert result is True
+
+            filepath = tmp_path / "notes" / "partners" / f"{partner.id}.json"
+            assert filepath.exists()
+            data = json.loads(filepath.read_text(encoding="utf-8"))
+            assert data["partner"]["name"] == "Acme"
+
+    def test_backup_partner_overwrites_on_edit(self, app, tmp_path, monkeypatch):
+        """Re-backing up a partner should overwrite the existing file."""
+        from app.models import db, Partner
+        from app.services import backup as backup_mod
+
+        monkeypatch.setattr(backup_mod, "_get_backup_root", lambda: str(tmp_path))
+
+        with app.app_context():
+            partner = Partner(name="Acme", overview="v1")
+            db.session.add(partner)
+            db.session.commit()
+
+            backup_mod.backup_partner(partner.id)
+
+            partner.overview = "v2"
+            db.session.commit()
+            backup_mod.backup_partner(partner.id)
+
+            filepath = tmp_path / "notes" / "partners" / f"{partner.id}.json"
+            data = json.loads(filepath.read_text(encoding="utf-8"))
+            assert data["partner"]["overview"] == "v2"
+
+    def test_delete_partner_backup_removes_file(self, app, tmp_path, monkeypatch):
+        """Should remove the partner .json file."""
+        from app.models import db, Partner
+        from app.services import backup as backup_mod
+
+        monkeypatch.setattr(backup_mod, "_get_backup_root", lambda: str(tmp_path))
+
+        with app.app_context():
+            partner = Partner(name="Acme")
+            db.session.add(partner)
+            db.session.commit()
+            pid = partner.id
+
+            backup_mod.backup_partner(pid)
+            filepath = tmp_path / "notes" / "partners" / f"{pid}.json"
+            assert filepath.exists()
+
+            result = backup_mod.delete_partner_backup(pid)
+            assert result is True
+            assert not filepath.exists()
+
+    def test_delete_partner_backup_nonexistent_ok(self, app, tmp_path, monkeypatch):
+        """Deleting backup for nonexistent file should return True."""
+        from app.services import backup as backup_mod
+
+        monkeypatch.setattr(backup_mod, "_get_backup_root", lambda: str(tmp_path))
+
+        with app.app_context():
+            result = backup_mod.delete_partner_backup(9999)
+            assert result is True
+
+
+class TestTemplateBackup:
+    """Tests for individual template backup/delete."""
+
+    def test_template_to_dict_serialization(self, app):
+        """Should serialize a template to a standalone backup dict."""
+        from app.models import db, NoteTemplate
+        from app.services.backup import _template_to_dict
+
+        with app.app_context():
+            tmpl = NoteTemplate(name="Call Summary", content="<p>Summary</p>")
+            db.session.add(tmpl)
+            db.session.commit()
+
+            data = _template_to_dict(tmpl)
+            assert data["_notehelper_template_backup"] is True
+            assert data["_version"] == 1
+            t = data["template"]
+            assert t["name"] == "Call Summary"
+            assert t["content"] == "<p>Summary</p>"
+            assert t["is_builtin"] is False
+
+    def test_backup_template_writes_file(self, app, tmp_path, monkeypatch):
+        """Should write a template .json file to the backup directory."""
+        from app.models import db, NoteTemplate
+        from app.services import backup as backup_mod
+
+        monkeypatch.setattr(backup_mod, "_get_backup_root", lambda: str(tmp_path))
+
+        with app.app_context():
+            tmpl = NoteTemplate(name="Quick Note", content="<p>Hello</p>")
+            db.session.add(tmpl)
+            db.session.commit()
+
+            result = backup_mod.backup_template(tmpl.id)
+            assert result is True
+
+            filepath = tmp_path / "notes" / "templates" / f"{tmpl.id}.json"
+            assert filepath.exists()
+            data = json.loads(filepath.read_text(encoding="utf-8"))
+            assert data["template"]["name"] == "Quick Note"
+
+    def test_backup_template_overwrites_on_edit(self, app, tmp_path, monkeypatch):
+        """Re-backing up a template should overwrite the existing file."""
+        from app.models import db, NoteTemplate
+        from app.services import backup as backup_mod
+
+        monkeypatch.setattr(backup_mod, "_get_backup_root", lambda: str(tmp_path))
+
+        with app.app_context():
+            tmpl = NoteTemplate(name="Quick Note", content="<p>v1</p>")
+            db.session.add(tmpl)
+            db.session.commit()
+
+            backup_mod.backup_template(tmpl.id)
+
+            tmpl.content = "<p>v2</p>"
+            db.session.commit()
+            backup_mod.backup_template(tmpl.id)
+
+            filepath = tmp_path / "notes" / "templates" / f"{tmpl.id}.json"
+            data = json.loads(filepath.read_text(encoding="utf-8"))
+            assert data["template"]["content"] == "<p>v2</p>"
+
+    def test_delete_template_backup_removes_file(self, app, tmp_path, monkeypatch):
+        """Should remove the template .json file."""
+        from app.models import db, NoteTemplate
+        from app.services import backup as backup_mod
+
+        monkeypatch.setattr(backup_mod, "_get_backup_root", lambda: str(tmp_path))
+
+        with app.app_context():
+            tmpl = NoteTemplate(name="Quick Note", content="<p>Hello</p>")
+            db.session.add(tmpl)
+            db.session.commit()
+            tid = tmpl.id
+
+            backup_mod.backup_template(tid)
+            filepath = tmp_path / "notes" / "templates" / f"{tid}.json"
+            assert filepath.exists()
+
+            result = backup_mod.delete_template_backup(tid)
+            assert result is True
+            assert not filepath.exists()
+
+
+class TestClearBackupNotes:
+    """Tests for clear_backup_notes file-by-file deletion."""
+
+    def test_deletes_all_files_and_counts(self, app, tmp_path, monkeypatch):
+        """Should delete individual files and return correct count."""
+        from app.services import backup as backup_mod
+
+        monkeypatch.setattr(backup_mod, "_get_backup_root", lambda: str(tmp_path))
+
+        # Create a notes/ tree with some files
+        notes_dir = tmp_path / "notes"
+        seller_dir = notes_dir / "SellerA"
+        seller_dir.mkdir(parents=True)
+        (seller_dir / "1.json").write_text("{}")
+        (seller_dir / "2.json").write_text("{}")
+        partners_dir = notes_dir / "partners"
+        partners_dir.mkdir()
+        (partners_dir / "10.json").write_text("{}")
+
+        result = backup_mod.clear_backup_notes()
+        assert result["deleted"] == 3
+        assert result["errors"] == 0
+        # notes/ should be recreated empty
+        assert notes_dir.is_dir()
+        assert list(notes_dir.iterdir()) == []
+
+    def test_no_backup_root_returns_skipped(self, app, monkeypatch):
+        """Should skip when no backup location configured."""
+        from app.services import backup as backup_mod
+
+        monkeypatch.setattr(backup_mod, "_get_backup_root", lambda: None)
+        result = backup_mod.clear_backup_notes()
+        assert result["skipped"] is True
+        assert result["deleted"] == 0
+
+    def test_empty_notes_dir_returns_zero(self, app, tmp_path, monkeypatch):
+        """Should return 0 deleted when notes/ exists but is empty."""
+        from app.services import backup as backup_mod
+
+        monkeypatch.setattr(backup_mod, "_get_backup_root", lambda: str(tmp_path))
+        (tmp_path / "notes").mkdir()
+
+        result = backup_mod.clear_backup_notes()
+        assert result["deleted"] == 0
+        assert result["errors"] == 0

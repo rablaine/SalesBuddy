@@ -12,7 +12,7 @@
         <div class="card text-center">
             <div class="card-body">
                 <h3 class="text-primary mb-0">{{ calls_this_week }}</h3>
-                <p class="text-muted mb-0">Calls This Week</p>
+                <p class="text-muted mb-0">Notes This Week</p>
                 <small class="text-muted">{{ calls_this_month }} this month</small>
             </div>
         </div>
@@ -30,7 +30,7 @@
         <div class="card text-center">
             <div class="card-body">
                 <h3 class="text-info mb-0">{{ total_calls }}</h3>
-                <p class="text-muted mb-0">Total Calls</p>
+                <p class="text-muted mb-0">Total Notes</p>
                 <small class="text-muted">All time</small>
             </div>
         </div>
@@ -51,7 +51,7 @@
     <div class="col-md-6 mb-4">
         <div class="card h-100">
             <div class="card-header">
-                <h5 class="mb-0"><i class="bi bi-graph-up-arrow"></i> Call Frequency Trend</h5>
+                <h5 class="mb-0"><i class="bi bi-graph-up-arrow"></i> Note Frequency Trend</h5>
             </div>
             <div class="card-body">
                 {% if weekly_calls %}
@@ -70,7 +70,7 @@
                         {% endfor %}
                     </div>
                 {% else %}
-                    <p class="text-muted">No call data yet. Start logging calls to see trends!</p>
+                    <p class="text-muted">No note data yet. Start logging notes to see trends!</p>
                 {% endif %}
             </div>
         </div>
@@ -90,7 +90,7 @@
                                 <a href="{{ url_for('topics.topic_view', id=topic.id) }}" class="text-decoration-none">
                                     <i class="bi bi-tag"></i> {{ topic.name }}
                                 </a>
-                                <span class="badge bg-warning text-dark">{{ topic.call_count }} calls</span>
+                                <span class="badge bg-warning text-dark">{{ topic.call_count }} notes</span>
                             </div>
                         {% endfor %}
                     </div>
@@ -112,7 +112,7 @@
             </div>
             <div class="card-body">
                 {% if customers_needing_attention %}
-                    <p class="text-muted small mb-3">No calls in 90+ days or never called</p>
+                    <p class="text-muted small mb-3">No notes in 90+ days or never contacted</p>
                     <div class="list-group list-group-flush">
                         {% for customer in customers_needing_attention %}
                             <div class="list-group-item d-flex justify-content-between align-items-center px-0">
@@ -128,7 +128,7 @@
                                     {% endif %}
                                 </div>
                                 <a href="{{ url_for('notes.note_create', customer_id=customer.id) }}" class="btn btn-sm btn-outline-primary">
-                                    <i class="bi bi-plus"></i> Log Call
+                                    <i class="bi bi-plus"></i> New Note
                                 </a>
                             </div>
                         {% endfor %}
@@ -153,14 +153,14 @@
             </div>
             <div class="card-body">
                 {% if seller_activity %}
-                    <p class="text-muted small mb-3">Calls per seller this month</p>
+                    <p class="text-muted small mb-3">Notes per seller this month</p>
                     <div class="list-group list-group-flush">
                         {% for seller in seller_activity %}
                             <div class="list-group-item d-flex justify-content-between align-items-center px-0">
                                 <a href="{{ url_for('sellers.seller_view', id=seller.id) }}" class="text-decoration-none">
                                     <i class="bi bi-person"></i> {{ seller.name }}
                                 </a>
-                                <span class="badge bg-primary">{{ seller.call_count }} calls</span>
+                                <span class="badge bg-primary">{{ seller.call_count }} notes</span>
                             </div>
                         {% endfor %}
                     </div>

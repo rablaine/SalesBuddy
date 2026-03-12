@@ -88,7 +88,7 @@
         <i class="bi bi-info-circle"></i> Found {{ notes|length }} note(s)
     </div>
     
-    <!-- Grouped Results: Seller → Customer → Calls -->
+    <!-- Grouped Results: Seller → Customer → Notes -->
     {% for seller_id, seller_data in grouped_data.items() %}
         <div class="mb-4">
             <div class="d-flex align-items-center mb-3 pb-2 border-bottom">
@@ -118,7 +118,7 @@
                         {% else %}
                             No Customer Assigned
                         {% endif %}
-                        <small class="text-muted ms-2">({{ customer_data.calls|length }} call{{ 's' if customer_data.calls|length != 1 else '' }})</small>
+                        <small class="text-muted ms-2">({{ customer_data.calls|length }} note{{ 's' if customer_data.calls|length != 1 else '' }})</small>
                     </h6>
                     
                     <div class="list-group ms-4">

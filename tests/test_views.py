@@ -433,7 +433,7 @@ def test_territory_view_loads(client, sample_data):
     assert response.status_code == 200
     assert b'West Region' in response.data
     assert b'Alice Smith' in response.data
-    assert b'Recent Calls' in response.data
+    assert b'Recent Notes' in response.data
 
 
 def test_territory_view_accounts(client, sample_data, app):

@@ -7,7 +7,7 @@
     <h1><i class="bi bi-tags"></i> Topics</h1>
     <div class="d-flex align-items-center gap-2">
         <button id="sortToggle" class="btn btn-outline-secondary btn-sm" title="Toggle sort order">
-            <i class="bi bi-sort-alpha-down"></i> <span id="sortLabel">By Calls</span>
+            <i class="bi bi-sort-alpha-down"></i> <span id="sortLabel">By Notes</span>
         </button>
         <a href="{{ url_for('topics.topic_create') }}" class="btn btn-sm btn-primary">
             <i class="bi bi-plus-circle"></i> New Topic
@@ -21,7 +21,7 @@
             <a href="{{ url_for('topics.topic_view', id=topic.id) }}" class="list-group-item list-group-item-action">
                 <div class="d-flex w-100 justify-content-between">
                     <h5 class="mb-1">{{ topic.name }}</h5>
-                    <small class="text-muted">{{ topic.notes|length }} calls</small>
+                    <small class="text-muted">{{ topic.notes|length }} notes</small>
                 </div>
                 {% if topic.description %}
                     <p class="mb-1 text-muted">{{ topic.description|truncate(150, true) }}</p>
@@ -79,7 +79,7 @@ document.addEventListener('DOMContentLoaded', function() {
     
     function updateButtonLabel(sortByCalls) {
         if (sortByCalls) {
-            sortLabel.textContent = 'By Calls';
+            sortLabel.textContent = 'By Notes';
             sortToggle.querySelector('i').className = 'bi bi-sort-numeric-down';
         } else {
             sortLabel.textContent = 'Alphabetical';

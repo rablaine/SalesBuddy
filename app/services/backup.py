@@ -400,6 +400,178 @@ def _customer_to_dict(customer: Customer) -> Dict[str, Any]:
     }
 
 
+def _partner_to_dict(partner: Partner) -> Dict[str, Any]:
+    """Serialize a partner to a standalone backup dict."""
+    return {
+        "_notehelper_partner_backup": True,
+        "_version": 1,
+        "_exported_at": datetime.now(timezone.utc).isoformat(),
+        "partner": {
+            "name": partner.name,
+            "overview": partner.overview,
+            "rating": partner.rating,
+            "website": partner.website,
+            "contacts": [
+                {
+                    "name": c.name,
+                    "email": c.email,
+                    "is_primary": c.is_primary,
+                }
+                for c in partner.contacts
+            ],
+            "specialties": [s.name for s in partner.specialties],
+        },
+    }
+
+
+def _template_to_dict(template: NoteTemplate) -> Dict[str, Any]:
+    """Serialize a note template to a standalone backup dict."""
+    return {
+        "_notehelper_template_backup": True,
+        "_version": 1,
+        "_exported_at": datetime.now(timezone.utc).isoformat(),
+        "template": {
+            "name": template.name,
+            "content": template.content,
+            "is_builtin": template.is_builtin,
+        },
+    }
+
+
+_PARTNERS_DIR = "partners"
+_TEMPLATES_DIR = "templates"
+
+
+def backup_partner(partner_id: int) -> bool:
+    """Write the backup JSON file for a single partner.
+
+    The file is written to ``{backup_root}/notes/partners/{partner_id}.json``.
+
+    Args:
+        partner_id: Primary key of the partner to back up.
+
+    Returns:
+        True if the file was written successfully, False otherwise.
+    """
+    backup_root = _get_backup_root()
+    if not backup_root:
+        return False
+
+    partner = (
+        Partner.query
+        .options(
+            db.joinedload(Partner.contacts),
+            db.joinedload(Partner.specialties),
+        )
+        .filter_by(id=partner_id)
+        .first()
+    )
+    if not partner:
+        logger.warning("Backup skipped: partner %d not found", partner_id)
+        return False
+
+    folder = os.path.join(backup_root, _NOTES_DIR, _PARTNERS_DIR)
+    filepath = os.path.join(folder, f"{partner_id}.json")
+
+    try:
+        Path(folder).mkdir(parents=True, exist_ok=True)
+        data = _partner_to_dict(partner)
+        tmp_path = filepath + ".tmp"
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+        os.replace(tmp_path, filepath)
+        logger.debug("Partner backup written: %s", filepath)
+        return True
+    except Exception:
+        logger.exception("Failed to write backup for partner %d", partner_id)
+        return False
+
+
+def delete_partner_backup(partner_id: int) -> bool:
+    """Remove the backup JSON file for a deleted partner.
+
+    Args:
+        partner_id: Primary key of the partner whose backup to remove.
+
+    Returns:
+        True if the file was removed (or didn't exist), False on error.
+    """
+    backup_root = _get_backup_root()
+    if not backup_root:
+        return False
+
+    filepath = os.path.join(backup_root, _NOTES_DIR, _PARTNERS_DIR, f"{partner_id}.json")
+    try:
+        if os.path.exists(filepath):
+            os.remove(filepath)
+            logger.debug("Partner backup deleted: %s", filepath)
+        return True
+    except Exception:
+        logger.exception("Failed to delete backup for partner %d", partner_id)
+        return False
+
+
+def backup_template(template_id: int) -> bool:
+    """Write the backup JSON file for a single note template.
+
+    The file is written to ``{backup_root}/notes/templates/{template_id}.json``.
+
+    Args:
+        template_id: Primary key of the template to back up.
+
+    Returns:
+        True if the file was written successfully, False otherwise.
+    """
+    backup_root = _get_backup_root()
+    if not backup_root:
+        return False
+
+    template = NoteTemplate.query.filter_by(id=template_id).first()
+    if not template:
+        logger.warning("Backup skipped: template %d not found", template_id)
+        return False
+
+    folder = os.path.join(backup_root, _NOTES_DIR, _TEMPLATES_DIR)
+    filepath = os.path.join(folder, f"{template_id}.json")
+
+    try:
+        Path(folder).mkdir(parents=True, exist_ok=True)
+        data = _template_to_dict(template)
+        tmp_path = filepath + ".tmp"
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+        os.replace(tmp_path, filepath)
+        logger.debug("Template backup written: %s", filepath)
+        return True
+    except Exception:
+        logger.exception("Failed to write backup for template %d", template_id)
+        return False
+
+
+def delete_template_backup(template_id: int) -> bool:
+    """Remove the backup JSON file for a deleted template.
+
+    Args:
+        template_id: Primary key of the template whose backup to remove.
+
+    Returns:
+        True if the file was removed (or didn't exist), False on error.
+    """
+    backup_root = _get_backup_root()
+    if not backup_root:
+        return False
+
+    filepath = os.path.join(backup_root, _NOTES_DIR, _TEMPLATES_DIR, f"{template_id}.json")
+    try:
+        if os.path.exists(filepath):
+            os.remove(filepath)
+            logger.debug("Template backup deleted: %s", filepath)
+        return True
+    except Exception:
+        logger.exception("Failed to delete backup for template %d", template_id)
+        return False
+
+
 def backup_customer(customer_id: int) -> bool:
     """Write the backup JSON file for a single customer.
 
@@ -510,7 +682,72 @@ def backup_all_customers() -> Dict[str, int]:
     if not backup_global_data():
         logger.warning("Global data backup failed during backup_all_customers")
 
+    # Back up all partners individually
+    for partner in Partner.query.all():
+        if not backup_partner(partner.id):
+            logger.warning("Partner backup failed for %d", partner.id)
+
+    # Back up all templates individually
+    for template in NoteTemplate.query.all():
+        if not backup_template(template.id):
+            logger.warning("Template backup failed for %d", template.id)
+
     return {"backed_up": backed_up, "failed": failed}
+
+
+def clear_backup_notes() -> dict:
+    """Remove all JSON backup files and their seller folders from OneDrive.
+
+    Walks the ``notes/`` tree (and legacy ``call_logs/`` if present),
+    deleting files individually then removing empty directories bottom-up.
+    Individual file deletion works reliably with OneDrive Files On-Demand
+    where ``shutil.rmtree`` may fail on cloud-only placeholders.
+
+    The ``previous_years/`` folder is untouched.
+
+    Returns:
+        Dict with ``deleted`` file count and ``errors`` count.
+    """
+    backup_root = _get_backup_root()
+    if not backup_root:
+        return {"deleted": 0, "errors": 0, "skipped": True}
+
+    deleted = 0
+    errors = 0
+
+    for dirname in (_NOTES_DIR, _LEGACY_NOTES_DIR):
+        target = os.path.join(backup_root, dirname)
+        if not os.path.isdir(target):
+            continue
+
+        # Delete files first (bottom-up walk so we can rmdir after)
+        for root, dirs, files in os.walk(target, topdown=False):
+            for fname in files:
+                fpath = os.path.join(root, fname)
+                try:
+                    os.remove(fpath)
+                    deleted += 1
+                except Exception:
+                    logger.exception("Failed to remove file %s", fpath)
+                    errors += 1
+            # Remove now-empty subdirectories
+            for dname in dirs:
+                dpath = os.path.join(root, dname)
+                try:
+                    os.rmdir(dpath)
+                except OSError:
+                    pass  # not empty or already gone
+
+        # Remove the top-level directory itself
+        try:
+            os.rmdir(target)
+        except OSError:
+            pass
+
+    # Ensure the notes dir exists for the upcoming backup
+    Path(os.path.join(backup_root, _NOTES_DIR)).mkdir(parents=True, exist_ok=True)
+
+    return {"deleted": deleted, "errors": errors}
 
 
 def _global_data_to_dict() -> Dict[str, Any]:
@@ -592,15 +829,37 @@ def _global_data_to_dict() -> Dict[str, Any]:
         for ce in connect_exports
     ]
 
+    # Partners (standalone entities that span customers and fiscal years)
+    partners = Partner.query.order_by(Partner.name).all()
+    partners_data = [
+        {
+            "name": p.name,
+            "overview": p.overview,
+            "rating": p.rating,
+            "website": p.website,
+            "contacts": [
+                {
+                    "name": c.name,
+                    "email": c.email,
+                    "is_primary": c.is_primary,
+                }
+                for c in p.contacts
+            ],
+            "specialties": [s.name for s in p.specialties],
+        }
+        for p in partners
+    ]
+
     return {
         "_notehelper_global_backup": True,
-        "_version": 4,
+        "_version": 5,
         "_exported_at": datetime.now(timezone.utc).isoformat(),
         "note_templates": templates_data,
         "user_preferences": prefs_data,
         "specialties": specialties_data,
         "revenue_config": rev_config_data,
         "connect_exports": connect_data,
+        "partners": partners_data,
     }
 
 
@@ -1027,7 +1286,11 @@ def restore_global_data(data: Dict[str, Any]) -> Dict[str, Any]:
         name = t.get("name")
         if not name:
             continue
-        if NoteTemplate.query.filter_by(name=name).first():
+        existing = NoteTemplate.query.filter_by(name=name).first()
+        if existing:
+            # Enrich: update content if backup has newer/different content
+            if t.get("content") and existing.content != t["content"]:
+                existing.content = t["content"]
             skipped += 1
             continue
         tmpl = NoteTemplate(
@@ -1165,6 +1428,71 @@ def restore_global_data(data: Dict[str, Any]) -> Dict[str, Any]:
         db.session.add(export)
         created += 1
     results["connect_exports"] = {"created": created, "skipped": skipped}
+
+    # --- Partners ---
+    partners_data = data.get("partners", [])
+    created = skipped = 0
+    for p in partners_data:
+        name = p.get("name")
+        if not name:
+            continue
+        existing = Partner.query.filter_by(name=name).first()
+        if existing:
+            # Enrich existing partner with missing fields
+            if p.get("overview") and not existing.overview:
+                existing.overview = p["overview"]
+            if p.get("rating") is not None and existing.rating is None:
+                existing.rating = p["rating"]
+            if p.get("website") and not existing.website:
+                existing.website = p["website"]
+            # Add missing contacts
+            existing_emails = {c.email for c in existing.contacts if c.email}
+            existing_names = {c.name for c in existing.contacts}
+            for cd in p.get("contacts", []):
+                if cd.get("email") and cd["email"] in existing_emails:
+                    continue
+                if cd.get("name") in existing_names:
+                    continue
+                contact = PartnerContact(
+                    partner_id=existing.id,
+                    name=cd["name"],
+                    email=cd.get("email"),
+                    is_primary=cd.get("is_primary", False),
+                )
+                db.session.add(contact)
+            # Link specialties that exist
+            existing_spec_names = {s.name for s in existing.specialties}
+            for spec_name in p.get("specialties", []):
+                if spec_name not in existing_spec_names:
+                    spec = Specialty.query.filter_by(name=spec_name).first()
+                    if spec:
+                        existing.specialties.append(spec)
+            skipped += 1
+            continue
+        partner = Partner(
+            name=name,
+            overview=p.get("overview"),
+            rating=p.get("rating"),
+            website=p.get("website"),
+        )
+        db.session.add(partner)
+        db.session.flush()
+        for cd in p.get("contacts", []):
+            if not cd.get("name"):
+                continue
+            contact = PartnerContact(
+                partner_id=partner.id,
+                name=cd["name"],
+                email=cd.get("email"),
+                is_primary=cd.get("is_primary", False),
+            )
+            db.session.add(contact)
+        for spec_name in p.get("specialties", []):
+            spec = Specialty.query.filter_by(name=spec_name).first()
+            if spec:
+                partner.specialties.append(spec)
+        created += 1
+    results["partners"] = {"created": created, "skipped": skipped}
 
     db.session.commit()
     return results

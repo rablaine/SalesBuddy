@@ -48,13 +48,13 @@
                     {% if show_accounts %}
                         Accounts in Territory
                     {% else %}
-                        Recent Calls (Last 7 Days)
+                        Recent Notes (Last 7 Days)
                     {% endif %}
                 </h5>
                 <div class="btn-group btn-group-sm" role="group">
                     <input type="radio" class="btn-check" name="territoryViewToggle" id="viewCalls" 
                            {{ 'checked' if not show_accounts else '' }}>
-                    <label class="btn btn-outline-secondary" for="viewCalls" title="Recent Calls">
+                    <label class="btn btn-outline-secondary" for="viewCalls" title="Recent Notes">
                         <i class="bi bi-telephone"></i>
                     </label>
                     
@@ -74,7 +74,7 @@
                                 {% for customer in growth_customers %}
                                     <li class="list-group-item d-flex justify-content-between align-items-center">
                                         <a href="{{ url_for('customers.customer_view', id=customer.id) }}">{{ customer_favicon(customer) }} {{ customer.name }}</a>
-                                        <span class="badge bg-primary rounded-pill">{{ customer.call_count }} calls</span>
+                                        <span class="badge bg-primary rounded-pill">{{ customer.call_count }} notes</span>
                                     </li>
                                 {% endfor %}
                             </ul>
@@ -86,7 +86,7 @@
                                 {% for customer in acquisition_customers %}
                                     <li class="list-group-item d-flex justify-content-between align-items-center">
                                         <a href="{{ url_for('customers.customer_view', id=customer.id) }}">{{ customer_favicon(customer) }} {{ customer.name }}</a>
-                                        <span class="badge bg-primary rounded-pill">{{ customer.call_count }} calls</span>
+                                        <span class="badge bg-primary rounded-pill">{{ customer.call_count }} notes</span>
                                     </li>
                                 {% endfor %}
                             </ul>
@@ -106,7 +106,7 @@
                             {% endfor %}
                         </ul>
                     {% else %}
-                        <p class="text-muted">No recent calls in this territory.</p>
+                        <p class="text-muted">No recent notes in this territory.</p>
                     {% endif %}
                 {% endif %}
             </div>

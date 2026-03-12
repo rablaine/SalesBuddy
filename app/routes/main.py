@@ -14,6 +14,7 @@ import re
 from app.models import (db, Note, Customer, Seller, Territory, Topic,
                         UserPreference, NoteTemplate, User, SyncStatus,
                         Engagement)
+from app.services.backup import backup_template, delete_template_backup
 
 # Create blueprint
 main_bp = Blueprint('main', __name__)
@@ -422,6 +423,8 @@ def template_save():
     db.session.add(template)
     db.session.commit()
 
+    backup_template(template.id)
+
     flash(f'Template "{name}" created.', 'success')
     return redirect(url_for('main.preferences'))
 
@@ -444,6 +447,8 @@ def template_update(id):
     template.name = name
     template.content = content
     db.session.commit()
+
+    backup_template(template.id)
 
     flash(f'Template "{name}" updated.', 'success')
     return redirect(url_for('main.preferences'))
@@ -489,6 +494,8 @@ def api_template_delete(id):
 
     db.session.delete(template)
     db.session.commit()
+
+    delete_template_backup(id)
 
     flash(f'Template "{template.name}" deleted.', 'success')
     return redirect(url_for('main.preferences'))
@@ -911,6 +918,21 @@ def inject_preferences():
     if g.user.is_authenticated:
         nav_sellers = Seller.query.order_by(Seller.name).all()
 
+    # FY transition banner state
+    fy_transition_active = pref.fy_transition_active if pref else False
+    fy_transition_label = pref.fy_transition_label if pref else None
+    fy_sync_complete = pref.fy_sync_complete if pref else False
+
+    # FY changeover reminder: show banner Jul 1 – Aug 31 if not yet completed
+    fy_changeover_reminder = False
+    now = datetime.today()
+    if now.month in (7, 8) and not fy_transition_active:
+        from app.services.fy_cutover import get_fiscal_year_labels
+        next_fy = get_fiscal_year_labels()["next_fy"]
+        fy_last_completed = pref.fy_last_completed if pref else None
+        if fy_last_completed != next_fy:
+            fy_changeover_reminder = next_fy
+
     return dict(
         dark_mode=dark_mode, 
         customer_view_grouped=customer_view_grouped, 
@@ -927,5 +949,9 @@ def inject_preferences():
         update_available=update_available,
         today=datetime.today(),
         nav_sellers=nav_sellers,
+        fy_transition_active=fy_transition_active,
+        fy_transition_label=fy_transition_label,
+        fy_sync_complete=fy_sync_complete,
+        fy_changeover_reminder=fy_changeover_reminder,
     )
 

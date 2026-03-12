@@ -1,0 +1,164 @@
+{# FY Management card - included from admin_panel.html in either promoted or default position #}
+<div class="card mb-4 border-warning" id="fyManagement">
+    <div class="card-header bg-warning text-dark{{ '' if fy_expanded else ' collapsed' }}" data-bs-toggle="collapse" data-bs-target="#fyCollapse" aria-expanded="{{ 'true' if fy_expanded else 'false' }}" role="button" style="cursor: pointer;">
+        <h5 class="mb-0 d-flex justify-content-between align-items-center">
+            <span>
+                <i class="bi bi-calendar-event"></i> Fiscal Year Management
+                {% if fy_transition_active %}
+                <span class="badge bg-danger ms-2">Transition Active</span>
+                {% elif fy_season %}
+                <span class="badge bg-info ms-2">It's transition time!</span>
+                {% endif %}
+            </span>
+            <i class="bi bi-chevron-down"></i>
+        </h5>
+    </div>
+    <div class="collapse{{ ' show' if fy_expanded else '' }}" id="fyCollapse">
+        <div class="card-body">
+          <div class="row justify-content-center">
+            <div class="col-lg-6">
+            <div id="fyStatus">
+                <div class="text-muted text-center py-2"><i class="bi bi-hourglass-split"></i> Loading FY status...</div>
+            </div>
+
+            <!-- Start New FY (shown when NOT in transition) -->
+            <div id="fyStartSection" style="display: none;">
+                <h6><i class="bi bi-play-circle"></i> Start New Fiscal Year</h6>
+                <p class="text-muted small">Saves a snapshot of your current database, then enters transition mode. You can continue working normally while alignments are updated.</p>
+                <div class="alert alert-warning py-2 small">
+                    <i class="bi bi-exclamation-triangle"></i> <strong>Wait until your tentative account alignments for the new fiscal year are available before starting.</strong> The sync step will pull those alignments in.
+                </div>
+                <div class="mb-3">
+                    <p class="mb-2">You are currently in <strong class="fy-current-label"></strong>. This will:</p>
+                    <ol class="small mb-2">
+                        <li>Save a snapshot of your <strong class="fy-current-label"></strong> data</li>
+                        <li>Enter transition mode for <strong class="fy-next-label"></strong></li>
+                        <li>Sync your new account alignments from MSX</li>
+                    </ol>
+                    <button class="btn btn-warning" id="fyStartBtn" onclick="startNewFY()">
+                        <i class="bi bi-archive"></i> Archive &amp; Start
+                    </button>
+                </div>
+                <!-- FY Sync progress (shown after archive completes) -->
+                <div id="fySyncSection" style="display: none;">
+                    <hr>
+                    <h6><i class="bi bi-cloud-download"></i> Syncing New Alignments</h6>
+                    <div id="fySyncWait" class="alert alert-info py-2">
+                        <i class="bi bi-hourglass-split"></i> Please wait while your new account alignments are synced. Do not close this page.
+                    </div>
+                    <div id="fySyncProgress" class="mb-2">
+                        <div class="d-flex justify-content-between mb-1">
+                            <small class="text-muted" id="fySyncStatusText">Starting sync...</small>
+                            <small class="text-muted" id="fySyncProgressPercent">0%</small>
+                        </div>
+                        <div class="progress" style="height: 15px;">
+                            <div class="progress-bar progress-bar-striped progress-bar-animated bg-primary"
+                                 role="progressbar" id="fySyncProgressBar" style="width: 0%"></div>
+                        </div>
+                    </div>
+                    <div id="fySyncResults" style="display: none;"></div>
+                    <div id="fySyncError" style="display: none;"></div>
+                </div>
+                <div id="fyStartResult" style="display: none;"></div>
+            </div>
+
+            <!-- Transition Controls (shown when IN transition) -->
+            <div id="fyTransitionSection" style="display: none;">
+                <div class="alert alert-info">
+                    <i class="bi bi-info-circle"></i>
+                    <strong id="fyTransitionLabel"></strong> transition is active.
+                </div>
+
+                <!-- Sync incomplete warning + resume button -->
+                <div id="fySyncIncomplete" style="display: none;">
+                    <div class="alert alert-warning">
+                        <i class="bi bi-exclamation-triangle"></i> Account sync did not complete.
+                        New alignments may be missing.
+                    </div>
+                    <button class="btn btn-primary mb-3" onclick="runFYSync('2')">
+                        <i class="bi bi-cloud-download"></i> Resume Account Sync
+                    </button>
+                    <div id="fySyncSection2" style="display: none;">
+                        <div id="fySyncProgress2" class="mb-2">
+                            <div class="d-flex justify-content-between mb-1">
+                                <small class="text-muted" id="fySyncStatusText2">Starting sync...</small>
+                                <small class="text-muted" id="fySyncProgressPercent2">0%</small>
+                            </div>
+                                <div class="progress" style="height: 15px;">
+                                <div class="progress-bar progress-bar-striped progress-bar-animated bg-primary"
+                                     role="progressbar" id="fySyncProgressBar2" style="width: 0%"></div>
+                            </div>
+                        </div>
+                        <div id="fySyncResults2" style="display: none;"></div>
+                        <div id="fySyncError2" style="display: none;"></div>
+                    </div>
+                </div>
+
+                <!-- Sync complete - initial sync done -->
+                <div id="fySyncCompleteSection" style="display: none;">
+                    <div class="alert alert-success py-2">
+                        <i class="bi bi-check-circle"></i> Account sync complete. New alignments are loaded.
+                    </div>
+                </div>
+
+                <!-- Finalize & Purge (multi-step: sync → purge → clean → backup) -->
+                <h6><i class="bi bi-check2-square"></i> Finalize Alignments</h6>
+                <p class="text-muted small">Once management has finalized account alignments, this will sync the confirmed list, purge orphaned customers, clean old backups, and create fresh backups.</p>
+                <button class="btn btn-danger" id="fyFinalizeBtn" onclick="finalizeFY()">
+                    <i class="bi bi-lightning-charge"></i> Finalize &amp; Purge Orphans
+                </button>
+
+                <!-- Multi-step progress (shown during finalize) -->
+                <div id="fyFinalizeProgress" style="display: none;" class="mt-3">
+                    <div class="list-group list-group-flush small">
+                        <div class="list-group-item d-flex align-items-center py-2" id="fyStep1">
+                            <span class="me-2" id="fyStep1Icon"><i class="bi bi-circle text-muted"></i></span>
+                            <span>Sync accounts from MSX</span>
+                            <span class="ms-auto text-muted small" id="fyStep1Detail"></span>
+                        </div>
+                        <div id="fyStep1Stream" style="display: none;" class="px-3 py-2">
+                            <div class="d-flex justify-content-between mb-1">
+                                <small class="text-muted" id="fyFinalSyncStatus">Starting sync...</small>
+                                <small class="text-muted" id="fyFinalSyncPercent">0%</small>
+                            </div>
+                            <div class="progress" style="height: 15px;">
+                                <div class="progress-bar progress-bar-striped progress-bar-animated bg-primary"
+                                     role="progressbar" id="fyFinalSyncBar" style="width: 0%"></div>
+                            </div>
+                        </div>
+                        <div class="list-group-item d-flex align-items-center py-2" id="fyStep2">
+                            <span class="me-2" id="fyStep2Icon"><i class="bi bi-circle text-muted"></i></span>
+                            <span>Purge orphaned data</span>
+                            <span class="ms-auto text-muted small" id="fyStep2Detail"></span>
+                        </div>
+                        <div class="list-group-item d-flex align-items-center py-2" id="fyStep3">
+                            <span class="me-2" id="fyStep3Icon"><i class="bi bi-circle text-muted"></i></span>
+                            <span>Clean OneDrive backups</span>
+                            <span class="ms-auto text-muted small" id="fyStep3Detail"></span>
+                        </div>
+                        <div class="list-group-item d-flex align-items-center py-2" id="fyStep4">
+                            <span class="me-2" id="fyStep4Icon"><i class="bi bi-circle text-muted"></i></span>
+                            <span>Create fresh backup</span>
+                            <span class="ms-auto text-muted small" id="fyStep4Detail"></span>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="fyFinalizeResult" class="mt-2" style="display: none;"></div>
+
+                <hr>
+                <button class="btn btn-outline-secondary" onclick="cancelFYTransition()">
+                    <i class="bi bi-x-circle"></i> Cancel Transition
+                </button>
+            </div>
+
+            <!-- Archive List -->
+            <div id="fyArchivesSection" class="mt-3" style="display: none;">
+                <h6><i class="bi bi-collection"></i> Previous Year Archives</h6>
+                <div id="fyArchivesList"></div>
+            </div>
+            </div>{# col-lg-8 #}
+          </div>{# row #}
+        </div>
+    </div>
+</div>

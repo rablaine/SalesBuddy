@@ -67,8 +67,8 @@
         <i class="bi bi-building"></i> Customers
     </h1>
     <div class="d-flex align-items-center gap-2">
-        <button type="button" class="btn btn-sm {{ 'btn-primary' if show_customers_without_calls else 'btn-outline-secondary' }}" id="toggleShowWithoutCalls" title="Toggle showing customers with no calls">
-            <i class="bi bi-{{ 'eye-slash' if show_customers_without_calls else 'eye' }}"></i> {{ 'Hide' if show_customers_without_calls else 'Show' }} No Calls
+        <button type="button" class="btn btn-sm {{ 'btn-primary' if show_customers_without_calls else 'btn-outline-secondary' }}" id="toggleShowWithoutCalls" title="Toggle showing customers with no notes">
+            <i class="bi bi-{{ 'eye-slash' if show_customers_without_calls else 'eye' }}"></i> {{ 'Hide' if show_customers_without_calls else 'Show' }} No Notes
         </button>
         <div class="btn-group" role="group" aria-label="Sort customers">
             <button type="button" class="btn btn-sm {{ 'btn-primary' if sort_by == 'alphabetical' else 'btn-outline-secondary' }}" data-sort="alphabetical" title="Sort alphabetically">
@@ -77,8 +77,8 @@
             <button type="button" class="btn btn-sm {{ 'btn-primary' if sort_by == 'grouped' else 'btn-outline-secondary' }}" data-sort="grouped" title="Group by seller">
                 <i class="bi bi-people"></i> Grouped
             </button>
-            <button type="button" class="btn btn-sm {{ 'btn-primary' if sort_by == 'by_calls' else 'btn-outline-secondary' }}" data-sort="by_calls" title="Sort by number of calls">
-                <i class="bi bi-telephone"></i> By Calls
+            <button type="button" class="btn btn-sm {{ 'btn-primary' if sort_by == 'by_calls' else 'btn-outline-secondary' }}" data-sort="by_calls" title="Sort by number of notes">
+                <i class="bi bi-journal-text"></i> By Notes
             </button>
         </div>
         <a href="{{ url_for('customers.customer_create') }}" class="btn btn-sm btn-primary">
@@ -131,7 +131,7 @@
                                     {% endif %}
                                 </h5>
                                 <div class="d-flex align-items-center gap-2">
-                                    <small class="text-muted text-nowrap">{{ customer.notes|length }} calls</small>
+                                    <small class="text-muted text-nowrap">{{ customer.notes|length }} notes</small>
                                     <a href="{{ url_for('notes.note_create', customer_id=customer.id) }}" class="btn btn-sm btn-success text-white" onclick="event.stopPropagation();">
                                         <i class="bi bi-plus-circle"></i> New Note
                                     </a>
@@ -174,7 +174,7 @@
                                     {% endif %}
                                 </h5>
                                 <div class="d-flex align-items-center gap-2">
-                                    <small class="text-muted text-nowrap">{{ customer.notes|length }} calls</small>
+                                    <small class="text-muted text-nowrap">{{ customer.notes|length }} notes</small>
                                     <a href="{{ url_for('notes.note_create', customer_id=customer.id) }}" class="btn btn-sm btn-success text-white" onclick="event.stopPropagation();">
                                         <i class="bi bi-plus-circle"></i> New Note
                                     </a>
@@ -212,7 +212,7 @@
                             {% endif %}
                         </h5>
                         <div class="d-flex align-items-center gap-2">
-                            <small class="text-muted text-nowrap">{{ customer.notes|length }} calls</small>
+                            <small class="text-muted text-nowrap">{{ customer.notes|length }} notes</small>
                             <a href="{{ url_for('notes.note_create', customer_id=customer.id) }}" class="btn btn-sm btn-success text-white" onclick="event.stopPropagation();">
                                 <i class="bi bi-plus-circle"></i> New Note
                             </a>

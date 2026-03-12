@@ -105,11 +105,11 @@
             </div>
         </div>
 
-        <!-- Right Column: Call Logs -->
+        <!-- Right Column: Notes -->
         <div class="col-lg-6">
             <div class="card">
                 <div class="card-header">
-                    <h5 class="mb-0"><i class="bi bi-telephone"></i> Associated Calls ({{ partner.notes|length }})</h5>
+                    <h5 class="mb-0"><i class="bi bi-journal-text"></i> Associated Notes ({{ partner.notes|length }})</h5>
                 </div>
                 <div class="card-body p-0">
                     {% if partner.notes %}
@@ -131,7 +131,7 @@
                     </ul>
                     {% else %}
                     <div class="p-3 text-center text-muted">
-                        No calls associated with this partner yet
+                        No notes associated with this partner yet
                     </div>
                     {% endif %}
                 </div>

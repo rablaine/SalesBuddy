@@ -325,11 +325,6 @@
             </button>
             <div class="collapse navbar-collapse" id="navbarNav">
                 <ul class="navbar-nav me-auto">
-                    <li class="nav-item" id="navCustomers">
-                        <a class="nav-link" href="{{ url_for('customers.customers_list') }}">
-                            <i class="bi bi-building"></i> Customers
-                        </a>
-                    </li>
                     <li class="nav-item dropdown nav-hover-dropdown" id="navSellers">
                         <a class="nav-link dropdown-toggle" href="{{ url_for('sellers.sellers_list') }}" role="button" data-bs-toggle="dropdown" aria-expanded="false">
                             <i class="bi bi-people"></i> Sellers
@@ -352,9 +347,19 @@
                             {% endif %}
                         </ul>
                     </li>
-                    <li class="nav-item" id="navPods">
-                        <a class="nav-link" href="{{ url_for('pods.pods_list') }}">
-                            <i class="bi bi-diagram-3"></i> PODs
+                    <li class="nav-item" id="navNotes">
+                        <a class="nav-link" href="{{ url_for('notes.notes_list') }}">
+                            <i class="bi bi-journal-text"></i> Notes
+                        </a>
+                    </li>
+                    <li class="nav-item" id="navPartners">
+                        <a class="nav-link" href="{{ url_for('partners.partners_list') }}">
+                            <i class="bi bi-building"></i> Partners
+                        </a>
+                    </li>
+                    <li class="nav-item" id="navTopics">
+                        <a class="nav-link" href="{{ url_for('topics.topics_list') }}">
+                            <i class="bi bi-tags"></i> Topics
                         </a>
                     </li>
                     <li class="nav-item" id="navMilestones">
@@ -372,9 +377,8 @@
                             <i class="bi bi-three-dots"></i> More
                         </a>
                         <ul class="dropdown-menu" aria-labelledby="moreMenuDropdown">
-                            <li><a class="dropdown-item" href="{{ url_for('notes.notes_list') }}"><i class="bi bi-telephone"></i> Notes</a></li>
-                            <li><a class="dropdown-item" href="{{ url_for('topics.topics_list') }}"><i class="bi bi-tags"></i> Topics</a></li>
-                            <li><a class="dropdown-item" href="{{ url_for('partners.partners_list') }}"><i class="bi bi-building"></i> Partners</a></li>
+                            <li><a class="dropdown-item" href="{{ url_for('customers.customers_list') }}"><i class="bi bi-building"></i> Customers</a></li>
+                            <li><a class="dropdown-item" href="{{ url_for('pods.pods_list') }}"><i class="bi bi-diagram-3"></i> PODs</a></li>
                             <li><a class="dropdown-item" href="{{ url_for('main.search') }}"><i class="bi bi-search"></i> Search</a></li>
                             <li><a class="dropdown-item" href="{{ url_for('main.analytics') }}"><i class="bi bi-graph-up"></i> Analytics</a></li>
                             <li><a class="dropdown-item" href="{{ url_for('connect_export.connect_export_page') }}"><i class="bi bi-file-earmark-text"></i> Connect Export</a></li>
@@ -428,6 +432,28 @@
             <span id="vpnRetryStatus" class="small"></span>
         </div>
     </div>
+
+    {% if fy_changeover_reminder %}
+    <!-- FY Changeover Reminder Banner (Jul 1 – Aug 31, not yet completed) -->
+    <div class="alert alert-info mb-0 text-center" role="alert" style="border-radius: 0;">
+        <i class="bi bi-calendar-event"></i>
+        <strong>New fiscal year!</strong> It's time to transition to {{ fy_changeover_reminder }}.
+        <a href="{{ url_for('admin.admin_panel') }}#fyManagement" class="alert-link">Get started in the Admin Panel</a>
+    </div>
+    {% endif %}
+
+    {% if fy_transition_active %}
+    <!-- FY Transition Banner -->
+    <div class="alert alert-warning mb-0 text-center" role="alert" style="border-radius: 0;">
+        <i class="bi bi-exclamation-triangle-fill"></i>
+        <strong>{{ fy_transition_label }} Transition in Progress</strong> &mdash;
+        {% if not fy_sync_complete %}
+        Account sync incomplete. <a href="{{ url_for('admin.admin_panel') }}#fyManagement" class="alert-link">Resume in Admin Panel</a>
+        {% else %}
+        <a href="{{ url_for('admin.admin_panel') }}#fyManagement" class="alert-link">Finalize in Admin Panel</a>
+        {% endif %}
+    </div>
+    {% endif %}
 
     <!-- Flash Messages -->
     <div class="container mt-3">

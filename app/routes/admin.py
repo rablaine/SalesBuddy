@@ -33,7 +33,7 @@ admin_bp = Blueprint('admin', __name__)
 def admin_panel():
     """Admin control panel for system-wide operations."""
     import os
-    from datetime import timedelta, timezone
+    from datetime import datetime, timedelta, timezone
     
     # Get favicon sync status and check if actively in progress
     favicon_sync = SyncStatus.get_status('favicons')
@@ -69,7 +69,18 @@ def admin_panel():
         'favicon_sync_status': favicon_sync,
     }
     
-    return render_template('admin_panel.html', stats=stats)
+    # FY season: promote the FY card Jul 1 – Aug 31, unless already transitioned
+    now = datetime.now()
+    fy_season = (7 <= now.month <= 8)
+    pref = UserPreference.query.first()
+    # If they've already completed this year's transition, don't promote
+    if pref and pref.fy_transition_started:
+        started = pref.fy_transition_started
+        # If transition was started in the current FY window, season is over for them
+        if started.year == now.year and started.month >= 7:
+            fy_season = False
+
+    return render_template('admin_panel.html', stats=stats, fy_season=fy_season)
 
 
 @admin_bp.route('/admin/ai-logs')
@@ -1080,4 +1091,94 @@ def api_telemetry_shipping_status():
     from app.services.telemetry_shipper import get_flush_stats
 
     return jsonify(get_flush_stats())
+
+
+# ---------------------------------------------------------------------------
+# Fiscal Year Cutover
+# ---------------------------------------------------------------------------
+
+
+@admin_bp.route('/api/admin/fy/status', methods=['GET'])
+def api_fy_status():
+    """Return FY transition state, FY labels, and list of archives."""
+    from app.services.fy_cutover import get_fiscal_year_labels, get_transition_state, list_archives
+    return jsonify({
+        'transition': get_transition_state(),
+        'archives': list_archives(),
+        'fy_labels': get_fiscal_year_labels(),
+    })
+
+
+@admin_bp.route('/api/admin/fy/start', methods=['POST'])
+def api_fy_start():
+    """Start a new fiscal year: archive current DB, enter transition mode."""
+    from app.services.fy_cutover import start_new_fiscal_year
+
+    try:
+        result = start_new_fiscal_year()
+        return jsonify({'success': True, **result})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@admin_bp.route('/api/admin/fy/sync-complete', methods=['POST'])
+def api_fy_sync_complete():
+    """Mark FY account sync as finished."""
+    from app.services.fy_cutover import mark_fy_sync_complete
+    mark_fy_sync_complete()
+    return jsonify({'success': True})
+
+
+@admin_bp.route('/api/admin/fy/preview-purge', methods=['POST'])
+def api_fy_preview_purge():
+    """Preview what would be purged with the given TPIDs."""
+    from app.services.fy_cutover import preview_purge
+
+    data = request.get_json(silent=True) or {}
+    synced_tpids = data.get('synced_tpids', [])
+    if not synced_tpids:
+        return jsonify({'success': False, 'error': 'synced_tpids list is required'}), 400
+
+    try:
+        preview = preview_purge([int(t) for t in synced_tpids])
+        return jsonify({'success': True, **preview})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@admin_bp.route('/api/admin/fy/finalize', methods=['POST'])
+def api_fy_finalize():
+    """Finalize alignments: purge orphaned customers and exit transition mode."""
+    import json as _json
+    from pathlib import Path
+    from app.services.fy_cutover import finalize_alignments
+
+    tpid_file = Path('data/last_sync_tpids.json')
+    if not tpid_file.exists():
+        return jsonify({
+            'success': False,
+            'error': 'No sync data found. Run the Final Sync first.'
+        }), 400
+
+    try:
+        synced_tpids = _json.loads(tpid_file.read_text())
+        if not synced_tpids:
+            return jsonify({
+                'success': False,
+                'error': 'Last sync returned no TPIDs. Run the Final Sync again.'
+            }), 400
+        summary = finalize_alignments([int(t) for t in synced_tpids])
+        # Clean up the TPID file after successful finalization
+        tpid_file.unlink(missing_ok=True)
+        return jsonify({'success': True, **summary})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@admin_bp.route('/api/admin/fy/exit-transition', methods=['POST'])
+def api_fy_exit_transition():
+    """Exit FY transition mode without purging (cancel)."""
+    from app.services.fy_cutover import exit_transition_mode
+    exit_transition_mode()
+    return jsonify({'success': True})
 

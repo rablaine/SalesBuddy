@@ -1028,3 +1028,10 @@ def _migrate_opportunity_details_columns(db, inspector):
     ]
     for col_name, col_def in columns:
         _add_column_if_not_exists(db, inspector, 'opportunities', col_name, col_def)
+
+    # Migration: Add FY transition columns to user_preferences
+    _add_column_if_not_exists(db, inspector, 'user_preferences', 'fy_transition_active', 'BOOLEAN DEFAULT 0 NOT NULL')
+    _add_column_if_not_exists(db, inspector, 'user_preferences', 'fy_transition_label', 'VARCHAR(10)')
+    _add_column_if_not_exists(db, inspector, 'user_preferences', 'fy_transition_started', 'DATETIME')
+    _add_column_if_not_exists(db, inspector, 'user_preferences', 'fy_sync_complete', 'BOOLEAN DEFAULT 0 NOT NULL')
+    _add_column_if_not_exists(db, inspector, 'user_preferences', 'fy_last_completed', 'VARCHAR(10)')
