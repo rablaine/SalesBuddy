@@ -26,6 +26,7 @@ def pod_view(id):
     # Use selectinload for better performance with collections
     pod = POD.query.options(
         db.selectinload(POD.territories).selectinload(Territory.sellers),
+        db.selectinload(POD.territories).selectinload(Territory.solution_engineers),
         db.selectinload(POD.solution_engineers)
     ).filter_by(id=id).first_or_404()
     
@@ -40,11 +41,25 @@ def pod_view(id):
     territories = sorted(pod.territories, key=lambda t: t.name)
     solution_engineers = sorted(pod.solution_engineers, key=lambda se: se.name)
     
+    # Build territory -> DSSs grouping.
+    # DSSs are SolutionEngineers linked to territories (not pods).
+    # Cloud SEs (Azure Data, Azure Core and Infra, Azure Apps and AI) are pod-based.
+    cloud_specialties = {"Azure Data", "Azure Core and Infra", "Azure Apps and AI"}
+    territory_dss = {}
+    for territory in territories:
+        dss_list = [
+            se for se in territory.solution_engineers
+            if se.specialty not in cloud_specialties
+        ]
+        if dss_list:
+            territory_dss[territory.name] = sorted(dss_list, key=lambda se: se.name)
+    
     return render_template('pod_view.html',
                          pod=pod,
                          territories=territories,
                          sellers=sellers,
-                         solution_engineers=solution_engineers)
+                         solution_engineers=solution_engineers,
+                         territory_dss=territory_dss)
 
 
 @pods_bp.route('/pod/<int:id>/edit', methods=['GET', 'POST'])

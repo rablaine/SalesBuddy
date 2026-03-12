@@ -94,6 +94,13 @@ solution_engineers_pods = db.Table(
     db.Column('pod_id', db.Integer, db.ForeignKey('pods.id'), primary_key=True)
 )
 
+# Association table for many-to-many relationship between SolutionEngineer and Territory
+solution_engineers_territories = db.Table(
+    'solution_engineers_territories',
+    db.Column('solution_engineer_id', db.Integer, db.ForeignKey('solution_engineers.id'), primary_key=True),
+    db.Column('territory_id', db.Integer, db.ForeignKey('territories.id'), primary_key=True)
+)
+
 # Association table for many-to-many relationship between Customer and CustomerCSAM
 customers_csams = db.Table(
     'customers_csams',
@@ -207,6 +214,12 @@ class SolutionEngineer(db.Model):
         back_populates='solution_engineers',
         lazy='select'
     )
+    territories = db.relationship(
+        'Territory',
+        secondary=solution_engineers_territories,
+        back_populates='solution_engineers',
+        lazy='select'
+    )
     
     def __repr__(self) -> str:
         return f'<SolutionEngineer {self.name} ({self.specialty})>'
@@ -256,6 +269,12 @@ class Territory(db.Model):
         lazy='select'
     )
     customers = db.relationship('Customer', back_populates='territory', lazy='select')
+    solution_engineers = db.relationship(
+        'SolutionEngineer',
+        secondary=solution_engineers_territories,
+        back_populates='territories',
+        lazy='select'
+    )
     
     def __repr__(self) -> str:
         return f'<Territory {self.name}>'

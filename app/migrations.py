@@ -165,6 +165,9 @@ def run_migrations(db):
     # Migration: Add CSAM table and customer FK
     _migrate_csam_support(db, inspector)
 
+    # Migration: Create solution_engineers_territories M2M table (DSS territory linking)
+    _migrate_se_territories(db, inspector)
+
     # =========================================================================
     # End migrations
     # =========================================================================
@@ -1081,3 +1084,18 @@ def _migrate_csam_support(db, inspector):
     # csam_id FK on customers
     _add_column_if_not_exists(db, inspector, 'customers', 'csam_id',
                               'INTEGER REFERENCES customer_csams(id) ON DELETE SET NULL')
+
+
+def _migrate_se_territories(db, inspector):
+    """Create solution_engineers_territories M2M table for DSS territory linking."""
+    if not _table_exists(inspector, 'solution_engineers_territories'):
+        with db.engine.connect() as conn:
+            conn.execute(text("""
+                CREATE TABLE solution_engineers_territories (
+                    solution_engineer_id INTEGER NOT NULL REFERENCES solution_engineers(id),
+                    territory_id INTEGER NOT NULL REFERENCES territories(id),
+                    PRIMARY KEY (solution_engineer_id, territory_id)
+                )
+            """))
+            conn.commit()
+        print("  Created table 'solution_engineers_territories'")

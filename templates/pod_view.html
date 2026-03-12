@@ -96,6 +96,43 @@
         </div>
     </div>
 </div>
+
+{% if territory_dss %}
+<div class="row mt-3">
+    <div class="col-12">
+        <div class="card mb-3">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-diagram-2"></i> Digital Solution Specialists</h5>
+            </div>
+            <div class="card-body">
+                {% for terr_name, dss_list in territory_dss.items() %}
+                    <h6 class="mt-{% if not loop.first %}3{% else %}0{% endif %} mb-2">
+                        <i class="bi bi-geo-alt"></i> {{ terr_name }}
+                    </h6>
+                    <ul class="list-group list-group-flush mb-2">
+                        {% for dss in dss_list %}
+                            <li class="list-group-item" style="cursor: pointer;" onclick="window.location='{{ url_for('solution_engineers.solution_engineer_view', id=dss.id) }}'">
+                                <div class="d-flex justify-content-between align-items-start">
+                                    <div>
+                                        <strong>{{ dss.name }}</strong>
+                                        {% if dss.alias %}
+                                            <br><small class="text-muted"><i class="bi bi-envelope"></i> {{ dss.alias }}@microsoft.com</small>
+                                        {% endif %}
+                                    </div>
+                                    {% if dss.specialty %}
+                                        <span class="badge bg-warning text-dark">{{ dss.specialty }}</span>
+                                    {% endif %}
+                                </div>
+                            </li>
+                        {% endfor %}
+                    </ul>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
 {% endblock %}
 
 

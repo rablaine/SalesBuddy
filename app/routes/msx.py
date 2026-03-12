@@ -65,6 +65,7 @@ from app.services.msx_api import (
     batch_query_territories,
     batch_query_account_teams,
     batch_query_account_csams,
+    batch_query_account_dss,
     build_account_url,
     get_user_alias,
 )
@@ -1145,6 +1146,25 @@ def _par_query_csams(account_ids, batch_size, progress_q, worker_id):
     return {"account_csams": account_csams, "unique_csams": unique_csams}
 
 
+_DSS_BATCH = 10  # DSSs are sparse (~0-3 per account), safe to batch more
+
+
+def _par_query_dss(account_ids, batch_size, progress_q, worker_id):
+    """Worker: query DSS team members for a chunk of account IDs."""
+    account_dss: dict = {}
+    unique_dss: dict = {}
+    batches = math.ceil(len(account_ids) / batch_size) if account_ids else 0
+    for batch_num, i in enumerate(range(0, len(account_ids), batch_size), start=1):
+        batch = account_ids[i:i + batch_size]
+        dss_result = batch_query_account_dss(batch, batch_size=len(batch))
+        if dss_result.get("success"):
+            account_dss.update(dss_result.get("account_dss", {}))
+            unique_dss.update(dss_result.get("unique_dss", {}))
+        progress_q.put({"worker": worker_id, "batch": batch_num,
+                        "total_batches": batches, "dss_found": len(unique_dss)})
+    return {"account_dss": account_dss, "unique_dss": unique_dss}
+
+
 @msx_bp.route('/import-stream')
 def import_stream():
     """
@@ -1477,6 +1497,33 @@ def import_stream():
                     account_csams.update(r["account_csams"])
                     csams_seen.update(r["unique_csams"])
 
+            # ----------------------------------------------------------
+            # Phase 4c: Parallel DSS queries (3 workers)
+            # ----------------------------------------------------------
+            phase = "querying DSSs"
+            dss_chunks = _split_chunks(all_ids, _PARALLEL_WORKERS)
+            dss_done = 0
+
+            account_dss: dict = {}    # account_id -> [{name, specialty, user_id}]
+            dss_seen: dict = {}       # name -> {name, specialty, user_id}
+
+            with ThreadPoolExecutor(max_workers=_PARALLEL_WORKERS) as pool:
+                futures = [
+                    pool.submit(_par_query_dss, chunk, _DSS_BATCH,
+                                progress_q, idx + 1)
+                    for idx, chunk in enumerate(dss_chunks) if chunk
+                ]
+                while not all(f.done() for f in futures):
+                    time.sleep(0.3)
+                    for evt in _drain(progress_q):
+                        dss_done += 1
+                for evt in _drain(progress_q):
+                    dss_done += 1
+                for f in futures:
+                    r = f.result()
+                    account_dss.update(r["account_dss"])
+                    dss_seen.update(r["unique_dss"])
+
             # Populate seller info on accounts
             accounts_with_sellers = 0
             for ad in accounts_data:
@@ -1502,7 +1549,8 @@ def import_stream():
             yield _sse({
                 "message": (
                     f"Found {len(sellers_seen)} sellers, "
-                    f"{len(csams_seen)} CSAMs for "
+                    f"{len(csams_seen)} CSAMs, "
+                    f"{len(dss_seen)} DSSs for "
                     f"{accounts_with_sellers}/{len(accounts_data)} accounts"
                 ),
                 "progress": 86,
@@ -1661,6 +1709,55 @@ def import_stream():
                 "message": f"Created {ses_created} new solution engineers",
                 "progress": 94,
             })
+
+            # Digital Solution Specialists (DSSs)
+            # DSSs are SolutionEngineer records linked to territories (not pods).
+            dss_map: dict = {}  # (name, specialty) -> SolutionEngineer
+            dss_created = 0
+
+            # Build account_id → territory_name for DSS territory linking
+            acct_territory: dict = {
+                ad["id"]: ad.get("territory_name")
+                for ad in accounts_data
+                if ad.get("territory_name")
+            }
+
+            for dss_name, dss_info in dss_seen.items():
+                specialty = dss_info.get("specialty", "")
+                dss_key = (dss_name, specialty)
+                existing = SolutionEngineer.query.filter_by(
+                    name=dss_name, specialty=specialty,
+                ).first()
+                if existing:
+                    dss_map[dss_key] = existing
+                    # Backfill alias if missing
+                    if not existing.alias and dss_info.get("user_id"):
+                        alias = get_user_alias(dss_info["user_id"])
+                        if alias:
+                            existing.alias = alias
+                else:
+                    systemuser_id = dss_info.get("user_id")
+                    alias = get_user_alias(systemuser_id) if systemuser_id else None
+                    se = SolutionEngineer(
+                        name=dss_name, alias=alias, specialty=specialty,
+                    )
+                    db.session.add(se)
+                    dss_map[dss_key] = se
+                    dss_created += 1
+            db.session.flush()
+
+            # Link DSSs to territories based on which accounts they cover
+            for acct_id, dss_list in account_dss.items():
+                terr_name = acct_territory.get(acct_id)
+                territory = territories_map.get(terr_name) if terr_name else None
+                if not territory:
+                    continue
+                for d in dss_list:
+                    dss_key = (d["name"], d.get("specialty", ""))
+                    se = dss_map.get(dss_key)
+                    if se and territory not in se.territories:
+                        se.territories.append(territory)
+            db.session.flush()
 
             # CSAMs
             csam_map: dict = {}  # name -> CustomerCSAM
@@ -1958,6 +2055,7 @@ def import_stream():
                     "sellers_created": sellers_created,
                     "sellers_updated": sellers_updated,
                     "solution_engineers_created": ses_created,
+                    "dss_created": dss_created,
                     "csams_created": csams_created,
                     "verticals_created": verticals_created,
                     "customers_created": customers_created,

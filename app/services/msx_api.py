@@ -1932,6 +1932,87 @@ def batch_query_account_csams(
         return {"success": False, "error": str(e)}
 
 
+def batch_query_account_dss(
+    account_ids: List[str],
+    batch_size: int = 10
+) -> Dict[str, Any]:
+    """
+    Query msp_accountteams for Digital Solution Specialists (DSS).
+
+    DSSs are identified by ``msp_standardtitle eq 'Digital Solution Area
+    Specialists IC'``.  Their specialty area comes from ``msp_qualifier2``
+    (e.g. "Security", "Modern Work", "Azure Infrastructure").
+
+    Args:
+        account_ids: List of account GUIDs
+        batch_size: How many accounts per query (default 10)
+
+    Returns:
+        Dict with:
+        - account_dss: {account_id: [{name, specialty, user_id}]}
+        - unique_dss: {name: {name, specialty, user_id}}
+    """
+    account_dss: Dict[str, list] = {}   # account_id -> [{name, specialty, user_id}]
+    unique_dss: Dict[str, dict] = {}    # name -> {name, specialty, user_id}
+
+    try:
+        for i in range(0, len(account_ids), batch_size):
+            batch = account_ids[i:i + batch_size]
+
+            account_filter = " or ".join(
+                [f"_msp_accountid_value eq {aid}" for aid in batch]
+            )
+            filter_query = (
+                f"({account_filter}) and "
+                "msp_standardtitle eq 'Digital Solution Area Specialists IC'"
+            )
+
+            result = query_entity(
+                "msp_accountteams",
+                select=[
+                    "_msp_accountid_value",
+                    "msp_fullname",
+                    "msp_qualifier2",
+                    "_msp_systemuserid_value",
+                ],
+                filter_query=filter_query,
+                top=100,
+            )
+
+            if not result.get("success"):
+                logger.warning(f"DSS batch query failed: {result.get('error')}")
+                continue
+
+            for record in result.get("records", []):
+                acct_id = record.get("_msp_accountid_value")
+                name = record.get("msp_fullname", "")
+                specialty = record.get("msp_qualifier2", "")
+                user_id = record.get("_msp_systemuserid_value")
+                if not acct_id or not name:
+                    continue
+
+                account_dss.setdefault(acct_id, [])
+                if not any(d["name"] == name for d in account_dss[acct_id]):
+                    account_dss[acct_id].append({
+                        "name": name, "specialty": specialty, "user_id": user_id,
+                    })
+
+                if name not in unique_dss:
+                    unique_dss[name] = {
+                        "name": name, "specialty": specialty, "user_id": user_id,
+                    }
+
+        return {
+            "success": True,
+            "account_dss": account_dss,
+            "unique_dss": unique_dss,
+        }
+
+    except Exception as e:
+        logger.exception("Error in batch account DSS query")
+        return {"success": False, "error": str(e)}
+
+
 def get_user_alias(systemuser_id: str) -> Optional[str]:
     """
     Look up a systemuser by ID and return their email alias.
