@@ -1539,6 +1539,17 @@ def import_stream():
                 if not account_dss[acct_id]:
                     del account_dss[acct_id]
 
+            # Clean up previously-synced DSS records with excluded specialties
+            excluded_dss = SolutionEngineer.query.filter(
+                SolutionEngineer.specialty.in_(_DSS_EXCLUDED_SPECIALTIES)
+            ).all()
+            for se in excluded_dss:
+                se.territories.clear()
+                se.pods.clear()
+                db.session.delete(se)
+            if excluded_dss:
+                db.session.flush()
+
             # Populate seller info on accounts
             accounts_with_sellers = 0
             for ad in accounts_data:
