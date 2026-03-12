@@ -262,6 +262,16 @@ def customer_edit(id):
         customer.tpid_url = tpid_url if tpid_url else None
         customer.seller_id = int(seller_id) if seller_id else None
         customer.territory_id = int(territory_id) if territory_id else None
+
+        csam_id = request.form.get('csam_id', '').strip()
+        if csam_id:
+            csam_id_int = int(csam_id)
+            available_ids = {c.id for c in customer.available_csams}
+            if csam_id_int in available_ids:
+                customer.csam_id = csam_id_int
+        else:
+            customer.csam_id = None
+
         db.session.commit()
 
         # Trigger backup to include updated customer data in OneDrive JSON
