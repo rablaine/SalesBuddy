@@ -320,6 +320,26 @@ class TestDSSSelection:
         assert 'Security' in html
         assert 'DSS Carol' in html
 
+    def test_pod_edit_readonly_fields(self, client, dss_data):
+        """Test edit form shows name, territories, SEs as read-only."""
+        resp = client.get(f'/pod/{dss_data["pod_id"]}/edit')
+        html = resp.data.decode()
+        # Name should be plain text, not an input
+        assert 'name="name"' not in html
+        assert 'Test POD' in html
+        # No territory/SE checkboxes (no name="territory_ids" or name="se_ids")
+        assert 'name="territory_ids"' not in html
+        assert 'name="se_ids"' not in html
+        assert 'Managed by MSX sync' in html
+
+    def test_pod_edit_single_dss_shows_badge(self, client, dss_data):
+        """Test edit form shows badge for single DSS per specialty."""
+        resp = client.get(f'/pod/{dss_data["pod_id"]}/edit')
+        html = resp.data.decode()
+        # Modern Work has only DSS Dave — should show as badge, not dropdown
+        assert 'DSS Dave' in html
+        assert 'Select Modern Work' not in html
+
 
 class TestBatchQueryAccountDSS:
     """Tests for the batch_query_account_dss API function."""

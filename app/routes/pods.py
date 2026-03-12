@@ -90,56 +90,14 @@ def pod_view(id):
                          territory_dss_grouped=territory_dss_grouped)
 
 
-@pods_bp.route('/pod/<int:id>/edit', methods=['GET', 'POST'])
+@pods_bp.route('/pod/<int:id>/edit', methods=['GET'])
 def pod_edit(id):
-    """Edit POD with territories, sellers, and solution engineers."""
+    """Edit POD DSS assignments (name, territories, SEs managed by MSX sync)."""
     pod = POD.query.options(
         db.selectinload(POD.territories),
         db.selectinload(POD.solution_engineers)
     ).filter_by(id=id).first_or_404()
     
-    if request.method == 'POST':
-        name = request.form.get('name', '').strip()
-        territory_ids = request.form.getlist('territory_ids')
-        se_ids = request.form.getlist('se_ids')
-        
-        if not name:
-            flash('POD name is required.', 'danger')
-            return redirect(url_for('pods.pod_edit', id=id))
-        
-        # Check for duplicate
-        existing = POD.query.filter(POD.name == name, POD.id != id).first()
-        if existing:
-            flash(f'POD "{name}" already exists.', 'warning')
-            return redirect(url_for('pods.pod_view', id=existing.id))
-        
-        pod.name = name
-        
-        # Update territories
-        pod.territories.clear()
-        for territory_id in territory_ids:
-            territory = db.session.get(Territory, int(territory_id))
-            if territory:
-                pod.territories.append(territory)
-        
-        # Update solution engineers
-        pod.solution_engineers.clear()
-        for se_id in se_ids:
-            se = db.session.get(SolutionEngineer, int(se_id))
-            if se:
-                pod.solution_engineers.append(se)
-        
-        db.session.commit()
-        
-        flash(f'POD "{name}" updated successfully!', 'success')
-        return redirect(url_for('pods.pod_view', id=pod.id))
-    
-    # Get all territories and solution engineers for the form
-    all_territories = Territory.query.options(
-        db.selectinload(Territory.sellers)
-    ).order_by(Territory.name).all()
-    all_ses = SolutionEngineer.query.order_by(SolutionEngineer.name).all()
-
     # Build DSS grouped data for edit form (same structure as pod_view)
     cloud_specialties = {"Azure Data", "Azure Core and Infra", "Azure Apps and AI"}
     terr_ids = [t.id for t in pod.territories]
@@ -167,8 +125,8 @@ def pod_edit(id):
             }
         territory_dss_grouped[territory] = grouped
     
-    return render_template('pod_form.html', pod=pod, all_territories=all_territories,
-                           all_ses=all_ses, territory_dss_grouped=territory_dss_grouped)
+    return render_template('pod_form.html', pod=pod,
+                           territory_dss_grouped=territory_dss_grouped)
 
 
 @pods_bp.route('/territory/<int:territory_id>/dss-selection', methods=['POST'])

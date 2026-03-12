@@ -9,63 +9,33 @@
     <div class="col-md-8">
         <div class="card">
             <div class="card-body">
-                <form method="POST">
                     <div class="mb-3">
-                        <label for="name" class="form-label">POD Name *</label>
-                        <input type="text" class="form-control" id="name" name="name" 
-                               value="{{ pod.name }}" required>
+                        <label class="form-label">POD Name</label>
+                        <div class="form-control-plaintext fw-bold">{{ pod.name }}</div>
                     </div>
                     
                     <div class="mb-3">
                         <label class="form-label">Territories</label>
-                        <div class="border rounded p-3" style="max-height: 300px; overflow-y: auto;">
-                            {% if all_territories %}
-                                {% for territory in all_territories %}
-                                <div class="form-check">
-                                    <input class="form-check-input" type="checkbox" 
-                                           name="territory_ids" value="{{ territory.id }}" 
-                                           id="territory_{{ territory.id }}"
-                                           {% if territory in pod.territories %}checked{% endif %}>
-                                    <label class="form-check-label" for="territory_{{ territory.id }}">
-                                        {{ territory.name }}
-                                        {% if territory.sellers %}
-                                        <small class="text-muted">
-                                            ({{ territory.sellers|length }} seller{{ 's' if territory.sellers|length != 1 }})
-                                        </small>
-                                        {% endif %}
-                                    </label>
-                                </div>
-                                {% endfor %}
+                        <div>
+                            {% for territory in pod.territories|sort(attribute='name') %}
+                                <span class="badge bg-info text-dark me-1"><i class="bi bi-geo-alt"></i> {{ territory.name }}</span>
                             {% else %}
-                                <p class="text-muted">No territories available.</p>
-                            {% endif %}
+                                <span class="text-muted">No territories assigned.</span>
+                            {% endfor %}
                         </div>
-                        <small class="form-text text-muted">Select territories for this POD. Sellers are automatically associated through their territories.</small>
+                        <small class="form-text text-muted">Managed by MSX sync.</small>
                     </div>
                     
                     <div class="mb-3">
                         <label class="form-label">Solution Engineers</label>
-                        <div class="border rounded p-3" style="max-height: 300px; overflow-y: auto;">
-                            {% if all_ses %}
-                                {% for se in all_ses %}
-                                <div class="form-check">
-                                    <input class="form-check-input" type="checkbox" 
-                                           name="se_ids" value="{{ se.id }}" 
-                                           id="se_{{ se.id }}"
-                                           {% if se in pod.solution_engineers %}checked{% endif %}>
-                                    <label class="form-check-label" for="se_{{ se.id }}">
-                                        {{ se.name }}
-                                        {% if se.email %}
-                                        <small class="text-muted">({{ se.email }})</small>
-                                        {% endif %}
-                                    </label>
-                                </div>
-                                {% endfor %}
+                        <div>
+                            {% for se in pod.solution_engineers|sort(attribute='name') %}
+                                <span class="badge bg-secondary me-1"><i class="bi bi-person"></i> {{ se.name }}</span>
                             {% else %}
-                                <p class="text-muted">No solution engineers available.</p>
-                            {% endif %}
+                                <span class="text-muted">No solution engineers assigned.</span>
+                            {% endfor %}
                         </div>
-                        <small class="form-text text-muted">Select solution engineers for this POD.</small>
+                        <small class="form-text text-muted">Managed by MSX sync.</small>
                     </div>
 
                     {% if territory_dss_grouped %}
@@ -82,14 +52,17 @@
                                 {% for spec, info in specialties.items() %}
                                     <div class="mb-2">
                                         <div class="text-muted small">{{ spec }}</div>
+                                        {% if info.dss_list|length == 1 and not info.selected_id %}
+                                            <span class="badge bg-secondary"><i class="bi bi-person"></i> {{ info.dss_list[0].name }}</span>
+                                        {% else %}
                                         <select class="form-select form-select-sm" style="width: auto; min-width: 200px;"
-                                                name="dss_{{ territory.id }}_{{ spec }}"
                                                 onchange="saveDssSelection({{ territory.id }}, '{{ spec }}', this.value)">
                                             <option value="">— None —</option>
                                             {% for dss in info.dss_list %}
-                                                <option value="{{ dss.id }}" {% if dss.id == info.selected_id %}selected{% endif %}>{{ dss.name }}</option>
+                                                <option value="{{ dss.id }}" {% if dss.id == info.selected_id or (info.dss_list|length == 1 and info.selected_id) %}selected{% endif %}>{{ dss.name }}</option>
                                             {% endfor %}
                                         </select>
+                                        {% endif %}
                                         <span class="ms-1 small dss-save-status" style="display: none;"></span>
                                     </div>
                                 {% endfor %}
@@ -100,14 +73,10 @@
                     {% endif %}
                     
                     <div class="d-flex justify-content-between">
-                        <button type="submit" class="btn btn-primary">
-                            <i class="bi bi-check-circle"></i> Save POD
-                        </button>
                         <a href="{{ url_for('pods.pod_view', id=pod.id) }}" class="btn btn-secondary">
-                            <i class="bi bi-x-circle"></i> Cancel
+                            <i class="bi bi-arrow-left"></i> Back to POD
                         </a>
                     </div>
-                </form>
             </div>
         </div>
     </div>
