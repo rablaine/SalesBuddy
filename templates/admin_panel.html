@@ -396,7 +396,7 @@
                                 <h6 class="mb-3"><i class="bi bi-file-earmark-code"></i> Notes (JSON)</h6>
                                 <div class="mb-2">
                                     <small class="text-muted d-block">Backed Up Files</small>
-                                    <span><span id="noteFileCount" class="fw-bold">0</span> customer files</span>
+                                    <span><span id="noteFileCount" class="fw-bold">0</span> backup files</span>
                                 </div>
                                 <p class="text-muted small mb-3">Each customer's notes are automatically exported to JSON when created or edited.</p>
                                 <div class="mb-3">
@@ -2274,6 +2274,9 @@ async function runFYSync(suffix) {
                             await fetch('/api/admin/fy/sync-complete', { method: 'POST' });
 
                             progressDiv.style.display = 'none';
+                            // Hide the "please wait" alert if present
+                            const waitAlert = document.getElementById('fySyncWait');
+                            if (waitAlert) waitAlert.style.display = 'none';
                             const s = data.summary;
                             resultsDiv.style.display = '';
 
@@ -2417,7 +2420,7 @@ async function finalizeFY() {
         const cleanResp = await fetch('/api/backup/clear-notes', { method: 'POST' });
         const cleanData = await cleanResp.json();
         if (!cleanData.success) throw new Error(cleanData.error || 'OneDrive cleanup failed');
-        setStep(3, CHECK, cleanData.message || (cleanData.deleted + ' removed'));
+        setStep(3, CHECK, cleanData.message || (cleanData.deleted + ' files removed'));
 
         // ── Step 4: Fresh Backup ──
         setStep(4, SPINNER, 'backing up...');
@@ -2430,7 +2433,8 @@ async function finalizeFY() {
             setStep(4, CHECK, 'skipped (no backup location)');
         }
 
-        // ── Done ──
+        // ── Done ── refresh backup card so file count is current
+        if (typeof loadBackupStatus === 'function') loadBackupStatus();
         resultEl.style.display = '';
         resultEl.innerHTML =
             `<div class="alert alert-success mt-3">

@@ -2535,3 +2535,50 @@ class TestTemplateBackup:
             result = backup_mod.delete_template_backup(tid)
             assert result is True
             assert not filepath.exists()
+
+
+class TestClearBackupNotes:
+    """Tests for clear_backup_notes file-by-file deletion."""
+
+    def test_deletes_all_files_and_counts(self, app, tmp_path, monkeypatch):
+        """Should delete individual files and return correct count."""
+        from app.services import backup as backup_mod
+
+        monkeypatch.setattr(backup_mod, "_get_backup_root", lambda: str(tmp_path))
+
+        # Create a notes/ tree with some files
+        notes_dir = tmp_path / "notes"
+        seller_dir = notes_dir / "SellerA"
+        seller_dir.mkdir(parents=True)
+        (seller_dir / "1.json").write_text("{}")
+        (seller_dir / "2.json").write_text("{}")
+        partners_dir = notes_dir / "partners"
+        partners_dir.mkdir()
+        (partners_dir / "10.json").write_text("{}")
+
+        result = backup_mod.clear_backup_notes()
+        assert result["deleted"] == 3
+        assert result["errors"] == 0
+        # notes/ should be recreated empty
+        assert notes_dir.is_dir()
+        assert list(notes_dir.iterdir()) == []
+
+    def test_no_backup_root_returns_skipped(self, app, monkeypatch):
+        """Should skip when no backup location configured."""
+        from app.services import backup as backup_mod
+
+        monkeypatch.setattr(backup_mod, "_get_backup_root", lambda: None)
+        result = backup_mod.clear_backup_notes()
+        assert result["skipped"] is True
+        assert result["deleted"] == 0
+
+    def test_empty_notes_dir_returns_zero(self, app, tmp_path, monkeypatch):
+        """Should return 0 deleted when notes/ exists but is empty."""
+        from app.services import backup as backup_mod
+
+        monkeypatch.setattr(backup_mod, "_get_backup_root", lambda: str(tmp_path))
+        (tmp_path / "notes").mkdir()
+
+        result = backup_mod.clear_backup_notes()
+        assert result["deleted"] == 0
+        assert result["errors"] == 0

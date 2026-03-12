@@ -19,7 +19,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from app import create_app
 from app.models import (
     db, Customer, Note, Engagement, Milestone, MsxTask,
-    Opportunity, Seller, Territory, Topic,
+    Opportunity, Seller, Territory,
 )
 
 
@@ -33,6 +33,16 @@ FAKE_CUSTOMERS = [
     {"name": "FY-TEST Woodgrove Bank", "tpid": 9990005},
 ]
 
+FAKE_SELLERS = [
+    "FY-TEST Dana Scully",
+    "FY-TEST Fox Mulder",
+]
+
+FAKE_TERRITORIES = [
+    "FY-TEST Pacific Northwest",
+    "FY-TEST Great Plains",
+]
+
 
 def seed():
     """Insert fake customers and related data for FY cutover testing."""
@@ -44,10 +54,22 @@ def seed():
             print(f"Fake data already exists (found {existing.name}). Skipping.")
             return
 
-        # Grab a real seller and territory to attach to (or create test ones)
-        seller = Seller.query.first()
-        territory = Territory.query.first()
-        topic = Topic.query.first()
+        # Create fake sellers and territories (only attached to fake customers)
+        fake_sellers = []
+        for sname in FAKE_SELLERS:
+            s = Seller(name=sname)
+            db.session.add(s)
+            db.session.flush()
+            fake_sellers.append(s)
+            print(f"  Created seller: {s.name}")
+
+        fake_territories = []
+        for tname in FAKE_TERRITORIES:
+            t = Territory(name=tname)
+            db.session.add(t)
+            db.session.flush()
+            fake_territories.append(t)
+            print(f"  Created territory: {t.name}")
 
         now = datetime.now(timezone.utc)
         customers = []
@@ -56,8 +78,8 @@ def seed():
             c = Customer(
                 name=cdata["name"],
                 tpid=cdata["tpid"],
-                seller_id=seller.id if seller else None,
-                territory_id=territory.id if territory else None,
+                seller_id=fake_sellers[i % len(fake_sellers)].id,
+                territory_id=fake_territories[i % len(fake_territories)].id,
             )
             db.session.add(c)
             db.session.flush()  # get the ID
@@ -73,8 +95,6 @@ def seed():
                             f"Discussed Azure migration plans and cost optimization. "
                             f"Next steps: schedule follow-up with engineering team.",
                 )
-                if topic:
-                    note.topics.append(topic)
                 db.session.add(note)
                 db.session.flush()
 

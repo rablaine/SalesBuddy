@@ -698,15 +698,16 @@ def backup_all_customers() -> Dict[str, int]:
 def clear_backup_notes() -> dict:
     """Remove all JSON backup files and their seller folders from OneDrive.
 
-    Deletes the entire ``notes/`` directory (and legacy ``call_logs/`` if
-    present), then re-creates an empty ``notes/`` directory for the
-    upcoming fresh backup.  The ``previous_years/`` folder is untouched.
+    Walks the ``notes/`` tree (and legacy ``call_logs/`` if present),
+    deleting files individually then removing empty directories bottom-up.
+    Individual file deletion works reliably with OneDrive Files On-Demand
+    where ``shutil.rmtree`` may fail on cloud-only placeholders.
+
+    The ``previous_years/`` folder is untouched.
 
     Returns:
-        Dict with ``deleted`` count and ``errors`` count.
+        Dict with ``deleted`` file count and ``errors`` count.
     """
-    import shutil
-
     backup_root = _get_backup_root()
     if not backup_root:
         return {"deleted": 0, "errors": 0, "skipped": True}
@@ -716,13 +717,32 @@ def clear_backup_notes() -> dict:
 
     for dirname in (_NOTES_DIR, _LEGACY_NOTES_DIR):
         target = os.path.join(backup_root, dirname)
-        if os.path.isdir(target):
-            try:
-                shutil.rmtree(target)
-                deleted += 1
-            except Exception:
-                logger.exception("Failed to remove %s", target)
-                errors += 1
+        if not os.path.isdir(target):
+            continue
+
+        # Delete files first (bottom-up walk so we can rmdir after)
+        for root, dirs, files in os.walk(target, topdown=False):
+            for fname in files:
+                fpath = os.path.join(root, fname)
+                try:
+                    os.remove(fpath)
+                    deleted += 1
+                except Exception:
+                    logger.exception("Failed to remove file %s", fpath)
+                    errors += 1
+            # Remove now-empty subdirectories
+            for dname in dirs:
+                dpath = os.path.join(root, dname)
+                try:
+                    os.rmdir(dpath)
+                except OSError:
+                    pass  # not empty or already gone
+
+        # Remove the top-level directory itself
+        try:
+            os.rmdir(target)
+        except OSError:
+            pass
 
     # Ensure the notes dir exists for the upcoming backup
     Path(os.path.join(backup_root, _NOTES_DIR)).mkdir(parents=True, exist_ok=True)

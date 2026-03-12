@@ -43,7 +43,7 @@
                 <div id="fySyncSection" style="display: none;">
                     <hr>
                     <h6><i class="bi bi-cloud-download"></i> Syncing New Alignments</h6>
-                    <div class="alert alert-info py-2">
+                    <div id="fySyncWait" class="alert alert-info py-2">
                         <i class="bi bi-hourglass-split"></i> Please wait while your new account alignments are synced. Do not close this page.
                     </div>
                     <div id="fySyncProgress" class="mb-2">
@@ -116,12 +116,12 @@
                             <span>Sync accounts from MSX</span>
                             <span class="ms-auto text-muted small" id="fyStep1Detail"></span>
                         </div>
-                        <div id="fyStep1Stream" style="display: none;" class="px-3 py-2 bg-light">
+                        <div id="fyStep1Stream" style="display: none;" class="px-3 py-2">
                             <div class="d-flex justify-content-between mb-1">
                                 <small class="text-muted" id="fyFinalSyncStatus">Starting sync...</small>
                                 <small class="text-muted" id="fyFinalSyncPercent">0%</small>
                             </div>
-                            <div class="progress" style="height: 15px; border: 1px solid rgba(255,255,255,0.2);">
+                            <div class="progress" style="height: 15px;">
                                 <div class="progress-bar progress-bar-striped progress-bar-animated bg-primary"
                                      role="progressbar" id="fyFinalSyncBar" style="width: 0%"></div>
                             </div>
