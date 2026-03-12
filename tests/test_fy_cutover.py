@@ -202,8 +202,8 @@ class TestFYAdminRoutes:
             from app.services.fy_cutover import enter_transition_mode
             enter_transition_mode('FY26')
 
-        # Write a TPID file with known values
-        tpid_file = Path('data/last_sync_tpids.json')
+        # Write a TPID file with known values — use same path as the route
+        tpid_file = Path(app.instance_path).parent / 'data' / 'last_sync_tpids.json'
         tpid_file.parent.mkdir(parents=True, exist_ok=True)
         tpid_file.write_text(json.dumps([1001, 1002, 1003]))
 

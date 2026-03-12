@@ -1153,7 +1153,7 @@ def api_fy_finalize():
     from pathlib import Path
     from app.services.fy_cutover import finalize_alignments
 
-    tpid_file = Path('data/last_sync_tpids.json')
+    tpid_file = Path(current_app.instance_path).parent / 'data' / 'last_sync_tpids.json'
     if not tpid_file.exists():
         return jsonify({
             'success': False,
