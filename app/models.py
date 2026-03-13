@@ -831,6 +831,28 @@ class MsxTask(db.Model):
         return f'<MsxTask {self.id}: {self.subject[:50]}>'
 
 
+class MilestoneComment(db.Model):
+    """Comment on a milestone, either auto-generated from note/engagement updates or manual."""
+    __tablename__ = 'milestone_comments'
+
+    id = db.Column(db.Integer, primary_key=True)
+    milestone_id = db.Column(db.Integer, db.ForeignKey('milestones.id'), nullable=False)
+    content = db.Column(db.Text, nullable=False)
+    source_type = db.Column(db.String(20), nullable=False, default='manual')  # 'note', 'engagement', 'manual'
+    source_id = db.Column(db.Integer, nullable=True)  # note.id or engagement.id (null for manual)
+    created_at = db.Column(db.DateTime, default=utc_now, nullable=False)
+    updated_at = db.Column(db.DateTime, default=utc_now, onupdate=utc_now, nullable=False)
+
+    # Relationships
+    milestone = db.relationship(
+        'Milestone',
+        backref=db.backref('comments', lazy='select', cascade='all, delete-orphan')
+    )
+
+    def __repr__(self) -> str:
+        return f'<MilestoneComment {self.id} on milestone {self.milestone_id} ({self.source_type})>'
+
+
 # =============================================================================
 # User Preferences Model
 # =============================================================================

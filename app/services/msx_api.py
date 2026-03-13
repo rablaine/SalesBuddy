@@ -846,7 +846,7 @@ def add_opportunity_comment(
     import json as json_lib
     
     try:
-        # Step 1: Get current comments
+        # Step 1: Get current comments (JSON field only)
         read_url = (
             f"{CRM_BASE_URL}/opportunities({opportunity_id})"
             f"?$select=msp_forecastcommentsjsonfield"
@@ -859,26 +859,39 @@ def add_opportunity_comment(
                 "error": f"Failed to read comments: HTTP {read_response.status_code}"
             }
         
-        current_json_str = read_response.json().get("msp_forecastcommentsjsonfield") or "[]"
+        resp_data = read_response.json()
+        current_json_str = resp_data.get("msp_forecastcommentsjsonfield") or "[]"
         try:
             current_comments = json_lib.loads(current_json_str)
         except (json_lib.JSONDecodeError, TypeError):
             current_comments = []
         
-        # Step 2: Get current user GUID for the comment author
+        # Step 2: Get current user display name
         user_id = get_current_user_id()
         if not user_id:
             return {"success": False, "error": "Could not get current user ID"}
+
+        user_name = "NoteHelper"
+        try:
+            name_resp = _msx_request(
+                'GET',
+                f"{CRM_BASE_URL}/systemusers({user_id})?$select=fullname",
+            )
+            if name_resp.status_code == 200:
+                user_name = name_resp.json().get("fullname") or user_name
+        except Exception:
+            pass  # Fall back to default name
         
         # Step 3: Build new comment (matching MSX UI format)
+        now = dt.now(tz.utc)
         new_comment = {
-            "userId": f"{{{user_id.upper()}}}",
-            "modifiedOn": dt.now(tz.utc).strftime("%m/%d/%Y, %I:%M:%S %p"),
+            "userId": user_name,
+            "modifiedOn": now.isoformat(timespec='milliseconds').replace('+00:00', 'Z'),
             "comment": comment_text,
         }
         current_comments.append(new_comment)
         
-        # Step 4: PATCH back to MSX
+        # Step 4: PATCH back to MSX (JSON field only — plain text causes duplicates)
         patch_url = f"{CRM_BASE_URL}/opportunities({opportunity_id})"
         payload = {
             "msp_forecastcommentsjsonfield": json_lib.dumps(current_comments),
@@ -905,6 +918,245 @@ def add_opportunity_comment(
         return {"success": False, "error": f"Connection error (VPN?): {str(e)[:100]}"}
     except Exception as e:
         logger.exception(f"Error adding comment to opportunity {opportunity_id}")
+        return {"success": False, "error": str(e)}
+
+
+def get_milestone_comments(milestone_id: str) -> Dict[str, Any]:
+    """Read the current comments array from a milestone.
+
+    Args:
+        milestone_id: The milestone GUID (msp_engagementmilestoneid).
+
+    Returns:
+        Dict with:
+        - success: bool
+        - comments: list of comment dicts (userId, modifiedOn, comment)
+        - error: str if failed
+    """
+    import json as json_lib
+
+    try:
+        read_url = (
+            f"{CRM_BASE_URL}/msp_engagementmilestones({milestone_id})"
+            f"?$select=msp_forecastcommentsjsonfield"
+        )
+        read_response = _msx_request('GET', read_url)
+
+        if read_response.status_code != 200:
+            return {
+                "success": False,
+                "comments": [],
+                "error": f"Failed to read comments: HTTP {read_response.status_code}",
+            }
+
+        resp_data = read_response.json()
+        current_json_str = resp_data.get("msp_forecastcommentsjsonfield") or "[]"
+        try:
+            comments = json_lib.loads(current_json_str)
+        except (json_lib.JSONDecodeError, TypeError):
+            comments = []
+
+        return {"success": True, "comments": comments}
+
+    except requests.exceptions.Timeout:
+        return {"success": False, "comments": [], "error": "Request timed out."}
+    except requests.exceptions.ConnectionError as e:
+        return {"success": False, "comments": [], "error": f"Connection error: {str(e)[:100]}"}
+    except Exception as e:
+        logger.exception(f"Error reading comments for milestone {milestone_id}")
+        return {"success": False, "comments": [], "error": str(e)}
+
+
+def get_msx_user_display_name() -> str:
+    """Get the current user's display name from MSX.
+
+    Returns:
+        Display name string, or 'NoteHelper' as fallback.
+    """
+    user_id = get_current_user_id()
+    if not user_id:
+        return "NoteHelper"
+
+    try:
+        name_resp = _msx_request(
+            'GET',
+            f"{CRM_BASE_URL}/systemusers({user_id})?$select=fullname",
+        )
+        if name_resp.status_code == 200:
+            return name_resp.json().get("fullname") or "NoteHelper"
+    except Exception:
+        pass
+    return "NoteHelper"
+
+
+def upsert_milestone_comment(
+    milestone_id: str,
+    comment_text: str,
+    ref_tag: str,
+    pin_to_top: bool = False,
+    comment_date: str | None = None,
+) -> Dict[str, Any]:
+    """Insert or update a comment on a milestone, matched by ref tag.
+
+    Reads the current comments array, searches for an existing comment
+    authored by the current user (via NoteHelper) whose text contains the
+    given ref tag.  If found the comment is updated in-place; otherwise a
+    new comment is appended.
+
+    Args:
+        milestone_id: The milestone GUID (msp_engagementmilestoneid).
+        comment_text: The comment body (should already include the ref tag
+            in its footer, e.g. ``· note-42 ·``).
+        ref_tag: The reference tag to search for (e.g. ``note-42``).
+        pin_to_top: If True, set modifiedOn to 2099-01-01 so the comment
+            sorts to the top in the MSX UI (newest-first).
+        comment_date: ISO 8601 string to use as modifiedOn instead of
+            the current time (e.g. the note's call_date).  Ignored when
+            pin_to_top is True.
+
+    Returns:
+        Dict with:
+        - success: bool
+        - comment_count: int (total comments on the milestone)
+        - action: 'updated' | 'created'
+        - existing_comments: list of other comment texts (for AI context)
+        - error: str if failed
+    """
+    import json as json_lib
+
+    try:
+        # Step 1: Read current comments
+        read_result = get_milestone_comments(milestone_id)
+        if not read_result["success"]:
+            return {
+                "success": False,
+                "error": read_result.get("error", "Failed to read comments"),
+            }
+        current_comments = read_result["comments"]
+
+        # Step 2: Get current user display name
+        user_name = get_msx_user_display_name()
+        display_name = f"{user_name} via NoteHelper"
+
+        # Step 3: Find existing comment by matching the current user's
+        # display_name AND ref tag in comment body.  This supports multiple
+        # NoteHelper users on the same milestone — each user's comments
+        # are separate because the userId differs per person.
+        existing_idx = None
+        ref_marker = f"· {ref_tag} ·"
+        for i, c in enumerate(current_comments):
+            c_user = c.get("userId", "")
+            c_text = c.get("comment", "")
+            if c_user == display_name and ref_marker in c_text:
+                existing_idx = i
+                break
+
+        # Collect other comments for AI context (exclude the one we're updating)
+        other_comments = [
+            c.get("comment", "")
+            for i, c in enumerate(current_comments)
+            if i != existing_idx and c.get("comment", "").strip()
+        ]
+
+        # Step 4: Build timestamp
+        if pin_to_top:
+            modified_on = "2099-01-01T00:00:00.000Z"
+        elif comment_date:
+            modified_on = comment_date
+        else:
+            now = dt.now(tz.utc)
+            modified_on = now.isoformat(timespec='milliseconds').replace('+00:00', 'Z')
+
+        new_comment = {
+            "userId": display_name,
+            "modifiedOn": modified_on,
+            "comment": comment_text,
+        }
+
+        if existing_idx is not None:
+            current_comments[existing_idx] = new_comment
+            action = "updated"
+        else:
+            current_comments.append(new_comment)
+            action = "created"
+
+        # Step 5: PATCH back to MSX (JSON field only — plain text causes duplicates)
+        patch_url = f"{CRM_BASE_URL}/msp_engagementmilestones({milestone_id})"
+        payload = {
+            "msp_forecastcommentsjsonfield": json_lib.dumps(current_comments),
+        }
+
+        patch_response = _msx_request('PATCH', patch_url, json_data=payload)
+
+        if patch_response.status_code < 400:
+            return {
+                "success": True,
+                "comment_count": len(current_comments),
+                "action": action,
+                "existing_comments": other_comments,
+            }
+        elif patch_response.status_code == 403 and is_vpn_blocked():
+            return {"success": False, "error": "IP address is blocked — connect to VPN and retry.", "vpn_blocked": True}
+        else:
+            return {
+                "success": False,
+                "error": f"PATCH failed: HTTP {patch_response.status_code} - {patch_response.text[:200]}"
+            }
+
+    except requests.exceptions.Timeout:
+        return {"success": False, "error": "Request timed out. Check VPN connection."}
+    except requests.exceptions.ConnectionError as e:
+        return {"success": False, "error": f"Connection error (VPN?): {str(e)[:100]}"}
+    except Exception as e:
+        logger.exception(f"Error upserting comment on milestone {milestone_id}")
+        return {"success": False, "error": str(e)}
+
+
+def add_milestone_comment(
+    milestone_id: str,
+    comment_text: str,
+) -> Dict[str, Any]:
+    """Append a comment to a milestone (legacy wrapper).
+
+    Prefer upsert_milestone_comment for new code.
+    """
+    import json as json_lib
+
+    try:
+        read_result = get_milestone_comments(milestone_id)
+        if not read_result["success"]:
+            return {"success": False, "error": read_result.get("error")}
+        current_comments = read_result["comments"]
+
+        user_name = get_msx_user_display_name()
+
+        now = dt.now(tz.utc)
+        new_comment = {
+            "userId": f"{user_name} via NoteHelper",
+            "modifiedOn": now.isoformat(timespec='milliseconds').replace('+00:00', 'Z'),
+            "comment": comment_text,
+        }
+        current_comments.append(new_comment)
+
+        patch_url = f"{CRM_BASE_URL}/msp_engagementmilestones({milestone_id})"
+        payload = {
+            "msp_forecastcommentsjsonfield": json_lib.dumps(current_comments),
+        }
+        patch_response = _msx_request('PATCH', patch_url, json_data=payload)
+
+        if patch_response.status_code < 400:
+            return {"success": True, "comment_count": len(current_comments)}
+        elif patch_response.status_code == 403 and is_vpn_blocked():
+            return {"success": False, "error": "IP address is blocked — connect to VPN and retry.", "vpn_blocked": True}
+        else:
+            return {"success": False, "error": f"PATCH failed: HTTP {patch_response.status_code} - {patch_response.text[:200]}"}
+
+    except requests.exceptions.Timeout:
+        return {"success": False, "error": "Request timed out. Check VPN connection."}
+    except requests.exceptions.ConnectionError as e:
+        return {"success": False, "error": f"Connection error (VPN?): {str(e)[:100]}"}
+    except Exception as e:
+        logger.exception(f"Error adding comment to milestone {milestone_id}")
         return {"success": False, "error": str(e)}
 
 

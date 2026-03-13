@@ -5,6 +5,32 @@ import pytest
 import tempfile
 import os
 from datetime import datetime, timezone
+from unittest.mock import patch
+
+
+@pytest.fixture(autouse=True)
+def _block_msx_comment_calls():
+    """Prevent any test from making real MSX milestone comment API calls.
+
+    Routes spawn background daemon threads that call upsert_milestone_comment,
+    get_milestone_comments, and get_msx_user_display_name.  Without this
+    fixture, route-level tests (e.g. POST /note/new with a milestone) would
+    leak real HTTP requests to the MSX Dynamics API.
+
+    We mock at the *tracking service* import path so that:
+    - Route-level tests are protected (they call tracking → mocked MSX)
+    - Unit tests in test_milestone_comments.py that directly import and
+      patch app.services.msx_api still work as expected
+
+    Tests that need specific return values should layer their own
+    ``@patch`` on top — the innermost mock wins.
+    """
+    with patch('app.services.milestone_tracking._upsert_to_msx') as mock_upsert:
+        mock_upsert.return_value = {
+            "success": True, "comment_count": 1, "action": "created",
+            "existing_comments": [],
+        }
+        yield
 
 
 @pytest.fixture(autouse=True)

@@ -9,6 +9,7 @@ import logging
 from app.models import db, Note, Customer, Seller, Territory, Topic, Partner, Milestone, MsxTask, UserPreference, NoteTemplate
 from app.services.msx_api import TASK_CATEGORIES
 from app.services.backup import backup_customer as _backup_customer
+from app.services.milestone_tracking import track_note_on_milestones
 
 logger = logging.getLogger(__name__)
 
@@ -242,6 +243,9 @@ def note_create():
                 logger.exception("Error handling milestone/task during call log create")
                 flash(f'Note will be saved, but milestone/task failed: {e}', 'warning')
         
+        # Auto-track this note on any linked milestones
+        track_note_on_milestones(note)
+
         db.session.commit()
 
         # Back up this customer's call logs
@@ -432,6 +436,9 @@ def note_edit(id):
                 logger.exception("Error handling milestone/task during call log edit")
                 flash(f'Note will be saved, but milestone/task failed: {e}', 'warning')
         
+        # Auto-track this note on any linked milestones
+        track_note_on_milestones(note)
+
         db.session.commit()
 
         # Back up this customer's call logs

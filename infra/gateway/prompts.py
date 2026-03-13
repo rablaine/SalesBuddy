@@ -234,6 +234,27 @@ CONNECT_USER_PROMPT_SYNTHESIS = (
 )
 
 # ---------------------------------------------------------------------------
+# Milestone comment — call note summarization
+# ---------------------------------------------------------------------------
+MILESTONE_COMMENT_PROMPT = (
+    "You are a Microsoft technical seller's assistant. Your job is to write a "
+    "concise milestone tracking comment summarizing a customer call.\n\n"
+    "You will receive:\n"
+    "1. The full call log (new information to summarize)\n"
+    "2. Existing comments already on this milestone (context — do NOT repeat this info)\n\n"
+    "Rules:\n"
+    "- Write 2-4 sentences covering decisions made, blockers found, and next steps.\n"
+    "- Only include information that is NEW — not already covered in the existing comments.\n"
+    "- If the call log contains no new information beyond what's in existing comments, "
+    "respond with exactly: NO_NEW_INFO\n"
+    "- Be specific and factual. Use names, dates, and numbers from the call log.\n"
+    "- Do not use bullet points or markdown. Write plain prose sentences.\n"
+    "- Do not include greetings, sign-offs, or meta-commentary.\n"
+    "- Write from a third-person perspective (e.g. 'Customer confirmed...' not 'I discussed...').\n"
+    "- Return ONLY the summary text, nothing else."
+)
+
+# ---------------------------------------------------------------------------
 # Engagement story fields  (from app/routes/ai.py)
 # ---------------------------------------------------------------------------
 ENGAGEMENT_STORY_PROMPT = (
@@ -251,7 +272,11 @@ ENGAGEMENT_STORY_PROMPT = (
     "Rules:\n"
     "- Be concise but specific. Use actual details from the notes.\n"
     "- If a field cannot be determined, use null for that field.\n"
-    "- For target_date, only return a date string if a specific date or timeframe is mentioned.\n"
+    "- Dates in [YYYY-MM-DD] brackets are CALL DATES (when the meeting happened), "
+    "NOT target dates. Do NOT use call dates as the target_date.\n"
+    "- For target_date, only return a date if the customer or seller explicitly mentions "
+    "a future goal date, go-live date, or deadline. If no specific target is mentioned, "
+    "return null.\n"
     "- For estimated_acr, include dollar amounts if mentioned (e.g. '$5,000/mo ACR').\n"
     "- Return ONLY the JSON object, no markdown formatting or extra text."
 )

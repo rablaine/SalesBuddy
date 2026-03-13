@@ -217,25 +217,8 @@ def api_ai_analyze_call():
         return jsonify({'success': False, 'error': f'AI request failed: {e}'}), 500
 
 
-# System prompt for customer engagement summary (kept for reference / gateway prompts.py)
-ENGAGEMENT_SUMMARY_PROMPT = (
-    "You are a Microsoft technical seller's assistant. Analyze the provided notes "
-    "and any existing customer account context for a customer and generate a structured engagement summary. "
-    "Fill in each field based on what you can extract from the notes. If a field "
-    "cannot be determined from the available information, write 'Not identified in notes' "
-    "for that field.\n\n"
-    "Return your response in EXACTLY this format (keep the field labels exactly as shown, "
-    "fill in the values after the colon):\n\n"
-    "Key Individuals & Titles: [names and titles of key people mentioned]\n"
-    "Technical/Business Problem: [the technical or business challenges they face]\n"
-    "Business Process/Strategy: [how the problem impacts their business]\n"
-    "Solution Resources: [Azure services, tools, or approaches being used to address it]\n"
-    "Business Outcome in Estimated $$ACR: [expected revenue impact or business value]\n"
-    "Future Date/Timeline: [any deadlines, milestones, or target dates mentioned]\n"
-    "Risks/Blockers: [any risks, blockers, or concerns raised]\n\n"
-    "Be concise but specific. Use actual details from the notes, not generic "
-    "statements. If multiple topics or workstreams exist, cover the most significant ones."
-)
+# NOTE: The engagement summary system prompt lives in infra/gateway/prompts.py
+# and is used server-side by the gateway. No local copy needed.
 
 
 @ai_bp.route('/api/ai/generate-engagement-summary', methods=['POST'])
@@ -313,25 +296,8 @@ def api_ai_generate_engagement_summary():
         return jsonify({'success': False, 'error': f'AI request failed: {e}'}), 500
 
 
-ENGAGEMENT_STORY_PROMPT = (
-    "You are a Microsoft technical seller's assistant. Analyze the provided notes "
-    "for a specific customer engagement and generate structured story fields.\n\n"
-    "Return your response as valid JSON with EXACTLY these keys:\n"
-    "{\n"
-    '  "key_individuals": "names and titles of key people involved",\n'
-    '  "technical_problem": "the technical or business challenges they face",\n'
-    '  "business_impact": "how the problem impacts their business processes/strategy",\n'
-    '  "solution_resources": "Azure services, tools, or approaches being used",\n'
-    '  "estimated_acr": "expected monthly/annual Azure consumption revenue impact",\n'
-    '  "target_date": "target completion date in YYYY-MM-DD format, or null if unknown"\n'
-    "}\n\n"
-    "Rules:\n"
-    "- Be concise but specific. Use actual details from the notes.\n"
-    "- If a field cannot be determined, use null for that field.\n"
-    "- For target_date, only return a date string if a specific date or timeframe is mentioned.\n"
-    "- For estimated_acr, include dollar amounts if mentioned (e.g. '$5,000/mo ACR').\n"
-    "- Return ONLY the JSON object, no markdown formatting or extra text."
-)
+# NOTE: The engagement story system prompt lives in infra/gateway/prompts.py
+# and is used server-side by the gateway. No local copy needed.
 
 
 @ai_bp.route('/api/ai/generate-engagement-story', methods=['POST'])
@@ -387,8 +353,11 @@ def api_ai_generate_engagement_story():
         ms_names = [m.display_text for m in engagement.milestones]
         opp_context += f"Linked Milestones: {', '.join(ms_names)}\n"
 
+    from datetime import datetime as _dt
+    date_str = _dt.now().strftime('%Y-%m-%d')
     user_message = (
         f"Customer: {customer.name}\n"
+        f"Today's date: {date_str}\n"
         f"{engagement_context}"
         f"{opp_context}"
         f"Total notes: {len(notes)}\n\n"
@@ -433,6 +402,11 @@ def api_ai_generate_engagement_story():
         )
         db.session.add(log_entry)
         db.session.commit()
+
+        # Track engagement story on linked milestones
+        if engagement.milestones:
+            from app.services.milestone_tracking import track_engagement_on_milestones
+            track_engagement_on_milestones(engagement)
 
         return jsonify({
             'success': True,

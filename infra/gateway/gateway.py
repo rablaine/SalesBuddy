@@ -22,6 +22,7 @@ from prompts import (
     ANALYZE_CALL_PROMPT,
     ENGAGEMENT_SUMMARY_PROMPT,
     ENGAGEMENT_STORY_PROMPT,
+    MILESTONE_COMMENT_PROMPT,
     CONNECT_SUMMARY_SYSTEM_PROMPT,
     CONNECT_CHUNK_SYSTEM_PROMPT,
     CONNECT_SYNTHESIS_SYSTEM_PROMPT,
@@ -380,6 +381,61 @@ def engagement_story():
         return _error("AI returned invalid response format", 502)
     except Exception as exc:
         logger.exception("engagement-story error")
+        return _error(f"Internal error: {exc}", 500)
+
+
+# ---------------------------------------------------------------------------
+# POST /v1/summarize-note
+# ---------------------------------------------------------------------------
+@app.route("/v1/summarize-note", methods=["POST"])
+def summarize_note():
+    """Summarize a call log for a milestone comment.
+
+    Accepts the call log text and a list of existing milestone comments.
+    Returns a 2-4 sentence summary covering only new information, or
+    ``NO_NEW_INFO`` if the call adds nothing beyond what's already tracked.
+    """
+    try:
+        body = request.get_json(force=True)
+        call_notes = (body.get("call_notes") or "").strip()
+        existing_comments = body.get("existing_comments") or []
+        customer_name = body.get("customer_name", "")
+        topics = body.get("topics", "")
+
+        if not call_notes or len(call_notes) < 20:
+            return _error("call_notes is required (min 20 chars)")
+
+        # Build context section from existing milestone comments
+        if existing_comments:
+            existing_section = "\n\n".join(
+                f"--- Existing comment {i + 1} ---\n{c}"
+                for i, c in enumerate(existing_comments)
+            )
+        else:
+            existing_section = "(No existing comments on this milestone.)"
+
+        user_prompt = (
+            f"Customer: {customer_name}\n"
+            f"Topics: {topics}\n\n"
+            f"=== EXISTING MILESTONE COMMENTS ===\n{existing_section}\n\n"
+            f"=== NEW CALL LOG ===\n{call_notes[:10000]}"
+        )
+
+        result = chat_completion(
+            MILESTONE_COMMENT_PROMPT, user_prompt, max_tokens=300,
+        )
+
+        summary = result["text"].strip()
+
+        return jsonify({
+            "success": True,
+            "summary": summary,
+            "no_new_info": summary == "NO_NEW_INFO",
+            "usage": result["usage"],
+        })
+
+    except Exception as exc:
+        logger.exception("summarize-note error")
         return _error(f"Internal error: {exc}", 500)
 
 

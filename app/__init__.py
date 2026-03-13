@@ -3,7 +3,7 @@ Flask application factory for NoteHelper.
 Single-user local deployment mode.
 """
 import os
-from flask import Flask, g
+from flask import Flask, g, flash
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -93,7 +93,14 @@ def create_app():
     # Initialize usage telemetry hooks (before registering blueprints)
     from app.services.telemetry import init_telemetry
     init_telemetry(app)
-    
+
+    # Drain background milestone tracking notifications into flash
+    @app.before_request
+    def drain_milestone_notifications():
+        from app.services.milestone_tracking import drain_notifications
+        for category, message in drain_notifications():
+            flash(message, category)
+
     # Register blueprints
     from app.routes.admin import admin_bp
     from app.routes.ai import ai_bp
