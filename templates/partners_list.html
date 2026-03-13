@@ -16,6 +16,12 @@
             <a href="{{ url_for('partners.specialties_list') }}" class="btn btn-outline-secondary">
                 <i class="bi bi-star"></i> Manage Specialties
             </a>
+            <button class="btn btn-outline-primary btn-share-partner"
+                    onclick="PartnerShare.openShareModal('directory')"
+                    title="Share your entire partner directory with a teammate">
+                <i class="bi bi-share"></i> Share Directory
+                <span class="badge bg-success rounded-pill share-online-count" style="display:none"></span>
+            </button>
         </div>
     </div>
 

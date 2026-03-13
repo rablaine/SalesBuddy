@@ -14,6 +14,7 @@ import os
 import re
 
 from flask import Flask, request, jsonify
+from flask_socketio import SocketIO
 
 from openai_client import chat_completion, get_connect_deployment
 from prompts import (
@@ -35,6 +36,13 @@ from prompts import (
 # App setup
 # ---------------------------------------------------------------------------
 app = Flask(__name__)
+
+# Socket.IO — allow cross-origin from NoteHelper local instances
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
+
+# Register the partner sharing namespace
+from sharing_hub import ShareNamespace
+socketio.on_namespace(ShareNamespace("/share"))
 
 logging.basicConfig(
     level=logging.INFO,
@@ -562,4 +570,4 @@ def health():
 # Local development
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8000, debug=True)
+    socketio.run(app, host="0.0.0.0", port=8000, debug=True)

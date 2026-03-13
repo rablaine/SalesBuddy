@@ -1086,6 +1086,30 @@
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js" defer></script>
     <!-- Driver.js for guided product tour -->
     <script src="https://cdn.jsdelivr.net/npm/driver.js@1.3.1/dist/driver.js.iife.js" defer></script>
+    <!-- Socket.IO client for partner sharing -->
+    <script src="https://cdn.jsdelivr.net/npm/socket.io-client@4/dist/socket.io.min.js" defer></script>
+    <script src="{{ url_for('static', filename='js/partner-share.js') }}" defer></script>
+    <script>document.addEventListener('DOMContentLoaded', () => PartnerShare.init());</script>
+
+    <!-- Share Partner Modal (global — used by partners_list and partner_view) -->
+    <div class="modal fade" id="sharePartnerModal" tabindex="-1" aria-labelledby="sharePartnerModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="sharePartnerModalLabel">
+                        <i class="bi bi-share"></i> Share with Teammate
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body" id="shareModalBody">
+                    <div class="text-center py-4">
+                        <div class="spinner-border text-primary" role="status"></div>
+                        <p class="mt-2 text-muted">Loading online users...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
     
     <!-- Navbar hover dropdown: click on the main link navigates, hover opens menu -->
     <script>

@@ -31,6 +31,12 @@
             </div>
         </div>
         <div class="col-auto">
+            <button class="btn btn-outline-primary btn-share-partner"
+                    onclick="PartnerShare.openShareModal('partner', {{ partner.id }})"
+                    title="Share this partner with a teammate">
+                <i class="bi bi-share"></i> Share
+                <span class="badge bg-success rounded-pill share-online-count" style="display:none"></span>
+            </button>
             <a href="{{ url_for('partners.partner_edit', id=partner.id) }}" class="btn btn-outline-primary">
                 <i class="bi bi-pencil"></i> Edit
             </a>

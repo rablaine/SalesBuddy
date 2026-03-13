@@ -63,7 +63,7 @@
         "httpsOnly": true,
         "siteConfig": {
           "linuxFxVersion": "PYTHON|3.11",
-          "appCommandLine": "gunicorn --bind=0.0.0.0:8000 gateway:app",
+          "appCommandLine": "gunicorn --bind=0.0.0.0:8000 --threads 4 gateway:app",
           "alwaysOn": true,
           "appSettings": [
             {

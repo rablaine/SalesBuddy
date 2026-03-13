@@ -412,3 +412,54 @@ def api_specialty_create():
     db.session.commit()
     
     return jsonify({'id': specialty.id, 'name': specialty.name, 'description': '', 'existed': False})
+
+
+# =============================================================================
+# Partner Sharing API
+# =============================================================================
+
+@partners_bp.route('/api/share/connection-info')
+def api_share_connection_info():
+    """Return Socket.IO gateway URL and JWT for partner sharing."""
+    from app.services.partner_sharing import get_share_gateway_url, get_share_token
+    token = get_share_token()
+    if not token:
+        return jsonify({'success': False, 'error': 'Not authenticated — sign in via Admin Panel'}), 401
+    return jsonify({
+        'success': True,
+        'gateway_url': get_share_gateway_url(),
+        'token': token,
+    })
+
+
+@partners_bp.route('/api/share/partner/<int:partner_id>')
+def api_share_serialize_partner(partner_id):
+    """Serialize a single partner for sharing."""
+    from app.services.partner_sharing import serialize_partner
+    partner = Partner.query.get_or_404(partner_id)
+    return jsonify({'success': True, 'partner': serialize_partner(partner)})
+
+
+@partners_bp.route('/api/share/directory')
+def api_share_serialize_directory():
+    """Serialize the entire partner directory for sharing."""
+    from app.services.partner_sharing import serialize_all_partners
+    return jsonify({'success': True, 'partners': serialize_all_partners()})
+
+
+@partners_bp.route('/api/share/receive', methods=['POST'])
+def api_share_receive():
+    """Receive and upsert partner data from a sharing peer."""
+    from app.services.partner_sharing import upsert_partners
+    data = request.get_json()
+    if not data:
+        return jsonify({'success': False, 'error': 'No data provided'}), 400
+
+    partners_data = data.get('partners', [])
+    sender_name = data.get('sender_name', 'Unknown')
+
+    if not partners_data:
+        return jsonify({'success': False, 'error': 'No partners in payload'}), 400
+
+    results = upsert_partners(partners_data, sender_name)
+    return jsonify({'success': True, **results})
