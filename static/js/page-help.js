@@ -157,7 +157,7 @@ const PageHelp = (function () {
         <li>Rate partners (1-5 stars) based on your experience</li>
         <li>Add <strong>specialties</strong> to track what each partner is good at</li>
         <li>Add <strong>contacts</strong> with email and phone for quick reference</li>
-        <li><strong>Share Directory</strong> — send your partner list to a teammate in real time</li>
+        <li><strong>Share Directory</strong> — send your partner list and saved details to another NoteHelper user who is currently online (both users must be running NoteHelper at the same time)</li>
       </ul>
     `},
     { pattern: /^\/partners\/new/, title: 'New Partner', content: `
@@ -234,12 +234,50 @@ const PageHelp = (function () {
       <p>Pre-built reports for revenue analysis — new users, growth trends, and product adoption.</p>
     `},
     { pattern: /^\/revenue\/?$/, title: 'Revenue Dashboard', content: `
-      <p>Overview of Azure Consumed Revenue across your customers, sellers, and products.</p>
+      <p>Overview of Azure Consumed Revenue across your customers — flagging who needs attention and why.</p>
+      <h6>Categories</h6>
+      <table class="table table-sm mb-3">
+        <tbody>
+          <tr>
+            <td><span class="badge bg-danger">CHURN_RISK</span></td>
+            <td>Revenue is declining month-over-month <em>and</em> dropped sharply recently. These customers may be migrating away or shutting down workloads.</td>
+          </tr>
+          <tr>
+            <td><span class="badge bg-warning text-dark">RECENT_DIP</span></td>
+            <td>Overall trend was stable or positive, but there was a sudden drop in the last 1-2 months. Could be a billing anomaly, a paused project, or the start of something worse.</td>
+          </tr>
+          <tr>
+            <td><span class="badge bg-success">EXPANSION</span></td>
+            <td>Revenue is growing with positive momentum — customer is near or at their historical max. Good time to engage and help them scale further.</td>
+          </tr>
+          <tr>
+            <td><span class="badge bg-secondary">VOLATILE</span></td>
+            <td>Revenue swings significantly month to month (high coefficient of variation). Hard to predict — worth a conversation to understand usage patterns.</td>
+          </tr>
+          <tr>
+            <td><span class="badge bg-info text-dark">STAGNANT</span></td>
+            <td>Revenue is flat with low variance. Customer is using Azure but not growing. May be an opportunity to introduce new services.</td>
+          </tr>
+          <tr>
+            <td><span class="badge bg-light text-dark">HEALTHY</span></td>
+            <td>No concerning signals — revenue is stable with normal patterns. No action needed.</td>
+          </tr>
+          <tr>
+            <td><span class="badge bg-primary">NEW_CUSTOMER</span></td>
+            <td>Recently started generating revenue (first few months of usage). Worth an early check-in to ensure onboarding is going well.</td>
+          </tr>
+          <tr>
+            <td><span class="badge bg-dark">CHURNED</span></td>
+            <td>Revenue dropped to $0 after previously generating usage. Customer has stopped using Azure entirely.</td>
+          </tr>
+        </tbody>
+      </table>
       <h6>Tips</h6>
       <ul>
-        <li>Click a customer or seller name to see their detailed revenue breakdown</li>
-        <li>Use the <strong>date range</strong> selector to compare periods</li>
-        <li>Check <strong>Seller Alerts</strong> for revenue changes that need attention</li>
+        <li>The <strong>Priority</strong> score (0-100) ranks how urgently a customer needs attention</li>
+        <li>The <strong>$ Impact</strong> column shows estimated monthly revenue at risk or opportunity</li>
+        <li>Click a customer to see their full revenue breakdown with monthly charts</li>
+        <li>Use <strong>Re-analyze</strong> after a fresh import to update all categories</li>
       </ul>
     `},
 
@@ -339,7 +377,7 @@ const PageHelp = (function () {
     const modal = bootstrap.Modal.getOrCreateInstance(
       document.getElementById('pageHelpModal')
     );
-    modal.show();
+    modal.toggle();
   }
 
   return { show };
