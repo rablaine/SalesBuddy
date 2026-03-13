@@ -9,6 +9,7 @@ from flask import Blueprint, render_template, request, redirect, url_for, flash,
 from app.models import (
     db, Engagement, Customer, Note, Opportunity, Milestone, Topic
 )
+from app.services.milestone_tracking import track_engagement_on_milestones
 
 logger = logging.getLogger(__name__)
 
@@ -203,6 +204,9 @@ def engagement_edit(id: int):
             engagement.milestones = milestones_list
         else:
             engagement.milestones = []
+
+        # Auto-track this engagement on any linked milestones
+        track_engagement_on_milestones(engagement)
 
         db.session.commit()
 

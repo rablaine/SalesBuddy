@@ -1,0 +1,633 @@
+"""
+Tests for milestone comment tracking via MSX (Issue #72).
+
+Tests cover:
+- Upsert logic: ref-tag matching, create vs update, multi-user support
+- Engagement story: template assembly, pinning, update-in-place
+- Call summary: AI summarization, fallback, existing comment context
+- Background execution: notification queue for failures
+- Edge cases: no milestones, no MSX ID, API failures
+"""
+import pytest
+from datetime import datetime, date, timezone
+from unittest.mock import patch, MagicMock
+
+from app.models import db, Customer, Note, Milestone, Engagement, Topic
+from app.services.milestone_tracking import (
+    track_note_on_milestones,
+    track_engagement_on_milestones,
+    _build_engagement_story,
+    _add_footer,
+    _strip_html,
+    _build_note_fallback,
+    drain_notifications,
+    _notify_error,
+)
+
+
+# ── Unit tests for helpers ──────────────────────────────────────────────────
+
+
+class TestHelpers:
+    """Test helper functions in milestone_tracking."""
+
+    def test_strip_html_removes_tags(self):
+        assert _strip_html('<p>Hello <b>world</b></p>') == 'Hello world'
+
+    def test_strip_html_handles_none(self):
+        assert _strip_html(None) == ''
+
+    def test_add_footer_appends_ref_tag(self):
+        result = _add_footer("Some content", "note-42")
+        assert result == "Some content\n\n· note-42 ·"
+
+    def test_build_note_fallback(self):
+        result = _build_note_fallback("SQL MI, Migration")
+        assert "Topics: SQL MI, Migration" in result
+
+    def test_build_note_fallback_no_topics(self):
+        result = _build_note_fallback("None")
+        assert "pending" in result.lower()
+
+
+# ── Engagement story template tests ─────────────────────────────────────────
+
+
+class TestBuildEngagementStory:
+    """Test engagement story comment assembly."""
+
+    def test_full_story_with_all_fields(self, app):
+        """All 6 narrative fields produce a complete story."""
+        with app.app_context():
+            customer = Customer(name='Story Corp', tpid=8000)
+            db.session.add(customer)
+            db.session.flush()
+
+            eng = Engagement(
+                customer_id=customer.id,
+                title='Oracle Migration',
+                status='Active',
+                key_individuals='John Smith (DBA), Sarah Chen (VP)',
+                technical_problem='3 Oracle instances need migration to Azure SQL MI.',
+                business_impact='$2M annual licensing savings plus improved DR.',
+                solution_resources='SQL MI compatibility assessment + migration planning.',
+                estimated_acr='$45K',
+                target_date=date(2026, 6, 1),
+            )
+            db.session.add(eng)
+            db.session.flush()
+
+            story = _build_engagement_story(eng)
+
+            assert 'Engagement Overview: Oracle Migration [Active]' in story
+            assert 'John Smith (DBA), Sarah Chen (VP)' in story
+            assert '3 Oracle instances' in story
+            assert '$2M annual licensing' in story
+            assert 'SQL MI compatibility' in story
+            assert '$45K' in story
+            assert 'Jun 2026' in story
+
+    def test_minimal_story_with_title_only(self, app):
+        """Story works with just title and status."""
+        with app.app_context():
+            customer = Customer(name='Min Corp', tpid=8001)
+            db.session.add(customer)
+            db.session.flush()
+
+            eng = Engagement(
+                customer_id=customer.id,
+                title='Discovery Phase',
+                status='Active',
+            )
+            db.session.add(eng)
+            db.session.flush()
+
+            story = _build_engagement_story(eng)
+            assert 'Engagement Overview: Discovery Phase [Active]' in story
+            # Should not crash or include "None"
+            assert 'None' not in story
+
+    def test_story_with_acr_no_date(self, app):
+        """Story includes ACR without date."""
+        with app.app_context():
+            customer = Customer(name='ACR Corp', tpid=8002)
+            db.session.add(customer)
+            db.session.flush()
+
+            eng = Engagement(
+                customer_id=customer.id,
+                title='ACR Test',
+                status='Active',
+                estimated_acr='$10K/mo',
+            )
+            db.session.add(eng)
+            db.session.flush()
+
+            story = _build_engagement_story(eng)
+            assert 'Targeting $10K/mo.' in story
+
+
+# ── Upsert logic tests (msx_api.py) ─────────────────────────────────────────
+
+
+class TestUpsertMilestoneComment:
+    """Test the upsert_milestone_comment function in msx_api."""
+
+    def test_creates_new_comment_when_none_exists(self, app):
+        """First comment on a milestone creates a new entry."""
+        with app.app_context():
+            import json
+            with patch('app.services.msx_api.get_milestone_comments') as mock_read, \
+                 patch('app.services.msx_api.get_msx_user_display_name') as mock_name, \
+                 patch('app.services.msx_api._msx_request') as mock_req:
+                mock_read.return_value = {"success": True, "comments": []}
+                mock_name.return_value = "Alex Blaine"
+                mock_resp = MagicMock()
+                mock_resp.status_code = 204
+                mock_req.return_value = mock_resp
+
+                from app.services.msx_api import upsert_milestone_comment
+                result = upsert_milestone_comment(
+                    "ms-guid-1", "Test content\n\n· note-1 ·", "note-1",
+                )
+
+                assert result["success"] is True
+                assert result["action"] == "created"
+                assert result["comment_count"] == 1
+
+                # Verify PATCH payload
+                patch_call = mock_req.call_args
+                payload = patch_call[1]["json_data"]
+                comments = json.loads(payload["msp_forecastcommentsjsonfield"])
+                assert len(comments) == 1
+                assert comments[0]["userId"] == "Alex Blaine via NoteHelper"
+                assert "· note-1 ·" in comments[0]["comment"]
+
+    def test_updates_existing_comment_by_ref_tag(self, app):
+        """When a comment with matching ref tag exists, it's updated in-place."""
+        with app.app_context():
+            import json
+            existing = [
+                {"userId": "Some Manager", "modifiedOn": "2026-01-01T00:00:00Z",
+                 "comment": "Manual comment from MSX UI"},
+                {"userId": "Alex Blaine via NoteHelper", "modifiedOn": "2026-03-01T00:00:00Z",
+                 "comment": "Old summary\n\n· note-5 ·"},
+            ]
+            with patch('app.services.msx_api.get_milestone_comments') as mock_read, \
+                 patch('app.services.msx_api.get_msx_user_display_name') as mock_name, \
+                 patch('app.services.msx_api._msx_request') as mock_req:
+                mock_read.return_value = {"success": True, "comments": existing}
+                mock_name.return_value = "Alex Blaine"
+                mock_resp = MagicMock()
+                mock_resp.status_code = 204
+                mock_req.return_value = mock_resp
+
+                from app.services.msx_api import upsert_milestone_comment
+                result = upsert_milestone_comment(
+                    "ms-guid-2", "Updated summary\n\n· note-5 ·", "note-5",
+                )
+
+                assert result["success"] is True
+                assert result["action"] == "updated"
+                assert result["comment_count"] == 2  # didn't add a third
+
+                payload = mock_req.call_args[1]["json_data"]
+                comments = json.loads(payload["msp_forecastcommentsjsonfield"])
+                # First comment untouched
+                assert comments[0]["userId"] == "Some Manager"
+                # Second updated
+                assert "Updated summary" in comments[1]["comment"]
+                assert comments[1]["userId"] == "Alex Blaine via NoteHelper"
+
+    def test_returns_existing_comments_for_ai_context(self, app):
+        """Upsert returns other comment texts for AI context."""
+        with app.app_context():
+            existing = [
+                {"userId": "Manager", "modifiedOn": "2026-01-01T00:00:00Z",
+                 "comment": "FY26 review note"},
+                {"userId": "Alex Blaine via NoteHelper", "modifiedOn": "2026-03-01T00:00:00Z",
+                 "comment": "Our comment\n\n· note-10 ·"},
+                {"userId": "Teammate", "modifiedOn": "2026-02-01T00:00:00Z",
+                 "comment": "PoC update from field team"},
+            ]
+            with patch('app.services.msx_api.get_milestone_comments') as mock_read, \
+                 patch('app.services.msx_api.get_msx_user_display_name') as mock_name, \
+                 patch('app.services.msx_api._msx_request') as mock_req:
+                mock_read.return_value = {"success": True, "comments": existing}
+                mock_name.return_value = "Alex Blaine"
+                mock_resp = MagicMock()
+                mock_resp.status_code = 204
+                mock_req.return_value = mock_resp
+
+                from app.services.msx_api import upsert_milestone_comment
+                result = upsert_milestone_comment(
+                    "ms-guid-3", "New content\n\n· note-10 ·", "note-10",
+                )
+
+                # Should include comments 0 and 2 but not our own (index 1)
+                assert "FY26 review note" in result["existing_comments"]
+                assert "PoC update from field team" in result["existing_comments"]
+                assert len(result["existing_comments"]) == 2
+
+    def test_multi_user_same_milestone(self, app):
+        """Two NoteHelper users each maintain separate comments for same note ID."""
+        with app.app_context():
+            import json
+            existing = [
+                {"userId": "Alice Smith via NoteHelper", "modifiedOn": "2026-03-01T00:00:00Z",
+                 "comment": "Alice's summary\n\n· note-7 ·"},
+            ]
+            with patch('app.services.msx_api.get_milestone_comments') as mock_read, \
+                 patch('app.services.msx_api.get_msx_user_display_name') as mock_name, \
+                 patch('app.services.msx_api._msx_request') as mock_req:
+                mock_read.return_value = {"success": True, "comments": existing}
+                mock_name.return_value = "Bob Jones"  # Different user
+                mock_resp = MagicMock()
+                mock_resp.status_code = 204
+                mock_req.return_value = mock_resp
+
+                from app.services.msx_api import upsert_milestone_comment
+                result = upsert_milestone_comment(
+                    "ms-guid-4", "Bob's summary\n\n· note-7 ·", "note-7",
+                )
+
+                # Bob's note-7 ref tag doesn't match Alice's userId,
+                # so Bob should CREATE a new comment (not update Alice's)
+                assert result["action"] == "created"
+                assert result["comment_count"] == 2
+
+                payload = mock_req.call_args[1]["json_data"]
+                comments = json.loads(payload["msp_forecastcommentsjsonfield"])
+                user_ids = [c["userId"] for c in comments]
+                assert "Alice Smith via NoteHelper" in user_ids
+                assert "Bob Jones via NoteHelper" in user_ids
+
+    def test_pin_to_top_uses_future_date(self, app):
+        """Pin mode sets modifiedOn to 2099-01-01."""
+        with app.app_context():
+            import json
+            with patch('app.services.msx_api.get_milestone_comments') as mock_read, \
+                 patch('app.services.msx_api.get_msx_user_display_name') as mock_name, \
+                 patch('app.services.msx_api._msx_request') as mock_req:
+                mock_read.return_value = {"success": True, "comments": []}
+                mock_name.return_value = "Alex Blaine"
+                mock_resp = MagicMock()
+                mock_resp.status_code = 204
+                mock_req.return_value = mock_resp
+
+                from app.services.msx_api import upsert_milestone_comment
+                result = upsert_milestone_comment(
+                    "ms-guid-5", "Pinned story\n\n· eng-3 ·", "eng-3",
+                    pin_to_top=True,
+                )
+
+                payload = mock_req.call_args[1]["json_data"]
+                comments = json.loads(payload["msp_forecastcommentsjsonfield"])
+                assert comments[0]["modifiedOn"] == "2099-01-01T00:00:00.000Z"
+
+
+# ── Note tracking integration tests ─────────────────────────────────────────
+
+
+class TestTrackNoteOnMilestones:
+    """Test track_note_on_milestones with the new upsert + AI flow."""
+
+    def test_posts_with_ai_summary(self, app):
+        """When AI is available, uses AI-generated summary."""
+        with app.app_context():
+            customer = Customer(name='AI Corp', tpid=9500)
+            db.session.add(customer)
+            db.session.flush()
+
+            milestone = Milestone(
+                url='https://msx/m/ai1',
+                title='AI Test MS',
+                customer_id=customer.id,
+                msx_milestone_id='ai-guid-1',
+            )
+            db.session.add(milestone)
+            db.session.flush()
+
+            note = Note(
+                customer_id=customer.id,
+                call_date=datetime(2026, 3, 12, tzinfo=timezone.utc),
+                content='<p>Discussed SQL MI migration. 2 of 3 DBs ready.</p>',
+            )
+            note.milestones.append(milestone)
+            db.session.add(note)
+            db.session.flush()
+
+            with patch('app.services.milestone_tracking._upsert_to_msx') as mock_upsert, \
+                 patch('app.services.milestone_tracking._ai_summarize_note') as mock_ai:
+                mock_upsert.return_value = {
+                    "success": True, "comment_count": 1,
+                    "action": "created", "existing_comments": [],
+                }
+                mock_ai.return_value = "SQL MI migration assessed. 2 of 3 DBs ready."
+
+                track_note_on_milestones(note, background=False)
+
+                # Called upsert twice: once for fallback, once with AI summary
+                assert mock_upsert.call_count == 2
+
+                # Second call should have the AI summary (no header, no customer)
+                final_args = mock_upsert.call_args_list[1]
+                final_content = final_args[0][1]
+                assert "SQL MI migration assessed" in final_content
+                assert f"· note-{note.id} ·" in final_content
+                # Should NOT have old-style header
+                assert "Call:" not in final_content
+
+                # comment_date should be the call_date
+                assert final_args[1]["comment_date"] == "2026-03-12T00:00:00.000Z"
+
+    def test_falls_back_when_ai_unavailable(self, app):
+        """When AI fails, uses metadata-only fallback."""
+        with app.app_context():
+            customer = Customer(name='Fallback Corp', tpid=9501)
+            db.session.add(customer)
+            db.session.flush()
+
+            milestone = Milestone(
+                url='https://msx/m/fb1',
+                title='Fallback MS',
+                customer_id=customer.id,
+                msx_milestone_id='fb-guid-1',
+            )
+            db.session.add(milestone)
+            db.session.flush()
+
+            note = Note(
+                customer_id=customer.id,
+                call_date=datetime(2026, 3, 12, tzinfo=timezone.utc),
+                content='<p>Some call notes.</p>',
+            )
+            topic = Topic(name='SQL MI')
+            db.session.add(topic)
+            db.session.flush()
+            note.topics.append(topic)
+            note.milestones.append(milestone)
+            db.session.add(note)
+            db.session.flush()
+
+            with patch('app.services.milestone_tracking._upsert_to_msx') as mock_upsert, \
+                 patch('app.services.milestone_tracking._ai_summarize_note') as mock_ai:
+                mock_upsert.return_value = {
+                    "success": True, "comment_count": 1,
+                    "action": "created", "existing_comments": [],
+                }
+                mock_ai.return_value = None  # AI unavailable
+
+                track_note_on_milestones(note, background=False)
+
+                # Only called once (fallback, no AI update)
+                assert mock_upsert.call_count == 1
+
+                content = mock_upsert.call_args[0][1]
+                assert "Topics: SQL MI" in content
+                # No header
+                assert "Call:" not in content
+                # comment_date set to call_date
+                assert mock_upsert.call_args[1]["comment_date"] == "2026-03-12T00:00:00.000Z"
+
+    def test_skips_msx_for_no_msx_id(self, app):
+        """Milestones without msx_milestone_id are skipped."""
+        with app.app_context():
+            customer = Customer(name='Local Corp', tpid=9502)
+            db.session.add(customer)
+            db.session.flush()
+
+            milestone = Milestone(
+                url='https://msx/m/local',
+                title='Local Only',
+                customer_id=customer.id,
+            )
+            db.session.add(milestone)
+            db.session.flush()
+
+            note = Note(
+                customer_id=customer.id,
+                call_date=datetime(2026, 3, 12, tzinfo=timezone.utc),
+                content='Local note',
+            )
+            note.milestones.append(milestone)
+            db.session.add(note)
+            db.session.flush()
+
+            with patch('app.services.milestone_tracking._upsert_to_msx') as mock_upsert:
+                track_note_on_milestones(note, background=False)
+
+                mock_upsert.assert_not_called()
+
+    def test_no_milestones_returns_empty(self, app):
+        """Note with no milestones returns empty list."""
+        with app.app_context():
+            customer = Customer(name='Empty Corp', tpid=9503)
+            db.session.add(customer)
+            db.session.flush()
+
+            note = Note(
+                customer_id=customer.id,
+                call_date=datetime(2026, 3, 12, tzinfo=timezone.utc),
+                content='No milestones',
+            )
+            db.session.add(note)
+            db.session.flush()
+
+            results = track_note_on_milestones(note, background=False)
+            assert results == []
+
+    def test_passes_existing_comments_to_ai(self, app):
+        """AI receives existing comments from other users for dedup context."""
+        with app.app_context():
+            customer = Customer(name='Context Corp', tpid=9504)
+            db.session.add(customer)
+            db.session.flush()
+
+            milestone = Milestone(
+                url='https://msx/m/ctx1',
+                title='Context MS',
+                customer_id=customer.id,
+                msx_milestone_id='ctx-guid-1',
+            )
+            db.session.add(milestone)
+            db.session.flush()
+
+            note = Note(
+                customer_id=customer.id,
+                call_date=datetime(2026, 3, 12, tzinfo=timezone.utc),
+                content='<p>Call about migration blockers.</p>',
+            )
+            note.milestones.append(milestone)
+            db.session.add(note)
+            db.session.flush()
+
+            existing_comments = ["Manager posted: PoC blockers identified", "Field update from team"]
+
+            with patch('app.services.milestone_tracking._upsert_to_msx') as mock_upsert, \
+                 patch('app.services.milestone_tracking._ai_summarize_note') as mock_ai:
+                mock_upsert.return_value = {
+                    "success": True, "comment_count": 3,
+                    "action": "created", "existing_comments": existing_comments,
+                }
+                mock_ai.return_value = "New blockers found in Oracle schema."
+
+                track_note_on_milestones(note, background=False)
+
+                # AI should have been called with the existing comments
+                ai_call = mock_ai.call_args
+                assert ai_call[0][3] == existing_comments  # 4th arg is existing_comments
+
+
+# ── Notification queue tests ────────────────────────────────────────────────
+
+
+class TestNotificationQueue:
+    """Test the background notification mechanism."""
+
+    def test_drain_returns_queued_notifications(self):
+        # Clear any stale notifications
+        drain_notifications()
+
+        _notify_error("MSX connection failed")
+        _notify_error("AI timeout")
+
+        notifications = drain_notifications()
+        assert len(notifications) == 2
+        assert notifications[0] == ("warning", "MSX connection failed")
+        assert notifications[1] == ("warning", "AI timeout")
+
+        # Queue should be empty now
+        assert drain_notifications() == []
+
+
+# ── Engagement tracking tests ────────────────────────────────────────────────
+
+
+class TestTrackEngagementOnMilestones:
+    """Test track_engagement_on_milestones."""
+
+    def test_posts_pinned_story_to_msx(self, app):
+        """Engagement story is posted with pin_to_top=True."""
+        with app.app_context():
+            customer = Customer(name='Eng Corp', tpid=9600)
+            db.session.add(customer)
+            db.session.flush()
+
+            milestone = Milestone(
+                url='https://msx/m/eng1',
+                title='Eng MS',
+                customer_id=customer.id,
+                msx_milestone_id='eng-guid-1',
+            )
+            db.session.add(milestone)
+            db.session.flush()
+
+            engagement = Engagement(
+                customer_id=customer.id,
+                title='Cloud PoC',
+                status='Active',
+                technical_problem='<p>Need to assess cloud readiness</p>',
+            )
+            engagement.milestones.append(milestone)
+            db.session.add(engagement)
+            db.session.flush()
+
+            with patch('app.services.milestone_tracking._upsert_to_msx') as mock_upsert:
+                mock_upsert.return_value = {
+                    "success": True, "comment_count": 1,
+                    "action": "created", "existing_comments": [],
+                }
+                results = track_engagement_on_milestones(engagement, background=False)
+
+                mock_upsert.assert_called_once()
+                call_args = mock_upsert.call_args
+                assert call_args[0][0] == 'eng-guid-1'
+                content = call_args[0][1]
+                assert 'Engagement Overview: Cloud PoC [Active]' in content
+                assert f'· eng-{engagement.id} ·' in content
+                # pin_to_top should be True
+                assert call_args[1]['pin_to_top'] is True
+
+    def test_tracks_across_multiple_milestones(self, app):
+        """Posts to MSX for each linked milestone."""
+        with app.app_context():
+            customer = Customer(name='Multi Corp', tpid=9601)
+            db.session.add(customer)
+            db.session.flush()
+
+            m1 = Milestone(
+                url='https://msx/m/m1', title='Phase 1',
+                customer_id=customer.id, msx_milestone_id='multi-1',
+            )
+            m2 = Milestone(
+                url='https://msx/m/m2', title='Phase 2',
+                customer_id=customer.id, msx_milestone_id='multi-2',
+            )
+            db.session.add_all([m1, m2])
+            db.session.flush()
+
+            engagement = Engagement(
+                customer_id=customer.id,
+                title='Multi-phase Deploy',
+                status='Active',
+            )
+            engagement.milestones.extend([m1, m2])
+            db.session.add(engagement)
+            db.session.flush()
+
+            with patch('app.services.milestone_tracking._upsert_to_msx') as mock_upsert:
+                mock_upsert.return_value = {
+                    "success": True, "comment_count": 1,
+                    "action": "created", "existing_comments": [],
+                }
+                track_engagement_on_milestones(engagement, background=False)
+
+                assert mock_upsert.call_count == 2
+
+    def test_skips_msx_for_no_msx_id(self, app):
+        """Milestones without msx_milestone_id return None result."""
+        with app.app_context():
+            customer = Customer(name='Local Eng Corp', tpid=9602)
+            db.session.add(customer)
+            db.session.flush()
+
+            milestone = Milestone(
+                url='https://msx/m/local-eng',
+                title='Local Eng',
+                customer_id=customer.id,
+            )
+            db.session.add(milestone)
+            db.session.flush()
+
+            engagement = Engagement(
+                customer_id=customer.id,
+                title='Local PoC',
+                status='Active',
+            )
+            engagement.milestones.append(milestone)
+            db.session.add(engagement)
+            db.session.flush()
+
+            with patch('app.services.milestone_tracking._upsert_to_msx') as mock_upsert:
+                track_engagement_on_milestones(engagement, background=False)
+
+                mock_upsert.assert_not_called()
+
+    def test_no_milestones_returns_empty(self, app):
+        """Engagement with no milestones returns empty list."""
+        with app.app_context():
+            customer = Customer(name='Empty Eng Corp', tpid=9603)
+            db.session.add(customer)
+            db.session.flush()
+
+            engagement = Engagement(
+                customer_id=customer.id,
+                title='No MS',
+                status='Active',
+            )
+            db.session.add(engagement)
+            db.session.flush()
+
+            results = track_engagement_on_milestones(engagement, background=False)
+            assert results == []

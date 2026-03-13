@@ -168,6 +168,8 @@ def run_migrations(db):
     # Migration: Create solution_engineers_territories M2M table (DSS territory linking)
     _migrate_se_territories(db, inspector)
 
+    # Note: milestone_comments table is created by db.create_all() — no migration needed
+
     # =========================================================================
     # End migrations
     # =========================================================================

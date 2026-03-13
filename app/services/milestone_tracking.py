@@ -1,0 +1,356 @@
+"""
+Milestone comment tracking service.
+
+Posts two types of comments to MSX milestones:
+
+1. **Engagement Story** (pinned) — One per engagement-milestone link.
+   Assembled from the engagement's 6 narrative fields.  Pinned to the top
+   of the comments list via a far-future modifiedOn date (2099-01-01).
+   Updated in-place whenever the engagement is saved.
+
+2. **Call Summary** — One per note-milestone link.  AI-summarized to 2-4
+   sentences via the gateway, including only new information not already
+   present in the other milestone comments.  Updated in-place when the
+   note is edited.  The comment's modifiedOn is set to the note's call_date
+   so comments appear in chronological order.
+
+Both comment types are matched for updates via a ref tag in the footer
+(e.g. ``· note-42 ·`` or ``· eng-15 ·``).  The userId is set to
+``{display name} via NoteHelper`` so multiple NoteHelper users can each
+maintain their own comments on the same milestone.
+
+All MSX and AI calls run in a background thread so the user isn't blocked.
+Failures are queued as flash notifications shown on the next page load.
+"""
+import re
+import logging
+import threading
+from collections import deque
+from datetime import date
+
+from app.models import db
+
+logger = logging.getLogger(__name__)
+
+# Ref-tag format embedded in comment footers for upsert matching
+_NOTE_REF = "note-{id}"
+_ENG_REF = "eng-{id}"
+
+# Thread-safe queue for background task failure notifications.
+# Drained by the before_request hook registered in app/__init__.py.
+_notification_queue: deque[tuple[str, str]] = deque()
+
+
+def drain_notifications() -> list[tuple[str, str]]:
+    """Drain pending background notifications.
+
+    Returns:
+        List of (category, message) tuples suitable for ``flash()``.
+    """
+    notifications = []
+    while _notification_queue:
+        try:
+            notifications.append(_notification_queue.popleft())
+        except IndexError:
+            break
+    return notifications
+
+
+def _notify_error(message: str) -> None:
+    """Queue a warning notification for the next page load."""
+    _notification_queue.append(("warning", message))
+
+
+def _strip_html(html: str) -> str:
+    """Strip HTML tags and return plain text."""
+    return re.sub(r'<[^>]+>', '', html or '').strip()
+
+
+# ── MSX upsert helper ───────────────────────────────────────────────────────
+
+def _upsert_to_msx(
+    msx_milestone_id: str,
+    content: str,
+    ref_tag: str,
+    pin_to_top: bool = False,
+    comment_date: str | None = None,
+) -> dict | None:
+    """Upsert a comment on an MSX milestone.
+
+    Returns the result dict from upsert_milestone_comment, or None if no
+    MSX ID is available.
+    """
+    if not msx_milestone_id:
+        return None
+
+    try:
+        from app.services.msx_api import upsert_milestone_comment
+        result = upsert_milestone_comment(
+            msx_milestone_id, content, ref_tag,
+            pin_to_top=pin_to_top, comment_date=comment_date,
+        )
+        if not result.get("success"):
+            logger.warning(
+                f"MSX comment upsert failed for milestone {msx_milestone_id}: "
+                f"{result.get('error')}"
+            )
+        return result
+    except Exception as e:
+        logger.warning(f"MSX comment upsert failed for {msx_milestone_id}: {e}")
+        return {"success": False, "error": str(e)}
+
+
+# ── AI summarization ────────────────────────────────────────────────────────
+
+def _ai_summarize_note(
+    plain_text: str,
+    customer_name: str,
+    topics: str,
+    existing_comments: list[str],
+) -> str | None:
+    """Call the AI gateway to summarize a call log for a milestone comment.
+
+    Returns the summary string, or None if AI is unavailable or the note
+    contains no new information beyond existing comments.
+    """
+    try:
+        from app.gateway_client import gateway_call
+        print(f"[milestone-tracking] AI: calling gateway /v1/summarize-note")
+        result = gateway_call("/v1/summarize-note", {
+            "call_notes": plain_text,
+            "customer_name": customer_name,
+            "topics": topics,
+            "existing_comments": existing_comments,
+        })
+        print(f"[milestone-tracking] AI: gateway returned: {result}")
+        if result.get("no_new_info"):
+            print("[milestone-tracking] AI: note contains no new info for milestone comment")
+            return None
+        summary = result.get("summary", "").strip()
+        return summary if summary else None
+    except Exception as e:
+        print(f"[milestone-tracking] AI FAILED: {e}")
+        _notify_error(f"Milestone comment AI summary failed: {e}")
+        return None
+
+
+def _build_note_fallback(topics: str) -> str:
+    """Build a metadata-only comment when AI is unavailable."""
+    if topics and topics != 'None':
+        return f"Topics: {topics}"
+    return "(Note linked — summary pending)"
+
+
+# ── Engagement story template ───────────────────────────────────────────────
+
+def _build_engagement_story(engagement) -> str:
+    """Assemble the engagement story comment from structured fields.
+
+    Uses the engagement's 6 narrative fields (key_individuals,
+    technical_problem, business_impact, solution_resources,
+    estimated_acr, target_date) to build a readable summary.
+    """
+    parts = [f"Engagement Overview: {engagement.title} [{engagement.status}]"]
+
+    if engagement.key_individuals:
+        parts.append(f"\nWorking with {_strip_html(engagement.key_individuals)}.")
+
+    if engagement.technical_problem:
+        parts.append(_strip_html(engagement.technical_problem))
+
+    if engagement.business_impact:
+        parts.append(_strip_html(engagement.business_impact))
+
+    if engagement.solution_resources:
+        parts.append(f"Addressing with {_strip_html(engagement.solution_resources)}.")
+
+    acr = engagement.estimated_acr
+    target = engagement.target_date
+    if acr and target:
+        target_str = target.strftime('%b %Y') if isinstance(target, date) else str(target)
+        parts.append(f"Targeting {acr} by {target_str}.")
+    elif acr:
+        parts.append(f"Targeting {acr}.")
+    elif target:
+        target_str = target.strftime('%b %Y') if isinstance(target, date) else str(target)
+        parts.append(f"Target date: {target_str}.")
+
+    return "\n".join(parts)
+
+
+def _add_footer(content: str, ref_tag: str) -> str:
+    """Append a NoteHelper ref-tag footer to a comment."""
+    return f"{content}\n\n· {ref_tag} ·"
+
+
+# ── Background workers ──────────────────────────────────────────────────────
+
+def _track_note_worker(
+    milestones_data: list[dict],
+    plain: str,
+    customer_name: str,
+    topics: str,
+    ref_tag: str,
+    call_date_iso: str,
+) -> None:
+    """Background thread worker for note milestone tracking."""
+    print(f"[milestone-tracking] worker started: {ref_tag}, {len(milestones_data)} milestone(s)")
+    for ms in milestones_data:
+        msx_id = ms["msx_milestone_id"]
+        try:
+            # First upsert with fallback to retrieve existing comments
+            fallback = _build_note_fallback(topics)
+            fallback_with_footer = _add_footer(fallback, ref_tag)
+            print(f"[milestone-tracking] upserting fallback to {msx_id}")
+            msx_result = _upsert_to_msx(
+                msx_id, fallback_with_footer, ref_tag,
+                comment_date=call_date_iso,
+            )
+            print(f"[milestone-tracking] fallback upsert result: success={msx_result and msx_result.get('success')}")
+            existing_comments = (msx_result or {}).get("existing_comments", [])
+
+            # AI summarization with dedup context
+            print(f"[milestone-tracking] calling AI summarize...")
+            ai_summary = _ai_summarize_note(
+                plain, customer_name, topics, existing_comments,
+            )
+            print(f"[milestone-tracking] AI result: {'got summary' if ai_summary else 'None (fallback)'}")
+
+            if ai_summary:
+                content_with_footer = _add_footer(ai_summary, ref_tag)
+                _upsert_to_msx(
+                    msx_id, content_with_footer, ref_tag,
+                    comment_date=call_date_iso,
+                )
+                print(f"[milestone-tracking] AI summary upserted to {msx_id}")
+            else:
+                print(
+                    f"[milestone-tracking] AI summary unavailable for {ref_tag} on {msx_id}, "
+                    "fallback content preserved"
+                )
+        except Exception as e:
+            print(f"[milestone-tracking] EXCEPTION for {msx_id}: {e}")
+            _notify_error(f"Failed to update milestone comment: {e}")
+
+
+def _track_engagement_worker(
+    milestones_data: list[dict],
+    content: str,
+    ref_tag: str,
+) -> None:
+    """Background thread worker for engagement milestone tracking."""
+    print(f"[milestone-tracking] engagement worker started: {ref_tag}, {len(milestones_data)} milestone(s)")
+    for ms in milestones_data:
+        msx_id = ms["msx_milestone_id"]
+        try:
+            print(f"[milestone-tracking] upserting engagement story to {msx_id}")
+            result = _upsert_to_msx(msx_id, content, ref_tag, pin_to_top=True)
+            print(f"[milestone-tracking] engagement upsert result: success={result and result.get('success')}")
+        except Exception as e:
+            print(f"[milestone-tracking] EXCEPTION for engagement on {msx_id}: {e}")
+            _notify_error(f"Failed to update milestone engagement story: {e}")
+
+
+# ── Public API ───────────────────────────────────────────────────────────────
+
+def track_note_on_milestones(note, background: bool = True) -> list[dict] | None:
+    """Post or update a call summary comment on each linked milestone.
+
+    For each milestone linked to the note:
+    1. Upserts to MSX, retrieving existing comments for AI context
+    2. Calls AI to summarize only new info from this call
+    3. If AI fails or is unavailable, posts metadata-only fallback
+
+    When ``background=True`` (default), work runs in a daemon thread
+    and this function returns immediately.  Set ``background=False``
+    for synchronous execution (used in tests).
+
+    Returns:
+        None when background=True, or list of result dicts when synchronous.
+    """
+    if not note.milestones:
+        print(f"[milestone-tracking] note {note.id}: no milestones linked, skipping")
+        return [] if not background else None
+
+    # Extract all ORM data before potentially leaving the request context
+    customer_name = note.customer.name if note.customer else 'General'
+    topics = ', '.join(t.name for t in note.topics[:5]) if note.topics else 'None'
+    plain = _strip_html(note.content)
+    ref_tag = _NOTE_REF.format(id=note.id)
+    call_date_iso = note.call_date.strftime('%Y-%m-%dT00:00:00.000Z')
+
+    milestones_data = [
+        {"msx_milestone_id": m.msx_milestone_id, "milestone_id": m.id}
+        for m in note.milestones
+        if m.msx_milestone_id
+    ]
+    print(f"[milestone-tracking] note {note.id}: {len(milestones_data)} milestones with MSX IDs")
+
+    if not milestones_data:
+        print(f"[milestone-tracking] note {note.id}: milestones exist but none have MSX IDs")
+        if not background:
+            return [{"milestone_id": m.id, "msx_result": None, "ai_used": False}
+                    for m in note.milestones]
+        return None
+
+    if background:
+        print(f"[milestone-tracking] note {note.id}: spawning background thread")
+        thread = threading.Thread(
+            target=_track_note_worker,
+            args=(milestones_data, plain, customer_name, topics, ref_tag, call_date_iso),
+            daemon=True,
+        )
+        thread.start()
+        return None
+
+    # Synchronous path (for testing)
+    _track_note_worker(milestones_data, plain, customer_name, topics, ref_tag, call_date_iso)
+    return [{"milestone_id": ms["milestone_id"], "msx_result": None, "ai_used": False}
+            for ms in milestones_data]
+
+
+def track_engagement_on_milestones(engagement, background: bool = True) -> list[dict] | None:
+    """Post or update the engagement story comment on each linked milestone.
+
+    The story is pinned to the top (modifiedOn = 2099-01-01) and updated
+    in-place when engagement fields change.
+
+    When ``background=True`` (default), work runs in a daemon thread.
+
+    Returns:
+        None when background=True, or list of result dicts when synchronous.
+    """
+    if not engagement.milestones:
+        print(f"[milestone-tracking] engagement {engagement.id}: no milestones linked, skipping")
+        return [] if not background else None
+
+    story = _build_engagement_story(engagement)
+    ref_tag = _ENG_REF.format(id=engagement.id)
+    print(f"[milestone-tracking] engagement {engagement.id}: {len(engagement.milestones)} milestones, ref={ref_tag}")
+    content = _add_footer(story, ref_tag)
+
+    milestones_data = [
+        {"msx_milestone_id": m.msx_milestone_id, "milestone_id": m.id}
+        for m in engagement.milestones
+        if m.msx_milestone_id
+    ]
+
+    if not milestones_data:
+        if not background:
+            return [{"milestone_id": m.id, "msx_result": None}
+                    for m in engagement.milestones]
+        return None
+
+    if background:
+        thread = threading.Thread(
+            target=_track_engagement_worker,
+            args=(milestones_data, content, ref_tag),
+            daemon=True,
+        )
+        thread.start()
+        return None
+
+    # Synchronous path (for testing)
+    _track_engagement_worker(milestones_data, content, ref_tag)
+    return [{"milestone_id": ms["milestone_id"], "msx_result": None}
+            for ms in milestones_data]
