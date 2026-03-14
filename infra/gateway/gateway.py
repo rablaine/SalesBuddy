@@ -561,6 +561,7 @@ def ping():
 # GET / — basic liveness probe
 # ---------------------------------------------------------------------------
 @app.route("/", methods=["GET"])
+@app.route("/health", methods=["GET"])
 def health():
     """Liveness probe for App Service (no OpenAI call)."""
     return jsonify({"status": "ok", "service": "notehelper-ai-gateway"})

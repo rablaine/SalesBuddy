@@ -53,6 +53,8 @@ Thumbs.db
 
 # Logs
 *.log
+*-logs/
+*-logs*.zip
 
 # Future planning documents
 FUTURE_*.md

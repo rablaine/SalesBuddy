@@ -18,6 +18,7 @@
 
 **Key Libraries/Packages:**
 - Flask - Web framework
+- Flask-SocketIO - Real-time WebSocket communication (partner sharing hub)
 - Bootstrap 5 - UI components and styling
 - SQLAlchemy - Database ORM (with custom idempotent migrations)
 - python-dotenv - Environment variable management
@@ -27,34 +28,35 @@
 
 ## Project Structure
 
-**Phase 1 (Current): Single-File Structure**
 ```
 /
-├── app.py              - Main Flask application (routes, models, logic)
-├── templates/          - Jinja2 HTML templates
-├── static/             - CSS, JS, images
-│   ├── css/
-│   └── js/
-├── tests/              - pytest test files
-├── .env                - Environment variables (not committed)
-└── requirements.txt    - Python dependencies
-```
-
-**Phase 2 (Future): Blueprint Structure**
-```
-/app
-├── __init__.py         - Flask app factory
-├── models.py           - Database models
-├── routes/
-│   ├── customers.py    - Customer blueprint
-│   ├── notes.py        - Notes blueprint
-│   └── search.py       - Search blueprint
-├── auth/
-│   ├── flask_login.py  - Username/password auth
-│   └── azure_oauth.py  - Azure AD OAuth (optional)
-├── templates/
-└── static/
-/tests
+├── app/
+│   ├── __init__.py         - Flask app factory
+│   ├── models.py           - SQLAlchemy models
+│   ├── migrations.py       - Custom idempotent migrations
+│   ├── gateway_client.py   - AI gateway client (APIM calls)
+│   ├── routes/             - Flask blueprints (one per domain)
+│   │   ├── customers.py, notes.py, sellers.py, territories.py, ...
+│   │   ├── ai.py           - AI-powered endpoints
+│   │   ├── admin.py        - Admin panel routes
+│   │   └── revenue.py      - Revenue tracking
+│   └── services/           - Business logic & integrations
+│       ├── partner_sharing.py  - Socket.IO sharing hub client
+│       ├── msx_api.py, msx_auth.py - MSX integration
+│       ├── revenue_import.py, revenue_analysis.py
+│       └── telemetry.py, telemetry_shipper.py
+├── infra/gateway/          - AI Gateway (deployed to Azure App Service)
+│   ├── gateway.py          - Flask app (APIM → OpenAI proxy)
+│   ├── sharing_hub.py      - Socket.IO sharing server
+│   ├── openai_client.py    - Azure OpenAI wrapper
+│   ├── prompts.py          - AI prompt templates
+│   └── requirements.txt    - Gateway-specific dependencies
+├── templates/              - Jinja2 HTML templates
+├── static/                 - CSS, JS, images
+├── tests/                  - pytest test files
+├── scripts/                - Utility scripts (backup, restore, etc.)
+├── .env                    - Environment variables (not committed)
+└── requirements.txt        - Python dependencies
 ```
 
 ## Coding Standards & Best Practices
@@ -75,8 +77,9 @@
 - **Database tables:** snake_case plural (e.g., `customers`, `notes`, `tags`)
 
 ### Code Organization
-- Start with single-file app.py, refactor to blueprints when file exceeds ~300 lines
-- Keep database models in separate section or file
+- Use Flask blueprints in `app/routes/` — one file per domain
+- Keep database models in `app/models.py`
+- Keep business logic in `app/services/` — separate from route handlers
 - Group related routes together with clear comments
 - Keep functions focused and under 50 lines when possible
 - Extract magic numbers and strings into constants at top of file
@@ -123,6 +126,11 @@
 **API Design:** Server-rendered templates with Jinja2 (not REST API)
 - Use POST for data modifications
 - Use GET for queries and searches
+
+**Real-Time Communication:** Flask-SocketIO for partner sharing hub
+- Socket.IO server runs on the AI gateway (`infra/gateway/sharing_hub.py`)
+- Client-side connects from the local Flask app (`app/services/partner_sharing.py`)
+- Used for sharing partner directories between NoteHelper instances
 
 **Database Migrations:** Custom idempotent migrations (NOT Flask-Migrate/Alembic)
 - Located in `app/migrations.py`
@@ -225,9 +233,17 @@ pytest --cov=app tests/  # with coverage
 - Safe to experiment and break things
 
 **Production Environment:**
-- Runs locally or on a server via `flask run` or Gunicorn
-- SQLite database (persisted in `data/` directory)
+- NoteHelper Flask app runs locally via `flask run` or `start.bat`
+- SQLite database (persisted in `data/notehelper.db`)
+- `update.bat` backs up the database before deploying/running migrations
 - Real user data - handle with care
+
+**AI Gateway Environment (Azure):**
+- App Service: `app-notehelper-ai` in resource group `NoteHelper_Resources`
+- Staging slot: `app-notehelper-ai-staging` (canary for deploys)
+- Python 3.11, Gunicorn, startup command: `gunicorn --bind=0.0.0.0:8000 --threads 4 gateway:app`
+- See **AI Gateway Infrastructure** section for architecture details
+- See **Gateway Deployment Rules** section for deploy procedures
 
 ## Git & Version Control
 
@@ -271,10 +287,51 @@ pytest --cov=app tests/  # with coverage
 - No secrets or .env file committed
 - Tests included for new features or bug fixes
 
+**CRITICAL — Gateway Deployment Rules:**
+- **NEVER deploy to prod without verifying staging first.** Deploy to staging → hit `/health` → confirm 200 → only then deploy to prod.
+- **NEVER deploy to both slots simultaneously.** Staging is the canary. If staging breaks, prod is unaffected.
+- **Before building a deploy zip, include ALL required files** (see manifest below). Do not guess — verify.
+- **After deploying, verify with `GET /health`** (returns `{"status": "ok"}`). See HTTP status reference below.
+
+**Gateway Deploy Zip — Required Files:**
+All 5 files from `infra/gateway/` must be in the zip root:
+1. `gateway.py` — Main Flask app
+2. `sharing_hub.py` — Socket.IO sharing server
+3. `openai_client.py` — Azure OpenAI client wrapper
+4. `prompts.py` — AI prompt templates
+5. `requirements.txt` — Python dependencies
+
+If `gateway.py` adds new imports in the future, the new files must also be included.
+
+**Gateway HTTP Status Cheat Sheet:**
+| Status | Meaning |
+|--------|-----------------------------------------------|
+| `200`  | Healthy — app is running and responding |
+| `403`  | App is running, but auth rejected the request (check gateway secret / JWT) |
+| `404`  | Endpoint doesn't exist (check route definitions — NOT "service is down") |
+| `502`  | Container failed to start (check App Service logs: `az webapp log tail`) |
+| `503`  | App Service is restarting or overloaded |
+
+**Gateway Rollback Procedure:**
+If a deploy breaks a slot:
+1. Check logs: `az webapp log tail -g NoteHelper_Resources -n app-notehelper-ai [-s staging]`
+2. Redeploy the last known-good zip: `az webapp deploy -g NoteHelper_Resources -n app-notehelper-ai [-s staging] --src-path infra/gateway/gateway-deploy.zip --type zip --clean true`
+3. Verify with `GET /health` → 200
+
 **GitHub Interactions:**
 - **Use `gh` CLI for all GitHub operations** — issues, PRs, comments, labels, etc.
 - Examples: `gh issue comment 46 --body "Fixed in commit abc123"`, `gh issue list`, `gh pr create`
 - Do NOT ask about MCP tools or other methods — just use `gh` directly
+
+## External Actions Safety
+
+**Before any action that modifies systems outside the local workspace, pause and confirm:**
+- **Deploying to Azure** (staging or prod) — state the target slot and what's being deployed
+- **Pushing to remote** (`git push`) — state the branch and what's being pushed
+- **Deleting remote resources** (branches, Azure resources, deployed code)
+- **Running `az` commands that modify infrastructure** (config changes, restarts, identity assignments)
+
+The rule: **if it leaves your machine, say what you're doing and why before doing it.** For destructive or hard-to-reverse actions, wait for explicit user confirmation.
 
 ## UI/UX Conventions
 
@@ -351,11 +408,6 @@ az account get-access-token --resource "api://0f6db4af-332c-4fd5-b894-77fadb181e
 
 ## Additional Notes
 
-**Development Phases:**
-- **Phase 1 (Complete):** Single-user local deployment mode
-- **Phase 2 (Future):** Refactor to blueprints when complexity grows
-- **Phase 3 (Optional):** Add multi-user authentication if needed
-
 **Key Features:**
 - Create/edit/delete notes (call logs)
 - Tag notes with technologies, customers, sellers, territories
@@ -372,4 +424,4 @@ az account get-access-token --resource "api://0f6db4af-332c-4fd5-b894-77fadb181e
 
 ---
 
-**Last Updated:** March 8, 2026
+**Last Updated:** March 14, 2026
