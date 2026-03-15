@@ -94,6 +94,16 @@
         </div>
         {% endif %}
 
+        <!-- Meeting Import Status (inline, non-blocking) -->
+        <div id="meetingStatusCard" class="alert alert-info mb-4" style="display: none;">
+            <div class="d-flex justify-content-between align-items-center">
+                <div id="statusCardContent" class="d-flex align-items-center"></div>
+                <button type="button" class="btn btn-sm btn-outline-secondary ms-3" onclick="cancelMeetingStatus()">
+                    <i class="bi bi-x"></i> Cancel
+                </button>
+            </div>
+        </div>
+
         <div class="card">
             <div class="card-body">
                 <form method="POST" id="noteForm">
@@ -470,20 +480,6 @@
         </div>
     </div>
     {% endif %}
-</div>
-
-<!-- Docked Meeting Import Status Card (non-blocking) -->
-<div id="meetingStatusCard" class="card shadow-lg border-primary" 
-     style="display:none; position:fixed; top:80px; right:24px; z-index:1055; width:340px; opacity:0; transition: opacity 0.3s ease;">
-    <div class="card-body py-3 px-3">
-        <div class="d-flex justify-content-between align-items-start mb-2">
-            <h6 class="card-title mb-0"><i class="bi bi-calendar-event text-primary"></i> Meeting Import</h6>
-            <button type="button" class="btn-close btn-close-sm" onclick="cancelMeetingStatus()" aria-label="Cancel"></button>
-        </div>
-        <div id="statusCardContent">
-            <!-- Dynamic content set by JS -->
-        </div>
-    </div>
 </div>
 
 <!-- Meeting Import Modal -->
@@ -2827,15 +2823,10 @@ function showMeetingStatusCard(html) {
     var card = document.getElementById('meetingStatusCard');
     document.getElementById('statusCardContent').innerHTML = html;
     card.style.display = 'block';
-    // Trigger reflow then fade in
-    void card.offsetWidth;
-    card.style.opacity = '1';
 }
 
 function hideMeetingStatusCard() {
-    var card = document.getElementById('meetingStatusCard');
-    card.style.opacity = '0';
-    setTimeout(function() { card.style.display = 'none'; }, 300);
+    document.getElementById('meetingStatusCard').style.display = 'none';
 }
 
 function cancelMeetingStatus() {
