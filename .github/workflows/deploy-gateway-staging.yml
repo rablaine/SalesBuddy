@@ -1,15 +1,20 @@
-# Deploy AI Gateway to staging slot on push to main
-# Manual swap to production: az webapp deployment slot swap -g NoteHelper_Resources -n app-notehelper-ai -s staging
+# DISABLED — Manual deploys via OneDeploy (az webapp deploy) are used instead.
+# This workflow previously auto-deployed on merge to main, but it was missing
+# sharing_hub.py from the zip and broke staging. Keeping file for reference.
+#
+# To re-enable: remove the `if: false` from the job and fix the zip command
+# to include sharing_hub.py.
 
-name: Deploy Gateway to Staging
+name: Deploy Gateway to Staging (DISABLED)
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - 'infra/gateway/**'
-  workflow_dispatch:  # Allow manual trigger
+  # Disabled — no automatic triggers
+  # push:
+  #   branches:
+  #     - main
+  #   paths:
+  #     - 'infra/gateway/**'
+  workflow_dispatch:  # Allow manual trigger (still available if needed)
 
 env:
   AZURE_WEBAPP_NAME: app-notehelper-ai
@@ -17,6 +22,7 @@ env:
 
 jobs:
   deploy-staging:
+    if: false  # Disabled — using manual OneDeploy
     runs-on: ubuntu-latest
     permissions:
       id-token: write  # Required for Azure OIDC login

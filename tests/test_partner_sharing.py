@@ -11,7 +11,55 @@ from app.services.partner_sharing import (
     serialize_all_partners,
     upsert_partner,
     upsert_partners,
+    preview_partners,
+    _normalize_company_name,
 )
+
+
+# ── Name normalization tests ─────────────────────────────────────────────────
+
+
+class TestNormalizeCompanyName:
+    """Test company name normalization for matching."""
+
+    def test_strips_llc(self):
+        assert _normalize_company_name('Contoso LLC') == 'contoso'
+
+    def test_strips_inc_with_period(self):
+        assert _normalize_company_name('Contoso, Inc.') == 'contoso'
+
+    def test_strips_corp(self):
+        assert _normalize_company_name('Contoso Corp') == 'contoso'
+
+    def test_strips_corporation(self):
+        assert _normalize_company_name('Contoso Corporation') == 'contoso'
+
+    def test_strips_ltd(self):
+        assert _normalize_company_name('Contoso Ltd.') == 'contoso'
+
+    def test_strips_multiple_suffixes(self):
+        assert _normalize_company_name('Contoso Holdings LLC') == 'contoso'
+
+    def test_case_insensitive(self):
+        assert _normalize_company_name('CONTOSO LLC') == 'contoso'
+
+    def test_preserves_meaningful_words(self):
+        assert _normalize_company_name('Blue Corp Industries') == 'blue corp industries'
+
+    def test_plain_name_unchanged(self):
+        assert _normalize_company_name('Profisee') == 'profisee'
+
+    def test_strips_leading_trailing_whitespace(self):
+        assert _normalize_company_name('  Contoso Inc  ') == 'contoso'
+
+    def test_strips_emojis(self):
+        assert _normalize_company_name('Nerdio ❤️') == 'nerdio'
+
+    def test_strips_emojis_mixed(self):
+        assert _normalize_company_name('🚀 Contoso 🎉 LLC') == 'contoso'
+
+    def test_strips_heart_emoji_in_middle(self):
+        assert _normalize_company_name('Nerdio❤️Corp') == 'nerdiocorp'
 
 
 # ── Serialization tests ─────────────────────────────────────────────────────
@@ -168,7 +216,7 @@ class TestUpsertPartner:
             assert any(s.name == 'Data Migration' for s in refreshed.specialties)
 
     def test_updates_existing_by_website_match(self, app):
-        """Existing partner matched by website gets updated."""
+        """Existing partner matched by website gets updated (normalizes URLs)."""
         with app.app_context():
             partner = Partner(name='DiffName LLC', website='sameco.com')
             db.session.add(partner)
@@ -176,7 +224,7 @@ class TestUpsertPartner:
 
             data = {
                 'name': 'SameCo',  # different name
-                'website': 'SAMECO.COM',  # case-insensitive website match
+                'website': 'https://www.SAMECO.COM/page',  # scheme + www + path stripped
                 'specialties': ['AI/ML'],
             }
 
@@ -191,6 +239,37 @@ class TestUpsertPartner:
         with app.app_context():
             result = upsert_partner({'name': '  '}, 'Alice')
             assert result['action'] == 'skipped'
+
+    def test_matches_name_with_suffix_stripped(self, app):
+        """Partner matched by name after stripping LLC/Inc/etc."""
+        with app.app_context():
+            partner = Partner(name='Contoso')
+            db.session.add(partner)
+            db.session.commit()
+
+            data = {
+                'name': 'Contoso, LLC',
+                'specialties': ['Azure'],
+            }
+            result = upsert_partner(data, 'Alice')
+            db.session.commit()
+
+            assert result['action'] == 'updated'
+            assert result['name'] == 'Contoso'
+
+    def test_matches_existing_suffix_to_bare_name(self, app):
+        """Existing 'Contoso Inc.' matched by incoming 'Contoso'."""
+        with app.app_context():
+            partner = Partner(name='Contoso Inc.')
+            db.session.add(partner)
+            db.session.commit()
+
+            data = {'name': 'Contoso', 'specialties': ['AI']}
+            result = upsert_partner(data, 'Bob')
+            db.session.commit()
+
+            assert result['action'] == 'updated'
+            assert result['name'] == 'Contoso Inc.'
 
     def test_no_duplicate_sender_review(self, app):
         """Running upsert twice from same sender doesn't duplicate review."""
@@ -332,3 +411,174 @@ class TestShareAPIEndpoints:
         with patch('app.services.partner_sharing.get_share_token', return_value=None):
             resp = client.get('/api/share/connection-info')
             assert resp.status_code == 401
+
+
+# ── Preview tests ────────────────────────────────────────────────────────────
+
+
+class TestPreviewPartners:
+    """Test preview_partners dry-run logic."""
+
+    def test_new_partner_shows_create(self, app):
+        """Partner not in DB previews as 'create' with incoming values."""
+        with app.app_context():
+            data = [{
+                'name': 'BrandNew',
+                'contacts': [{'name': 'Jo', 'email': 'a@b.com', 'is_primary': True}],
+                'specialties': ['AI'],
+                'website': 'brandnew.com',
+                'rating': 4,
+                'overview': 'Great partner',
+            }]
+            previews = preview_partners(data, 'Alice')
+
+            assert len(previews) == 1
+            p = previews[0]
+            assert p['action'] == 'create'
+            assert p['name'] == 'BrandNew'
+            assert p['has_changes'] is True
+            # Structured incoming data
+            inc = p['incoming']
+            assert inc['website'] == 'brandnew.com'
+            assert inc['rating'] == 4
+            assert inc['overview'] == 'Great partner'
+            assert inc['specialties'] == ['AI']
+            assert len(inc['contacts']) == 1
+            assert inc['contacts'][0]['email'] == 'a@b.com'
+
+    def test_existing_partner_with_changes(self, app):
+        """Existing partner with new contacts/specialties shows 'update' with structured changes."""
+        with app.app_context():
+            partner = Partner(name='ExistCo', overview='Original')
+            db.session.add(partner)
+            db.session.flush()
+            contact = PartnerContact(partner_id=partner.id, name='Old', email='old@existco.com')
+            db.session.add(contact)
+            db.session.commit()
+
+            data = [{
+                'name': 'ExistCo',
+                'overview': 'New review',
+                'rating': 5,
+                'website': 'existco.com',
+                'contacts': [
+                    {'email': 'old@existco.com'},  # existing — skipped
+                    {'name': 'New Person', 'email': 'new@existco.com'},  # new
+                ],
+                'specialties': ['Kubernetes'],
+            }]
+            previews = preview_partners(data, 'Alice')
+
+            assert len(previews) == 1
+            p = previews[0]
+            assert p['action'] == 'update'
+            assert p['has_changes'] is True
+            ch = p['changes']
+            assert len(ch['contacts']) == 1
+            assert ch['contacts'][0]['email'] == 'new@existco.com'
+            assert ch['specialties'] == ['Kubernetes']
+            assert ch['overview'] == 'New review'
+            assert ch['website'] == 'existco.com'
+            assert ch['rating'] == 5
+
+    def test_existing_partner_no_changes(self, app):
+        """Existing partner with no new data shows 'update' with no changes."""
+        with app.app_context():
+            spec = Specialty(name='Azure SQL')
+            db.session.add(spec)
+            db.session.flush()
+            partner = Partner(name='SameCo', overview="--- Bob's review ---\nStuff")
+            partner.specialties.append(spec)
+            db.session.add(partner)
+            db.session.flush()
+            contact = PartnerContact(partner_id=partner.id, name='X', email='x@sameco.com')
+            db.session.add(contact)
+            db.session.commit()
+
+            data = [{
+                'name': 'SameCo',
+                'overview': 'Something',
+                'contacts': [{'email': 'x@sameco.com'}],
+                'specialties': ['Azure SQL'],
+            }]
+            previews = preview_partners(data, 'Bob')
+
+            assert len(previews) == 1
+            assert previews[0]['action'] == 'update'
+            assert previews[0]['has_changes'] is False
+            assert previews[0]['changes'] == {}
+
+    def test_skips_empty_name(self, app):
+        """Partners with empty names are skipped in preview."""
+        with app.app_context():
+            data = [{'name': '  '}, {'name': 'Valid'}]
+            previews = preview_partners(data, 'Alice')
+            assert len(previews) == 1
+            assert previews[0]['name'] == 'Valid'
+
+    def test_website_match(self, app):
+        """Preview matches existing partner by website, normalizing URL schemes."""
+        with app.app_context():
+            partner = Partner(name='OldName', website='sameco.com')
+            db.session.add(partner)
+            db.session.commit()
+
+            # https:// prefix and www. should still match
+            data = [{'name': 'DifferentName', 'website': 'https://www.SAMECO.COM/about'}]
+            previews = preview_partners(data, 'Alice')
+
+            assert len(previews) == 1
+            assert previews[0]['action'] == 'update'
+            assert previews[0]['name'] == 'OldName'
+
+    def test_name_suffix_match(self, app):
+        """Preview matches partner after stripping company suffixes."""
+        with app.app_context():
+            partner = Partner(name='Profisee')
+            db.session.add(partner)
+            db.session.commit()
+
+            data = [{'name': 'Profisee, Inc.', 'specialties': ['MDM']}]
+            previews = preview_partners(data, 'Alice')
+
+            assert len(previews) == 1
+            assert previews[0]['action'] == 'update'
+            assert previews[0]['name'] == 'Profisee'
+
+
+class TestPreviewAPIEndpoint:
+    """Test the /api/share/preview endpoint."""
+
+    def test_preview_endpoint_returns_previews(self, client, app):
+        """POST /api/share/preview returns preview list."""
+        with app.app_context():
+            db.session.add(Partner(name='ExistingPartner'))
+            db.session.commit()
+
+        resp = client.post('/api/share/preview', json={
+            'sender_name': 'Bob',
+            'partners': [
+                {'name': 'ExistingPartner', 'specialties': ['New Spec']},
+                {'name': 'NewPartner', 'contacts': [], 'specialties': []},
+            ],
+        })
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data['success'] is True
+        assert len(data['previews']) == 2
+
+        existing = next(p for p in data['previews'] if p['name'] == 'ExistingPartner')
+        assert existing['action'] == 'update'
+
+        new = next(p for p in data['previews'] if p['name'] == 'NewPartner')
+        assert new['action'] == 'create'
+
+    def test_preview_endpoint_rejects_empty(self, client):
+        """POST /api/share/preview rejects empty partner list."""
+        resp = client.post('/api/share/preview', json={'partners': [], 'sender_name': 'X'})
+        assert resp.status_code == 400
+
+    def test_preview_endpoint_rejects_no_body(self, client):
+        """POST /api/share/preview rejects missing JSON body."""
+        resp = client.post('/api/share/preview', content_type='application/json')
+        assert resp.status_code == 400

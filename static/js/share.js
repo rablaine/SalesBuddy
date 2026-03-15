@@ -17,6 +17,7 @@ const Share = (function () {
   let pendingShareType = null;   // "directory", "partner", or "note"
   let pendingItemId = null;      // set when sharing a single partner or note
   let pendingRecipientEmail = null;
+  let _pendingImport = null;     // {partners: [...], sender_name: str} awaiting user review
 
   // ── Connection ──────────────────────────────────────────────────────
 
@@ -231,37 +232,32 @@ const Share = (function () {
       return;
     }
 
-    // Partner directory / single partner import
-    const count = (data.partners || []).length;
+    // Partner directory / single partner import — show preview modal
+    const partners = data.partners || [];
+    const count = partners.length;
     _showToast(
-      `Receiving ${count} partner${count !== 1 ? 's' : ''} from ${_esc(data.sender_name)}...`,
+      `Received ${count} partner${count !== 1 ? 's' : ''} from ${_esc(data.sender_name)}. Reviewing...`,
       'info',
     );
 
     try {
-      const resp = await fetch('/api/share/receive', {
+      const resp = await fetch('/api/share/preview', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          partners: data.partners,
+          partners: partners,
           sender_name: data.sender_name,
         }),
       });
       const result = await resp.json();
       if (result.success) {
-        const msg = `Import complete: ${result.created} new, ${result.updated} updated` +
-          (result.skipped ? `, ${result.skipped} skipped` : '');
-        _showToast(msg, 'success');
-        // Reload if we're on the partners page
-        if (window.location.pathname === '/partners' ||
-            window.location.pathname.startsWith('/partners/')) {
-          setTimeout(() => window.location.reload(), 1500);
-        }
+        _pendingImport = { partners: partners, sender_name: data.sender_name };
+        _showImportReviewModal(result.previews, data.sender_name);
       } else {
-        _showToast('Import failed: ' + (result.error || 'unknown error'), 'danger');
+        _showToast('Preview failed: ' + (result.error || 'unknown error'), 'danger');
       }
     } catch (e) {
-      _showToast('Import failed: ' + e.message, 'danger');
+      _showToast('Preview failed: ' + e.message, 'danger');
     }
   }
 
@@ -397,6 +393,227 @@ const Share = (function () {
     pendingRecipientEmail = null;
   }
 
+  // ── Import review modal ───────────────────────────────────────────
+
+  function _showImportReviewModal(previews, senderName) {
+    const body = document.getElementById('shareImportReviewBody');
+    if (!body) return;
+
+    const creates = previews.filter(p => p.action === 'create');
+    const updates = previews.filter(p => p.action === 'update' && p.has_changes);
+    const noChanges = previews.filter(p => p.action === 'update' && !p.has_changes);
+
+    let html = `<p class="text-muted mb-3">From <strong>${_esc(senderName)}</strong> — ${previews.length} partner${previews.length !== 1 ? 's' : ''}</p>`;
+
+    html += '<div class="mb-2 d-flex flex-wrap gap-2">';
+    html += '<button class="btn btn-sm btn-outline-secondary" onclick="Share.toggleAllImport(true)">Select All</button>';
+    html += '<button class="btn btn-sm btn-outline-secondary" onclick="Share.toggleAllImport(false)">Deselect All</button>';
+    if (creates.length > 0) {
+      html += '<button class="btn btn-sm btn-outline-success" onclick="Share.selectNewOnly()"><i class="bi bi-plus-circle me-1"></i>Select New Only</button>';
+    }
+    html += '</div>';
+
+    html += '<div class="list-group">';
+
+    if (creates.length > 0) {
+      html += `<div class="list-group-item bg-light fw-semibold text-success"><i class="bi bi-plus-circle"></i> New (${creates.length})</div>`;
+      for (const p of creates) {
+        html += _importRowCreate(p);
+      }
+    }
+
+    if (updates.length > 0) {
+      html += `<div class="list-group-item bg-light fw-semibold text-primary"><i class="bi bi-arrow-repeat"></i> Updated (${updates.length})</div>`;
+      for (const p of updates) {
+        html += _importRowUpdate(p);
+      }
+    }
+
+    if (noChanges.length > 0) {
+      html += `<div class="list-group-item bg-light fw-semibold text-muted"><i class="bi bi-dash-circle"></i> No Changes (${noChanges.length})</div>`;
+      for (const p of noChanges) {
+        html += _importRowNoChange(p);
+      }
+    }
+
+    html += '</div>';
+    body.innerHTML = html;
+    _updateImportBtnCount();
+
+    const modal = new bootstrap.Modal(document.getElementById('shareImportReviewModal'));
+    modal.show();
+  }
+
+  function _stars(n) {
+    return n ? '★'.repeat(n) + '☆'.repeat(5 - n) : '';
+  }
+
+  function _importRowCreate(p) {
+    const inc = p.incoming || {};
+    let details = '';
+
+    if (inc.website) details += `<div><i class="bi bi-globe me-1"></i>${_esc(inc.website)}</div>`;
+    if (inc.rating) details += `<div><i class="bi bi-star-fill me-1 text-warning"></i>${_stars(inc.rating)}</div>`;
+    if (inc.specialties && inc.specialties.length) {
+      details += '<div><i class="bi bi-tag me-1"></i>' +
+        inc.specialties.map(s => `<span class="badge bg-warning text-dark me-1">${_esc(s)}</span>`).join('') + '</div>';
+    }
+    if (inc.contacts && inc.contacts.length) {
+      details += '<div class="mt-1">';
+      for (const c of inc.contacts) {
+        const primary = c.is_primary ? ' <span class="badge bg-info">primary</span>' : '';
+        details += `<div><i class="bi bi-person me-1"></i>${_esc(c.name || '')}${c.email ? ' &lt;' + _esc(c.email) + '&gt;' : ''}${primary}</div>`;
+      }
+      details += '</div>';
+    }
+    if (inc.overview) {
+      const short = inc.overview.length > 120 ? inc.overview.substring(0, 120) + '…' : inc.overview;
+      details += `<div class="mt-1 fst-italic text-muted"><i class="bi bi-chat-quote me-1"></i>${_esc(short)}</div>`;
+    }
+    if (inc.favicon_b64) details += '<div><i class="bi bi-image me-1"></i>favicon included</div>';
+
+    return `
+      <div class="list-group-item">
+        <div class="d-flex align-items-start gap-2">
+          <input type="checkbox" class="form-check-input mt-1 share-import-check" data-action="create"
+                 value="${_esc(p.name)}" checked onchange="Share.updateImportBtnCount()">
+          <div class="flex-grow-1">
+            <span class="fw-semibold">${_esc(p.name)}</span>
+            <span class="badge bg-success ms-1">New</span>
+            <div class="small mt-1">${details || '<span class="text-muted">Name only</span>'}</div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  function _importRowUpdate(p) {
+    const ch = p.changes || {};
+    let details = '';
+
+    if (ch.website) details += `<div><i class="bi bi-globe me-1"></i>Website: ${_esc(ch.website)}</div>`;
+    if (ch.rating) details += `<div><i class="bi bi-star-fill me-1 text-warning"></i>Rating: ${_stars(ch.rating)}</div>`;
+    if (ch.favicon) details += '<div><i class="bi bi-image me-1"></i>New favicon</div>';
+    if (ch.specialties && ch.specialties.length) {
+      details += '<div><i class="bi bi-tag me-1"></i>New: ' +
+        ch.specialties.map(s => `<span class="badge bg-warning text-dark me-1">${_esc(s)}</span>`).join('') + '</div>';
+    }
+    if (ch.contacts && ch.contacts.length) {
+      details += '<div class="mt-1"><i class="bi bi-person-plus me-1"></i>New contacts:</div>';
+      for (const c of ch.contacts) {
+        details += `<div class="ms-3"><i class="bi bi-person me-1"></i>${_esc(c.name || '')}${c.email ? ' &lt;' + _esc(c.email) + '&gt;' : ''}</div>`;
+      }
+    }
+    if (ch.overview) {
+      const short = ch.overview.length > 120 ? ch.overview.substring(0, 120) + '…' : ch.overview;
+      details += `<div class="mt-1 fst-italic text-muted"><i class="bi bi-chat-quote me-1"></i>${_esc(short)}</div>`;
+    }
+
+    return `
+      <div class="list-group-item">
+        <div class="d-flex align-items-start gap-2">
+          <input type="checkbox" class="form-check-input mt-1 share-import-check" data-action="update"
+                 value="${_esc(p.name)}" checked onchange="Share.updateImportBtnCount()">
+          <div class="flex-grow-1">
+            <span class="fw-semibold">${_esc(p.name)}</span>
+            <span class="badge bg-primary ms-1">Update</span>
+            <div class="small mt-1">${details}</div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  function _importRowNoChange(p) {
+    return `
+      <div class="list-group-item">
+        <div class="d-flex align-items-start gap-2">
+          <input type="checkbox" class="form-check-input mt-1 share-import-check" data-action="update"
+                 value="${_esc(p.name)}" onchange="Share.updateImportBtnCount()">
+          <div class="flex-grow-1">
+            <span class="fw-semibold text-muted">${_esc(p.name)}</span>
+            <span class="badge bg-secondary ms-1">No changes</span>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  function selectNewOnly() {
+    document.querySelectorAll('.share-import-check').forEach(cb => {
+      cb.checked = cb.dataset.action === 'create';
+    });
+    _updateImportBtnCount();
+  }
+
+  function _updateImportBtnCount() {
+    const checked = document.querySelectorAll('.share-import-check:checked').length;
+    const btn = document.getElementById('shareImportConfirmBtn');
+    if (btn) {
+      btn.textContent = `Import Selected (${checked})`;
+      btn.disabled = checked === 0;
+    }
+  }
+
+  function toggleAllImport(selectAll) {
+    document.querySelectorAll('.share-import-check').forEach(cb => { cb.checked = selectAll; });
+    _updateImportBtnCount();
+  }
+
+  async function confirmImport() {
+    if (!_pendingImport) return;
+
+    // Get selected partner names
+    const selectedNames = new Set();
+    document.querySelectorAll('.share-import-check:checked').forEach(cb => {
+      selectedNames.add(cb.value);
+    });
+
+    if (selectedNames.size === 0) {
+      _showToast('No partners selected.', 'warning');
+      return;
+    }
+
+    // Filter to only selected partners
+    const selectedPartners = _pendingImport.partners.filter(p =>
+      selectedNames.has((p.name || '').trim())
+    );
+
+    const btn = document.getElementById('shareImportConfirmBtn');
+    if (btn) {
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Importing...';
+    }
+
+    try {
+      const resp = await fetch('/api/share/receive', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          partners: selectedPartners,
+          sender_name: _pendingImport.sender_name,
+        }),
+      });
+      const result = await resp.json();
+      bootstrap.Modal.getInstance(document.getElementById('shareImportReviewModal'))?.hide();
+      _pendingImport = null;
+
+      if (result.success) {
+        const msg = `Import complete: ${result.created} new, ${result.updated} updated` +
+          (result.skipped ? `, ${result.skipped} skipped` : '');
+        _showToast(msg, 'success');
+        if (window.location.pathname === '/partners' ||
+            window.location.pathname.startsWith('/partners/')) {
+          setTimeout(() => window.location.reload(), 1500);
+        }
+      } else {
+        _showToast('Import failed: ' + (result.error || 'unknown error'), 'danger');
+      }
+    } catch (e) {
+      _showToast('Import failed: ' + e.message, 'danger');
+    }
+  }
+
   function _showToast(message, type) {
     // Reuse Bootstrap toast pattern
     let container = document.getElementById('shareToastContainer');
@@ -455,5 +672,9 @@ const Share = (function () {
     declineOffer,
     getOnlineCount,
     isConnected,
+    confirmImport,
+    toggleAllImport,
+    selectNewOnly,
+    updateImportBtnCount: _updateImportBtnCount,
   };
 })();

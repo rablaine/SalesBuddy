@@ -447,6 +447,24 @@ def api_share_serialize_directory():
     return jsonify({'success': True, 'partners': serialize_all_partners()})
 
 
+@partners_bp.route('/api/share/preview', methods=['POST'])
+def api_share_preview():
+    """Preview what would be created/updated without writing to DB."""
+    from app.services.partner_sharing import preview_partners
+    data = request.get_json()
+    if not data:
+        return jsonify({'success': False, 'error': 'No data provided'}), 400
+
+    partners_data = data.get('partners', [])
+    sender_name = data.get('sender_name', 'Unknown')
+
+    if not partners_data:
+        return jsonify({'success': False, 'error': 'No partners in payload'}), 400
+
+    previews = preview_partners(partners_data, sender_name)
+    return jsonify({'success': True, 'previews': previews})
+
+
 @partners_bp.route('/api/share/receive', methods=['POST'])
 def api_share_receive():
     """Receive and upsert partner data from a sharing peer."""

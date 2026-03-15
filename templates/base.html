@@ -1136,6 +1136,29 @@
             </div>
         </div>
     </div>
+
+    <!-- Partner Import Review Modal -->
+    <div class="modal fade" id="shareImportReviewModal" tabindex="-1" aria-labelledby="shareImportReviewLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="shareImportReviewLabel">
+                        <i class="bi bi-clipboard-check"></i> Review Partner Import
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body" id="shareImportReviewBody">
+                    <!-- Populated by share.js -->
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" id="shareImportConfirmBtn" onclick="Share.confirmImport()">
+                        <i class="bi bi-download"></i> Import Selected
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
     
     <!-- Navbar hover dropdown: click on the main link navigates, hover opens menu -->
     <script>
