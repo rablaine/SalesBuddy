@@ -2627,7 +2627,7 @@ function proceedWithMeeting(meeting, dateStr) {
             // Populate call notes
             var content = '<h2>' + escapeHtml(meeting.title) + '</h2>';
             content += '<p><strong>Summary:</strong></p>';
-            content += '<p>' + escapeHtml(data.summary) + '</p>';
+            content += textToHtml(data.summary);
             
             if (data.action_items && data.action_items.length > 0) {
                 content += '<p><strong>Action Items:</strong></p><ul>';
@@ -3071,7 +3071,7 @@ function importSelectedMeeting() {
             // Build rich content for Quill
             var content = '<h2>' + escapeHtml(meeting.title) + '</h2>';
             content += '<p><strong>Summary:</strong></p>';
-            content += '<p>' + escapeHtml(data.summary) + '</p>';
+            content += textToHtml(data.summary);
             
             if (data.action_items && data.action_items.length > 0) {
                 content += '<p><strong>Action Items:</strong></p><ul>';
@@ -3174,6 +3174,15 @@ function escapeHtml(text) {
     var div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
+}
+
+// Convert plain text (with newlines) to HTML paragraphs.
+// Double newlines become paragraph breaks; single newlines become <br>.
+function textToHtml(text) {
+    if (!text) return '';
+    return text.split(/\n\n+/).map(function(para) {
+        return '<p>' + escapeHtml(para.trim()).replace(/\n/g, '<br>') + '</p>';
+    }).filter(function(p) { return p !== '<p></p>'; }).join('');
 }
 </script>
 {% endblock %}

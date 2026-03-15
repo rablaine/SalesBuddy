@@ -1695,6 +1695,102 @@ class TestUpdateTeamMemberships:
             assert ms.on_my_team is True  # Unchanged because API failed
 
 
+    @patch('app.services.milestone_sync.get_my_milestone_team_ids')
+    def test_partial_pagination_only_adds_never_removes(self, mock_get_teams, app, sample_data):
+        """When pagination is incomplete, only set True — never clear existing flags."""
+        with app.app_context():
+            from app.models import db, Milestone
+            from app.services.milestone_sync import _update_team_memberships
+
+            ms_on_team = Milestone(
+                url='https://example.com/t5',
+                msx_milestone_id='eee-555',
+                msx_status='On Track',
+                on_my_team=True,
+            )
+            ms_new = Milestone(
+                url='https://example.com/t6',
+                msx_milestone_id='fff-666',
+                msx_status='On Track',
+                on_my_team=False,
+            )
+            db.session.add_all([ms_on_team, ms_new])
+            db.session.commit()
+
+            # API returned partial data (pagination broke) — only fff-666 came back
+            mock_get_teams.return_value = {
+                'success': True,
+                'milestone_ids': {'fff-666'},
+                'team_count': 3,
+                'pagination_complete': False,
+            }
+
+            _update_team_memberships()
+
+            db.session.refresh(ms_on_team)
+            db.session.refresh(ms_new)
+            # eee-555 was already True and should NOT be cleared
+            assert ms_on_team.on_my_team is True
+            # fff-666 was False and should be set to True
+            assert ms_new.on_my_team is True
+
+    @patch('app.services.milestone_sync.get_my_milestone_team_ids')
+    def test_complete_pagination_clears_unmatched(self, mock_get_teams, app, sample_data):
+        """When pagination is complete, milestones not in the set should be cleared."""
+        with app.app_context():
+            from app.models import db, Milestone
+            from app.services.milestone_sync import _update_team_memberships
+
+            ms = Milestone(
+                url='https://example.com/t7',
+                msx_milestone_id='ggg-777',
+                msx_status='On Track',
+                on_my_team=True,
+            )
+            db.session.add(ms)
+            db.session.commit()
+
+            mock_get_teams.return_value = {
+                'success': True,
+                'milestone_ids': set(),
+                'team_count': 5,
+                'pagination_complete': True,
+            }
+
+            _update_team_memberships()
+
+            db.session.refresh(ms)
+            assert ms.on_my_team is False
+
+    @patch('app.services.milestone_sync.get_my_milestone_team_ids')
+    def test_sync_does_not_touch_local_only_milestones(self, mock_get_teams, app, sample_data):
+        """Milestones without MSX IDs should not have on_my_team cleared by sync."""
+        with app.app_context():
+            from app.models import db, Milestone
+            from app.services.milestone_sync import _update_team_memberships
+
+            ms_local = Milestone(
+                url='https://example.com/local',
+                msx_milestone_id=None,
+                msx_status='On Track',
+                on_my_team=True,
+            )
+            db.session.add(ms_local)
+            db.session.commit()
+
+            mock_get_teams.return_value = {
+                'success': True,
+                'milestone_ids': set(),
+                'team_count': 5,
+                'pagination_complete': True,
+            }
+
+            _update_team_memberships()
+
+            db.session.refresh(ms_local)
+            assert ms_local.on_my_team is True
+
+
 class TestOnMyTeamInTracker:
     """Test on_my_team display in the tracker page."""
 

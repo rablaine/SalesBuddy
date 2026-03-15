@@ -823,9 +823,11 @@ def _update_team_memberships() -> None:
     """
     Update the on_my_team flag for all milestones based on MSX access teams.
 
-    Makes one API call to get all milestone team memberships, then bulk-updates
-    the on_my_team column. Milestones the user is on get True, all others get
-    False. Failures are logged but don't block the sync.
+    Makes one API call to get all milestone team memberships, then updates
+    the on_my_team column.  If the API returned a complete data set
+    (pagination_complete=True), milestones NOT in the set are marked False.
+    If pagination was interrupted, we only ADD memberships — never remove —
+    to avoid incorrectly stripping flags from partial data.
     """
     try:
         result = get_my_milestone_team_ids()
@@ -836,11 +838,20 @@ def _update_team_memberships() -> None:
             return
 
         my_ids = result["milestone_ids"]
-        logger.info(f"Updating on_my_team for {len(my_ids)} milestones")
+        pagination_complete = result.get("pagination_complete", True)
+        logger.info(
+            f"Updating on_my_team for {len(my_ids)} milestones "
+            f"(pagination_complete={pagination_complete})"
+        )
 
-        # Bulk update: set all to False first, then True for matches
-        Milestone.query.update({Milestone.on_my_team: False})
+        if pagination_complete:
+            # Full data — safe to set unmatched milestones to False,
+            # but only those that actually have an MSX ID (local-only are untouched)
+            Milestone.query.filter(
+                Milestone.msx_milestone_id.isnot(None)
+            ).update({Milestone.on_my_team: False})
 
+        # Set matched milestones to True (always safe, even with partial data)
         if my_ids:
             Milestone.query.filter(
                 db.func.lower(Milestone.msx_milestone_id).in_(my_ids)

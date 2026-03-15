@@ -233,7 +233,7 @@ def gateway_call(
             raise GatewayError(f"Gateway request failed: {exc}") from exc
 
     if resp.status_code == 429:
-        raise GatewayError("Rate limit exceeded — try again later")
+        raise GatewayError("Rate limit exceeded — try again later", status_code=429)
 
     if resp.status_code >= 400:
         try:
@@ -241,14 +241,17 @@ def gateway_call(
             msg = body.get("error") or body.get("statusReason") or resp.text[:200]
         except Exception:
             msg = resp.text[:200]
-        raise GatewayError(f"Gateway returned {resp.status_code}: {msg}")
+        raise GatewayError(f"Gateway returned {resp.status_code}: {msg}", status_code=resp.status_code)
 
     return resp.json()
 
 
 class GatewayError(Exception):
     """Raised when a gateway call fails."""
-    pass
+
+    def __init__(self, message: str, status_code: int | None = None):
+        super().__init__(message)
+        self.status_code = status_code
 
 
 class GatewayConsentError(GatewayError):

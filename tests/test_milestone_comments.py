@@ -318,31 +318,30 @@ class TestTrackNoteOnMilestones:
             db.session.flush()
 
             with patch('app.services.milestone_tracking._upsert_to_msx') as mock_upsert, \
-                 patch('app.services.milestone_tracking._ai_summarize_note') as mock_ai:
+                 patch('app.services.milestone_tracking._ai_summarize_note') as mock_ai, \
+                 patch('app.services.msx_api.get_milestone_comments') as mock_read:
+                mock_read.return_value = {"success": True, "comments": []}
                 mock_upsert.return_value = {
-                    "success": True, "comment_count": 1,
-                    "action": "created", "existing_comments": [],
+                    "success": True, "comment_count": 1, "action": "created",
                 }
                 mock_ai.return_value = "SQL MI migration assessed. 2 of 3 DBs ready."
 
                 track_note_on_milestones(note, background=False)
 
-                # Called upsert twice: once for fallback, once with AI summary
-                assert mock_upsert.call_count == 2
+                # Only called once — AI summary only (no fallback write)
+                assert mock_upsert.call_count == 1
 
-                # Second call should have the AI summary (no header, no customer)
-                final_args = mock_upsert.call_args_list[1]
+                final_args = mock_upsert.call_args
                 final_content = final_args[0][1]
                 assert "SQL MI migration assessed" in final_content
                 assert f"· note-{note.id} ·" in final_content
-                # Should NOT have old-style header
                 assert "Call:" not in final_content
 
                 # comment_date should be the call_date
                 assert final_args[1]["comment_date"] == "2026-03-12T00:00:00.000Z"
 
-    def test_falls_back_when_ai_unavailable(self, app):
-        """When AI fails, uses metadata-only fallback."""
+    def test_skips_msx_write_when_ai_unavailable(self, app):
+        """When AI fails, nothing is written to MSX."""
         with app.app_context():
             customer = Customer(name='Fallback Corp', tpid=9501)
             db.session.add(customer)
@@ -371,24 +370,15 @@ class TestTrackNoteOnMilestones:
             db.session.flush()
 
             with patch('app.services.milestone_tracking._upsert_to_msx') as mock_upsert, \
-                 patch('app.services.milestone_tracking._ai_summarize_note') as mock_ai:
-                mock_upsert.return_value = {
-                    "success": True, "comment_count": 1,
-                    "action": "created", "existing_comments": [],
-                }
+                 patch('app.services.milestone_tracking._ai_summarize_note') as mock_ai, \
+                 patch('app.services.msx_api.get_milestone_comments') as mock_read:
+                mock_read.return_value = {"success": True, "comments": []}
                 mock_ai.return_value = None  # AI unavailable
 
                 track_note_on_milestones(note, background=False)
 
-                # Only called once (fallback, no AI update)
-                assert mock_upsert.call_count == 1
-
-                content = mock_upsert.call_args[0][1]
-                assert "Topics: SQL MI" in content
-                # No header
-                assert "Call:" not in content
-                # comment_date set to call_date
-                assert mock_upsert.call_args[1]["comment_date"] == "2026-03-12T00:00:00.000Z"
+                # Upsert NOT called — no write when AI has no summary
+                mock_upsert.assert_not_called()
 
     def test_skips_msx_for_no_msx_id(self, app):
         """Milestones without msx_milestone_id are skipped."""
@@ -438,7 +428,7 @@ class TestTrackNoteOnMilestones:
             assert results == []
 
     def test_passes_existing_comments_to_ai(self, app):
-        """AI receives existing comments from other users for dedup context."""
+        """AI receives existing comments read from MSX for dedup context."""
         with app.app_context():
             customer = Customer(name='Context Corp', tpid=9504)
             db.session.add(customer)
@@ -462,21 +452,26 @@ class TestTrackNoteOnMilestones:
             db.session.add(note)
             db.session.flush()
 
-            existing_comments = ["Manager posted: PoC blockers identified", "Field update from team"]
+            existing_comment_texts = ["Manager posted: PoC blockers identified", "Field update from team"]
 
             with patch('app.services.milestone_tracking._upsert_to_msx') as mock_upsert, \
-                 patch('app.services.milestone_tracking._ai_summarize_note') as mock_ai:
-                mock_upsert.return_value = {
-                    "success": True, "comment_count": 3,
-                    "action": "created", "existing_comments": existing_comments,
+                 patch('app.services.milestone_tracking._ai_summarize_note') as mock_ai, \
+                 patch('app.services.msx_api.get_milestone_comments') as mock_read:
+                mock_read.return_value = {
+                    "success": True,
+                    "comments": [
+                        {"comment": existing_comment_texts[0]},
+                        {"comment": existing_comment_texts[1]},
+                    ],
                 }
+                mock_upsert.return_value = {"success": True}
                 mock_ai.return_value = "New blockers found in Oracle schema."
 
                 track_note_on_milestones(note, background=False)
 
-                # AI should have been called with the existing comments
+                # AI should have been called with the existing comment texts
                 ai_call = mock_ai.call_args
-                assert ai_call[0][3] == existing_comments  # 4th arg is existing_comments
+                assert ai_call[0][3] == existing_comment_texts  # 4th arg is existing_comments
 
 
 # ── Notification queue tests ────────────────────────────────────────────────
@@ -499,6 +494,23 @@ class TestNotificationQueue:
 
         # Queue should be empty now
         assert drain_notifications() == []
+
+    def test_notify_error_with_note_id_includes_retry_link(self):
+        """When note_id is provided, notification includes a retry link."""
+        drain_notifications()
+
+        _notify_error("Your note was saved but was not synced to MSX.", note_id=42)
+
+        notifications = drain_notifications()
+        assert len(notifications) == 1
+        category, message = notifications[0]
+        assert category == "warning"
+        # Message should contain the retry URL
+        msg_str = str(message)
+        assert "/notes/42/retry-msx" in msg_str
+        assert "Retry MSX sync" in msg_str
+        # Original message text should be present
+        assert "not synced to MSX" in msg_str
 
 
 # ── Engagement tracking tests ────────────────────────────────────────────────
@@ -631,3 +643,63 @@ class TestTrackEngagementOnMilestones:
 
             results = track_engagement_on_milestones(engagement, background=False)
             assert results == []
+
+
+# ── Retry MSX sync route tests ──────────────────────────────────────────────
+
+
+class TestRetryMsxRoute:
+    """Test the POST /notes/<id>/retry-msx endpoint."""
+
+    def test_retry_triggers_tracking(self, client, app):
+        """POST to retry route re-triggers milestone tracking."""
+        with app.app_context():
+            customer = Customer(name='Retry Corp', tpid=9700)
+            db.session.add(customer)
+            db.session.flush()
+
+            milestone = Milestone(
+                url='https://msx/m/retry1',
+                title='Retry MS',
+                customer_id=customer.id,
+                msx_milestone_id='retry-guid-1',
+            )
+            db.session.add(milestone)
+            db.session.flush()
+
+            note = Note(
+                customer_id=customer.id,
+                call_date=datetime(2026, 3, 12, tzinfo=timezone.utc),
+                content='<p>Retry test note.</p>',
+            )
+            note.milestones.append(milestone)
+            db.session.add(note)
+            db.session.commit()
+
+            with patch('app.routes.notes.track_note_on_milestones') as mock_track:
+                resp = client.post(f'/notes/{note.id}/retry-msx')
+                assert resp.status_code == 202
+                mock_track.assert_called_once()
+
+    def test_retry_returns_404_for_missing_note(self, client):
+        """POST to retry route returns 404 when note doesn't exist."""
+        resp = client.post('/notes/99999/retry-msx')
+        assert resp.status_code == 404
+
+    def test_retry_returns_400_when_no_milestones(self, client, app):
+        """POST to retry route returns 400 when note has no milestones."""
+        with app.app_context():
+            customer = Customer(name='No MS Corp', tpid=9701)
+            db.session.add(customer)
+            db.session.flush()
+
+            note = Note(
+                customer_id=customer.id,
+                call_date=datetime(2026, 3, 12, tzinfo=timezone.utc),
+                content='<p>No milestones note.</p>',
+            )
+            db.session.add(note)
+            db.session.commit()
+
+            resp = client.post(f'/notes/{note.id}/retry-msx')
+            assert resp.status_code == 400

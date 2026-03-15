@@ -365,6 +365,89 @@ class TestFillMyDayProcessAPI:
         assert data['milestone'] is None
 
 
+class TestFillMyDayParagraphFormatting:
+    """Tests that multi-paragraph summaries retain formatting in content_html."""
+
+    @patch('app.services.workiq_service.get_meeting_summary')
+    def test_summary_paragraphs_become_separate_p_tags(self, mock_summary, client, sample_data):
+        """Double-newlines in summary text should produce separate <p> tags."""
+        mock_summary.return_value = {
+            'summary': 'First paragraph about Azure.\n\nSecond paragraph about migration.',
+            'topics': [],
+            'action_items': []
+        }
+        response = client.post('/api/fill-my-day/process',
+            data=json.dumps({
+                'meeting': {'title': 'Test Meeting'},
+                'date': '2026-02-24',
+                'customer_id': sample_data['customer1_id']
+            }),
+            content_type='application/json'
+        )
+        data = response.get_json()
+        assert '<p>First paragraph about Azure.</p>' in data['content_html']
+        assert '<p>Second paragraph about migration.</p>' in data['content_html']
+
+    @patch('app.services.workiq_service.get_meeting_summary')
+    def test_single_newlines_become_br_tags(self, mock_summary, client, sample_data):
+        """Single newlines within a paragraph should become <br> tags."""
+        mock_summary.return_value = {
+            'summary': 'Line one\nLine two\nLine three',
+            'topics': [],
+            'action_items': []
+        }
+        response = client.post('/api/fill-my-day/process',
+            data=json.dumps({
+                'meeting': {'title': 'Test Meeting'},
+                'date': '2026-02-24',
+                'customer_id': sample_data['customer1_id']
+            }),
+            content_type='application/json'
+        )
+        data = response.get_json()
+        assert 'Line one<br>Line two<br>Line three' in data['content_html']
+
+    @patch('app.services.workiq_service.get_meeting_summary')
+    def test_html_in_summary_is_escaped(self, mock_summary, client, sample_data):
+        """HTML characters in summary text should be escaped to prevent XSS."""
+        mock_summary.return_value = {
+            'summary': 'Check <script>alert("xss")</script> output',
+            'topics': [],
+            'action_items': []
+        }
+        response = client.post('/api/fill-my-day/process',
+            data=json.dumps({
+                'meeting': {'title': 'Test Meeting'},
+                'date': '2026-02-24',
+                'customer_id': sample_data['customer1_id']
+            }),
+            content_type='application/json'
+        )
+        data = response.get_json()
+        assert '<script>' not in data['content_html']
+        assert '&lt;script&gt;' in data['content_html']
+
+    @patch('app.services.workiq_service.get_meeting_summary')
+    def test_title_is_escaped_in_content_html(self, mock_summary, client, sample_data):
+        """Meeting title should be escaped in the generated HTML."""
+        mock_summary.return_value = {
+            'summary': 'Normal summary.',
+            'topics': [],
+            'action_items': []
+        }
+        response = client.post('/api/fill-my-day/process',
+            data=json.dumps({
+                'meeting': {'title': '<img onerror=alert(1) src=x>'},
+                'date': '2026-02-24',
+                'customer_id': sample_data['customer1_id']
+            }),
+            content_type='application/json'
+        )
+        data = response.get_json()
+        assert '<img' not in data['content_html']
+        assert '&lt;img' in data['content_html']
+
+
 class TestCustomerListAPIForFillMyDay:
     """Tests that the customer list API returns fields needed for Fill My Day matching."""
 

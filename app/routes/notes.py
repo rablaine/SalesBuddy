@@ -7,7 +7,7 @@ from datetime import datetime
 import logging
 
 from app.models import db, Note, Customer, Seller, Territory, Topic, Partner, Milestone, MsxTask, UserPreference, NoteTemplate
-from app.services.msx_api import TASK_CATEGORIES
+from app.services.msx_api import TASK_CATEGORIES, add_user_to_milestone_team
 from app.services.backup import backup_customer as _backup_customer
 from app.services.milestone_tracking import track_note_on_milestones
 
@@ -85,6 +85,18 @@ def _handle_milestone_and_task(note):
     
     # Associate milestone with call log
     note.milestones = [milestone]
+    
+    # Auto-join the milestone access team (best-effort, non-blocking)
+    if milestone_msx_id and not milestone.on_my_team:
+        try:
+            join_result = add_user_to_milestone_team(milestone_msx_id)
+            if join_result.get('success') or 'already' in join_result.get('error', '').lower():
+                milestone.on_my_team = True
+                logger.info(f'Auto-joined milestone team for {milestone_msx_id}')
+            else:
+                logger.warning(f'Could not auto-join milestone team: {join_result.get("error")}')
+        except Exception as e:
+            logger.warning(f'Auto-join milestone team failed (non-blocking): {e}')
     
     # Check if a task was already created (via the "Create Task in MSX" button)
     created_task_id = request.form.get('created_task_id', '').strip()
@@ -518,6 +530,20 @@ def note_delete(id):
         return redirect(url_for('notes.notes_list'))
 
 
+@notes_bp.route('/notes/<int:id>/retry-msx', methods=['POST'])
+def note_retry_msx(id):
+    """Re-trigger milestone comment sync for a note after a previous failure."""
+    note = db.session.get(Note, id)
+    if not note:
+        return jsonify({"error": "Note not found"}), 404
+
+    if not note.milestones:
+        return jsonify({"error": "No milestones linked"}), 400
+
+    track_note_on_milestones(note)
+    return jsonify({"ok": True}), 202
+
+
 # =============================================================================
 # Meeting Import API (WorkIQ Integration)
 # =============================================================================
@@ -681,6 +707,7 @@ def api_fill_my_day_process():
         - success: bool
     """
     from app.services.workiq_service import get_meeting_summary
+    from markupsafe import escape
     
     data = request.get_json()
     if not data:
@@ -712,14 +739,17 @@ def api_fill_my_day_process():
         summary = summary_data.get('summary', '')
         action_items = summary_data.get('action_items', [])
         
-        # Build HTML content
-        content_html = f'<h2>{title}</h2>'
+        # Build HTML content — split summary on double-newlines into <p> tags
+        content_html = f'<h2>{escape(title)}</h2>'
         content_html += '<p><strong>Summary:</strong></p>'
-        content_html += f'<p>{summary}</p>'
+        for para in summary.split('\n\n'):
+            stripped = para.strip()
+            if stripped:
+                content_html += '<p>' + str(escape(stripped)).replace('\n', '<br>') + '</p>'
         if action_items:
             content_html += '<p><strong>Action Items:</strong></p><ul>'
             for item in action_items:
-                content_html += f'<li>{item}</li>'
+                content_html += f'<li>{escape(item)}</li>'
             content_html += '</ul>'
         
         # Add Connect impact signals if present
@@ -727,7 +757,7 @@ def api_fill_my_day_process():
         if impact_items:
             content_html += '<hr><p><strong>Impact Signals:</strong></p><ul>'
             for item in impact_items:
-                content_html += f'<li>{item}</li>'
+                content_html += f'<li>{escape(item)}</li>'
             content_html += '</ul>'
         
         # Add engagement metadata signals if present (Ben's table fields)
@@ -735,7 +765,7 @@ def api_fill_my_day_process():
         if eng_signals:
             content_html += '<hr><p><strong>Engagement Metadata:</strong></p><ul>'
             for field, value in eng_signals.items():
-                content_html += f'<li><strong>{field}:</strong> {value}</li>'
+                content_html += f'<li><strong>{escape(field)}:</strong> {escape(value)}</li>'
             content_html += '</ul>'
         
         result['summary'] = summary
@@ -750,7 +780,7 @@ def api_fill_my_day_process():
     except Exception as e:
         logger.error(f"Fill My Day - summary error for '{title}': {e}")
         result['summary'] = f'[Could not fetch summary: {str(e)}]'
-        result['content_html'] = f'<h2>{title}</h2><p><em>Summary unavailable</em></p>'
+        result['content_html'] = f'<h2>{escape(title)}</h2><p><em>Summary unavailable</em></p>'
     
     # Step 2: AI analysis (topics) - only if we got a real summary and AI is enabled
     if result['summary_ok']:
@@ -933,6 +963,18 @@ def api_fill_my_day_save():
                     milestone.opportunity_name = milestone_data['opportunity_name']
             
             note.milestones = [milestone]
+            
+            # Auto-join the milestone access team (best-effort, non-blocking)
+            if not milestone.on_my_team:
+                try:
+                    join_result = add_user_to_milestone_team(msx_id)
+                    if join_result.get('success') or 'already' in join_result.get('error', '').lower():
+                        milestone.on_my_team = True
+                        logger.info(f'Fill My Day: auto-joined milestone team for {msx_id}')
+                    else:
+                        logger.warning(f'Fill My Day: could not auto-join milestone team: {join_result.get("error")}')
+                except Exception as e:
+                    logger.warning(f'Fill My Day: auto-join milestone team failed (non-blocking): {e}')
         
         # Link pre-created MSX task if provided
         if created_task_id and milestone_data and milestone_data.get('msx_milestone_id'):

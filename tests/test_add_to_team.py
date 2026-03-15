@@ -586,3 +586,92 @@ class TestOpportunityDealTeamField:
 
             refreshed = Opportunity.query.get(opp.id)
             assert refreshed.on_deal_team is True
+
+
+# =============================================================================
+# Auto-join milestone team on note save
+# =============================================================================
+
+class TestAutoJoinTeamOnNoteSave:
+    """Saving a note with a milestone should auto-join the milestone team."""
+
+    @patch('app.routes.notes.add_user_to_milestone_team')
+    def test_note_create_auto_joins_milestone_team(self, mock_join, client, app, sample_data):
+        """Creating a note with a milestone calls add_user_to_milestone_team."""
+        mock_join.return_value = {'success': True}
+
+        response = client.post('/note/new', data={
+            'customer_id': sample_data['customer1_id'],
+            'call_date': '2026-03-15',
+            'content': '<p>Test auto join</p>',
+            'milestone_msx_id': 'auto-join-guid-001',
+            'milestone_url': 'https://example.com/milestone/auto-join-guid-001',
+            'milestone_name': 'Auto Join Test',
+            'milestone_status': 'On Track',
+            'milestone_status_code': '1',
+            'milestone_opportunity_name': 'Test Opp',
+        }, follow_redirects=True)
+
+        assert response.status_code == 200
+        mock_join.assert_called_once_with('auto-join-guid-001')
+
+        # Verify on_my_team was set
+        with app.app_context():
+            from app.models import Milestone
+            ms = Milestone.query.filter_by(msx_milestone_id='auto-join-guid-001').first()
+            assert ms is not None
+            assert ms.on_my_team is True
+
+    @patch('app.routes.notes.add_user_to_milestone_team')
+    def test_note_create_already_on_team_skips_join(self, mock_join, client, app, sample_data):
+        """If already on_my_team, should not call add_user_to_milestone_team."""
+        # Pre-create the milestone with on_my_team=True
+        with app.app_context():
+            from app.models import db, Milestone
+            ms = Milestone(
+                msx_milestone_id='existing-team-guid',
+                url='https://example.com/milestone/existing-team-guid',
+                title='Already On Team',
+                msx_status='On Track',
+                on_my_team=True,
+            )
+            db.session.add(ms)
+            db.session.commit()
+
+        response = client.post('/note/new', data={
+            'customer_id': sample_data['customer1_id'],
+            'call_date': '2026-03-15',
+            'content': '<p>Already on team test</p>',
+            'milestone_msx_id': 'existing-team-guid',
+            'milestone_url': 'https://example.com/milestone/existing-team-guid',
+            'milestone_name': 'Already On Team',
+            'milestone_status': 'On Track',
+            'milestone_status_code': '1',
+        }, follow_redirects=True)
+
+        assert response.status_code == 200
+        mock_join.assert_not_called()
+
+    @patch('app.routes.notes.add_user_to_milestone_team')
+    def test_auto_join_failure_does_not_block_note_save(self, mock_join, client, app, sample_data):
+        """If team join fails, note should still save successfully."""
+        mock_join.side_effect = Exception('MSX unreachable')
+
+        response = client.post('/note/new', data={
+            'customer_id': sample_data['customer1_id'],
+            'call_date': '2026-03-15',
+            'content': '<p>Join failed but note saves</p>',
+            'milestone_msx_id': 'fail-join-guid',
+            'milestone_url': 'https://example.com/milestone/fail-join-guid',
+            'milestone_name': 'Fail Join Test',
+            'milestone_status': 'On Track',
+            'milestone_status_code': '1',
+        }, follow_redirects=True)
+
+        assert response.status_code == 200
+        # Note should still be saved
+        with app.app_context():
+            from app.models import Note
+            note = Note.query.filter(Note.content.contains('Join failed')).first()
+            assert note is not None
+            assert len(note.milestones) == 1

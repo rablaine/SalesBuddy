@@ -1214,6 +1214,7 @@ def get_my_milestone_team_ids() -> Dict[str, Any]:
         all_teams = data.get("value", [])
 
         # Follow pagination if needed
+        pagination_complete = True
         next_link = data.get("@odata.nextLink")
         while next_link:
             resp = _msx_request('GET', next_link)
@@ -1222,6 +1223,10 @@ def get_my_milestone_team_ids() -> Dict[str, Any]:
                 all_teams.extend(page_data.get("value", []))
                 next_link = page_data.get("@odata.nextLink")
             else:
+                logger.warning(
+                    f"Pagination failed on team memberships: HTTP {resp.status_code}"
+                )
+                pagination_complete = False
                 break
 
         # Filter to milestone teams by the template ID suffix in team name
@@ -1237,13 +1242,15 @@ def get_my_milestone_team_ids() -> Dict[str, Any]:
 
         logger.info(
             f"Found {len(milestone_ids)} milestone team memberships "
-            f"out of {len(all_teams)} total access teams"
+            f"out of {len(all_teams)} total access teams "
+            f"(pagination_complete={pagination_complete})"
         )
 
         return {
             "success": True,
             "milestone_ids": milestone_ids,
             "team_count": len(all_teams),
+            "pagination_complete": pagination_complete,
         }
 
     except requests.exceptions.Timeout:

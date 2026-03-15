@@ -25,11 +25,12 @@ def _block_msx_comment_calls():
     Tests that need specific return values should layer their own
     ``@patch`` on top — the innermost mock wins.
     """
-    with patch('app.services.milestone_tracking._upsert_to_msx') as mock_upsert:
+    with patch('app.services.milestone_tracking._upsert_to_msx') as mock_upsert, \
+         patch('app.services.msx_api.get_milestone_comments') as mock_read:
         mock_upsert.return_value = {
             "success": True, "comment_count": 1, "action": "created",
-            "existing_comments": [],
         }
+        mock_read.return_value = {"success": True, "comments": []}
         yield
 
 
