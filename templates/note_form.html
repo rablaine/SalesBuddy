@@ -813,26 +813,32 @@ topicSearch.addEventListener('keydown', function(e) {
         selectedIndex = selectedIndex <= 0 ? currentMatches.length - 1 : selectedIndex - 1;
         renderDropdown();
     } else if (e.key === 'Tab') {
-        e.preventDefault();
+        // Empty input — let default Tab behavior move to next field
+        if (topicSearch.value.trim().length === 0) return;
         
-        if (currentMatches.length > 0 && selectedIndex >= 0 && selectedIndex < currentMatches.length) {
-            // Select existing topic from search results
-            const topic = currentMatches[selectedIndex];
-            addTopic(topic.id, topic.name);
+        if (currentMatches.length > 0) {
+            e.preventDefault();
+            // Cycle through suggestions (Shift+Tab goes backwards)
+            if (e.shiftKey) {
+                selectedIndex = selectedIndex <= 0 ? currentMatches.length - 1 : selectedIndex - 1;
+            } else {
+                selectedIndex = (selectedIndex + 1) % currentMatches.length;
+            }
+            renderDropdown();
         }
     } else if (e.key === 'Enter') {
         e.preventDefault();
         
-        // Only create new topic on Enter if there are no matches
-        if (currentMatches.length === 0) {
+        if (currentMatches.length > 0 && selectedIndex >= 0 && selectedIndex < currentMatches.length) {
+            // Select the highlighted topic
+            const topic = currentMatches[selectedIndex];
+            addTopic(topic.id, topic.name);
+        } else if (currentMatches.length === 0) {
+            // Create new topic on Enter only when no matches exist
             const searchTerm = topicSearch.value.trim();
             if (searchTerm.length > 0) {
                 createNewTopic(searchTerm);
             }
-        } else if (selectedIndex >= 0 && selectedIndex < currentMatches.length) {
-            // Select the highlighted topic
-            const topic = currentMatches[selectedIndex];
-            addTopic(topic.id, topic.name);
         }
     } else if (e.key === 'Escape') {
         topicDropdown.style.display = 'none';
@@ -1015,26 +1021,32 @@ partnerSearch.addEventListener('keydown', function(e) {
         selectedPartnerIndex = selectedPartnerIndex <= 0 ? currentPartnerMatches.length - 1 : selectedPartnerIndex - 1;
         renderPartnerDropdown();
     } else if (e.key === 'Tab') {
-        e.preventDefault();
+        // Empty input — let default Tab behavior move to next field
+        if (partnerSearch.value.trim().length === 0) return;
         
-        if (currentPartnerMatches.length > 0 && selectedPartnerIndex >= 0 && selectedPartnerIndex < currentPartnerMatches.length) {
-            // Select existing partner from search results
-            const partner = currentPartnerMatches[selectedPartnerIndex];
-            addPartner(partner.id, partner.name);
+        if (currentPartnerMatches.length > 0) {
+            e.preventDefault();
+            // Cycle through suggestions (Shift+Tab goes backwards)
+            if (e.shiftKey) {
+                selectedPartnerIndex = selectedPartnerIndex <= 0 ? currentPartnerMatches.length - 1 : selectedPartnerIndex - 1;
+            } else {
+                selectedPartnerIndex = (selectedPartnerIndex + 1) % currentPartnerMatches.length;
+            }
+            renderPartnerDropdown();
         }
     } else if (e.key === 'Enter') {
         e.preventDefault();
         
-        // Only create new partner on Enter if there are no matches
-        if (currentPartnerMatches.length === 0) {
+        if (currentPartnerMatches.length > 0 && selectedPartnerIndex >= 0 && selectedPartnerIndex < currentPartnerMatches.length) {
+            // Select the highlighted partner
+            const partner = currentPartnerMatches[selectedPartnerIndex];
+            addPartner(partner.id, partner.name);
+        } else if (currentPartnerMatches.length === 0) {
+            // Create new partner on Enter only when no matches exist
             const searchTerm = partnerSearch.value.trim();
             if (searchTerm.length > 0) {
                 createNewPartner(searchTerm);
             }
-        } else if (selectedPartnerIndex >= 0 && selectedPartnerIndex < currentPartnerMatches.length) {
-            // Select the highlighted partner
-            const partner = currentPartnerMatches[selectedPartnerIndex];
-            addPartner(partner.id, partner.name);
         }
     } else if (e.key === 'Escape') {
         partnerDropdown.style.display = 'none';
