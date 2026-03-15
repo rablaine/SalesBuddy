@@ -28,6 +28,8 @@ import threading
 from collections import deque
 from datetime import date
 
+from markupsafe import Markup, escape
+
 from app.models import db
 
 logger = logging.getLogger(__name__)
@@ -56,9 +58,22 @@ def drain_notifications() -> list[tuple[str, str]]:
     return notifications
 
 
-def _notify_error(message: str) -> None:
-    """Queue a warning notification for the next page load."""
-    _notification_queue.append(("warning", message))
+def _notify_error(message: str, note_id: int | None = None) -> None:
+    """Queue a warning notification for the next page load.
+
+    If note_id is provided, appends a retry button link.
+    """
+    if note_id:
+        retry_url = f"/notes/{int(note_id)}/retry-msx"
+        html_msg = Markup(
+            '{msg} <a href="{url}" class="alert-link" '
+            'onclick="fetch(this.href,{{method:\'POST\'}})'
+            '.then(()=>this.closest(\'.alert\').remove());return false;">'
+            'Retry MSX sync</a>'
+        ).format(msg=escape(message), url=retry_url)
+        _notification_queue.append(("warning", html_msg))
+    else:
+        _notification_queue.append(("warning", message))
 
 
 def _strip_html(html: str) -> str:
@@ -107,6 +122,7 @@ def _ai_summarize_note(
     customer_name: str,
     topics: str,
     existing_comments: list[str],
+    note_id: int | None = None,
 ) -> str | None:
     """Call the AI gateway to summarize a call log for a milestone comment.
 
@@ -135,18 +151,18 @@ def _ai_summarize_note(
         if isinstance(e, GatewayError) and e.status_code:
             code = e.status_code
             if code == 503:
-                friendly = "AI gateway is temporarily unavailable (restarting). Your note was saved, but the AI-generated summary posted to MSX will use a basic fallback."
+                friendly = "AI gateway is temporarily unavailable (restarting). Your note was saved but was not synced to MSX."
             elif code == 429:
-                friendly = "AI gateway rate limit reached. Your note was saved, but the AI-generated summary posted to MSX will use a basic fallback."
+                friendly = "AI gateway rate limit reached. Your note was saved but was not synced to MSX."
             elif code == 502:
-                friendly = "AI gateway failed to start. Your note was saved, but the AI-generated summary posted to MSX will use a basic fallback."
+                friendly = "AI gateway failed to start. Your note was saved but was not synced to MSX."
             elif code == 401 or code == 403:
                 friendly = "AI gateway authentication failed. Check your az login session."
             else:
-                friendly = f"AI gateway returned an error ({code}). Your note was saved, but the AI-generated summary posted to MSX will use a basic fallback."
+                friendly = f"AI gateway returned an error ({code}). Your note was saved but was not synced to MSX."
         else:
-            friendly = f"Could not reach AI gateway: {type(e).__name__}"
-        _notify_error(f"Background note summary: {friendly}")
+            friendly = f"Could not reach AI gateway: {type(e).__name__}. Your note was saved but was not synced to MSX."
+        _notify_error(friendly, note_id=note_id)
         return None
 
 
@@ -208,29 +224,28 @@ def _track_note_worker(
     topics: str,
     ref_tag: str,
     call_date_iso: str,
+    note_id: int | None = None,
 ) -> None:
     """Background thread worker for note milestone tracking."""
     print(f"[milestone-tracking] worker started: {ref_tag}, {len(milestones_data)} milestone(s)")
     for ms in milestones_data:
         msx_id = ms["msx_milestone_id"]
         try:
-            # First upsert with fallback to retrieve existing comments
-            fallback = _build_note_fallback(topics)
-            fallback_with_footer = _add_footer(fallback, ref_tag)
-            print(f"[milestone-tracking] upserting fallback to {msx_id}")
-            msx_result = _upsert_to_msx(
-                msx_id, fallback_with_footer, ref_tag,
-                comment_date=call_date_iso,
-            )
-            print(f"[milestone-tracking] fallback upsert result: success={msx_result and msx_result.get('success')}")
-            existing_comments = (msx_result or {}).get("existing_comments", [])
+            # Read existing comments for AI dedup context (no write)
+            from app.services.msx_api import get_milestone_comments
+            print(f"[milestone-tracking] reading existing comments from {msx_id}")
+            read_result = get_milestone_comments(msx_id)
+            existing_comments = [
+                c.get("comment", "") for c in (read_result or {}).get("comments", [])
+            ]
 
             # AI summarization with dedup context
             print(f"[milestone-tracking] calling AI summarize...")
             ai_summary = _ai_summarize_note(
                 plain, customer_name, topics, existing_comments,
+                note_id=note_id,
             )
-            print(f"[milestone-tracking] AI result: {'got summary' if ai_summary else 'None (fallback)'}")
+            print(f"[milestone-tracking] AI result: {'got summary' if ai_summary else 'None (skip MSX write)'}")
 
             if ai_summary:
                 content_with_footer = _add_footer(ai_summary, ref_tag)
@@ -241,12 +256,15 @@ def _track_note_worker(
                 print(f"[milestone-tracking] AI summary upserted to {msx_id}")
             else:
                 print(
-                    f"[milestone-tracking] AI summary unavailable for {ref_tag} on {msx_id}, "
-                    "fallback content preserved"
+                    f"[milestone-tracking] no AI summary for {ref_tag} on {msx_id}, "
+                    "skipping MSX write"
                 )
         except Exception as e:
             print(f"[milestone-tracking] EXCEPTION for {msx_id}: {e}")
-            _notify_error(f"Background note sync: Failed to update milestone comment in MSX.")
+            _notify_error(
+                "Failed to update milestone comment in MSX.",
+                note_id=note_id,
+            )
 
 
 def _track_engagement_worker(
@@ -273,9 +291,10 @@ def track_note_on_milestones(note, background: bool = True) -> list[dict] | None
     """Post or update a call summary comment on each linked milestone.
 
     For each milestone linked to the note:
-    1. Upserts to MSX, retrieving existing comments for AI context
+    1. Reads existing comments from MSX for AI dedup context
     2. Calls AI to summarize only new info from this call
-    3. If AI fails or is unavailable, posts metadata-only fallback
+    3. Only writes to MSX if AI produces a summary
+    4. If AI fails, notifies user with a retry option — nothing is written
 
     When ``background=True`` (default), work runs in a daemon thread
     and this function returns immediately.  Set ``background=False``
@@ -309,18 +328,20 @@ def track_note_on_milestones(note, background: bool = True) -> list[dict] | None
                     for m in note.milestones]
         return None
 
+    note_id = note.id
+
     if background:
-        print(f"[milestone-tracking] note {note.id}: spawning background thread")
+        print(f"[milestone-tracking] note {note_id}: spawning background thread")
         thread = threading.Thread(
             target=_track_note_worker,
-            args=(milestones_data, plain, customer_name, topics, ref_tag, call_date_iso),
+            args=(milestones_data, plain, customer_name, topics, ref_tag, call_date_iso, note_id),
             daemon=True,
         )
         thread.start()
         return None
 
     # Synchronous path (for testing)
-    _track_note_worker(milestones_data, plain, customer_name, topics, ref_tag, call_date_iso)
+    _track_note_worker(milestones_data, plain, customer_name, topics, ref_tag, call_date_iso, note_id)
     return [{"milestone_id": ms["milestone_id"], "msx_result": None, "ai_used": False}
             for ms in milestones_data]
 

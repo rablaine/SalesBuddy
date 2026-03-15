@@ -530,6 +530,20 @@ def note_delete(id):
         return redirect(url_for('notes.notes_list'))
 
 
+@notes_bp.route('/notes/<int:id>/retry-msx', methods=['POST'])
+def note_retry_msx(id):
+    """Re-trigger milestone comment sync for a note after a previous failure."""
+    note = db.session.get(Note, id)
+    if not note:
+        return jsonify({"error": "Note not found"}), 404
+
+    if not note.milestones:
+        return jsonify({"error": "No milestones linked"}), 400
+
+    track_note_on_milestones(note)
+    return jsonify({"ok": True}), 202
+
+
 # =============================================================================
 # Meeting Import API (WorkIQ Integration)
 # =============================================================================
