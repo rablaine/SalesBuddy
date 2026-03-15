@@ -666,9 +666,20 @@ document.getElementById('noteForm').onsubmit = function(e) {
         quill.root.innerHTML = html + '<hr>' + existing;
     }
 
+    // Only apply template on explicit mouse click or Enter/Space key — not arrow-key navigation.
+    // Native <select> fires 'change' on every arrow-key press, which pre-injects templates.
+    var applyOnNextChange = false;
+
+    templateSelect.addEventListener('mousedown', function() { applyOnNextChange = true; });
+    templateSelect.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter' || e.key === ' ') applyOnNextChange = true;
+    });
+
     templateSelect.addEventListener('change', function() {
         var id = this.value;
         if (!id) return;
+        if (!applyOnNextChange) return;   // arrow-key scroll — ignore
+        applyOnNextChange = false;
 
         fetch('/api/templates/' + id)
             .then(function(r) { return r.json(); })
@@ -1250,7 +1261,11 @@ function loadMilestonesForCustomer(customerId) {
             if (data.success && data.milestones) {
                 allMilestones = data.milestones;
                 milestoneSearch.disabled = false;
-                milestoneSearch.placeholder = `Search ${allMilestones.length} milestone${allMilestones.length !== 1 ? 's' : ''}...`;
+                if (allMilestones.length <= 10) {
+                    milestoneSearch.placeholder = `${allMilestones.length} milestone${allMilestones.length !== 1 ? 's' : ''} — click to browse`;
+                } else {
+                    milestoneSearch.placeholder = `Search ${allMilestones.length} milestones (or * to list all)...`;
+                }
                 milestoneHelpText.textContent = `Found ${allMilestones.length} milestone${allMilestones.length !== 1 ? 's' : ''} for this customer`;
                 inlineTpidSection.style.display = 'none';
                 // Show AI match button if milestones loaded
@@ -1409,6 +1424,12 @@ milestoneSearch.addEventListener('input', function() {
         return;
     }
     
+    // Wildcard * shows all milestones
+    if (searchTerm === '*') {
+        showAllMilestones();
+        return;
+    }
+    
     // Filter milestones - search in name, number, opportunity name, and workload
     currentMilestoneMatches = allMilestones.filter(milestone => {
         const name = (milestone.name || '').toLowerCase();
@@ -1427,6 +1448,21 @@ milestoneSearch.addEventListener('input', function() {
         milestoneDropdown.style.display = 'none';
         currentMilestoneMatches = [];
         selectedMilestoneIndex = -1;
+    }
+});
+
+function showAllMilestones() {
+    currentMilestoneMatches = allMilestones.slice();
+    selectedMilestoneIndex = 0;
+    renderMilestoneDropdown();
+    milestoneDropdown.style.display = 'block';
+    milestoneDropdown.style.width = milestoneSearch.offsetWidth + 'px';
+}
+
+// Auto-show dropdown on focus when ≤10 milestones and input is empty
+milestoneSearch.addEventListener('focus', function() {
+    if (milestoneSearch.value.trim().length === 0 && allMilestones.length > 0 && allMilestones.length <= 10) {
+        showAllMilestones();
     }
 });
 
