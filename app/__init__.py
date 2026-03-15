@@ -22,8 +22,8 @@ def create_app():
     # Configuration
     app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-production')
     
-    # SQLite database path - use absolute path
-    db_url = os.environ.get('DATABASE_URL', 'sqlite:///data/salesbuddy.db')
+    # SQLite database path
+    db_url = os.environ.get('DATABASE_URL') or 'sqlite:///data/salesbuddy.db'
     if db_url.startswith('sqlite:///') and not db_url.startswith('sqlite:////'):
         # Convert relative path to absolute path
         db_path = db_url.replace('sqlite:///', '')

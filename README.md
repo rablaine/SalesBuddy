@@ -7,7 +7,7 @@ A single-user note-taking application for Azure technical sellers to capture and
 ### Prerequisites
 
 - **Python 3.13+** (the launcher can install this for you)
-- **Git** (required for updates; the launcher can install this for you. Without it you can still [download the ZIP](https://github.com/rablaine/NoteHelper/archive/refs/heads/main.zip) to get started, but updates won't work)
+- **Git** (required for updates; the launcher can install this for you. Without it you can still [download the ZIP](https://github.com/rablaine/SalesBuddy/archive/refs/heads/main.zip) to get started, but updates won't work)
 - **Azure CLI** (optional - required for MSX and AI features; the launcher can install this too)
 - **Node.js 18+** (optional - required for WorkIQ meeting import; the launcher can install this too)
 - **VPN connection** - required for MSX integration (account imports, milestones)
@@ -20,7 +20,7 @@ The fastest way to get running — clone (or download and extract the ZIP) and r
 
 ```powershell
 # Option A: Clone with Git
-git clone https://github.com/rablaine/NoteHelper.git C:\prod\SalesBuddy
+git clone https://github.com/rablaine/SalesBuddy.git C:\prod\SalesBuddy
 cd C:\prod\SalesBuddy
 start.bat
 
@@ -46,8 +46,8 @@ If you prefer to set things up yourself:
 
 1. **Clone the repository:**
 ```bash
-git clone https://github.com/rablaine/NoteHelper.git
-cd NoteHelper
+git clone https://github.com/rablaine/SalesBuddy.git
+cd SalesBuddy
 ```
 
 2. **Create virtual environment:**

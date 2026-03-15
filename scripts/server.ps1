@@ -157,6 +157,16 @@ function Start-Server {
     }
 }
 
+# One-time rename from legacy database filename
+function Migrate-DatabaseName {
+    $oldDb = Join-Path $RepoRoot 'data\notehelper.db'
+    $newDb = Join-Path $RepoRoot 'data\salesbuddy.db'
+    if ((Test-Path $oldDb) -and -not (Test-Path $newDb)) {
+        Move-Item $oldDb $newDb
+        Write-Host "  [OK] Renamed database: notehelper.db -> salesbuddy.db" -ForegroundColor Green
+    }
+}
+
 # Backup the database
 function Backup-Database {
     $dbFile = Join-Path $RepoRoot 'data\salesbuddy.db'
@@ -588,6 +598,7 @@ if ($Force) {
     Write-Host "  Updating..." -ForegroundColor Cyan
 
     if ($serverRunning) { Stop-Server -Port $Port }
+    Migrate-DatabaseName
     Backup-Database
 
     if ($isGitRepo) {
@@ -634,6 +645,7 @@ if ($hasUpdates) {
     Write-Host "  Applying updates..." -ForegroundColor Cyan
 
     if ($serverRunning) { Stop-Server -Port $Port }
+    Migrate-DatabaseName
     Backup-Database
 
     if (-not (Pull-Updates)) {
