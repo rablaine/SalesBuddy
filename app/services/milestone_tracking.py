@@ -130,7 +130,23 @@ def _ai_summarize_note(
         return summary if summary else None
     except Exception as e:
         print(f"[milestone-tracking] AI FAILED: {e}")
-        _notify_error(f"Milestone comment AI summary failed: {e}")
+        # Build a user-friendly message based on the error type
+        from app.gateway_client import GatewayError
+        if isinstance(e, GatewayError) and e.status_code:
+            code = e.status_code
+            if code == 503:
+                friendly = "AI gateway is temporarily unavailable (restarting). Your note was saved, but the AI-generated summary posted to MSX will use a basic fallback."
+            elif code == 429:
+                friendly = "AI gateway rate limit reached. Your note was saved, but the AI-generated summary posted to MSX will use a basic fallback."
+            elif code == 502:
+                friendly = "AI gateway failed to start. Your note was saved, but the AI-generated summary posted to MSX will use a basic fallback."
+            elif code == 401 or code == 403:
+                friendly = "AI gateway authentication failed. Check your az login session."
+            else:
+                friendly = f"AI gateway returned an error ({code}). Your note was saved, but the AI-generated summary posted to MSX will use a basic fallback."
+        else:
+            friendly = f"Could not reach AI gateway: {type(e).__name__}"
+        _notify_error(f"Background note summary: {friendly}")
         return None
 
 
@@ -230,7 +246,7 @@ def _track_note_worker(
                 )
         except Exception as e:
             print(f"[milestone-tracking] EXCEPTION for {msx_id}: {e}")
-            _notify_error(f"Failed to update milestone comment: {e}")
+            _notify_error(f"Background note sync: Failed to update milestone comment in MSX.")
 
 
 def _track_engagement_worker(
@@ -248,7 +264,7 @@ def _track_engagement_worker(
             print(f"[milestone-tracking] engagement upsert result: success={result and result.get('success')}")
         except Exception as e:
             print(f"[milestone-tracking] EXCEPTION for engagement on {msx_id}: {e}")
-            _notify_error(f"Failed to update milestone engagement story: {e}")
+            _notify_error(f"Background engagement sync: Failed to update milestone story in MSX.")
 
 
 # ── Public API ───────────────────────────────────────────────────────────────
