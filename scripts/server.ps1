@@ -165,6 +165,17 @@ function Migrate-DatabaseName {
         Move-Item $oldDb $newDb
         Write-Host "  [OK] Renamed database: notehelper.db -> salesbuddy.db" -ForegroundColor Green
     }
+
+    # Remove legacy DATABASE_URL from .env (the app default is correct)
+    $envFile = Join-Path $RepoRoot '.env'
+    if (Test-Path $envFile) {
+        $lines = Get-Content $envFile
+        $filtered = $lines | Where-Object { $_ -notmatch '^\s*DATABASE_URL\s*=' }
+        if ($filtered.Count -ne $lines.Count) {
+            Set-Content $envFile $filtered
+            Write-Host "  [OK] Removed DATABASE_URL from .env (using app default)" -ForegroundColor Green
+        }
+    }
 }
 
 # Backup the database

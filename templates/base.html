@@ -1117,6 +1117,15 @@
     <script src="{{ url_for('static', filename='js/page-help.js') }}" defer></script>
     <script>document.addEventListener('DOMContentLoaded', () => Share.init());</script>
 
+    <!-- PWA: strip redundant app name from title and hide navbar brand -->
+    <script>
+    if (window.matchMedia('(display-mode: standalone)').matches) {
+        document.title = document.title.replace(/ - Sales Buddy$/, '');
+        var brand = document.querySelector('.navbar-brand');
+        if (brand) brand.style.display = 'none';
+    }
+    </script>
+
     <!-- Share Modal (global — used by all share features) -->
     <div class="modal fade" id="shareModal" tabindex="-1" aria-labelledby="shareModalLabel" aria-hidden="true">
         <div class="modal-dialog modal-dialog-centered">

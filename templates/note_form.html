@@ -94,7 +94,27 @@
         </div>
         {% endif %}
 
-        <div class="card">
+        <div class="card" style="position: relative;">
+            <!-- Meeting Import Status (floating overlay) -->
+            <div id="meetingStatusCard" class="card shadow-lg border-primary" 
+                 style="display:none; position:absolute; top:162px; right:12px; z-index:10; width:380px; animation: statusPulse 2s ease-in-out infinite;">
+                <div class="card-header bg-primary text-white py-2 px-3">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <span class="fw-semibold"><i class="bi bi-calendar-event me-1"></i> Meeting Import</span>
+                        <button type="button" class="btn-close btn-close-white btn-close-sm" onclick="cancelMeetingStatus()" aria-label="Cancel"></button>
+                    </div>
+                </div>
+                <div class="card-body py-3 px-3">
+                    <div id="statusCardContent" class="fs-6"></div>
+                </div>
+            </div>
+            <style>
+                @keyframes statusPulse {
+                    0%, 100% { box-shadow: 0 0 0 0 rgba(13,110,253,.5); }
+                    50% { box-shadow: 0 0 12px 4px rgba(13,110,253,.35); }
+                }
+            </style>
+
             <div class="card-body">
                 <form method="POST" id="noteForm">
                     <input type="hidden" name="referrer" value="{{ referrer if referrer else '' }}">
@@ -2804,14 +2824,38 @@ function setAutoFillStep(stepNum, state) {
 }
 
 // =============================================================================
+// DOCKED STATUS CARD HELPERS
+// =============================================================================
+
+var _meetingAbortController = null;
+
+function showMeetingStatusCard(html) {
+    var card = document.getElementById('meetingStatusCard');
+    document.getElementById('statusCardContent').innerHTML = html;
+    card.style.display = 'block';
+}
+
+function hideMeetingStatusCard() {
+    document.getElementById('meetingStatusCard').style.display = 'none';
+}
+
+function cancelMeetingStatus() {
+    if (_meetingAbortController) {
+        _meetingAbortController.abort();
+        _meetingAbortController = null;
+    }
+    hideMeetingStatusCard();
+    document.getElementById('importMeetingBtn').disabled = false;
+}
+
+// =============================================================================
 // MANUAL MEETING IMPORT
 // =============================================================================
 
 function openMeetingImport() {
-    // Initialize modal if needed
+    // Initialize modal if needed (for meeting selection step only)
     if (!meetingImportModal) {
         meetingImportModal = new bootstrap.Modal(document.getElementById('meetingImportModal'));
-        // Hide brainrot when modal closes (any path: cancel, X, import)
         document.getElementById('meetingImportModal').addEventListener('hidden.bs.modal', function() {
             var brToggle = document.getElementById('meetingBrainrotToggle');
             if (brToggle) brToggle.classList.add('d-none');
@@ -2822,24 +2866,6 @@ function openMeetingImport() {
     // Reset state
     selectedMeetingIndex = null;
     loadedMeetings = [];
-    document.getElementById('meetingImportLoading').style.display = 'block';
-    document.getElementById('meetingImportError').style.display = 'none';
-    document.getElementById('meetingImportContent').style.display = 'none';
-    document.getElementById('meetingSummaryLoading').style.display = 'none';
-    document.getElementById('meetingSummaryRetry').style.display = 'none';
-    document.getElementById('meetingAutoSelectNote').style.display = 'none';
-    document.getElementById('meetingNoResults').style.display = 'none';
-    document.getElementById('importSelectedMeetingBtn').disabled = true;
-    
-    // Show modal
-    meetingImportModal.show();
-    
-    // Show brainrot toggle while loading
-    var brToggle = document.getElementById('meetingBrainrotToggle');
-    if (brToggle) brToggle.classList.remove('d-none');
-    if (window.isBrainrotOn && window.isBrainrotOn() && window.showBrainrotPanel) {
-        window.showBrainrotPanel();
-    }
     
     // Get date and customer name
     var dateStr = document.getElementById('call_date').value;
@@ -2847,49 +2873,63 @@ function openMeetingImport() {
     var customerSelect = document.getElementById('customer_id');
     if (customerSelect.selectedIndex > 0) {
         customerName = customerSelect.options[customerSelect.selectedIndex].text;
-        // Remove the TPID part: "Customer Name (12345)" -> "Customer Name"
         customerName = customerName.replace(/\s*\([^)]*\)\s*$/, '').trim();
     }
     
     if (!dateStr) {
-        showMeetingError('Please select a date first.');
+        alert('Please select a date first.');
         return;
     }
     
+    // Show non-blocking docked status card while loading meetings
+    document.getElementById('importMeetingBtn').disabled = true;
+    showMeetingStatusCard(
+        '<div class="d-flex align-items-center">' +
+        '<span class="spinner-border spinner-border-sm text-primary me-2"></span>' +
+        '<div><strong>Loading meetings...</strong><br><small class="text-muted">This can take up to a minute</small></div>' +
+        '</div>'
+    );
+    
     // Fetch meetings
+    _meetingAbortController = new AbortController();
     var url = '/api/meetings?date=' + encodeURIComponent(dateStr);
     if (customerName) {
         url += '&customer_name=' + encodeURIComponent(customerName);
     }
     
-    fetch(url)
+    fetch(url, { signal: _meetingAbortController.signal })
         .then(response => response.json())
         .then(data => {
-            document.getElementById('meetingImportLoading').style.display = 'none';
-            // Hide brainrot when loading finishes - don't distract during meeting selection
-            var brToggle = document.getElementById('meetingBrainrotToggle');
-            if (brToggle) brToggle.classList.add('d-none');
-            if (window.hideBrainrotPanel) window.hideBrainrotPanel();
+            _meetingAbortController = null;
             
             if (data.error) {
-                showMeetingError(data.error);
+                hideMeetingStatusCard();
+                document.getElementById('importMeetingBtn').disabled = false;
+                showMeetingImportModalWithError(data.error);
                 return;
             }
             
             loadedMeetings = data.meetings || [];
             
             if (loadedMeetings.length === 0) {
-                document.getElementById('meetingImportContent').style.display = 'block';
-                document.getElementById('meetingNoResults').style.display = 'block';
+                hideMeetingStatusCard();
+                document.getElementById('importMeetingBtn').disabled = false;
+                showMeetingImportModalReady(loadedMeetings, null, null);
                 return;
             }
             
-            // Render meetings
-            renderMeetingList(loadedMeetings, data.auto_selected_index, data.auto_selected_reason);
+            // Meetings loaded — hide status card, show modal for user to pick
+            hideMeetingStatusCard();
+            document.getElementById('importMeetingBtn').disabled = false;
+            showMeetingImportModalReady(loadedMeetings, data.auto_selected_index, data.auto_selected_reason);
         })
         .catch(error => {
+            _meetingAbortController = null;
+            if (error.name === 'AbortError') return; // User cancelled
             console.error('Error fetching meetings:', error);
-            showMeetingError('Failed to fetch meetings. Make sure WorkIQ is configured correctly.');
+            hideMeetingStatusCard();
+            document.getElementById('importMeetingBtn').disabled = false;
+            showMeetingImportModalWithError('Failed to fetch meetings. Make sure WorkIQ is configured correctly.');
         });
 }
 
@@ -2901,6 +2941,36 @@ function showMeetingError(message) {
     var brToggle = document.getElementById('meetingBrainrotToggle');
     if (brToggle) brToggle.classList.add('d-none');
     if (window.hideBrainrotPanel) window.hideBrainrotPanel();
+}
+
+function showMeetingImportModalReady(meetings, autoSelectedIndex, autoSelectedReason) {
+    // Reset modal to content state (skip loading spinner)
+    document.getElementById('meetingImportLoading').style.display = 'none';
+    document.getElementById('meetingImportError').style.display = 'none';
+    document.getElementById('meetingSummaryLoading').style.display = 'none';
+    document.getElementById('meetingSummaryRetry').style.display = 'none';
+    document.getElementById('meetingAutoSelectNote').style.display = 'none';
+    document.getElementById('meetingNoResults').style.display = 'none';
+    document.getElementById('importSelectedMeetingBtn').disabled = true;
+    
+    if (meetings.length === 0) {
+        document.getElementById('meetingImportContent').style.display = 'block';
+        document.getElementById('meetingNoResults').style.display = 'block';
+    } else {
+        renderMeetingList(meetings, autoSelectedIndex, autoSelectedReason);
+    }
+    
+    meetingImportModal.show();
+}
+
+function showMeetingImportModalWithError(message) {
+    document.getElementById('meetingImportLoading').style.display = 'none';
+    document.getElementById('meetingImportContent').style.display = 'none';
+    document.getElementById('meetingSummaryLoading').style.display = 'none';
+    document.getElementById('meetingSummaryRetry').style.display = 'none';
+    document.getElementById('meetingImportError').style.display = 'block';
+    document.getElementById('meetingImportErrorText').textContent = message;
+    meetingImportModal.show();
 }
 
 function renderMeetingList(meetings, autoSelectedIndex, autoSelectedReason) {
@@ -3007,66 +3077,69 @@ function importSelectedMeeting() {
         return;
     }
     
-    // Normal manual import flow
-    // Show loading state
-    document.getElementById('meetingImportContent').style.display = 'none';
-    document.getElementById('meetingPromptSection').style.display = 'none';
-    document.getElementById('meetingSummaryLoading').style.display = 'block';
-    document.getElementById('importSelectedMeetingBtn').disabled = true;
+    // Normal manual import flow — close modal, show docked status card
+    meetingImportModal.hide();
     
-    // Re-show brainrot toggle during summary generation
-    var brToggle = document.getElementById('meetingBrainrotToggle');
-    if (brToggle) brToggle.classList.remove('d-none');
-    if (window.isBrainrotOn && window.isBrainrotOn() && window.showBrainrotPanel) {
-        window.showBrainrotPanel();
-    }
+    // Grab custom prompt + impact preference before closing
+    var promptEl = document.getElementById('meetingCustomPrompt');
+    var customPrompt = (promptEl && promptEl.value.trim()) ? promptEl.value.trim() : '';
+    var impactEl = document.getElementById('meetingConnectImpact');
+    var extractImpact = impactEl ? impactEl.checked : connectImpactEnabled;
     
-    // Fetch summary with timeout
+    // Show non-blocking status card
+    showMeetingStatusCard(
+        '<div class="d-flex align-items-center">' +
+        '<span class="spinner-border spinner-border-sm text-success me-2"></span>' +
+        '<div><strong>Generating summary...</strong>' +
+        '<br><small class="text-muted">' + escapeHtml(meeting.title) + '</small></div>' +
+        '</div>'
+    );
+    
+    // Fetch summary
     var url = '/api/meetings/summary?title=' + encodeURIComponent(meeting.title);
     if (dateStr) {
         url += '&date=' + encodeURIComponent(dateStr);
     }
-    
-    // Include custom prompt if user modified it
-    var promptEl = document.getElementById('meetingCustomPrompt');
-    if (promptEl && promptEl.value.trim()) {
-        url += '&prompt=' + encodeURIComponent(promptEl.value.trim());
+    if (customPrompt) {
+        url += '&prompt=' + encodeURIComponent(customPrompt);
     }
-    
-    // Include Connect impact extraction preference
-    var impactEl = document.getElementById('meetingConnectImpact');
-    var extractImpact = impactEl ? impactEl.checked : connectImpactEnabled;
     if (extractImpact) {
         url += '&extract_impact=true';
     }
     
-    // Create abort controller for timeout
-    var controller = new AbortController();
-    var timeoutId = setTimeout(function() { controller.abort(); }, 150000); // 2.5 min timeout
+    _meetingAbortController = new AbortController();
+    var timeoutId = setTimeout(function() { _meetingAbortController.abort(); }, 150000);
     
-    fetch(url, { signal: controller.signal })
+    fetch(url, { signal: _meetingAbortController.signal })
         .then(response => response.json())
         .then(data => {
             clearTimeout(timeoutId);
+            _meetingAbortController = null;
+            
             if (!data.success) {
-                showMeetingError(data.error || 'Failed to generate summary');
-                document.getElementById('meetingSummaryLoading').style.display = 'none';
-                document.getElementById('meetingImportContent').style.display = 'block';
-                document.getElementById('importSelectedMeetingBtn').disabled = false;
+                hideMeetingStatusCard();
+                showMeetingImportModalWithError(data.error || 'Failed to generate summary');
                 return;
             }
             
-            // WorkIQ returned empty/echoed response — show retry UI
+            // WorkIQ returned empty/echoed response — show retry in modal
             if (data.retry_suggested) {
+                hideMeetingStatusCard();
+                document.getElementById('meetingImportLoading').style.display = 'none';
+                document.getElementById('meetingImportContent').style.display = 'none';
+                document.getElementById('meetingImportError').style.display = 'none';
                 document.getElementById('meetingSummaryLoading').style.display = 'none';
                 document.getElementById('meetingSummaryRetry').style.display = 'block';
-                // Wire up retry button to re-import the same meeting
                 document.getElementById('retrySummaryBtn').onclick = function() {
                     document.getElementById('meetingSummaryRetry').style.display = 'none';
                     importSelectedMeeting();
                 };
+                meetingImportModal.show();
                 return;
             }
+            
+            // Success — hide status card
+            hideMeetingStatusCard();
             
             // Build rich content for Quill
             var content = '<h2>' + escapeHtml(meeting.title) + '</h2>';
@@ -3108,33 +3181,28 @@ function importSelectedMeeting() {
             // Update the call date and time from meeting
             if (meeting.start_time) {
                 var meetingDate = new Date(meeting.start_time);
-                // Set date field (YYYY-MM-DD)
                 var dateStr = meetingDate.getFullYear() + '-' + 
                     String(meetingDate.getMonth() + 1).padStart(2, '0') + '-' + 
                     String(meetingDate.getDate()).padStart(2, '0');
                 document.getElementById('call_date').value = dateStr;
                 
-                // Set time field (HH:MM)
                 var timeStr = String(meetingDate.getHours()).padStart(2, '0') + ':' + 
                     String(meetingDate.getMinutes()).padStart(2, '0');
                 document.getElementById('call_time').value = timeStr;
             }
             
-            // Auto-suggest topics if any technologies were identified
+            // Auto-suggest topics
             if (data.topics && data.topics.length > 0) {
                 autoSuggestTopics(data.topics);
             }
             
-            // Store task suggestion for when milestone is selected
+            // Store task suggestion
             if (data.task_subject || data.task_description) {
                 pendingTaskSuggestion = {
                     subject: data.task_subject || '',
                     description: data.task_description || ''
                 };
             }
-            
-            // Close modal
-            meetingImportModal.hide();
             
             // Trigger autosave
             if (typeof debouncedAutoSave === 'function') {
@@ -3143,14 +3211,20 @@ function importSelectedMeeting() {
         })
         .catch(error => {
             clearTimeout(timeoutId);
+            _meetingAbortController = null;
+            if (error.name === 'AbortError') {
+                // Check if user-initiated cancel vs timeout
+                var card = document.getElementById('meetingStatusCard');
+                if (card.style.display !== 'none') {
+                    // Timeout — show error in modal
+                    hideMeetingStatusCard();
+                    showMeetingImportModalWithError('Request timed out. The meeting may not have a transcript, or try again later.');
+                }
+                return;
+            }
             console.error('Error fetching summary:', error);
-            var errorMsg = error.name === 'AbortError' 
-                ? 'Request timed out. The meeting may not have a transcript, or try again later.'
-                : 'Failed to generate summary: ' + error.message;
-            showMeetingError(errorMsg);
-            document.getElementById('meetingSummaryLoading').style.display = 'none';
-            document.getElementById('meetingImportContent').style.display = 'block';
-            document.getElementById('importSelectedMeetingBtn').disabled = false;
+            hideMeetingStatusCard();
+            showMeetingImportModalWithError('Failed to generate summary: ' + error.message);
         });
 }
 
