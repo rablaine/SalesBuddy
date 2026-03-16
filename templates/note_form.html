@@ -175,7 +175,7 @@
                                 </button>
                                 <ul class="dropdown-menu w-100 shadow-sm py-1" id="engagementDropdownMenu"
                                     style="max-height: 240px; overflow-y: auto;">
-                                    <!-- Populated from hidden select -->
+                                    <!-- Populated dynamically -->
                                 </ul>
                             </div>
                         </div>
@@ -217,14 +217,14 @@
                     </div>
                     
                     <div class="mb-3">
-                        <div class="d-flex justify-content-between align-items-center mb-2">
-                            <label for="topic_search" class="form-label mb-0">Topics</label>
-                            <button type="button" class="btn btn-sm btn-outline-info" id="aiSuggestBtn">
+                        <label for="topic_search" class="form-label mb-2">Topics</label>
+                        <div class="d-flex gap-2 align-items-center">
+                            <input type="text" class="form-control flex-grow-1" id="topic_search"
+                                   placeholder="Search or type new + Enter" autocomplete="off">
+                            <button type="button" class="btn btn-sm btn-outline-info flex-shrink-0" id="aiSuggestBtn">
                                 <i class="bi bi-stars"></i> <span id="aiSuggestBtnText">Auto-tag with AI</span>
                             </button>
                         </div>
-                        <input type="text" class="form-control" id="topic_search" 
-                               placeholder="Search and add topics..." autocomplete="off">
                         <div id="topic_dropdown" class="list-group mt-1" style="display: none; position: absolute; z-index: 1000; max-height: 200px; overflow-y: auto;"></div>
                         
                         <div id="selected_topics" class="mt-2 d-flex flex-wrap gap-2">
@@ -602,6 +602,165 @@
     </div>
 </div>
 
+<!-- Partner Creation Flyout -->
+<div class="offcanvas offcanvas-end" tabindex="-1" id="partnerFlyout" aria-labelledby="partnerFlyoutLabel" data-bs-backdrop="false" data-bs-scroll="true" style="width: 420px;">
+    <div class="offcanvas-header py-2 border-bottom">
+        <h6 class="offcanvas-title" id="partnerFlyoutLabel"><i class="bi bi-building"></i> New Partner</h6>
+        <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Close"></button>
+    </div>
+    <div class="offcanvas-body">
+        <div class="mb-3">
+            <label for="flyout_partner_name" class="form-label">Partner Name <span class="text-danger">*</span></label>
+            <input type="text" class="form-control" id="flyout_partner_name" placeholder="Acme Corp">
+            <div class="invalid-feedback">Name is required.</div>
+        </div>
+        <div class="mb-3">
+            <label for="flyout_partner_website" class="form-label">Website</label>
+            <div class="input-group">
+                <span class="input-group-text"><i class="bi bi-globe"></i></span>
+                <input type="text" class="form-control" id="flyout_partner_website" placeholder="acme.com">
+            </div>
+        </div>
+        <div class="row mb-3">
+            <div class="col-6">
+                <label class="form-label">Rating</label>
+                <div id="flyout_partner_rating" class="d-flex gap-1">
+                    {% for i in range(1, 6) %}
+                    <i class="bi bi-star fs-5 text-muted" data-rating="{{ i }}" style="cursor: pointer;"
+                       onclick="setFlyoutRating(this, {{ i }})"
+                       onmouseenter="previewFlyoutRating({{ i }})"
+                       onmouseleave="restoreFlyoutRating()"></i>
+                    {% endfor %}
+                </div>
+                <input type="hidden" id="flyout_partner_rating_value" value="">
+            </div>
+        </div>
+
+        <!-- Specialties -->
+        <div class="mb-3">
+            <label for="flyout_specialty_search" class="form-label">Specialties</label>
+            <input type="text" class="form-control" id="flyout_specialty_search"
+                   placeholder="Search or type new + Enter" autocomplete="off">
+            <div id="flyout_specialty_dropdown" class="list-group mt-1" style="display: none; position: absolute; z-index: 1060; max-height: 150px; overflow-y: auto; width: calc(100% - 2rem);"></div>
+            <div id="flyout_selected_specialties" class="mt-2 d-flex flex-wrap gap-1"></div>
+        </div>
+
+        <!-- Contacts -->
+        <div class="mb-3">
+            <label class="form-label">Contacts</label>
+            <div id="flyout_contacts_list"></div>
+            <div class="input-group input-group-sm mt-1">
+                <input type="text" class="form-control" id="flyout_contact_name" placeholder="Name">
+                <input type="text" class="form-control" id="flyout_contact_email" placeholder="Email">
+                <button type="button" class="btn btn-outline-secondary" onclick="addFlyoutContact()">
+                    <i class="bi bi-plus"></i>
+                </button>
+            </div>
+        </div>
+
+        <div class="mb-3">
+            <label for="flyout_partner_overview" class="form-label">Notes</label>
+            <textarea class="form-control" id="flyout_partner_overview" rows="2" placeholder="Quick notes about this partner..."></textarea>
+        </div>
+        <button type="button" class="btn btn-primary w-100" id="flyout_partner_save" onclick="savePartnerFromFlyout()">
+            <i class="bi bi-check-circle"></i> Create Partner
+        </button>
+    </div>
+</div>
+
+{% if not is_general_note %}
+<!-- Engagement Creation Flyout -->
+<div class="offcanvas offcanvas-end" tabindex="-1" id="engagementFlyout" aria-labelledby="engagementFlyoutLabel" data-bs-backdrop="false" data-bs-scroll="true" style="width: 420px;">
+    <div class="offcanvas-header py-2 border-bottom">
+        <h6 class="offcanvas-title" id="engagementFlyoutLabel"><i class="bi bi-briefcase"></i> New Engagement</h6>
+        <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Close"></button>
+    </div>
+    <div class="offcanvas-body">
+        <div class="mb-3">
+            <label for="flyout_eng_title" class="form-label">Title <span class="text-danger">*</span></label>
+            <input type="text" class="form-control" id="flyout_eng_title" placeholder="e.g. Fabric POC, SQL Migration">
+            <div class="invalid-feedback">Title is required.</div>
+        </div>
+        <div class="mb-3">
+            <label for="flyout_eng_status" class="form-label">Status</label>
+            <select class="form-select" id="flyout_eng_status">
+                <option value="Active" selected>Active</option>
+                <option value="On Hold">On Hold</option>
+                <option value="Won">Won</option>
+                <option value="Lost">Lost</option>
+            </select>
+        </div>
+        <div class="mb-3">
+            <label for="flyout_eng_key_individuals" class="form-label">Key Individuals & Titles</label>
+            <textarea class="form-control" id="flyout_eng_key_individuals" rows="2" placeholder="Jane Smith (CTO), Bob (Infra Lead)"></textarea>
+        </div>
+        <div class="mb-3">
+            <label for="flyout_eng_technical_problem" class="form-label">Technical/Business Problem</label>
+            <textarea class="form-control" id="flyout_eng_technical_problem" rows="2" placeholder="What challenge are they facing?"></textarea>
+        </div>
+        <div class="mb-3">
+            <label for="flyout_eng_business_impact" class="form-label">Business Impact</label>
+            <textarea class="form-control" id="flyout_eng_business_impact" rows="2" placeholder="How does this affect their business?"></textarea>
+        </div>
+        <div class="mb-3">
+            <label for="flyout_eng_solution_resources" class="form-label">Solution Resources</label>
+            <textarea class="form-control" id="flyout_eng_solution_resources" rows="2" placeholder="Azure Migrate, App Service, etc."></textarea>
+        </div>
+        <div class="row mb-3">
+            <div class="col-7">
+                <label for="flyout_eng_estimated_acr" class="form-label">Estimated $$ACR</label>
+                <input type="text" class="form-control" id="flyout_eng_estimated_acr" placeholder="$50k/month">
+            </div>
+            <div class="col-5">
+                <label for="flyout_eng_target_date" class="form-label">Target Date</label>
+                <input type="date" class="form-control" id="flyout_eng_target_date">
+            </div>
+        </div>
+        <button type="button" class="btn btn-primary w-100" id="flyout_eng_save" onclick="saveEngagementFromFlyout()">
+            <i class="bi bi-check-circle"></i> Create Engagement
+        </button>
+    </div>
+</div>
+{% endif %}
+
+<!-- Flyout stacking: second flyout shifts left to sit beside the first -->
+<style>
+    .offcanvas.flyout-shifted {
+        transform: translateX(-418px) !important;
+    }
+</style>
+<script>
+(function() {
+    const partner = document.getElementById('partnerFlyout');
+    const engagement = document.getElementById('engagementFlyout');
+    if (!partner || !engagement) return;
+    
+    function adjustStack() {
+        const pOpen = partner.classList.contains('show');
+        const eOpen = engagement.classList.contains('show');
+        if (pOpen && eOpen) {
+            if (partner._openedLast) {
+                engagement.classList.add('flyout-shifted');
+                partner.classList.remove('flyout-shifted');
+            } else {
+                partner.classList.add('flyout-shifted');
+                engagement.classList.remove('flyout-shifted');
+            }
+        } else {
+            partner.classList.remove('flyout-shifted');
+            engagement.classList.remove('flyout-shifted');
+        }
+    }
+    
+    partner.addEventListener('show.bs.offcanvas', function() { partner._openedLast = true; engagement._openedLast = false; });
+    engagement.addEventListener('show.bs.offcanvas', function() { engagement._openedLast = true; partner._openedLast = false; });
+    partner.addEventListener('shown.bs.offcanvas', adjustStack);
+    engagement.addEventListener('shown.bs.offcanvas', adjustStack);
+    partner.addEventListener('hidden.bs.offcanvas', adjustStack);
+    engagement.addEventListener('hidden.bs.offcanvas', adjustStack);
+})();
+</script>
+
 {% endblock %}
 
 {% block extra_js %}
@@ -725,11 +884,29 @@ document.getElementById('noteForm').onsubmit = function(e) {
 
     function buildMenu() {
         menu.innerHTML = '';
+        
+        // "+Create New Engagement" pinned at top
+        const createLi = document.createElement('li');
+        createLi.innerHTML = `
+            <button type="button" class="dropdown-item text-success fw-semibold py-1"
+                    onclick="openEngagementFlyout()">
+                <i class="bi bi-plus-circle"></i> Create New Engagement
+            </button>`;
+        menu.appendChild(createLi);
+        
         const options = hiddenSelect.options;
         if (options.length === 0) {
-            menu.innerHTML = '<li class="px-3 py-2 text-muted small">No engagements for this customer</li>';
+            const emptyLi = document.createElement('li');
+            emptyLi.innerHTML = '<span class="dropdown-item text-muted small py-1">No engagements for this customer</span>';
+            menu.appendChild(emptyLi);
             return;
         }
+        
+        // Divider
+        const divLi = document.createElement('li');
+        divLi.innerHTML = '<hr class="dropdown-divider my-1">';
+        menu.appendChild(divLi);
+        
         for (let i = 0; i < options.length; i++) {
             const opt = options[i];
             const li = document.createElement('li');
@@ -742,6 +919,7 @@ document.getElementById('noteForm').onsubmit = function(e) {
             cb.addEventListener('change', function() {
                 opt.selected = this.checked;
                 updateLabel();
+                if (typeof debouncedAutoSave === 'function') debouncedAutoSave();
             });
             menu.appendChild(li);
         }
@@ -757,11 +935,50 @@ document.getElementById('noteForm').onsubmit = function(e) {
             btn.textContent = selected.length + ' engagements selected';
         }
     }
-
+    
     buildMenu();
     updateLabel();
 
-    // Expose rebuild for dynamic customer changes
+    // Load engagements dynamically when customer changes
+    const customerSelect = document.getElementById('customer_id');
+    if (customerSelect) {
+        customerSelect.addEventListener('change', function() {
+            const customerId = this.value;
+            const engSection = document.getElementById('engagementSection');
+            
+            if (!customerId) {
+                engSection.style.display = 'none';
+                hiddenSelect.innerHTML = '';
+                buildMenu();
+                updateLabel();
+                return;
+            }
+            
+            engSection.style.display = '';
+            hiddenSelect.innerHTML = '';
+            
+            fetch(`/api/customer/${customerId}/engagements`)
+                .then(r => r.json())
+                .then(engagements => {
+                    hiddenSelect.innerHTML = '';
+                    engagements.forEach(eng => {
+                        const opt = document.createElement('option');
+                        opt.value = eng.id;
+                        opt.textContent = `${eng.title} (${eng.status})`;
+                        hiddenSelect.appendChild(opt);
+                    });
+                    buildMenu();
+                    updateLabel();
+                })
+                .catch(err => {
+                    console.error('Error loading engagements:', err);
+                    buildMenu();
+                    updateLabel();
+                });
+        });
+    }
+
+    // Expose rebuild for external use
     window.rebuildEngagementDropdown = function() { buildMenu(); updateLabel(); };
 })();
 
@@ -991,104 +1208,114 @@ const partnerSearch = document.getElementById('partner_search');
 const partnerDropdown = document.getElementById('partner_dropdown');
 const selectedPartnersContainer = document.getElementById('selected_partners');
 let currentPartnerMatches = [];
-let selectedPartnerIndex = -1;
 
 partnerSearch.addEventListener('input', function() {
     const searchTerm = this.value.toLowerCase().trim();
     
-    if (searchTerm.length === 0) {
-        partnerDropdown.style.display = 'none';
-        currentPartnerMatches = [];
-        selectedPartnerIndex = -1;
-        return;
-    }
-    
     // Filter partners case-insensitively
     currentPartnerMatches = allPartners.filter(partner => 
-        partner.name.toLowerCase().includes(searchTerm) && 
-        !isPartnerSelected(partner.id)
+        !isPartnerSelected(partner.id) &&
+        (searchTerm.length === 0 || partner.name.toLowerCase().includes(searchTerm))
     );
     
-    if (currentPartnerMatches.length > 0) {
-        selectedPartnerIndex = 0; // Auto-select first item
+    renderPartnerDropdown();
+    partnerDropdown.style.display = 'block';
+    partnerDropdown.style.width = partnerSearch.offsetWidth + 'px';
+});
+
+// Auto-expand on focus to show all available partners
+partnerSearch.addEventListener('focus', function() {
+    if (partnerDropdown.style.display === 'none' || partnerDropdown.style.display === '') {
+        const searchTerm = this.value.toLowerCase().trim();
+        currentPartnerMatches = allPartners.filter(partner =>
+            !isPartnerSelected(partner.id) &&
+            (searchTerm.length === 0 || partner.name.toLowerCase().includes(searchTerm))
+        );
         renderPartnerDropdown();
         partnerDropdown.style.display = 'block';
         partnerDropdown.style.width = partnerSearch.offsetWidth + 'px';
-    } else {
-        partnerDropdown.style.display = 'none';
-        currentPartnerMatches = [];
-        selectedPartnerIndex = -1;
     }
 });
 
-// Keyboard navigation for partners
+// Keyboard navigation from search input
 partnerSearch.addEventListener('keydown', function(e) {
-    if (e.key === 'ArrowDown' && currentPartnerMatches.length > 0) {
-        e.preventDefault();
-        selectedPartnerIndex = (selectedPartnerIndex + 1) % currentPartnerMatches.length;
-        renderPartnerDropdown();
-    } else if (e.key === 'ArrowUp' && currentPartnerMatches.length > 0) {
-        e.preventDefault();
-        selectedPartnerIndex = selectedPartnerIndex <= 0 ? currentPartnerMatches.length - 1 : selectedPartnerIndex - 1;
-        renderPartnerDropdown();
-    } else if (e.key === 'Tab') {
-        // Empty input — let default Tab behavior move to next field
-        if (partnerSearch.value.trim().length === 0) return;
-        
-        if (currentPartnerMatches.length > 0) {
+    const items = partnerDropdown.querySelectorAll('button.list-group-item-action');
+    if (e.key === 'ArrowDown' || (e.key === 'Tab' && !e.shiftKey && partnerSearch.value.trim())) {
+        if (items.length > 0) {
             e.preventDefault();
-            // Cycle through suggestions (Shift+Tab goes backwards)
-            if (e.shiftKey) {
-                selectedPartnerIndex = selectedPartnerIndex <= 0 ? currentPartnerMatches.length - 1 : selectedPartnerIndex - 1;
-            } else {
-                selectedPartnerIndex = (selectedPartnerIndex + 1) % currentPartnerMatches.length;
-            }
-            renderPartnerDropdown();
+            items[0].focus();
+        }
+    } else if (e.key === 'ArrowUp') {
+        if (items.length > 0) {
+            e.preventDefault();
+            items[items.length - 1].focus();
         }
     } else if (e.key === 'Enter') {
         e.preventDefault();
-        
-        if (currentPartnerMatches.length > 0 && selectedPartnerIndex >= 0 && selectedPartnerIndex < currentPartnerMatches.length) {
-            // Select the highlighted partner
-            const partner = currentPartnerMatches[selectedPartnerIndex];
-            addPartner(partner.id, partner.name);
-        } else if (currentPartnerMatches.length === 0) {
-            // Create new partner on Enter only when no matches exist
-            const searchTerm = partnerSearch.value.trim();
-            if (searchTerm.length > 0) {
-                createNewPartner(searchTerm);
+        if (partnerSearch.value.trim()) {
+            // Select first actual partner match (skip Create New)
+            const firstMatch = partnerDropdown.querySelector('button[data-partner-id]');
+            if (firstMatch) {
+                firstMatch.click();
+            } else {
+                openPartnerFlyout();
             }
         }
     } else if (e.key === 'Escape') {
         partnerDropdown.style.display = 'none';
         currentPartnerMatches = [];
-        selectedPartnerIndex = -1;
+    }
+});
+
+// Keyboard navigation inside the dropdown list
+partnerDropdown.addEventListener('keydown', function(e) {
+    const items = Array.from(partnerDropdown.querySelectorAll('button.list-group-item-action'));
+    const currentIndex = items.indexOf(document.activeElement);
+    if (currentIndex === -1) return;
+
+    if (e.key === 'ArrowDown' || (e.key === 'Tab' && !e.shiftKey)) {
+        e.preventDefault();
+        if (currentIndex < items.length - 1) {
+            items[currentIndex + 1].focus();
+        }
+    } else if (e.key === 'ArrowUp' || (e.key === 'Tab' && e.shiftKey)) {
+        e.preventDefault();
+        if (currentIndex > 0) {
+            items[currentIndex - 1].focus();
+        } else {
+            partnerSearch.focus();
+        }
+    } else if (e.key === 'Enter') {
+        e.preventDefault();
+        document.activeElement.click();
+    } else if (e.key === 'Escape') {
+        partnerDropdown.style.display = 'none';
+        partnerSearch.focus();
     }
 });
 
 function renderPartnerDropdown() {
-    partnerDropdown.innerHTML = currentPartnerMatches.map((partner, index) => 
-        `<button type="button" class="list-group-item list-group-item-action ${index === selectedPartnerIndex ? 'active' : ''}" 
+    const searchTerm = partnerSearch.value.trim();
+    const hasText = searchTerm.length > 0;
+    
+    // "+Create New Partner" pinned at top    
+    const createItem = `<button type="button" class="list-group-item list-group-item-action text-success fw-semibold" 
+        data-partner-action="create"
+        onclick="openPartnerFlyout()">
+        <i class="bi bi-plus-circle"></i> Create New Partner${hasText ? ': "' + searchTerm.replace(/</g,'&lt;') + '"' : ''}
+    </button>`;
+    
+    const items = currentPartnerMatches.map((partner, index) => {
+        const enterTarget = (index === 0 && hasText) ? ' enter-target' : '';
+        return `<button type="button" class="list-group-item list-group-item-action${enterTarget}" 
             data-partner-id="${partner.id}" 
             data-partner-name="${partner.name.replace(/"/g, '&quot;')}"
-            data-partner-index="${index}"
-            onmouseenter="handlePartnerHover(${index})"
             onclick="handlePartnerClick(${partner.id}, '${partner.name.replace(/'/g, "\\'")}')">
             <i class="bi bi-building"></i> ${partner.name}
-        </button>`
-    ).join('');
-}
-
-function handlePartnerHover(index) {
-    selectedPartnerIndex = index;
-    // Update active class
-    partnerDropdown.querySelectorAll('button').forEach((btn, i) => {
-        if (i === index) {
-            btn.classList.add('active');
-        } else {
-            btn.classList.remove('active');
-        }
-    });
+        </button>`;
+    }).join('');
+    
+    partnerDropdown.innerHTML = createItem + items;
 }
 
 function handlePartnerClick(partnerId, partnerName) {
@@ -1097,11 +1324,9 @@ function handlePartnerClick(partnerId, partnerName) {
 
 // Hide partner dropdown when clicking outside
 document.addEventListener('click', function(e) {
-    // Only hide if clicking outside both the search input and the dropdown
     if (!partnerSearch.contains(e.target) && !partnerDropdown.contains(e.target)) {
         partnerDropdown.style.display = 'none';
         currentPartnerMatches = [];
-        selectedPartnerIndex = -1;
     }
 });
 
@@ -1126,8 +1351,6 @@ function addPartner(partnerId, partnerName) {
     partnerSearch.value = '';
     partnerDropdown.style.display = 'none';
     currentPartnerMatches = [];
-    selectedPartnerIndex = -1;
-    partnerSearch.focus(); // Keep focus on search box
     
     // Trigger debounced auto-save
     debouncedAutoSave();
@@ -1142,48 +1365,295 @@ function removePartner(partnerId) {
     }
 }
 
-function createNewPartner(partnerName) {
-    // Show loading indicator
-    partnerSearch.disabled = true;
-    partnerSearch.placeholder = 'Creating partner...';
+// --- Partner flyout rating helpers ---
+let flyoutRatingValue = 0;
+function setFlyoutRating(el, rating) {
+    flyoutRatingValue = rating;
+    document.getElementById('flyout_partner_rating_value').value = rating;
+    restoreFlyoutRating();
+}
+function previewFlyoutRating(rating) {
+    document.querySelectorAll('#flyout_partner_rating i').forEach(star => {
+        const r = parseInt(star.dataset.rating);
+        star.className = r <= rating ? 'bi bi-star-fill fs-5 text-warning' : 'bi bi-star fs-5 text-muted';
+    });
+}
+function restoreFlyoutRating() {
+    document.querySelectorAll('#flyout_partner_rating i').forEach(star => {
+        const r = parseInt(star.dataset.rating);
+        star.className = r <= flyoutRatingValue ? 'bi bi-star-fill fs-5 text-warning' : 'bi bi-star fs-5 text-muted';
+    });
+}
+
+// --- Partner flyout specialty picker ---
+let flyoutSpecialtyIds = [];
+const flyoutSpecSearch = document.getElementById('flyout_specialty_search');
+const flyoutSpecDropdown = document.getElementById('flyout_specialty_dropdown');
+const flyoutSpecContainer = document.getElementById('flyout_selected_specialties');
+
+if (flyoutSpecSearch) {
+    flyoutSpecSearch.addEventListener('input', function() {
+        const q = this.value.toLowerCase().trim();
+        if (!q) { flyoutSpecDropdown.style.display = 'none'; return; }
+        
+        fetch('/api/specialties/search?q=' + encodeURIComponent(q))
+            .then(r => r.json())
+            .then(results => {
+                const filtered = results.filter(s => !flyoutSpecialtyIds.includes(s.id));
+                let html = filtered.map(s =>
+                    `<button type="button" class="list-group-item list-group-item-action py-1 small"
+                        onclick="addFlyoutSpecialty(${s.id}, '${s.name.replace(/'/g, "\\'")}')">
+                        <i class="bi bi-tag"></i> ${s.name}
+                    </button>`
+                ).join('');
+                html += `<button type="button" class="list-group-item list-group-item-action py-1 small text-success fw-semibold"
+                    onclick="createFlyoutSpecialty()">
+                    <i class="bi bi-plus-circle"></i> Create "${q.replace(/</g,'&lt;')}"
+                </button>`;
+                flyoutSpecDropdown.innerHTML = html;
+                flyoutSpecDropdown.style.display = 'block';
+            });
+    });
+    
+    flyoutSpecSearch.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            const first = flyoutSpecDropdown.querySelector('button:not(.text-success)');
+            if (first) first.click();
+            else createFlyoutSpecialty();
+        } else if (e.key === 'Escape') {
+            flyoutSpecDropdown.style.display = 'none';
+        }
+    });
+}
+
+function addFlyoutSpecialty(id, name) {
+    if (flyoutSpecialtyIds.includes(id)) return;
+    flyoutSpecialtyIds.push(id);
+    const badge = document.createElement('span');
+    badge.className = 'badge bg-info text-dark d-inline-flex align-items-center';
+    badge.setAttribute('data-spec-id', id);
+    badge.innerHTML = `<i class="bi bi-tag me-1"></i> ${name}
+        <button type="button" class="btn-close btn-close-white ms-1" style="font-size: 0.6rem;"
+                onclick="removeFlyoutSpecialty(${id})"></button>`;
+    flyoutSpecContainer.appendChild(badge);
+    flyoutSpecSearch.value = '';
+    flyoutSpecDropdown.style.display = 'none';
+}
+
+function removeFlyoutSpecialty(id) {
+    flyoutSpecialtyIds = flyoutSpecialtyIds.filter(x => x !== id);
+    const el = flyoutSpecContainer.querySelector(`[data-spec-id="${id}"]`);
+    if (el) el.remove();
+}
+
+function createFlyoutSpecialty() {
+    const name = flyoutSpecSearch.value.trim();
+    if (!name) return;
+    fetch('/api/specialties/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name })
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.id) addFlyoutSpecialty(data.id, data.name);
+    });
+}
+
+// --- Partner flyout contacts ---
+let flyoutContacts = []; // [{name, email}]
+
+function addFlyoutContact() {
+    const nameInput = document.getElementById('flyout_contact_name');
+    const emailInput = document.getElementById('flyout_contact_email');
+    const name = nameInput.value.trim();
+    if (!name) { nameInput.focus(); return; }
+    const email = emailInput.value.trim();
+    flyoutContacts.push({ name, email });
+    renderFlyoutContacts();
+    nameInput.value = '';
+    emailInput.value = '';
+    nameInput.focus();
+}
+
+function removeFlyoutContact(index) {
+    flyoutContacts.splice(index, 1);
+    renderFlyoutContacts();
+}
+
+function renderFlyoutContacts() {
+    const list = document.getElementById('flyout_contacts_list');
+    list.innerHTML = flyoutContacts.map((c, i) =>
+        `<div class="d-flex align-items-center gap-2 mb-1">
+            <span class="small flex-grow-1"><i class="bi bi-person"></i> ${c.name}${c.email ? ' <span class="text-muted">(' + c.email + ')</span>' : ''}</span>
+            <button type="button" class="btn btn-sm btn-outline-danger py-0 px-1" onclick="removeFlyoutContact(${i})">
+                <i class="bi bi-x"></i>
+            </button>
+        </div>`
+    ).join('');
+}
+
+// Enter in contact fields adds the contact
+document.getElementById('flyout_contact_name')?.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') { e.preventDefault(); addFlyoutContact(); }
+});
+document.getElementById('flyout_contact_email')?.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') { e.preventDefault(); addFlyoutContact(); }
+});
+
+function openPartnerFlyout() {
+    const flyout = document.getElementById('partnerFlyout');
+    const offcanvas = bootstrap.Offcanvas.getOrCreateInstance(flyout);
+    // Pre-fill name from search
+    document.getElementById('flyout_partner_name').value = partnerSearch.value.trim();
+    document.getElementById('flyout_partner_website').value = '';
+    document.getElementById('flyout_partner_overview').value = '';
+    document.getElementById('flyout_partner_rating_value').value = '';
+    flyoutRatingValue = 0;
+    restoreFlyoutRating();
+    // Clear specialties
+    flyoutSpecialtyIds = [];
+    flyoutSpecContainer.innerHTML = '';
+    flyoutSpecSearch.value = '';
+    flyoutSpecDropdown.style.display = 'none';
+    // Clear contacts
+    flyoutContacts = [];
+    renderFlyoutContacts();
+    document.getElementById('flyout_contact_name').value = '';
+    document.getElementById('flyout_contact_email').value = '';
+    partnerDropdown.style.display = 'none';
+    offcanvas.show();
+    flyout.addEventListener('shown.bs.offcanvas', function handler() {
+        document.getElementById('flyout_partner_name').focus();
+        flyout.removeEventListener('shown.bs.offcanvas', handler);
+    });
+}
+
+function savePartnerFromFlyout() {
+    const name = document.getElementById('flyout_partner_name').value.trim();
+    if (!name) {
+        document.getElementById('flyout_partner_name').classList.add('is-invalid');
+        return;
+    }
+    document.getElementById('flyout_partner_name').classList.remove('is-invalid');
+    
+    const website = document.getElementById('flyout_partner_website').value.trim();
+    const overview = document.getElementById('flyout_partner_overview').value.trim();
+    const rating = document.getElementById('flyout_partner_rating_value').value;
+    const saveBtn = document.getElementById('flyout_partner_save');
+    saveBtn.disabled = true;
+    saveBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Creating...';
     
     fetch('/api/partners/create', {
         method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ name: partnerName })
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            name, website, overview,
+            rating: rating ? parseInt(rating) : null,
+            specialty_ids: flyoutSpecialtyIds,
+            contacts: flyoutContacts
+        })
     })
-    .then(response => response.json())
+    .then(r => r.json())
     .then(data => {
         if (data.id) {
-            // Add newly created or existing partner to the list
-            allPartners.push({
-                id: data.id,
-                name: data.name
-            });
-            
-            // Add to selected partners
-            addPartner(data.id, data.name);
-            
-            // Show feedback
-            if (data.existed) {
-                console.log('Partner already existed, added to selection');
-            } else {
-                console.log('New partner created and added');
+            if (!allPartners.find(p => p.id === data.id)) {
+                allPartners.push({ id: data.id, name: data.name });
             }
+            addPartner(data.id, data.name);
+            bootstrap.Offcanvas.getInstance(document.getElementById('partnerFlyout')).hide();
+            partnerSearch.value = '';
         }
     })
-    .catch(error => {
-        console.error('Error creating partner:', error);
-        alert('Failed to create partner. Please try again.');
+    .catch(err => {
+        console.error('Error creating partner:', err);
+        alert('Failed to create partner.');
     })
     .finally(() => {
-        // Reset search box
-        partnerSearch.disabled = false;
-        partnerSearch.placeholder = 'Search and add partners...';
-        partnerSearch.value = '';
-        partnerSearch.focus();
+        saveBtn.disabled = false;
+        saveBtn.innerHTML = '<i class="bi bi-check-circle"></i> Create Partner';
+    });
+}
+
+function openEngagementFlyout() {
+    const flyout = document.getElementById('engagementFlyout');
+    const offcanvas = bootstrap.Offcanvas.getOrCreateInstance(flyout);
+    document.getElementById('flyout_eng_title').value = '';
+    document.getElementById('flyout_eng_title').classList.remove('is-invalid');
+    document.getElementById('flyout_eng_status').value = 'Active';
+    document.getElementById('flyout_eng_key_individuals').value = '';
+    document.getElementById('flyout_eng_technical_problem').value = '';
+    document.getElementById('flyout_eng_business_impact').value = '';
+    document.getElementById('flyout_eng_solution_resources').value = '';
+    document.getElementById('flyout_eng_estimated_acr').value = '';
+    document.getElementById('flyout_eng_target_date').value = '';
+    offcanvas.show();
+    flyout.addEventListener('shown.bs.offcanvas', function handler() {
+        document.getElementById('flyout_eng_title').focus();
+        flyout.removeEventListener('shown.bs.offcanvas', handler);
+    });
+}
+
+function saveEngagementFromFlyout() {
+    const title = document.getElementById('flyout_eng_title').value.trim();
+    if (!title) {
+        document.getElementById('flyout_eng_title').classList.add('is-invalid');
+        return;
+    }
+    document.getElementById('flyout_eng_title').classList.remove('is-invalid');
+    
+    const customerId = document.getElementById('customer_id').value;
+    if (!customerId) {
+        alert('Please select a customer first.');
+        return;
+    }
+    
+    const saveBtn = document.getElementById('flyout_eng_save');
+    saveBtn.disabled = true;
+    saveBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Creating...';
+    
+    fetch(`/customer/${customerId}/engagement/create-inline`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            title,
+            status: document.getElementById('flyout_eng_status').value,
+            key_individuals: document.getElementById('flyout_eng_key_individuals').value.trim(),
+            technical_problem: document.getElementById('flyout_eng_technical_problem').value.trim(),
+            business_impact: document.getElementById('flyout_eng_business_impact').value.trim(),
+            solution_resources: document.getElementById('flyout_eng_solution_resources').value.trim(),
+            estimated_acr: document.getElementById('flyout_eng_estimated_acr').value.trim(),
+            target_date: document.getElementById('flyout_eng_target_date').value || null
+        })
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.id) {
+            // Add new option to hidden select and mark it selected
+            const hiddenSelect = document.getElementById('engagement_ids');
+            const opt = document.createElement('option');
+            opt.value = data.id;
+            const status = document.getElementById('flyout_eng_status').value;
+            opt.textContent = `${data.title} (${status})`;
+            opt.selected = true;
+            hiddenSelect.appendChild(opt);
+            
+            // Rebuild dropdown menu and close flyout
+            if (typeof window.rebuildEngagementDropdown === 'function') {
+                window.rebuildEngagementDropdown();
+            }
+            bootstrap.Offcanvas.getInstance(document.getElementById('engagementFlyout')).hide();
+            if (typeof debouncedAutoSave === 'function') debouncedAutoSave();
+        }
+    })
+    .catch(err => {
+        console.error('Error creating engagement:', err);
+        alert('Failed to create engagement.');
+    })
+    .finally(() => {
+        saveBtn.disabled = false;
+        saveBtn.innerHTML = '<i class="bi bi-check-circle"></i> Create Engagement';
     });
 }
 

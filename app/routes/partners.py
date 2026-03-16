@@ -365,8 +365,40 @@ def api_partner_create():
     partner = Partner(
         name=name,
     )
+    # Optional fields from flyout
+    website = data.get('website', '').strip()
+    if website:
+        partner.website = website
+    overview = data.get('overview', '').strip()
+    if overview:
+        partner.overview = overview
+    rating = data.get('rating')
+    if rating is not None:
+        partner.rating = int(rating)
     
     db.session.add(partner)
+    db.session.flush()  # Get partner.id for relationships
+    
+    # Specialties
+    specialty_ids = data.get('specialty_ids', [])
+    if specialty_ids:
+        specialties = Specialty.query.filter(Specialty.id.in_(specialty_ids)).all()
+        partner.specialties = specialties
+    
+    # Contacts
+    contacts = data.get('contacts', [])
+    for i, c in enumerate(contacts):
+        contact_name = c.get('name', '').strip()
+        if not contact_name:
+            continue
+        contact = PartnerContact(
+            partner_id=partner.id,
+            name=contact_name,
+            email=c.get('email', '').strip() or None,
+            is_primary=(i == 0),
+        )
+        db.session.add(contact)
+    
     db.session.commit()
     
     return jsonify({'id': partner.id, 'name': partner.name, 'existing': False})

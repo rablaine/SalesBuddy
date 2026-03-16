@@ -424,6 +424,58 @@ class TestCustomerViewEngagements:
         assert b'Badge Test Eng' in resp.data
 
 
+class TestEngagementAPI:
+    """Test engagement API endpoints for inline creation flyouts."""
+
+    def test_get_customer_engagements(self, client, app, engagement_data):
+        """GET /api/customer/<id>/engagements returns JSON list."""
+        cid = engagement_data['customer_id']
+        with app.app_context():
+            eng1 = Engagement(customer_id=cid, title='API Eng 1', status='Active')
+            eng2 = Engagement(customer_id=cid, title='API Eng 2', status='Completed')
+            db.session.add_all([eng1, eng2])
+            db.session.commit()
+
+        resp = client.get(f'/api/customer/{cid}/engagements')
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert len(data) == 2
+        titles = {e['title'] for e in data}
+        assert titles == {'API Eng 1', 'API Eng 2'}
+        assert all('id' in e and 'status' in e for e in data)
+
+    def test_get_customer_engagements_empty(self, client, engagement_data):
+        """Returns empty list when customer has no engagements."""
+        cid = engagement_data['customer_id']
+        resp = client.get(f'/api/customer/{cid}/engagements')
+        assert resp.status_code == 200
+        assert resp.get_json() == []
+
+    def test_get_customer_engagements_invalid_customer(self, client):
+        """Returns 404 for non-existent customer."""
+        resp = client.get('/api/customer/99999/engagements')
+        assert resp.status_code == 404
+
+    def test_create_inline_engagement_json(self, client, app, engagement_data):
+        """Create engagement via JSON body (flyout mode)."""
+        cid = engagement_data['customer_id']
+        resp = client.post(
+            f'/customer/{cid}/engagement/create-inline',
+            data=json.dumps({'title': 'JSON Created'}),
+            content_type='application/json',
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data['success'] is True
+        assert data['title'] == 'JSON Created'
+        assert 'id' in data
+
+        with app.app_context():
+            eng = Engagement.query.filter_by(title='JSON Created').first()
+            assert eng is not None
+            assert eng.customer_id == cid
+
+
 class TestAccountContext:
     """Test the overview -> account_context rename."""
 

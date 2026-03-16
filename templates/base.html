@@ -2492,6 +2492,16 @@
                         return;
                     }
                     
+                    // If inside an open offcanvas flyout, click its primary button
+                    const offcanvas = e.target.closest('.offcanvas.show');
+                    if (offcanvas) {
+                        const primaryBtn = offcanvas.querySelector('.btn-primary');
+                        if (primaryBtn && !primaryBtn.disabled) {
+                            primaryBtn.click();
+                        }
+                        return;
+                    }
+                    
                     // Otherwise, submit the closest form
                     const form = e.target.closest('form');
                     if (form) {

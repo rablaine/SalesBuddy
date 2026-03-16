@@ -266,21 +266,47 @@ def engagement_assign_notes(id: int):
     return redirect(url_for('engagements.engagement_view', id=id))
 
 
+@engagements_bp.route('/api/customer/<int:customer_id>/engagements')
+def api_customer_engagements(customer_id: int):
+    """List engagements for a customer (for dynamic loading on note form)."""
+    customer = Customer.query.get_or_404(customer_id)
+    return jsonify([
+        {'id': e.id, 'title': e.title, 'status': e.status}
+        for e in customer.engagements
+    ])
+
+
 @engagements_bp.route('/customer/<int:customer_id>/engagement/create-inline',
                        methods=['POST'])
 def engagement_create_inline(customer_id: int):
     """Create an engagement with just a title (inline from note form)."""
     customer = Customer.query.get_or_404(customer_id)
-    title = request.form.get('title', '').strip()
+    data = request.get_json() if request.is_json else None
+    title = (data.get('title', '') if data else request.form.get('title', '')).strip()
 
     if not title:
         return jsonify(success=False, error='Title is required'), 400
 
+    status = (data.get('status', '') if data else request.form.get('status', '')).strip()
     engagement = Engagement(
         customer_id=customer_id,
         title=title,
-        status='Active',
+        status=status if status in ('Active', 'On Hold', 'Won', 'Lost') else 'Active',
     )
+    # Optional story fields
+    if data:
+        for field in ('key_individuals', 'technical_problem', 'business_impact',
+                       'solution_resources', 'estimated_acr'):
+            val = data.get(field, '').strip()
+            if val:
+                setattr(engagement, field, val)
+        target = data.get('target_date', '').strip() if data.get('target_date') else ''
+        if target:
+            from datetime import date as date_cls
+            try:
+                engagement.target_date = date_cls.fromisoformat(target)
+            except ValueError:
+                pass
     db.session.add(engagement)
     db.session.commit()
 
