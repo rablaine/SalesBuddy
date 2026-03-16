@@ -433,6 +433,123 @@ At Risk Customer,Core DBs,Total,"$20,000","$18,000","$16,000","$14,000","$12,000
             assert len(analyses) >= 1
 
 
+class TestReviewAPI:
+    """Test the PATCH /api/revenue/analysis/<id>/review endpoint."""
+
+    def _create_analysis(self, app):
+        """Helper: create a RevenueAnalysis and return its id."""
+        with app.app_context():
+            a = RevenueAnalysis(
+                customer_name='Review Test Customer',
+                bucket='Core DBs',
+                category='CHURN_RISK',
+                recommended_action='CHECK-IN',
+                avg_revenue=5000,
+                latest_revenue=4000,
+                priority_score=70,
+                months_analyzed=6,
+                confidence='HIGH',
+            )
+            db.session.add(a)
+            db.session.commit()
+            return a.id
+
+    def test_review_update_status(self, app, client, test_user):
+        """PATCH with valid status updates the analysis."""
+        aid = self._create_analysis(app)
+        resp = client.patch(f'/api/revenue/analysis/{aid}/review',
+                            json={'review_status': 'reviewed', 'review_notes': 'Seasonal dip'})
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data['success'] is True
+        assert data['review_status'] == 'reviewed'
+        assert data['review_notes'] == 'Seasonal dip'
+        assert data['reviewed_at'] is not None
+
+    def test_review_update_actioned(self, app, client, test_user):
+        """Mark as actioned with notes."""
+        aid = self._create_analysis(app)
+        resp = client.patch(f'/api/revenue/analysis/{aid}/review',
+                            json={'review_status': 'actioned', 'review_notes': 'Set up meeting with DSS'})
+        assert resp.status_code == 200
+        assert resp.get_json()['review_status'] == 'actioned'
+
+    def test_review_update_dismissed(self, app, client, test_user):
+        """Mark as dismissed."""
+        aid = self._create_analysis(app)
+        resp = client.patch(f'/api/revenue/analysis/{aid}/review',
+                            json={'review_status': 'dismissed', 'review_notes': 'False positive'})
+        assert resp.status_code == 200
+        assert resp.get_json()['review_status'] == 'dismissed'
+
+    def test_review_reset_to_new(self, app, client, test_user):
+        """Can reset back to new."""
+        aid = self._create_analysis(app)
+        client.patch(f'/api/revenue/analysis/{aid}/review',
+                     json={'review_status': 'reviewed', 'review_notes': 'test'})
+        resp = client.patch(f'/api/revenue/analysis/{aid}/review',
+                            json={'review_status': 'new', 'review_notes': ''})
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data['review_status'] == 'new'
+        assert data['review_notes'] is None
+
+    def test_review_invalid_status(self, app, client, test_user):
+        """Invalid status returns 400."""
+        aid = self._create_analysis(app)
+        resp = client.patch(f'/api/revenue/analysis/{aid}/review',
+                            json={'review_status': 'bogus'})
+        assert resp.status_code == 400
+        assert resp.get_json()['success'] is False
+
+    def test_review_not_found(self, client, test_user):
+        """Non-existent analysis returns 404."""
+        resp = client.patch('/api/revenue/analysis/99999/review',
+                            json={'review_status': 'reviewed'})
+        assert resp.status_code == 404
+
+    def test_review_persists_in_db(self, app, client, test_user):
+        """Review status persists when re-read from DB."""
+        aid = self._create_analysis(app)
+        client.patch(f'/api/revenue/analysis/{aid}/review',
+                     json={'review_status': 'actioned', 'review_notes': 'Called customer'})
+        with app.app_context():
+            a = RevenueAnalysis.query.get(aid)
+            assert a.review_status == 'actioned'
+            assert a.review_notes == 'Called customer'
+            assert a.reviewed_at is not None
+
+    def test_review_badge_on_seller_alerts(self, app, client, test_user):
+        """Seller alerts page shows review badge."""
+        with app.app_context():
+            from app.models import Seller, Customer
+            seller = Seller(name='Badge Test Seller')
+            db.session.add(seller)
+            db.session.flush()
+            cust = Customer(name='Badge Test Cust', tpid=11111, seller_id=seller.id)
+            db.session.add(cust)
+            db.session.flush()
+            a = RevenueAnalysis(
+                customer_name='Badge Test Cust', bucket='Core DBs',
+                seller_name='Badge Test Seller', customer_id=cust.id,
+                category='CHURN_RISK', recommended_action='CHECK-IN',
+                avg_revenue=5000, latest_revenue=4000, priority_score=70,
+                months_analyzed=6, confidence='HIGH', review_status='reviewed',
+                review_notes='Expected seasonal dip',
+            )
+            db.session.add(a)
+            db.session.commit()
+        resp = client.get('/revenue/seller/Badge Test Seller')
+        assert resp.status_code == 200
+        assert b'Reviewed' in resp.data
+
+    def test_dashboard_shows_review_column(self, app, client, test_user):
+        """Dashboard table has the Status column header."""
+        resp = client.get('/revenue')
+        assert resp.status_code == 200
+        assert b'Status' in resp.data
+
+
 # Fixtures
 
 @pytest.fixture

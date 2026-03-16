@@ -192,10 +192,16 @@
             <div class="card-body p-0 flex-grow-1" style="overflow-y: auto; min-height: 0;">
                 <div class="list-group list-group-flush">
                 {% for alert in revenue_alerts %}
-                    <div class="list-group-item p-2">
+                    <div class="list-group-item p-2" style="border-left: 3px solid {% if alert.review_status == 'actioned' %}var(--bs-success){% elif alert.review_status == 'reviewed' %}var(--bs-info){% elif alert.review_status == 'dismissed' %}var(--bs-secondary){% else %}transparent{% endif %};">
                         <div class="d-flex justify-content-between align-items-start">
                             <div class="text-truncate me-2" style="min-width: 0;">
-                                <div class="fw-semibold text-truncate" style="font-size: 0.85rem;">{{ alert.customer_name }}</div>
+                                <div class="fw-semibold text-truncate" style="font-size: 0.85rem;">
+                                    {% if alert.review_status == 'reviewed' %}<i class="bi bi-eye text-info" title="Reviewed"></i>
+                                    {% elif alert.review_status == 'actioned' %}<i class="bi bi-check2-circle text-success" title="Actioned"></i>
+                                    {% elif alert.review_status == 'dismissed' %}<i class="bi bi-dash-circle text-secondary" title="Dismissed"></i>
+                                    {% endif %}
+                                    {{ alert.customer_name }}
+                                </div>
                                 <div class="text-muted text-truncate" style="font-size: 0.75rem;">{{ alert.bucket }}</div>
                             </div>
                             <div class="text-end flex-shrink-0">
@@ -262,6 +268,7 @@
             <div class="modal-body p-3">
                 {% set alerts = revenue_alerts %}
                 {% set summary = revenue_summary %}
+
                 {% include 'partials/revenue_alerts_content.html' %}
             </div>
         </div>
@@ -288,6 +295,16 @@
         </div>
     </div>
 </div>
+{% endif %}
+
+{% if revenue_alerts %}
+{% include 'partials/review_action.html' %}
+<script>
+// Refresh page when revenue modal closes (to sync compact list with any status changes)
+document.getElementById('revenueModal').addEventListener('hidden.bs.modal', function() {
+    location.reload();
+});
+</script>
 {% endif %}
 
 {% endblock %}

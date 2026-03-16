@@ -1108,6 +1108,15 @@ class RevenueAnalysis(db.Model):
     previous_priority_score = db.Column(db.Integer, nullable=True)
     status_changed_at = db.Column(db.DateTime, nullable=True)
     
+    # Review/actioning status (user marks alerts as reviewed/actioned)
+    review_status = db.Column(db.String(20), default='new', nullable=False)
+    # new = not yet reviewed
+    # reviewed = acknowledged, no action needed (explained away)
+    # actioned = follow-up action taken or in progress
+    # dismissed = false positive / not relevant
+    review_notes = db.Column(db.Text, nullable=True)  # Why it was marked this way
+    reviewed_at = db.Column(db.DateTime, nullable=True)  # When status was last changed
+    
     # Relationships
     customer = db.relationship('Customer', backref='revenue_analyses')
     engagements = db.relationship('RevenueEngagement', back_populates='analysis', lazy='select')

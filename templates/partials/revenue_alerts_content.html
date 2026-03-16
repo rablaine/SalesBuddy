@@ -2,6 +2,7 @@
 {# Usage: {% include 'partials/revenue_alerts_content.html' with context %} #}
 {# Required context: alerts (list of alert dicts) #}
 {# Optional context: summary (dict with count, total_at_risk, total_opportunity) #}
+{% from 'partials/review_action.html' import review_badge, action_buttons %}
 
 {# Summary cards (shown when summary is provided) #}
 {% if summary %}
@@ -40,19 +41,20 @@
             <tr>
                 <th>Priority</th>
                 <th>Customer</th>
-                <th>TPID</th>
                 <th>Bucket</th>
                 <th>Category</th>
                 <th>Recommended Action</th>
                 <th>Avg Revenue</th>
                 <th>$ Impact</th>
+                {% if show_seller %}<th>Seller</th>{% endif %}
                 <th>Rationale</th>
+                <th>Status</th>
                 <th>Actions</th>
             </tr>
         </thead>
         <tbody>
             {% for a in alerts %}
-            <tr>
+            <tr data-analysis-id="{{ a.id }}" {% if a.review_status != 'new' %}style="opacity: 0.6;"{% endif %}>
                 <td>
                     <span class="badge {% if a.priority_score >= 80 %}bg-danger{% elif a.priority_score >= 60 %}bg-warning text-dark{% elif a.priority_score >= 40 %}bg-info{% else %}bg-secondary{% endif %}">
                         {{ a.priority_score }}
@@ -70,7 +72,6 @@
                     {{ a.customer_name }}
                     {% endif %}
                 </td>
-                <td><small class="text-muted">{{ a.tpid or '-' }}</small></td>
                 <td><small>{{ a.bucket }}</small></td>
                 <td class="text-nowrap">
                     {% if a.category == 'CHURN_RISK' %}
@@ -81,6 +82,8 @@
                     <span class="badge bg-success">EXPANSION</span>
                     {% elif a.category == 'VOLATILE' %}
                     <span class="badge bg-secondary">VOLATILE</span>
+                    {% elif a.category == 'NEW_CUSTOMER' %}
+                    <span class="badge bg-info">NEW_CUSTOMER</span>
                     {% else %}
                     <span class="badge bg-light text-dark">{{ a.category }}</span>
                     {% endif %}
@@ -96,12 +99,21 @@
                     -
                     {% endif %}
                 </td>
-                <td><small>{{ a.engagement_rationale }}</small></td>
+                {% if show_seller %}
                 <td>
-                    <a href="{{ url_for('revenue.record_engagement', analysis_id=a.id) }}" 
-                       class="btn btn-sm btn-outline-success" title="Add seller notes" target="_blank">
-                        <i class="bi bi-chat-square-text"></i>
+                    {% if a.seller_name %}
+                    <a href="{{ url_for('revenue.revenue_seller_view', seller_name=a.seller_name) }}" class="badge {{ get_seller_color(seller_id_map[a.seller_name]) if a.seller_name in seller_id_map else 'bg-primary' }} text-decoration-none">
+                        <i class="bi bi-person"></i> {{ a.seller_name }}
                     </a>
+                    {% else %}
+                    <span class="text-muted">-</span>
+                    {% endif %}
+                </td>
+                {% endif %}
+                <td><small>{{ a.engagement_rationale }}</small></td>
+                <td data-review-id="{{ a.id }}">{{ review_badge(a) }}</td>
+                <td>
+                    {{ action_buttons(a) }}
                 </td>
             </tr>
             {% endfor %}

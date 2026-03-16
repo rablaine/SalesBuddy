@@ -225,7 +225,12 @@ def revenue_seller_view(seller_name: str):
         seller=seller,
         alerts=alerts,
         total_at_risk=total_at_risk,
-        total_opportunity=total_opportunity
+        total_opportunity=total_opportunity,
+        summary={
+            'count': len(alerts),
+            'total_at_risk': total_at_risk,
+            'total_opportunity': total_opportunity,
+        }
     )
 
 
@@ -794,6 +799,36 @@ def record_engagement(analysis_id: int):
     return render_template('revenue_engagement.html', 
                           analysis=analysis,
                           engagements=existing_engagements)
+
+
+@revenue_bp.route('/api/revenue/analysis/<int:analysis_id>/review', methods=['PATCH'])
+def api_update_review(analysis_id: int):
+    """Update the review status and notes on a revenue analysis."""
+    from datetime import datetime, timezone
+
+    VALID_STATUSES = {'new', 'reviewed', 'actioned', 'dismissed'}
+
+    analysis = RevenueAnalysis.query.get_or_404(analysis_id)
+    data = request.get_json() or {}
+
+    review_status = data.get('review_status')
+    if review_status and review_status not in VALID_STATUSES:
+        return jsonify({'success': False, 'error': f'Invalid status: {review_status}'}), 400
+
+    if review_status:
+        analysis.review_status = review_status
+    if 'review_notes' in data:
+        analysis.review_notes = data['review_notes'].strip() if data['review_notes'] else None
+    analysis.reviewed_at = datetime.now(timezone.utc)
+
+    db.session.commit()
+
+    return jsonify({
+        'success': True,
+        'review_status': analysis.review_status,
+        'review_notes': analysis.review_notes,
+        'reviewed_at': analysis.reviewed_at.isoformat() if analysis.reviewed_at else None,
+    })
 
 
 @revenue_bp.route('/api/revenue/engagement/<int:analysis_id>', methods=['POST'])

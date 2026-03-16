@@ -3066,6 +3066,23 @@ def scan_init() -> Dict[str, Any]:
         )
         
         if not team_result.get("success"):
+            error_msg = team_result.get("error", "")
+            # Detect broken msp_accountteams entity (MSX-side outage)
+            if "0x80040224" in error_msg or "header name and value" in error_msg.lower():
+                logger.error("MSX msp_accountteams entity is returning 400 — likely an MSX-side outage")
+                return {
+                    "success": False,
+                    "error": (
+                        "MSX Account Teams API is currently unavailable (HTTP 400). "
+                        "This is an MSX-side issue — not a Sales Buddy problem. "
+                        "Try again in a few hours."
+                        "\n\n"
+                        "Details: HTTP 400 on msp_accountteam entity, "
+                        "error code 0x80040224 (\"Both header name and value should be specified\"), "
+                        "plugin: ODataRetrieveMultiplePlugin."
+                    ),
+                    "msx_outage": True,
+                }
             return team_result
         
         # 3. Filter to only SE/Seller roles and collect unique account IDs

@@ -1,0 +1,161 @@
+{# Review Action Modal + JS for Revenue Analyzer actioning #}
+{# Include once per page that shows revenue alerts. #}
+{# Usage: {% include 'partials/review_action.html' %} #}
+
+{# ── Jinja macros ── #}
+{% macro review_badge(analysis) %}
+{% if analysis.review_status == 'reviewed' %}
+<span class="badge bg-info review-badge" title="{{ analysis.review_notes or '' }}"><i class="bi bi-eye"></i> Reviewed</span>
+{% elif analysis.review_status == 'actioned' %}
+<span class="badge bg-success review-badge" title="{{ analysis.review_notes or '' }}"><i class="bi bi-check2-circle"></i> Actioned</span>
+{% elif analysis.review_status == 'dismissed' %}
+<span class="badge bg-secondary review-badge" title="{{ analysis.review_notes or '' }}"><i class="bi bi-dash-circle"></i> Dismissed</span>
+{% else %}
+<span class="badge bg-light text-dark border review-badge"><i class="bi bi-circle"></i> New</span>
+{% endif %}
+{% endmacro %}
+
+{% macro action_buttons(analysis) %}
+<div class="btn-group btn-group-sm">
+    <button type="button" class="btn btn-sm btn-outline-primary review-action-btn" 
+            data-analysis-id="{{ analysis.id }}"
+            data-status="{{ analysis.review_status }}"
+            data-notes="{{ (analysis.review_notes or '')|e }}"
+            title="Set review status">
+        <i class="bi bi-pencil-square"></i>
+    </button>
+    <a href="{{ url_for('revenue.record_engagement', analysis_id=analysis.id) }}" 
+       class="btn btn-sm btn-outline-success" title="Record engagement for this alert">
+        <i class="bi bi-chat-square-text"></i>
+    </a>
+</div>
+{% endmacro %}
+
+<!-- Review Action Modal -->
+<div class="modal fade" id="reviewActionModal" tabindex="-1" aria-labelledby="reviewActionModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header py-2">
+                <h5 class="modal-title" id="reviewActionModalLabel"><i class="bi bi-pencil-square"></i> Review Alert</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="reviewAnalysisId">
+                
+                <div class="mb-3">
+                    <label class="form-label fw-semibold">Status</label>
+                    <div class="d-flex flex-wrap gap-2">
+                        <input type="radio" class="btn-check" name="reviewStatus" id="rs_new" value="new" autocomplete="off">
+                        <label class="btn btn-outline-secondary btn-sm" for="rs_new"><i class="bi bi-circle"></i> New</label>
+                        
+                        <input type="radio" class="btn-check" name="reviewStatus" id="rs_reviewed" value="reviewed" autocomplete="off">
+                        <label class="btn btn-outline-info btn-sm" for="rs_reviewed"><i class="bi bi-eye"></i> Reviewed</label>
+                        
+                        <input type="radio" class="btn-check" name="reviewStatus" id="rs_actioned" value="actioned" autocomplete="off">
+                        <label class="btn btn-outline-success btn-sm" for="rs_actioned"><i class="bi bi-check2-circle"></i> Actioned</label>
+                        
+                        <input type="radio" class="btn-check" name="reviewStatus" id="rs_dismissed" value="dismissed" autocomplete="off">
+                        <label class="btn btn-outline-secondary btn-sm" for="rs_dismissed"><i class="bi bi-dash-circle"></i> Dismissed</label>
+                    </div>
+                </div>
+                
+                <div class="mb-3">
+                    <label for="reviewNotes" class="form-label fw-semibold">Notes</label>
+                    <textarea class="form-control" id="reviewNotes" rows="3" 
+                              placeholder="Why are you marking it this way? (e.g., seasonal dip, customer migrating, set up meeting with DSS)"></textarea>
+                </div>
+            </div>
+            <div class="modal-footer py-2">
+                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary btn-sm" onclick="saveReview()">
+                    <i class="bi bi-check-circle"></i> Save
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+let _reviewModal = null;
+
+function openReviewModal(analysisId, currentStatus, currentNotes) {
+    if (!_reviewModal) {
+        _reviewModal = new bootstrap.Modal(document.getElementById('reviewActionModal'));
+    }
+    document.getElementById('reviewAnalysisId').value = analysisId;
+    document.getElementById('reviewNotes').value = currentNotes || '';
+    
+    // Set radio button
+    const radio = document.getElementById('rs_' + currentStatus);
+    if (radio) radio.checked = true;
+    
+    _reviewModal.show();
+}
+
+// Delegate click for review action buttons (avoids inline onclick quoting issues)
+document.addEventListener('click', function(e) {
+    const btn = e.target.closest('.review-action-btn');
+    if (btn) {
+        openReviewModal(btn.dataset.analysisId, btn.dataset.status, btn.dataset.notes);
+    }
+});
+
+async function saveReview() {
+    const analysisId = document.getElementById('reviewAnalysisId').value;
+    const status = document.querySelector('input[name="reviewStatus"]:checked');
+    const notes = document.getElementById('reviewNotes').value;
+    
+    if (!status) return;
+    
+    try {
+        const resp = await fetch(`/api/revenue/analysis/${analysisId}/review`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                review_status: status.value,
+                review_notes: notes
+            })
+        });
+        const data = await resp.json();
+        if (!data.success) {
+            alert(data.error || 'Failed to save review');
+            return;
+        }
+        
+        // Update the badge in the table row without a full reload
+        const badgeEl = document.querySelector(`[data-review-id="${analysisId}"]`);
+        if (badgeEl) {
+            badgeEl.innerHTML = _reviewBadgeHtml(data.review_status, data.review_notes);
+        }
+        
+        // Update the row styling
+        const row = document.querySelector(`tr[data-analysis-id="${analysisId}"]`);
+        if (row) {
+            if (data.review_status !== 'new') {
+                row.style.opacity = '0.6';
+            } else {
+                row.style.opacity = '';
+            }
+        }
+        
+        _reviewModal.hide();
+    } catch (err) {
+        console.error('Review save error:', err);
+        alert('Network error saving review');
+    }
+}
+
+function _reviewBadgeHtml(status, notes) {
+    const title = notes ? ` title="${notes.replace(/"/g, '&quot;')}"` : '';
+    switch (status) {
+        case 'reviewed':
+            return `<span class="badge bg-info review-badge"${title}><i class="bi bi-eye"></i> Reviewed</span>`;
+        case 'actioned':
+            return `<span class="badge bg-success review-badge"${title}><i class="bi bi-check2-circle"></i> Actioned</span>`;
+        case 'dismissed':
+            return `<span class="badge bg-secondary review-badge"${title}><i class="bi bi-dash-circle"></i> Dismissed</span>`;
+        default:
+            return `<span class="badge bg-light text-dark border review-badge"><i class="bi bi-circle"></i> New</span>`;
+    }
+}
+</script>

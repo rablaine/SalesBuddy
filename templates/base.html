@@ -2478,22 +2478,27 @@
                     }
                 }
                 
-                // Ctrl+Enter: Submit the current form (works when typing)
+                // Ctrl+Enter: Submit the current form or modal action
                 if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-                    // Find the closest form from the focused element
+                    e.preventDefault();
+                    
+                    // If inside an open modal, click its primary action button
+                    const modal = e.target.closest('.modal.show');
+                    if (modal) {
+                        const primaryBtn = modal.querySelector('.modal-footer .btn-primary');
+                        if (primaryBtn && !primaryBtn.disabled) {
+                            primaryBtn.click();
+                        }
+                        return;
+                    }
+                    
+                    // Otherwise, submit the closest form
                     const form = e.target.closest('form');
                     if (form) {
-                        // Don't submit if inside a modal form (like quick customer lookup)
-                        const inModal = e.target.closest('.modal.show');
-                        if (inModal) return;
-                        
-                        e.preventDefault();
-                        // Find and click the submit button to trigger any onclick handlers
                         const submitBtn = form.querySelector('button[type="submit"]');
                         if (submitBtn && !submitBtn.disabled) {
                             submitBtn.click();
                         } else {
-                            // Fallback: submit the form directly
                             form.submit();
                         }
                     }

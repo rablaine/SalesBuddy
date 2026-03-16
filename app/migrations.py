@@ -170,6 +170,13 @@ def run_migrations(db):
 
     # Note: milestone_comments table is created by db.create_all() — no migration needed
 
+    # Migration: Add review_status, review_notes, reviewed_at to revenue_analyses
+    if _table_exists(inspector, 'revenue_analyses'):
+        _add_column_if_not_exists(db, inspector, 'revenue_analyses', 'review_status',
+                                  "VARCHAR(20) NOT NULL DEFAULT 'new'")
+        _add_column_if_not_exists(db, inspector, 'revenue_analyses', 'review_notes', 'TEXT')
+        _add_column_if_not_exists(db, inspector, 'revenue_analyses', 'reviewed_at', 'DATETIME')
+
     # =========================================================================
     # End migrations
     # =========================================================================

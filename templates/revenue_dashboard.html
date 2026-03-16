@@ -157,88 +157,9 @@
                 </div>
                 <div class="card-body p-0">
                     {% if analyses %}
-                    <div class="table-responsive">
-                        <table class="table table-hover mb-0">
-                            <thead>
-                                <tr>
-                                    <th>Priority</th>
-                                    <th>Customer</th>
-                                    <th>Bucket</th>
-                                    <th>Category</th>
-                                    <th>Action</th>
-                                    <th>Avg Revenue</th>
-                                    <th>$ Impact</th>
-                                    <th>Seller</th>
-                                    <th></th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {% for a in analyses %}
-                                <tr>
-                                    <td>
-                                        <span class="badge {% if a.priority_score >= 80 %}bg-danger{% elif a.priority_score >= 60 %}bg-warning text-dark{% elif a.priority_score >= 40 %}bg-info{% else %}bg-secondary{% endif %}">
-                                            {{ a.priority_score }}
-                                        </span>
-                                    </td>
-                                    <td>
-                                        {% if a.customer_id %}
-                                        <a href="{{ url_for('revenue.revenue_customer_view', customer_id=a.customer_id) }}">
-                                            {{ a.customer_name }}
-                                        </a>
-                                        <a href="{{ url_for('customers.customer_view', id=a.customer_id) }}" class="text-muted" title="View in Sales Buddy">
-                                            <i class="bi bi-box-arrow-up-right"></i>
-                                        </a>
-                                        {% else %}
-                                        {{ a.customer_name }}
-                                        {% endif %}
-                                    </td>
-                                    <td><small>{{ a.bucket }}</small></td>
-                                    <td class="text-nowrap">
-                                        {% if a.category == 'CHURN_RISK' %}
-                                        <span class="badge bg-danger">CHURN_RISK</span>
-                                        {% elif a.category == 'RECENT_DIP' %}
-                                        <span class="badge bg-warning text-dark">RECENT_DIP</span>
-                                        {% elif a.category == 'EXPANSION_OPPORTUNITY' %}
-                                        <span class="badge bg-success">EXPANSION</span>
-                                        {% elif a.category == 'VOLATILE' %}
-                                        <span class="badge bg-secondary">VOLATILE</span>
-                                        {% elif a.category == 'NEW_CUSTOMER' %}
-                                        <span class="badge bg-info">NEW_CUSTOMER</span>
-                                        {% else %}
-                                        <span class="badge bg-light text-dark">{{ a.category }}</span>
-                                        {% endif %}
-                                    </td>
-                                    <td><small>{{ a.recommended_action }}</small></td>
-                                    <td>${{ '{:,.0f}'.format(a.avg_revenue) }}</td>
-                                    <td>
-                                        {% if a.dollars_at_risk > 0 %}
-                                        <span class="text-danger">${{ '{:,.0f}'.format(a.dollars_at_risk) }}/mo risk</span>
-                                        {% elif a.dollars_opportunity > 0 %}
-                                        <span class="text-success">${{ '{:,.0f}'.format(a.dollars_opportunity) }}/mo opp</span>
-                                        {% else %}
-                                        -
-                                        {% endif %}
-                                    </td>
-                                    <td>
-                                        {% if a.seller_name %}
-                                        <a href="{{ url_for('revenue.revenue_seller_view', seller_name=a.seller_name) }}" class="badge {{ get_seller_color(seller_id_map[a.seller_name]) if a.seller_name in seller_id_map else 'bg-primary' }} text-decoration-none">
-                                            <i class="bi bi-person"></i> {{ a.seller_name }}
-                                        </a>
-                                        {% else %}
-                                        <span class="text-muted">-</span>
-                                        {% endif %}
-                                    </td>
-                                    <td>
-                                        <a href="{{ url_for('revenue.record_engagement', analysis_id=a.id) }}" 
-                                           class="btn btn-sm btn-outline-success" title="Record engagement">
-                                            <i class="bi bi-chat-square-text"></i>
-                                        </a>
-                                    </td>
-                                </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
-                    </div>
+                    {% set alerts = analyses %}
+                    {% set show_seller = true %}
+                    {% include 'partials/revenue_alerts_content.html' %}
                     {% else %}
                     <div class="text-center py-5">
                         <i class="bi bi-inbox display-1 text-muted"></i>
@@ -254,4 +175,6 @@
         </div>
     </div>
 </div>
+
+{% include 'partials/review_action.html' %}
 {% endblock %}

@@ -1224,6 +1224,8 @@ def import_stream():
                 error_msg = init_result.get("error", "Failed to initialize scan")
                 if init_result.get("vpn_blocked") or is_vpn_blocked():
                     yield _sse({"error": error_msg, "vpn_blocked": True})
+                elif init_result.get("msx_outage"):
+                    yield _sse({"error": error_msg, "msx_outage": True})
                 else:
                     yield _sse({"error": error_msg})
                 return
