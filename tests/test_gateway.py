@@ -120,7 +120,8 @@ class TestSuggestTopicsGateway:
         # Gateway should have been called with the right endpoint
         mock_gw_call.assert_called_once_with(
             "/v1/suggest-topics",
-            {"call_notes": "We discussed Azure OpenAI and RAG patterns."},
+            {"call_notes": "We discussed Azure OpenAI and RAG patterns.",
+             "existing_topics": []},
         )
 
         # Check audit log

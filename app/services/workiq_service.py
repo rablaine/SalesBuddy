@@ -38,6 +38,18 @@ _TOPIC_SUGGESTION_SUFFIX = (
     'Format them as a comma-separated list on a single line starting with SUGGESTED_TOPICS:'
 )
 
+
+def _build_topic_suffix(existing_topics: list = None) -> str:
+    """Build topic suggestion suffix, optionally including existing topics to prefer."""
+    suffix = _TOPIC_SUGGESTION_SUFFIX
+    if existing_topics:
+        topics_list = ', '.join(existing_topics[:200])
+        suffix += (
+            f' When possible, prefer reusing these existing topics over creating '
+            f'new ones: {topics_list}'
+        )
+    return suffix
+
 # Connect impact extraction suffix - appended when user has the preference enabled.
 # Asks WorkIQ to identify customer impact signals useful for Connect self-evaluations,
 # plus engagement metadata fields for account planning (Ben's table from issue #25).
@@ -572,7 +584,8 @@ def find_best_customer_match(meetings: List[Dict[str, Any]], customer_name: str)
 
 def get_meeting_summary(meeting_title: str, date_str: str = None,
                         custom_prompt: str = None,
-                        extract_impact: bool = False) -> Dict[str, Any]:
+                        extract_impact: bool = False,
+                        existing_topics: list = None) -> Dict[str, Any]:
     """
     Get a detailed 250-word summary for a specific meeting.
     
@@ -582,6 +595,7 @@ def get_meeting_summary(meeting_title: str, date_str: str = None,
         custom_prompt: Optional custom prompt template. Use {title} and {date}
                       as placeholders. Falls back to DEFAULT_SUMMARY_PROMPT.
         extract_impact: If True, append Connect impact extraction suffix to prompt
+        existing_topics: Optional list of existing topic names to prefer in suggestions
         
     Returns:
         Dict with:
@@ -610,8 +624,8 @@ def get_meeting_summary(meeting_title: str, date_str: str = None,
     # Always append task suggestion instructions (not user-editable)
     question += _TASK_PROMPT_SUFFIX
     
-    # Always append topic suggestion instructions
-    question += _TOPIC_SUGGESTION_SUFFIX
+    # Always append topic suggestion instructions (with existing topics if available)
+    question += _build_topic_suffix(existing_topics)
     
     # Conditionally append Connect impact extraction
     if extract_impact:

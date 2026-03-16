@@ -52,7 +52,7 @@ def api_ai_suggest_topics():
         )
         db.session.add(log_entry)
 
-        # Create / match topics in DB
+        # Match suggested topics against existing DB topics (don't create new ones)
         topic_ids = []
         for topic_name in suggested_topics:
             existing_topic = Topic.query.filter(
@@ -61,10 +61,8 @@ def api_ai_suggest_topics():
             if existing_topic:
                 topic_ids.append({'id': existing_topic.id, 'name': existing_topic.name})
             else:
-                new_topic = Topic(name=topic_name)
-                db.session.add(new_topic)
-                db.session.flush()
-                topic_ids.append({'id': new_topic.id, 'name': new_topic.name})
+                # Return without ID - frontend will hold as pending until save
+                topic_ids.append({'id': None, 'name': topic_name})
 
         db.session.commit()
         return jsonify({'success': True, 'topics': topic_ids})

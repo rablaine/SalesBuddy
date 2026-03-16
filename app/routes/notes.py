@@ -232,6 +232,24 @@ def note_create():
             topics = Topic.query.filter(Topic.id.in_([int(tid) for tid in topic_ids])).all()
             note.topics.extend(topics)
         
+        # Create and add any new (pending) topics
+        new_topic_names = request.form.getlist('new_topic_names')
+        for name in new_topic_names:
+            name = name.strip()
+            if not name:
+                continue
+            existing = Topic.query.filter(
+                db.func.lower(Topic.name) == name.lower()
+            ).first()
+            if existing:
+                if existing not in note.topics:
+                    note.topics.append(existing)
+            else:
+                new_topic = Topic(name=name)
+                db.session.add(new_topic)
+                db.session.flush()
+                note.topics.append(new_topic)
+        
         # Add partners
         if partner_ids:
             partners = Partner.query.filter(Partner.id.in_([int(pid) for pid in partner_ids])).all()
@@ -424,6 +442,24 @@ def note_edit(id):
         if topic_ids:
             topics = Topic.query.filter(Topic.id.in_([int(tid) for tid in topic_ids])).all()
             note.topics = topics
+        
+        # Create and add any new (pending) topics
+        new_topic_names = request.form.getlist('new_topic_names')
+        for name in new_topic_names:
+            name = name.strip()
+            if not name:
+                continue
+            existing = Topic.query.filter(
+                db.func.lower(Topic.name) == name.lower()
+            ).first()
+            if existing:
+                if existing not in note.topics:
+                    note.topics.append(existing)
+            else:
+                new_topic = Topic(name=name)
+                db.session.add(new_topic)
+                db.session.flush()
+                note.topics.append(new_topic)
         
         # Update partners - remove all existing associations first
         note.partners = []
@@ -643,9 +679,13 @@ def api_get_meeting_summary():
     if not title:
         return jsonify({'error': 'title parameter is required'}), 400
     
+    # Pass existing topic names so WorkIQ prefers reusing them
+    existing_topics = [t.name for t in Topic.query.order_by(Topic.name).all()]
+    
     try:
         result = get_meeting_summary(title, date_str, custom_prompt=custom_prompt,
-                                     extract_impact=extract_impact)
+                                     extract_impact=extract_impact,
+                                     existing_topics=existing_topics)
         return jsonify({
             'summary': result.get('summary', ''),
             'topics': result.get('topics', []),

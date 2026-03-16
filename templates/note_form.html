@@ -1083,10 +1083,10 @@ topicSearch.addEventListener('keydown', function(e) {
             const topic = currentMatches[selectedIndex];
             addTopic(topic.id, topic.name);
         } else if (currentMatches.length === 0) {
-            // Create new topic on Enter only when no matches exist
+            // Add as pending topic (created on save) when no matches exist
             const searchTerm = topicSearch.value.trim();
             if (searchTerm.length > 0) {
-                createNewTopic(searchTerm);
+                addPendingTopic(searchTerm);
             }
         }
     } else if (e.key === 'Escape') {
@@ -1140,12 +1140,21 @@ function isTopicSelected(topicId) {
     return selectedTopicsContainer.querySelector(`[data-topic-id="${topicId}"]`) !== null;
 }
 
+function isTopicNameSelected(name) {
+    return selectedTopicsContainer.querySelector(`[data-topic-name="${CSS.escape(name.toLowerCase())}"]`) !== null;
+}
+
 function addTopic(topicId, topicName) {
     if (isTopicSelected(topicId)) return;
+    
+    // If a pending topic with this name exists, upgrade it to a real one
+    const pendingBadge = selectedTopicsContainer.querySelector(`[data-topic-name="${CSS.escape(topicName.toLowerCase())}"][data-pending]`);
+    if (pendingBadge) pendingBadge.remove();
     
     const badge = document.createElement('span');
     badge.className = 'badge bg-warning text-dark d-flex align-items-center';
     badge.setAttribute('data-topic-id', topicId);
+    badge.setAttribute('data-topic-name', topicName.toLowerCase());
     badge.innerHTML = `
         <i class="bi bi-tag me-1"></i> ${topicName}
         <button type="button" class="btn-close btn-close-white ms-2" style="font-size: 0.7rem;" onclick="removeTopic(${topicId})"></button>
@@ -1157,7 +1166,48 @@ function addTopic(topicId, topicName) {
     topicDropdown.style.display = 'none';
     currentMatches = [];
     selectedIndex = -1;
-    topicSearch.focus(); // Keep focus on search box
+    topicSearch.focus();
+    
+    // Trigger debounced auto-save
+    debouncedAutoSave();
+}
+
+function addPendingTopic(topicName) {
+    if (isTopicNameSelected(topicName)) return;
+    
+    const badge = document.createElement('span');
+    badge.className = 'badge bg-warning bg-opacity-50 text-dark d-flex align-items-center';
+    badge.style.border = '1px dashed var(--bs-warning)';
+    badge.setAttribute('data-topic-name', topicName.toLowerCase());
+    badge.setAttribute('data-pending', 'true');
+    
+    const icon = document.createElement('i');
+    icon.className = 'bi bi-tag me-1';
+    badge.appendChild(icon);
+    badge.appendChild(document.createTextNode(' ' + topicName));
+    
+    const closeBtn = document.createElement('button');
+    closeBtn.type = 'button';
+    closeBtn.className = 'btn-close btn-close-white ms-2';
+    closeBtn.style.fontSize = '0.7rem';
+    closeBtn.addEventListener('click', function() {
+        badge.remove();
+        saveDraft();
+    });
+    badge.appendChild(closeBtn);
+    
+    const input = document.createElement('input');
+    input.type = 'hidden';
+    input.name = 'new_topic_names';
+    input.value = topicName;
+    badge.appendChild(input);
+    
+    selectedTopicsContainer.appendChild(badge);
+    topicSearch.value = '';
+    topicDropdown.style.display = 'none';
+    currentMatches = [];
+    selectedIndex = -1;
+    topicSearch.focus();
     
     // Trigger debounced auto-save
     debouncedAutoSave();
@@ -1167,55 +1217,8 @@ function removeTopic(topicId) {
     const badge = selectedTopicsContainer.querySelector(`span[data-topic-id="${topicId}"]`);
     if (badge) {
         badge.remove();
-        // Trigger debounced auto-save
-        debouncedAutoSave();
+        saveDraft();
     }
-}
-
-function createNewTopic(topicName) {
-    // Show loading indicator
-    topicSearch.disabled = true;
-    topicSearch.placeholder = 'Creating topic...';
-    
-    fetch('/api/topic/create', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ name: topicName })
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.id) {
-            // Add newly created or existing topic to the list
-            allTopics.push({
-                id: data.id,
-                name: data.name,
-                description: data.description
-            });
-            
-            // Add to selected topics
-            addTopic(data.id, data.name);
-            
-            // Show feedback
-            if (data.existed) {
-                console.log('Topic already existed, added to selection');
-            } else {
-                console.log('New topic created and added');
-            }
-        }
-    })
-    .catch(error => {
-        console.error('Error creating topic:', error);
-        alert('Failed to create topic. Please try again.');
-    })
-    .finally(() => {
-        // Reset search box
-        topicSearch.disabled = false;
-        topicSearch.placeholder = 'Search and add topics...';
-        topicSearch.value = '';
-        topicSearch.focus();
-    });
 }
 
 // ===== PARTNER SEARCH AND SELECTION FUNCTIONALITY =====
@@ -2319,9 +2322,18 @@ document.getElementById('aiSuggestBtn').addEventListener('click', function() {
             // Add suggested topics that aren't already selected
             let addedCount = 0;
             data.topics.forEach(topic => {
-                if (!isTopicSelected(topic.id)) {
-                    addTopic(topic.id, topic.name);
-                    addedCount++;
+                if (topic.id) {
+                    // Existing topic - add by ID
+                    if (!isTopicSelected(topic.id) && !isTopicNameSelected(topic.name)) {
+                        addTopic(topic.id, topic.name);
+                        addedCount++;
+                    }
+                } else {
+                    // New topic - add as pending (created on save)
+                    if (!isTopicNameSelected(topic.name)) {
+                        addPendingTopic(topic.name);
+                        addedCount++;
+                    }
                 }
             });
             
@@ -2495,6 +2507,7 @@ function saveDraft() {
             id: parseInt(input.value),
             name: input.closest('.badge').textContent.trim().replace('×', '').trim()
         })),
+        pendingTopics: Array.from(selectedTopicsContainer.querySelectorAll('input[name="new_topic_names"]')).map(input => input.value),
         partners: Array.from(selectedPartnersContainer.querySelectorAll('input[name="partner_ids"]')).map(input => ({
             id: parseInt(input.value),
             name: input.closest('.badge').textContent.trim().replace('×', '').trim()
@@ -2511,7 +2524,7 @@ function saveDraft() {
     tempDiv.innerHTML = draftData.content;
     const textContent = (tempDiv.textContent || tempDiv.innerText || '').trim();
     
-    if (textContent.length > 0 || draftData.topics.length > 0 || draftData.partners.length > 0 || milestoneData) {
+    if (textContent.length > 0 || draftData.topics.length > 0 || draftData.pendingTopics.length > 0 || draftData.partners.length > 0 || milestoneData) {
         try {
             localStorage.setItem(draftKey, JSON.stringify(draftData));
             console.log('Draft auto-saved');
@@ -2551,7 +2564,7 @@ function restoreDraft() {
         tempDiv.innerHTML = draft.content || '';
         const textContent = (tempDiv.textContent || tempDiv.innerText || '').trim();
         
-        if (textContent.length === 0 && (!draft.topics || draft.topics.length === 0) && (!draft.partners || draft.partners.length === 0) && !draft.milestone) {
+        if (textContent.length === 0 && (!draft.topics || draft.topics.length === 0) && (!draft.pendingTopics || draft.pendingTopics.length === 0) && (!draft.partners || draft.partners.length === 0) && !draft.milestone) {
             return false; // No content to restore
         }
         
@@ -2573,6 +2586,12 @@ function restoreDraft() {
                 if (!isTopicSelected(topic.id)) {
                     addTopic(topic.id, topic.name);
                 }
+            });
+        }
+        
+        if (draft.pendingTopics && draft.pendingTopics.length > 0) {
+            draft.pendingTopics.forEach(name => {
+                addPendingTopic(name);
             });
         }
         
@@ -3793,6 +3812,9 @@ function autoSuggestTopics(suggestedTopics) {
         
         if (matchedTopic && !isTopicSelected(matchedTopic.id)) {
             addTopic(matchedTopic.id, matchedTopic.name);
+        } else if (!matchedTopic) {
+            // No match found - add as pending topic (created on save)
+            addPendingTopic(topicName);
         }
     });
 }

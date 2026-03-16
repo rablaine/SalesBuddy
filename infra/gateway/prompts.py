@@ -15,7 +15,7 @@ Prompts are copied from the NoteHelper codebase:
 # ---------------------------------------------------------------------------
 TOPIC_SUGGESTION_PROMPT = (
     "You are a helpful assistant that analyzes call notes and suggests relevant topic tags. "
-    "Based on the call notes provided, return a JSON array of 3-4 short topic tags (1-3 words each) "
+    "Based on the call notes provided, return a JSON array of 5-6 short topic tags (1-3 words each) "
     "that best describe the key technologies, products, or themes discussed. "
     "Prefer HIGHER-LEVEL abstractions over granular subtopics - for example, use "
     '"Azure Virtual Desktop" instead of separate tags for "AVD", "AVD Management", etc. '

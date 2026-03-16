@@ -138,16 +138,16 @@ class TestAISuggestions:
         call_args = mock_gw.call_args
         assert 'existing_topics' in call_args[0][1]
 
-        # Verify topics created in DB
+        # Topics should NOT be created in DB (deferred until note save)
         with app.app_context():
-            assert Topic.query.count() == 3
+            assert Topic.query.count() == 0
             log = AIQueryLog.query.first()
             assert log is not None
             assert log.success is True
 
     @patch('app.routes.ai.gateway_call')
     def test_suggest_topics_reuses_existing(self, mock_gw, app, client):
-        """Existing topics are reused (case-insensitive)."""
+        """Existing topics are reused (case-insensitive), new ones returned with id=None."""
         with app.app_context():
             existing = Topic(name='azure functions')
             db.session.add(existing)
@@ -166,8 +166,11 @@ class TestAISuggestions:
         data = resp.get_json()
         assert len(data['topics']) == 2
         assert any(t['id'] == existing_id for t in data['topics'])
+        # New topic should have id=None (deferred creation)
+        assert any(t['id'] is None and t['name'] == 'Cosmos DB' for t in data['topics'])
         with app.app_context():
-            assert Topic.query.count() == 2
+            # Only the pre-existing topic should be in DB
+            assert Topic.query.count() == 1
 
         # Verify existing topic name was sent to gateway
         call_args = mock_gw.call_args
