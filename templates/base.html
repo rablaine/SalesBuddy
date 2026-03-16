@@ -2514,14 +2514,16 @@
                     }
                 }
                 
-                // Escape: Cancel / go back (when not in a modal and on a form page)
+                // Escape: Cancel / go back (when not in a modal and not on note form)
                 if (e.key === 'Escape') {
                     // Check if any modal is open - if so, let Bootstrap handle it
                     const openModal = document.querySelector('.modal.show');
                     if (openModal) return;
+
+                    // Skip on note form - too many dropdowns/popups that use Escape
+                    if (document.getElementById('noteForm')) return;
                     
                     // Look for a cancel link/button on the page
-                    // Usually it's an <a> with class btn-secondary containing "Cancel"
                     const cancelBtn = document.querySelector('a.btn-secondary[href]:not([data-bs-toggle])') ||
                                       document.querySelector('a.btn-outline-secondary[href]:not([data-bs-toggle])');
                     if (cancelBtn && cancelBtn.textContent.toLowerCase().includes('cancel')) {

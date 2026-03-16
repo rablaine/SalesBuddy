@@ -1234,7 +1234,8 @@ partnerSearch.addEventListener('input', function() {
 });
 
 // Auto-expand on focus to show all available partners
-partnerSearch.addEventListener('focus', function() {
+// Open dropdown on click (not focus - let Tab pass through)
+partnerSearch.addEventListener('click', function() {
     if (partnerDropdown.style.display === 'none' || partnerDropdown.style.display === '') {
         const searchTerm = this.value.toLowerCase().trim();
         currentPartnerMatches = allPartners.filter(partner =>
@@ -1249,12 +1250,20 @@ partnerSearch.addEventListener('focus', function() {
 
 // Keyboard navigation from search input
 partnerSearch.addEventListener('keydown', function(e) {
+    const isOpen = partnerDropdown.style.display === 'block';
     const items = partnerDropdown.querySelectorAll('button.list-group-item-action');
-    if (e.key === 'ArrowDown' || (e.key === 'Tab' && !e.shiftKey && partnerSearch.value.trim())) {
-        if (items.length > 0) {
-            e.preventDefault();
-            items[0].focus();
+
+    if (e.key === 'ArrowDown' || (e.key === 'Enter' && !partnerSearch.value.trim())) {
+        e.preventDefault();
+        if (!isOpen) {
+            // Open dropdown
+            currentPartnerMatches = allPartners.filter(p => !isPartnerSelected(p.id));
+            renderPartnerDropdown();
+            partnerDropdown.style.display = 'block';
+            partnerDropdown.style.width = partnerSearch.offsetWidth + 'px';
         }
+        const freshItems = partnerDropdown.querySelectorAll('button.list-group-item-action');
+        if (freshItems.length > 0) freshItems[0].focus();
     } else if (e.key === 'ArrowUp') {
         if (items.length > 0) {
             e.preventDefault();
@@ -1284,15 +1293,21 @@ partnerDropdown.addEventListener('keydown', function(e) {
     if (currentIndex === -1) return;
 
     if (e.key === 'ArrowDown' || (e.key === 'Tab' && !e.shiftKey)) {
-        e.preventDefault();
         if (currentIndex < items.length - 1) {
+            e.preventDefault();
             items[currentIndex + 1].focus();
+        } else if (e.key === 'Tab') {
+            // Last item - let Tab move to next field naturally
+            partnerDropdown.style.display = 'none';
+        } else {
+            e.preventDefault();
         }
     } else if (e.key === 'ArrowUp' || (e.key === 'Tab' && e.shiftKey)) {
         e.preventDefault();
         if (currentIndex > 0) {
             items[currentIndex - 1].focus();
         } else {
+            partnerDropdown.style.display = 'none';
             partnerSearch.focus();
         }
     } else if (e.key === 'Enter') {
