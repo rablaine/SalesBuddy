@@ -782,6 +782,16 @@ var quill = new Quill('#editor', {
     }
 });
 
+// Disable AI auto-tag button when editor has < 10 characters
+function updateAiButtonState() {
+    const btn = document.getElementById('aiSuggestBtn');
+    if (!btn) return;
+    const textLen = quill.getText().trim().length;
+    btn.disabled = textLen < 10;
+}
+quill.on('text-change', updateAiButtonState);
+updateAiButtonState();
+
 // Sync editor content to hidden textarea on form submit
 document.getElementById('noteForm').onsubmit = function(e) {
     var content = document.querySelector('textarea[name=content]');
@@ -1224,7 +1234,8 @@ partnerSearch.addEventListener('input', function() {
 });
 
 // Auto-expand on focus to show all available partners
-partnerSearch.addEventListener('focus', function() {
+// Open dropdown on click (not focus - let Tab pass through)
+partnerSearch.addEventListener('click', function() {
     if (partnerDropdown.style.display === 'none' || partnerDropdown.style.display === '') {
         const searchTerm = this.value.toLowerCase().trim();
         currentPartnerMatches = allPartners.filter(partner =>
@@ -1239,12 +1250,20 @@ partnerSearch.addEventListener('focus', function() {
 
 // Keyboard navigation from search input
 partnerSearch.addEventListener('keydown', function(e) {
+    const isOpen = partnerDropdown.style.display === 'block';
     const items = partnerDropdown.querySelectorAll('button.list-group-item-action');
-    if (e.key === 'ArrowDown' || (e.key === 'Tab' && !e.shiftKey && partnerSearch.value.trim())) {
-        if (items.length > 0) {
-            e.preventDefault();
-            items[0].focus();
+
+    if (e.key === 'ArrowDown' || (e.key === 'Enter' && !partnerSearch.value.trim())) {
+        e.preventDefault();
+        if (!isOpen) {
+            // Open dropdown
+            currentPartnerMatches = allPartners.filter(p => !isPartnerSelected(p.id));
+            renderPartnerDropdown();
+            partnerDropdown.style.display = 'block';
+            partnerDropdown.style.width = partnerSearch.offsetWidth + 'px';
         }
+        const freshItems = partnerDropdown.querySelectorAll('button.list-group-item-action');
+        if (freshItems.length > 0) freshItems[0].focus();
     } else if (e.key === 'ArrowUp') {
         if (items.length > 0) {
             e.preventDefault();
@@ -1274,15 +1293,21 @@ partnerDropdown.addEventListener('keydown', function(e) {
     if (currentIndex === -1) return;
 
     if (e.key === 'ArrowDown' || (e.key === 'Tab' && !e.shiftKey)) {
-        e.preventDefault();
         if (currentIndex < items.length - 1) {
+            e.preventDefault();
             items[currentIndex + 1].focus();
+        } else if (e.key === 'Tab') {
+            // Last item - let Tab move to next field naturally
+            partnerDropdown.style.display = 'none';
+        } else {
+            e.preventDefault();
         }
     } else if (e.key === 'ArrowUp' || (e.key === 'Tab' && e.shiftKey)) {
         e.preventDefault();
         if (currentIndex > 0) {
             items[currentIndex - 1].focus();
         } else {
+            partnerDropdown.style.display = 'none';
             partnerSearch.focus();
         }
     } else if (e.key === 'Enter') {
@@ -2298,14 +2323,14 @@ document.getElementById('aiSuggestBtn').addEventListener('click', function() {
             }
             
             lastAiCallFailed = false;
-            aiBtn.disabled = false;
+            updateAiButtonState();
         } else {
             // Handle error
             btnText.textContent = 'Error - Try again in 5s';
             lastAiCallFailed = true;
             aiButtonDisabledUntil = Date.now() + 5000;
             setTimeout(() => {
-                aiBtn.disabled = false;
+                updateAiButtonState();
                 btnText.textContent = originalText;
             }, 5000);
             alert('AI Error: ' + data.error);
@@ -2317,7 +2342,7 @@ document.getElementById('aiSuggestBtn').addEventListener('click', function() {
         lastAiCallFailed = true;
         aiButtonDisabledUntil = Date.now() + 5000;
         setTimeout(() => {
-            aiBtn.disabled = false;
+            updateAiButtonState();
             btnText.textContent = originalText;
         }, 5000);
         alert('Failed to get AI suggestions. Please try again.');

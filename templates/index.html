@@ -34,7 +34,7 @@
 <div class="row mt-4">
     <div class="col-md-3">
         <a href="{{ url_for('customers.customers_list') }}" class="text-decoration-none">
-            <div class="card text-center h-100" style="cursor: pointer; transition: transform 0.2s;">
+            <div class="card text-center h-100 home-cta-card" style="cursor: pointer; transition: transform 0.2s;">
                 <div class="card-body">
                     <i class="bi bi-building text-success" style="font-size: 3rem;"></i>
                     <p class="h5 card-title mt-3 mb-0">Customers</p>
@@ -45,7 +45,7 @@
     </div>
     <div class="col-md-3">
         <a href="{{ url_for('sellers.sellers_list') }}" class="text-decoration-none">
-            <div class="card text-center h-100" style="cursor: pointer; transition: transform 0.2s;">
+            <div class="card text-center h-100 home-cta-card" style="cursor: pointer; transition: transform 0.2s;">
                 <div class="card-body">
                     <i class="bi bi-people text-info" style="font-size: 3rem;"></i>
                     <p class="h5 card-title mt-3 mb-0">Sellers</p>
@@ -56,7 +56,7 @@
     </div>
     <div class="col-md-3">
         <a href="{{ url_for('milestones.milestone_tracker') }}" class="text-decoration-none">
-            <div class="card text-center h-100" style="cursor: pointer; transition: transform 0.2s;">
+            <div class="card text-center h-100 home-cta-card" style="cursor: pointer; transition: transform 0.2s;">
                 <div class="card-body">
                     <i class="bi bi-flag-fill" style="font-size: 3rem; color: #c49000;"></i>
                     <p class="h5 card-title mt-3 mb-0">Milestone Tracker</p>
@@ -67,7 +67,7 @@
     </div>
     <div class="col-md-3">
         <a href="{{ url_for('revenue.revenue_dashboard') }}" class="text-decoration-none">
-            <div class="card text-center h-100" style="cursor: pointer; transition: transform 0.2s;">
+            <div class="card text-center h-100 home-cta-card" style="cursor: pointer; transition: transform 0.2s;">
                 <div class="card-body">
                     <i class="bi bi-graph-up-arrow" style="font-size: 3rem; color: #742774;"></i>
                     <p class="h5 card-title mt-3 mb-0">Revenue Analyzer</p>
@@ -79,11 +79,11 @@
 </div>
 
 <style>
-    .card:hover {
+    .home-cta-card:hover {
         transform: translateY(-5px);
         box-shadow: 0 4px 8px rgba(0,0,0,0.1);
     }
-    html[data-bs-theme="dark"] .card:hover {
+    html[data-bs-theme="dark"] .home-cta-card:hover {
         box-shadow: 0 4px 12px rgba(0,0,0,0.6);
     }
     /* Calendar styles */
