@@ -3,12 +3,14 @@
 {# Optional context: locked_seller (Seller object) - when set, seller filter is fixed #}
 {% from 'partials/customer_favicon.html' import customer_favicon %}
 
+<div class="milestone-tracker-instance" data-total="{{ milestones|length }}" {% if locked_seller %}data-locked-seller="{{ locked_seller.id }}"{% endif %}>
+
 <!-- Summary Cards -->
 <div class="row mb-4">
     <div class="col-md-3">
         <div class="card text-center border-0 shadow-sm">
             <div class="card-body py-3">
-                <h3 class="mb-0" id="totalCount" style="color: #0d6efd;">{{ summary.total_count }}</h3>
+                <h3 class="mb-0" data-role="totalCount" style="color: #0d6efd;">{{ summary.total_count }}</h3>
                 <p class="text-muted mb-0 small">Active Milestones</p>
             </div>
         </div>
@@ -16,7 +18,7 @@
     <div class="col-md-3">
         <div class="card text-center border-0 shadow-sm">
             <div class="card-body py-3">
-                <h3 class="text-success mb-0" id="totalValue">
+                <h3 class="text-success mb-0" data-role="totalValue">
                     {% if summary.total_monthly_usage %}
                         ${{ "{:,.0f}".format(summary.total_monthly_usage) }}
                     {% else %}
@@ -30,7 +32,7 @@
     <div class="col-md-3">
         <div class="card text-center border-0 shadow-sm">
             <div class="card-body py-3">
-                <h3 class="text-danger mb-0" id="pastDueCount">{{ summary.past_due_count }}</h3>
+                <h3 class="text-danger mb-0" data-role="pastDueCount">{{ summary.past_due_count }}</h3>
                 <p class="text-muted mb-0 small">Past Due</p>
             </div>
         </div>
@@ -38,7 +40,7 @@
     <div class="col-md-3">
         <div class="card text-center border-0 shadow-sm">
             <div class="card-body py-3">
-                <h3 class="text-warning mb-0" id="thisWeekCount">{{ summary.this_week_count }}</h3>
+                <h3 class="text-warning mb-0" data-role="thisWeekCount">{{ summary.this_week_count }}</h3>
                 <p class="text-muted mb-0 small">Due This Week</p>
             </div>
         </div>
@@ -51,15 +53,15 @@
         <div class="row align-items-center g-2">
             <div class="col-md">
                 <div class="dropdown">
-                    <button class="btn btn-sm btn-outline-secondary dropdown-toggle w-100 text-start text-truncate" type="button" id="quarterDropdown" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
+                    <button class="btn btn-sm btn-outline-secondary dropdown-toggle w-100 text-start text-truncate" type="button" data-role="quarterDropdown" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
                         <i class="bi bi-calendar3"></i> Quarters
                     </button>
-                    <ul class="dropdown-menu" aria-labelledby="quarterDropdown" style="min-width: 100%;">
+                    <ul class="dropdown-menu" style="min-width: 100%;">
                         <li>
-                            <button class="dropdown-item small" type="button" id="quarterSelectAll">Select All</button>
+                            <button class="dropdown-item small" type="button" data-role="quarterSelectAll">Select All</button>
                         </li>
                         <li>
-                            <button class="dropdown-item small" type="button" id="quarterSelectNone">Clear All</button>
+                            <button class="dropdown-item small" type="button" data-role="quarterSelectNone">Clear All</button>
                         </li>
                         <li><hr class="dropdown-divider"></li>
                         {% for q in quarters %}
@@ -75,7 +77,7 @@
             </div>
             {% if not locked_seller %}
             <div class="col-md">
-                <select id="sellerFilter" class="form-select form-select-sm">
+                <select data-role="sellerFilter" class="form-select form-select-sm">
                     <option value="">All Sellers</option>
                     {% for seller in sellers %}
                         <option value="{{ seller.id }}">{{ seller.name }}</option>
@@ -84,7 +86,7 @@
             </div>
             {% endif %}
             <div class="col-md">
-                <select id="statusFilter" class="form-select form-select-sm">
+                <select data-role="statusFilter" class="form-select form-select-sm">
                     <option value="">All Statuses</option>
                     <option value="On Track">On Track</option>
                     <option value="At Risk">At Risk</option>
@@ -92,7 +94,7 @@
                 </select>
             </div>
             <div class="col-md">
-                <select id="areaFilter" class="form-select form-select-sm">
+                <select data-role="areaFilter" class="form-select form-select-sm">
                     <option value="">All Areas</option>
                     {% for area in areas %}
                         <option value="{{ area }}">{{ area }}</option>
@@ -100,7 +102,7 @@
                 </select>
             </div>
             <div class="col-md">
-                <select id="urgencyFilter" class="form-select form-select-sm">
+                <select data-role="urgencyFilter" class="form-select form-select-sm">
                     <option value="">All Urgency</option>
                     <option value="past_due">Past Due</option>
                     <option value="this_week">Due This Week</option>
@@ -109,13 +111,13 @@
             </div>
             <div class="col-md-auto">
                 <div class="form-check form-switch mt-1 text-nowrap">
-                    <input class="form-check-input" type="checkbox" id="myTeamFilter">
-                    <label class="form-check-label small" for="myTeamFilter">My Team</label>
+                    <input class="form-check-input" type="checkbox" data-role="myTeamFilter">
+                    <label class="form-check-label small">My Team</label>
                 </div>
             </div>
             <div class="col-md-auto text-end">
-                <span id="filteredCount" class="text-muted small">{{ milestones|length }} milestones</span>
-                <button type="button" class="btn btn-sm btn-outline-secondary ms-1" id="resetFiltersBtn" title="Reset all filters" style="display: none;">
+                <span data-role="filteredCount" class="text-muted small">{{ milestones|length }} milestones</span>
+                <button type="button" class="btn btn-sm btn-outline-secondary ms-1" data-role="resetFiltersBtn" title="Reset all filters" style="display: none;">
                     <i class="bi bi-x-circle"></i> Reset
                 </button>
             </div>
@@ -126,18 +128,18 @@
 <!-- Milestones Table -->
 {% if milestones %}
 <div class="table-responsive">
-    <table class="table table-hover align-middle" id="milestonesTable">
+    <table class="table table-hover align-middle" data-role="milestonesTable">
         <thead>
             <tr>
                 <th style="width: 22%;">Milestone</th>
                 <th style="width: 6%;" class="text-center">Team</th>
-                <th style="width: 14%; cursor: pointer;" class="sortable" data-sort="customer" onclick="sortTable('customer')">Customer <i class="bi bi-arrow-down-up text-muted small"></i></th>
+                <th style="width: 14%; cursor: pointer;" class="sortable" data-sort="customer">Customer <i class="bi bi-arrow-down-up text-muted small"></i></th>
                 {% if not locked_seller %}
-                <th style="width: 11%; cursor: pointer;" class="sortable" data-sort="seller" onclick="sortTable('seller')">Seller <i class="bi bi-arrow-down-up text-muted small"></i></th>
+                <th style="width: 11%; cursor: pointer;" class="sortable" data-sort="seller">Seller <i class="bi bi-arrow-down-up text-muted small"></i></th>
                 {% endif %}
-                <th style="width: 10%; cursor: pointer;" class="sortable" data-sort="status" onclick="sortTable('status')">Status <i class="bi bi-arrow-down-up text-muted small"></i></th>
-                <th style="width: 11%; cursor: pointer;" class="sortable" data-sort="due-date" onclick="sortTable('due-date')">Due Date <i class="bi bi-arrow-down-up text-muted small"></i></th>
-                <th style="width: 11%; cursor: pointer;" class="sortable text-end" data-sort="monthly" onclick="sortTable('monthly')">Est. Monthly $ <i class="bi bi-arrow-down-up text-muted small"></i></th>
+                <th style="width: 10%; cursor: pointer;" class="sortable" data-sort="status">Status <i class="bi bi-arrow-down-up text-muted small"></i></th>
+                <th style="width: 11%; cursor: pointer;" class="sortable" data-sort="due-date">Due Date <i class="bi bi-arrow-down-up text-muted small"></i></th>
+                <th style="width: 11%; cursor: pointer;" class="sortable text-end" data-sort="monthly">Est. Monthly $ <i class="bi bi-arrow-down-up text-muted small"></i></th>
                 <th style="width: 9%;">Workload</th>
                 <th style="width: 5%;" class="text-center">MSX</th>
             </tr>
@@ -186,7 +188,7 @@
                         <i class="bi bi-person-plus"></i>
                     </button>
                     {% else %}
-                    <span class="text-muted">—</span>
+                    <span class="text-muted">-</span>
                     {% endif %}
                 </td>
                 
@@ -197,7 +199,7 @@
                             {{ customer_favicon(ms.customer) }} {{ ms.customer.name }}
                         </a>
                     {% else %}
-                        <span class="text-muted">—</span>
+                        <span class="text-muted">-</span>
                     {% endif %}
                 </td>
                 
@@ -249,7 +251,7 @@
                             </div>
                         {% endif %}
                     {% else %}
-                        <span class="text-muted">—</span>
+                        <span class="text-muted">-</span>
                     {% endif %}
                 </td>
                 
@@ -258,7 +260,7 @@
                     {% if ms.monthly_usage %}
                         <span class="fw-semibold">${{ "{:,.0f}".format(ms.monthly_usage) }}</span>
                     {% else %}
-                        <span class="text-muted">—</span>
+                        <span class="text-muted">-</span>
                     {% endif %}
                 </td>
                 
@@ -267,7 +269,7 @@
                     {% if ms.workload %}
                         <span class="small">{{ ms.workload }}</span>
                     {% else %}
-                        <span class="text-muted">—</span>
+                        <span class="text-muted">-</span>
                     {% endif %}
                 </td>
                 
@@ -304,3 +306,245 @@
     {% endif %}
 </div>
 {% endif %}
+
+</div>{# /.milestone-tracker-instance #}
+
+<script>
+// Self-contained filter/sort logic scoped to each milestone-tracker-instance.
+// Runs as an IIFE so multiple instances on one page don't collide.
+(function() {
+    // Find the instance container: the script tag's preceding sibling
+    var scripts = document.querySelectorAll('script');
+    var thisScript = scripts[scripts.length - 1];
+    var container = thisScript.previousElementSibling;
+    while (container && !container.classList.contains('milestone-tracker-instance')) {
+        container = container.previousElementSibling;
+    }
+    if (!container) return;
+
+    var totalMilestones = parseInt(container.dataset.total) || 0;
+    var isLocked = container.hasAttribute('data-locked-seller');
+
+    // Helper to find elements scoped to this container
+    function q(role) { return container.querySelector('[data-role="' + role + '"]'); }
+    function qa(sel) { return container.querySelectorAll(sel); }
+
+    var sellerFilter = q('sellerFilter');
+    var statusFilter = q('statusFilter');
+    var areaFilter = q('areaFilter');
+    var urgencyFilter = q('urgencyFilter');
+    var myTeamFilter = q('myTeamFilter');
+    var filteredCount = q('filteredCount');
+    var resetBtn = q('resetFiltersBtn');
+    var quarterDropdown = q('quarterDropdown');
+    var quarterSelectAll = q('quarterSelectAll');
+    var quarterSelectNone = q('quarterSelectNone');
+    var table = q('milestonesTable');
+
+    // Summary card elements
+    var totalCountEl = q('totalCount');
+    var totalValueEl = q('totalValue');
+    var pastDueCountEl = q('pastDueCount');
+    var thisWeekCountEl = q('thisWeekCount');
+
+    // LocalStorage key scoped by seller lock (so modal and full page don't share)
+    var FILTER_KEY = isLocked
+        ? 'salesbuddy_milestone_filters_seller_' + container.dataset.lockedSeller
+        : 'salesbuddy_milestone_filters';
+
+    var currentSort = { column: 'monthly', direction: 'desc' };
+
+    // ---- Filter persistence ----
+    function saveFilters() {
+        var selectedQuarters = Array.from(qa('.quarter-checkbox:checked')).map(function(cb) { return cb.value; });
+        var allQuarters = Array.from(qa('.quarter-checkbox')).map(function(cb) { return cb.value; });
+        var state = {
+            quarters: selectedQuarters,
+            seller: sellerFilter ? sellerFilter.value : '',
+            status: statusFilter.value,
+            area: areaFilter.value,
+            urgency: urgencyFilter.value,
+            myTeam: myTeamFilter.checked,
+            allQuarters: allQuarters
+        };
+        localStorage.setItem(FILTER_KEY, JSON.stringify(state));
+    }
+
+    function restoreFilters() {
+        var raw = localStorage.getItem(FILTER_KEY);
+        if (!raw) return;
+        try {
+            var state = JSON.parse(raw);
+            var currentQuarters = Array.from(qa('.quarter-checkbox')).map(function(cb) { return cb.value; });
+            if (state.allQuarters && JSON.stringify(state.allQuarters) === JSON.stringify(currentQuarters)) {
+                qa('.quarter-checkbox').forEach(function(cb) {
+                    cb.checked = state.quarters.includes(cb.value);
+                });
+            }
+            if (state.seller && sellerFilter) sellerFilter.value = state.seller;
+            if (state.status) statusFilter.value = state.status;
+            if (state.area) areaFilter.value = state.area;
+            if (state.urgency) urgencyFilter.value = state.urgency;
+            if (state.myTeam) myTeamFilter.checked = state.myTeam;
+        } catch (e) {
+            localStorage.removeItem(FILTER_KEY);
+        }
+    }
+
+    function isFiltersDefault() {
+        var allChecked = qa('.quarter-checkbox').length === qa('.quarter-checkbox:checked').length;
+        return allChecked &&
+            (!sellerFilter || sellerFilter.value === '') &&
+            statusFilter.value === '' &&
+            urgencyFilter.value === '' &&
+            !myTeamFilter.checked;
+    }
+
+    function updateResetButton() {
+        resetBtn.style.display = isFiltersDefault() ? 'none' : '';
+    }
+
+    function resetFilters() {
+        qa('.quarter-checkbox').forEach(function(cb) { cb.checked = true; });
+        if (sellerFilter) sellerFilter.value = '';
+        statusFilter.value = '';
+        urgencyFilter.value = '';
+        myTeamFilter.checked = false;
+        saveFilters();
+        applyFilters();
+    }
+
+    // ---- Core filter logic ----
+    function applyFilters() {
+        var selectedQuarters = Array.from(qa('.quarter-checkbox:checked')).map(function(cb) { return cb.value; });
+        var sv = sellerFilter ? sellerFilter.value : '';
+        var stv = statusFilter.value;
+        var av = areaFilter.value;
+        var uv = urgencyFilter.value;
+        var myTeam = myTeamFilter.checked;
+
+        var rows = qa('.milestone-row');
+        var visibleCount = 0, visibleMonthly = 0, visiblePastDue = 0, visibleThisWeek = 0;
+        var totalQuarters = qa('.quarter-checkbox').length;
+
+        rows.forEach(function(row) {
+            var visible = true;
+            if (selectedQuarters.length > 0 && row.dataset.quarter && !selectedQuarters.includes(row.dataset.quarter)) visible = false;
+            if (selectedQuarters.length > 0 && !row.dataset.quarter && selectedQuarters.length < totalQuarters) visible = false;
+            if (sv && row.dataset.sellerId !== sv) visible = false;
+            if (stv && row.dataset.status !== stv) visible = false;
+            if (av && row.dataset.area !== av) visible = false;
+            if (uv && row.dataset.urgency !== uv) visible = false;
+            if (myTeam && row.dataset.onMyTeam !== 'true') visible = false;
+
+            row.style.display = visible ? '' : 'none';
+            if (visible) {
+                visibleCount++;
+                visibleMonthly += parseFloat(row.dataset.monthly) || 0;
+                if (row.dataset.urgency === 'past_due') visiblePastDue++;
+                if (row.dataset.urgency === 'this_week') visibleThisWeek++;
+            }
+        });
+
+        filteredCount.textContent = visibleCount + ' of ' + totalMilestones + ' milestones';
+        totalCountEl.textContent = visibleCount;
+        totalValueEl.textContent = visibleMonthly > 0
+            ? '$' + visibleMonthly.toLocaleString('en-US', { maximumFractionDigits: 0 })
+            : '$0';
+        pastDueCountEl.textContent = visiblePastDue;
+        thisWeekCountEl.textContent = visibleThisWeek;
+        updateQuarterButtonText();
+        saveFilters();
+        updateResetButton();
+    }
+
+    function updateQuarterButtonText() {
+        var total = qa('.quarter-checkbox').length;
+        var checked = qa('.quarter-checkbox:checked').length;
+        if (checked === 0) {
+            quarterDropdown.innerHTML = '<i class="bi bi-calendar3"></i> No Quarters';
+        } else if (checked === total) {
+            quarterDropdown.innerHTML = '<i class="bi bi-calendar3"></i> All Quarters';
+        } else {
+            var selected = Array.from(qa('.quarter-checkbox:checked')).map(function(cb) { return cb.value; });
+            quarterDropdown.innerHTML = '<i class="bi bi-calendar3"></i> ' + selected.join(', ');
+        }
+    }
+
+    // ---- Sorting ----
+    function sortTable(column) {
+        if (!table) return;
+        var tbody = table.querySelector('tbody');
+        var rows = Array.from(tbody.querySelectorAll('.milestone-row'));
+
+        if (currentSort.column === column) {
+            currentSort.direction = currentSort.direction === 'asc' ? 'desc' : 'asc';
+        } else {
+            currentSort.column = column;
+            currentSort.direction = (column === 'monthly') ? 'desc' : 'asc';
+        }
+        var dir = currentSort.direction === 'asc' ? 1 : -1;
+
+        rows.sort(function(a, b) {
+            var va, vb;
+            switch (column) {
+                case 'customer': va = a.dataset.customer || ''; vb = b.dataset.customer || ''; return dir * va.localeCompare(vb);
+                case 'seller': va = a.dataset.sellerName || 'zzz'; vb = b.dataset.sellerName || 'zzz'; return dir * va.localeCompare(vb);
+                case 'status': va = parseInt(a.dataset.statusSort) || 99; vb = parseInt(b.dataset.statusSort) || 99; return dir * (va - vb);
+                case 'due-date': va = a.dataset.dueDate || '9999-12-31'; vb = b.dataset.dueDate || '9999-12-31'; return dir * va.localeCompare(vb);
+                case 'monthly': va = parseFloat(a.dataset.monthly) || 0; vb = parseFloat(b.dataset.monthly) || 0; return dir * (va - vb);
+                default: return 0;
+            }
+        });
+        rows.forEach(function(r) { tbody.appendChild(r); });
+        updateSortIndicators();
+    }
+
+    function updateSortIndicators() {
+        qa('.sortable i').forEach(function(icon) {
+            icon.className = 'bi bi-arrow-down-up text-muted small';
+        });
+        var activeHeader = container.querySelector('.sortable[data-sort="' + currentSort.column + '"]');
+        if (activeHeader) {
+            var icon = activeHeader.querySelector('i');
+            icon.className = currentSort.direction === 'asc'
+                ? 'bi bi-sort-up small text-info'
+                : 'bi bi-sort-down small text-info';
+        }
+    }
+
+    // ---- Wire up event listeners ----
+    qa('.quarter-checkbox').forEach(function(cb) { cb.addEventListener('change', applyFilters); });
+    if (quarterSelectAll) quarterSelectAll.addEventListener('click', function() {
+        qa('.quarter-checkbox').forEach(function(cb) { cb.checked = true; });
+        applyFilters();
+    });
+    if (quarterSelectNone) quarterSelectNone.addEventListener('click', function() {
+        qa('.quarter-checkbox').forEach(function(cb) { cb.checked = false; });
+        applyFilters();
+    });
+    if (sellerFilter) sellerFilter.addEventListener('change', applyFilters);
+    statusFilter.addEventListener('change', applyFilters);
+    areaFilter.addEventListener('change', applyFilters);
+    urgencyFilter.addEventListener('change', applyFilters);
+    myTeamFilter.addEventListener('change', applyFilters);
+    resetBtn.addEventListener('click', resetFilters);
+
+    // Sortable header clicks (delegated)
+    qa('.sortable[data-sort]').forEach(function(th) {
+        th.addEventListener('click', function() { sortTable(th.dataset.sort); });
+    });
+
+    // URL param override for standalone page: ?seller=ID
+    var params = new URLSearchParams(window.location.search);
+    var sellerParam = params.get('seller');
+    if (sellerParam && sellerFilter) {
+        sellerFilter.value = sellerParam;
+    }
+
+    // Initialize
+    restoreFilters();
+    applyFilters();
+    updateSortIndicators();
+})();
+</script>
