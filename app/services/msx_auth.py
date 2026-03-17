@@ -51,6 +51,9 @@ _token_cache: Dict[str, Any] = {
     "error": None,
 }
 
+# Lock to prevent concurrent az CLI token refresh calls
+_token_lock = threading.Lock()
+
 # Device code flow state
 _device_code_state: Dict[str, Any] = {
     "active": False,
@@ -205,35 +208,46 @@ def refresh_token() -> bool:
     
     Returns:
         True if refresh succeeded, False otherwise.
+    
+    Note:
+        Acquires _token_lock to prevent concurrent az CLI subprocess calls.
     """
     global _token_cache
-    
-    try:
-        result = _run_az_command()
-        
-        # Use expires_on (Unix timestamp) if available, otherwise parse expiresOn string
-        expires_on_unix = result.get("expires_on")
-        if expires_on_unix:
-            expires_on = datetime.fromtimestamp(expires_on_unix, tz=timezone.utc)
-        else:
-            expires_on = _parse_expiry(result.get("expiresOn", ""))
-        
-        _token_cache = {
-            "access_token": result.get("accessToken"),
-            "expires_on": expires_on,
-            "user": result.get("subscription", "Unknown"),
-            "last_refresh": datetime.now(timezone.utc),
-            "error": None,
-        }
-        
-        logger.info(f"MSX token refreshed, expires at {_token_cache['expires_on']}")
-        return True
-        
-    except RuntimeError as e:
-        _token_cache["error"] = str(e)
-        _token_cache["last_refresh"] = datetime.now(timezone.utc)
-        logger.warning(f"MSX token refresh failed: {e}")
-        return False
+
+    with _token_lock:
+        # Double-check: another thread may have refreshed while we waited
+        if _token_cache["access_token"]:
+            now = datetime.now(timezone.utc)
+            expires_on = _token_cache["expires_on"]
+            if expires_on and (expires_on - now).total_seconds() > 300:
+                return True
+
+        try:
+            result = _run_az_command()
+
+            # Use expires_on (Unix timestamp) if available, otherwise parse expiresOn string
+            expires_on_unix = result.get("expires_on")
+            if expires_on_unix:
+                expires_on = datetime.fromtimestamp(expires_on_unix, tz=timezone.utc)
+            else:
+                expires_on = _parse_expiry(result.get("expiresOn", ""))
+
+            _token_cache = {
+                "access_token": result.get("accessToken"),
+                "expires_on": expires_on,
+                "user": result.get("subscription", "Unknown"),
+                "last_refresh": datetime.now(timezone.utc),
+                "error": None,
+            }
+
+            logger.info(f"MSX token refreshed, expires at {_token_cache['expires_on']}")
+            return True
+
+        except RuntimeError as e:
+            _token_cache["error"] = str(e)
+            _token_cache["last_refresh"] = datetime.now(timezone.utc)
+            logger.warning(f"MSX token refresh failed: {e}")
+            return False
 
 
 def get_msx_token() -> Optional[str]:
@@ -245,22 +259,23 @@ def get_msx_token() -> Optional[str]:
         
     Note:
         This will attempt to refresh if the token is expired or missing.
+        Token refresh is serialized via _token_lock in refresh_token().
     """
     global _token_cache
-    
+
     # Check if we have a valid cached token
     if _token_cache["access_token"]:
         now = datetime.now(timezone.utc)
         expires_on = _token_cache["expires_on"]
-        
+
         # If token has > 5 minutes remaining, use it
         if expires_on and (expires_on - now).total_seconds() > 300:
             return _token_cache["access_token"]
-    
-    # Need to refresh
+
+    # Need to refresh (refresh_token holds _token_lock internally)
     if refresh_token():
         return _token_cache["access_token"]
-    
+
     return None
 
 

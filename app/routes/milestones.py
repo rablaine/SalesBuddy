@@ -4,9 +4,10 @@ Milestones are URLs from the MSX sales platform that can be linked to call logs.
 The Milestone Tracker provides visibility into all active (uncommitted) milestones
 across customers, sorted by dollar value and due date urgency.
 """
+import json
 import logging
 import calendar as cal
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from flask import (
     Blueprint, render_template, request, redirect, url_for,
     flash, g, jsonify, Response, stream_with_context,
@@ -62,7 +63,19 @@ def milestone_view(id):
     tasks = MsxTask.query.filter_by(milestone_id=milestone.id).order_by(
         MsxTask.created_at.desc()
     ).all()
-    return render_template('milestone_view.html', milestone=milestone, tasks=tasks)
+    # Parse cached MSX comments for immediate display
+    cached_comments = None
+    if milestone.cached_comments_json:
+        try:
+            cached_comments = json.loads(milestone.cached_comments_json)
+        except (json.JSONDecodeError, TypeError):
+            cached_comments = None
+    return render_template(
+        'milestone_view.html',
+        milestone=milestone,
+        tasks=tasks,
+        cached_comments=cached_comments,
+    )
 
 
 @bp.route('/milestone/<int:id>/tasks', methods=['POST'])
@@ -199,6 +212,109 @@ def milestone_delete(id):
     
     flash('Milestone deleted successfully', 'success')
     return redirect(url_for('milestones.milestones_list'))
+
+
+@bp.route('/api/milestone/<int:id>/msx-details')
+def api_milestone_msx_details(id: int):
+    """Fetch fresh milestone details and comments from MSX.
+
+    Called via JS after the page loads so the initial render is instant.
+    Caches comments and details_fetched_at back to the local DB.
+    """
+    from app.services.msx_api import get_milestone_details
+
+    milestone = Milestone.query.get_or_404(id)
+    if not milestone.msx_milestone_id:
+        return jsonify({"success": False, "error": "No MSX ID on this milestone"})
+
+    result = get_milestone_details(milestone.msx_milestone_id)
+    if result.get("success"):
+        msx_data = result["milestone"]
+        try:
+            # Cache details back to local DB
+            if msx_data.get("title"):
+                milestone.title = msx_data["title"]
+            if msx_data.get("msx_status"):
+                milestone.msx_status = msx_data["msx_status"]
+            if msx_data.get("msx_status_code") is not None:
+                milestone.msx_status_code = msx_data["msx_status_code"]
+            if msx_data.get("milestone_number"):
+                milestone.milestone_number = msx_data["milestone_number"]
+            if msx_data.get("dollar_value") is not None:
+                milestone.dollar_value = msx_data["dollar_value"]
+            if msx_data.get("monthly_usage") is not None:
+                milestone.monthly_usage = msx_data["monthly_usage"]
+            if msx_data.get("workload"):
+                milestone.workload = msx_data["workload"]
+            if msx_data.get("due_date"):
+                try:
+                    milestone.due_date = datetime.fromisoformat(
+                        msx_data["due_date"].replace("Z", "+00:00")
+                    )
+                except (ValueError, AttributeError):
+                    pass
+            comments = msx_data.get("comments")
+            if comments is not None:
+                milestone.cached_comments_json = json.dumps(comments)
+            milestone.details_fetched_at = datetime.now(timezone.utc)
+            db.session.commit()
+        except Exception:
+            logger.exception(f"Failed to cache MSX details for milestone {id}")
+            db.session.rollback()
+
+        return jsonify({"success": True, "milestone": msx_data})
+    else:
+        return jsonify({
+            "success": False,
+            "error": result.get("error", "Could not fetch from MSX"),
+            "vpn_blocked": result.get("vpn_blocked", False),
+        })
+
+
+@bp.route('/milestone/<int:id>/comment', methods=['POST'])
+def milestone_add_comment(id: int):
+    """Post a comment to a milestone's MSX forecast comments (form submit)."""
+    from app.services.msx_api import add_milestone_comment
+
+    milestone = Milestone.query.get_or_404(id)
+    comment_text = request.form.get('comment', '').strip()
+    if not comment_text:
+        flash('Comment cannot be empty.', 'warning')
+        return redirect(url_for('milestones.milestone_view', id=id))
+
+    if not milestone.msx_milestone_id:
+        flash('This milestone has no MSX ID - cannot post comments.', 'danger')
+        return redirect(url_for('milestones.milestone_view', id=id))
+
+    result = add_milestone_comment(milestone.msx_milestone_id, comment_text)
+    if result.get("success"):
+        flash('Comment posted to MSX.', 'success')
+    else:
+        flash(
+            f'Failed to post comment: {result.get("error", "Unknown error")}',
+            'danger',
+        )
+    return redirect(url_for('milestones.milestone_view', id=id))
+
+
+@bp.route('/api/milestone/<int:id>/comment', methods=['POST'])
+def api_milestone_add_comment(id: int):
+    """API endpoint to post a comment to a milestone (AJAX)."""
+    from app.services.msx_api import add_milestone_comment
+
+    milestone = Milestone.query.get_or_404(id)
+    data = request.get_json()
+    if not data or not data.get('comment', '').strip():
+        return jsonify({"success": False, "error": "Comment cannot be empty"}), 400
+
+    if not milestone.msx_milestone_id:
+        return jsonify({"success": False, "error": "No MSX ID on this milestone"}), 400
+
+    result = add_milestone_comment(
+        milestone.msx_milestone_id,
+        data['comment'].strip(),
+    )
+    return jsonify(result)
 
 
 @bp.route('/api/milestones/find-or-create', methods=['POST'])

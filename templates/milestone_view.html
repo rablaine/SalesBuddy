@@ -15,7 +15,7 @@
             {{ milestone.title or 'Untitled Milestone' }}
         </h1>
         {% if milestone.msx_status %}
-        <span class="badge fs-6 {% if milestone.msx_status == 'On Track' %}bg-success{% elif milestone.msx_status == 'At Risk' %}bg-warning text-dark{% elif milestone.msx_status == 'Blocked' %}bg-danger{% elif milestone.msx_status == 'Completed' %}bg-info{% else %}bg-secondary{% endif %}">{{ milestone.msx_status }}</span>
+        <span class="badge fs-6 {% if milestone.msx_status == 'On Track' %}bg-success{% elif milestone.msx_status == 'At Risk' %}bg-warning text-dark{% elif milestone.msx_status == 'Blocked' %}bg-danger{% elif milestone.msx_status == 'Completed' %}bg-info{% else %}bg-secondary{% endif %}" id="statusBadgeTop">{{ milestone.msx_status }}</span>
         {% endif %}
     </div>
     <div class="flex-shrink-0 d-flex gap-2">
@@ -35,7 +35,7 @@
 </div>
 
 <div class="row">
-    <!-- Left column: Details -->
+    <!-- Left column: Navigation, Details, Notes, Tasks -->
     <div class="col-md-4">
         <!-- Navigation Card -->
         <div class="card mb-3">
@@ -50,12 +50,21 @@
                 </p>
                 {% endif %}
                 {% if milestone.opportunity %}
-                <p class="mb-0">
+                <p class="mb-2">
                     <i class="bi bi-briefcase text-muted"></i> <strong>Opportunity:</strong>
                     <a href="{{ url_for('opportunities.opportunity_view', id=milestone.opportunity.id) }}">{{ milestone.opportunity.name[:50] }}{% if milestone.opportunity.name|length > 50 %}...{% endif %}</a>
                 </p>
                 {% endif %}
-                {% if not milestone.customer and not milestone.opportunity %}
+                {% if milestone.engagements %}
+                {% for eng in milestone.engagements %}
+                <p class="mb-2">
+                    <a href="{{ url_for('engagements.engagement_view', id=eng.id) }}" class="badge bg-info text-dark text-decoration-none">
+                        <i class="bi bi-lightning-charge"></i> {{ eng.title[:50] }}{% if eng.title|length > 50 %}...{% endif %}
+                    </a>
+                </p>
+                {% endfor %}
+                {% endif %}
+                {% if not milestone.customer and not milestone.opportunity and not milestone.engagements %}
                 <p class="text-muted mb-0">Not linked to a customer or opportunity.</p>
                 {% endif %}
             </div>
@@ -66,140 +75,81 @@
             <div class="card-header">
                 <h5 class="mb-0"><i class="bi bi-info-circle"></i> Details</h5>
             </div>
-            <ul class="list-group list-group-flush">
-                {% if milestone.milestone_number %}
-                <li class="list-group-item d-flex justify-content-between">
-                    <span class="text-muted">Number</span>
-                    <span>{{ milestone.milestone_number }}</span>
-                </li>
-                {% endif %}
-                {% if milestone.workload %}
-                <li class="list-group-item d-flex justify-content-between">
-                    <span class="text-muted flex-shrink-0 me-2">Workload</span>
-                    <span class="text-end">{{ milestone.workload }}</span>
-                </li>
-                {% endif %}
-                {% if milestone.dollar_value %}
-                <li class="list-group-item d-flex justify-content-between">
-                    <span class="text-muted">Value</span>
-                    <span>${{ "{:,.0f}".format(milestone.dollar_value) }}</span>
-                </li>
-                {% endif %}
-                {% if milestone.monthly_usage %}
-                <li class="list-group-item d-flex justify-content-between">
-                    <span class="text-muted">Monthly Usage</span>
-                    <span>${{ "{:,.0f}".format(milestone.monthly_usage) }}</span>
-                </li>
-                {% endif %}
-                {% if milestone.due_date %}
-                <li class="list-group-item d-flex justify-content-between">
-                    <span class="text-muted">Due Date</span>
-                    <span>{{ milestone.due_date.strftime('%b %d, %Y') }}</span>
-                </li>
-                {% endif %}
-                {% if milestone.last_synced_at %}
-                <li class="list-group-item d-flex justify-content-between">
-                    <span class="text-muted">Last Synced</span>
-                    <span>{{ milestone.last_synced_at.strftime('%b %d, %Y %I:%M %p') }}</span>
-                </li>
-                {% endif %}
+            <div id="detailsBody">
+                <!-- Cached details shown immediately -->
+                <div id="detailsCached">
+                    <ul class="list-group list-group-flush">
+                        {% if milestone.milestone_number %}
+                        <li class="list-group-item d-flex justify-content-between">
+                            <span class="text-muted">Number</span>
+                            <span>{{ milestone.milestone_number }}</span>
+                        </li>
+                        {% endif %}
+                        {% if milestone.workload %}
+                        <li class="list-group-item d-flex justify-content-between">
+                            <span class="text-muted flex-shrink-0 me-2">Workload</span>
+                            <span class="text-end">{{ milestone.workload }}</span>
+                        </li>
+                        {% endif %}
+                        {% if milestone.dollar_value %}
+                        <li class="list-group-item d-flex justify-content-between">
+                            <span class="text-muted">Value</span>
+                            <span>${{ "{:,.0f}".format(milestone.dollar_value) }}</span>
+                        </li>
+                        {% endif %}
+                        {% if milestone.monthly_usage %}
+                        <li class="list-group-item d-flex justify-content-between">
+                            <span class="text-muted">Monthly Usage</span>
+                            <span>${{ "{:,.0f}".format(milestone.monthly_usage) }}</span>
+                        </li>
+                        {% endif %}
+                        {% if milestone.due_date %}
+                        <li class="list-group-item d-flex justify-content-between">
+                            <span class="text-muted">Due Date</span>
+                            <span>{{ milestone.due_date.strftime('%b %d, %Y') }}</span>
+                        </li>
+                        {% endif %}
+                        {% if milestone.msx_milestone_id %}
+                        <li class="list-group-item d-flex justify-content-between align-items-center" id="milestoneTeamRow">
+                            <span class="text-muted">Milestone Team</span>
+                            {% if milestone.on_my_team %}
+                            <span>
+                                <span class="badge bg-success me-1"><i class="bi bi-people-fill"></i> On Team</span>
+                                <button class="btn btn-outline-danger btn-sm" id="leaveMilestoneTeamBtn" onclick="leaveMilestoneTeam({{ milestone.id }})">
+                                    <i class="bi bi-person-dash"></i> Leave
+                                </button>
+                            </span>
+                            {% else %}
+                            <button class="btn btn-outline-primary btn-sm" id="joinMilestoneTeamBtn" onclick="joinMilestoneTeam({{ milestone.id }})">
+                                <i class="bi bi-person-plus"></i> Join Team
+                            </button>
+                            {% endif %}
+                        </li>
+                        {% endif %}
+                        <li class="list-group-item d-flex justify-content-between">
+                            <span class="text-muted">Created</span>
+                            <span>{{ milestone.created_at.strftime('%b %d, %Y') }}</span>
+                        </li>
+                        <li class="list-group-item d-flex justify-content-between">
+                            <span class="text-muted">Last Updated</span>
+                            <span>{{ milestone.updated_at.strftime('%b %d, %Y') }}</span>
+                        </li>
+                    </ul>
+                </div>
+                <!-- Spinner while refreshing -->
                 {% if milestone.msx_milestone_id %}
-                <li class="list-group-item d-flex justify-content-between align-items-center" id="milestoneTeamRow">
-                    <span class="text-muted">Milestone Team</span>
-                    {% if milestone.on_my_team %}
-                    <span>
-                        <span class="badge bg-success me-1"><i class="bi bi-people-fill"></i> On Team</span>
-                        <button class="btn btn-outline-danger btn-sm" id="leaveMilestoneTeamBtn" onclick="leaveMilestoneTeam({{ milestone.id }})">
-                            <i class="bi bi-person-dash"></i> Leave
-                        </button>
-                    </span>
-                    {% else %}
-                    <button class="btn btn-outline-primary btn-sm" id="joinMilestoneTeamBtn" onclick="joinMilestoneTeam({{ milestone.id }})">
-                        <i class="bi bi-person-plus"></i> Join Team
-                    </button>
-                    {% endif %}
-                </li>
+                <div id="detailsSpinner" class="text-center py-2">
+                    <div class="spinner-border spinner-border-sm" role="status"></div>
+                    <small class="text-muted ms-1">{% if milestone.details_fetched_at %}Refreshing from MSX...{% else %}Loading details from MSX...{% endif %}</small>
+                </div>
                 {% endif %}
-                <li class="list-group-item d-flex justify-content-between">
-                    <span class="text-muted">Created</span>
-                    <span>{{ milestone.created_at.strftime('%b %d, %Y') }}</span>
-                </li>
-                <li class="list-group-item d-flex justify-content-between">
-                    <span class="text-muted">Last Updated</span>
-                    <span>{{ milestone.updated_at.strftime('%b %d, %Y') }}</span>
-                </li>
-            </ul>
+                <div id="detailsMsx" style="display:none;"></div>
+                <div id="detailsError" style="display:none;"></div>
+            </div>
         </div>
-    </div>
 
-    <!-- Right column: Tasks + Call Logs -->
-    <div class="col-md-8">
-        <!-- Tasks Card -->
+        <!-- Associated Notes Card -->
         <div class="card mb-3">
-            <div class="card-header d-flex justify-content-between align-items-center">
-                <h5 class="mb-0"><i class="bi bi-check2-square"></i> Tasks</h5>
-                <div class="d-flex align-items-center gap-2">
-                    <span class="badge bg-secondary">{{ tasks|length }}</span>
-                    {% if milestone.msx_milestone_id %}
-                    <button type="button" class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#newTaskModal">
-                        <i class="bi bi-plus-circle me-1"></i> New Task
-                    </button>
-                    {% endif %}
-                </div>
-            </div>
-            {% if tasks %}
-            <div class="list-group list-group-flush">
-                {% for task in tasks %}
-                <div class="list-group-item">
-                    <div class="d-flex justify-content-between align-items-start">
-                        <div>
-                            <div class="fw-bold">
-                                {{ task.subject }}
-                                {% if task.is_hok %}
-                                <span class="badge bg-warning text-dark ms-1" title="Hands-on-Keyboard">★ HoK</span>
-                                {% endif %}
-                            </div>
-                            <small class="text-muted">
-                                <span class="badge bg-light text-dark border">{{ task.task_category_name or 'Unknown' }}</span>
-                                {% if task.due_date %}
-                                <span class="ms-1"><i class="bi bi-calendar-event"></i> {{ task.due_date.strftime('%b %d, %Y') }}</span>
-                                {% endif %}
-                                <span class="ms-1 text-muted">Created {{ task.created_at.strftime('%b %d, %Y') }}</span>
-                            </small>
-                            {% if task.description %}
-                            <div class="small text-muted mt-1">{{ task.description }}</div>
-                            {% endif %}
-                            {% if task.note %}
-                            <div class="small mt-1">
-                                <i class="bi bi-journal-text text-muted"></i>
-                                <a href="{{ url_for('notes.note_view', id=task.note.id) }}">Linked Note</a>
-                            </div>
-                            {% endif %}
-                        </div>
-                        <div>
-                            {% if task.msx_task_url %}
-                            <a href="{{ task.msx_task_url }}" target="_blank" class="btn btn-outline-success btn-sm" title="Open in MSX">
-                                <i class="bi bi-box-arrow-up-right"></i>
-                            </a>
-                            {% endif %}
-                        </div>
-                    </div>
-                </div>
-                {% endfor %}
-            </div>
-            {% else %}
-            <div class="card-body text-muted">
-                {% if milestone.msx_milestone_id %}
-                No tasks created yet. Click <strong>New Task</strong> to create one.
-                {% else %}
-                Tasks cannot be created — this milestone has no MSX ID.
-                {% endif %}
-            </div>
-            {% endif %}
-        </div>
-
-        <!-- Call Logs Card -->
-        <div class="card">
             <div class="card-header d-flex justify-content-between align-items-center">
                 <h5 class="mb-0"><i class="bi bi-journal-text"></i> Associated Notes</h5>
                 <span class="badge bg-secondary">{{ milestone.notes|length }}</span>
@@ -234,6 +184,116 @@
             </div>
             {% endif %}
         </div>
+
+        <!-- Tasks Card (condensed) -->
+        <div class="card mb-3">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-check2-square"></i> Tasks</h5>
+                <div class="d-flex align-items-center gap-2">
+                    <span class="badge bg-secondary">{{ tasks|length }}</span>
+                    {% if milestone.msx_milestone_id %}
+                    <button type="button" class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#newTaskModal">
+                        <i class="bi bi-plus-circle"></i>
+                    </button>
+                    {% endif %}
+                </div>
+            </div>
+            {% if tasks %}
+            <div class="list-group list-group-flush">
+                {% for task in tasks %}
+                <div class="list-group-item py-2">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div style="min-width: 0;">
+                            <div class="fw-bold text-truncate" title="{{ task.subject }}">
+                                {{ task.subject }}
+                                {% if task.is_hok %}
+                                <span class="badge bg-warning text-dark" title="Hands-on-Keyboard">HoK</span>
+                                {% endif %}
+                            </div>
+                            <small class="text-muted">
+                                {{ task.task_category_name or 'Unknown' }}
+                                {% if task.due_date %}
+                                 - {{ task.due_date.strftime('%b %d') }}
+                                {% endif %}
+                            </small>
+                        </div>
+                        {% if task.msx_task_url %}
+                        <a href="{{ task.msx_task_url }}" target="_blank" class="btn btn-outline-success btn-sm flex-shrink-0 ms-2" title="Open in MSX">
+                            <i class="bi bi-box-arrow-up-right"></i>
+                        </a>
+                        {% endif %}
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="card-body text-muted py-2">
+                {% if milestone.msx_milestone_id %}
+                No tasks yet.
+                {% else %}
+                No MSX ID - tasks not available.
+                {% endif %}
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Right column: MSX Forecast Comments (lazy-loaded) -->
+    <div class="col-md-8">
+        <div class="card mb-3">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-chat-dots"></i> Forecast Comments</h5>
+                <span class="badge bg-secondary" id="commentCount" {% if not cached_comments %}style="display:none;"{% endif %}>{% if cached_comments %}{{ cached_comments|length }} comment{{ 's' if cached_comments|length != 1 else '' }}{% endif %}</span>
+            </div>
+            <div class="card-body" id="commentsBody">
+                <!-- Comment form (visible when we have cached data or after MSX loads) -->
+                <div id="commentFormCached" {% if cached_comments is none and milestone.msx_milestone_id %}style="display:none;"{% elif not milestone.msx_milestone_id %}style="display:none;"{% endif %}>
+                    {% if cached_comments is not none %}
+                    <form action="{{ url_for('milestones.milestone_add_comment', id=milestone.id) }}" method="post" class="mb-4">
+                        <div class="input-group">
+                            <textarea class="form-control" name="comment" rows="2" placeholder="Add a forecast comment..." required></textarea>
+                            <button type="submit" class="btn btn-primary">
+                                <i class="bi bi-send"></i> Post
+                            </button>
+                        </div>
+                        <small class="text-muted">This comment will be posted to the MSX milestone record.</small>
+                    </form>
+                    {% endif %}
+                </div>
+                <!-- Spinner while fetching -->
+                {% if milestone.msx_milestone_id %}
+                <div id="commentsSpinner" class="text-center py-3 mb-3">
+                    <div class="spinner-border spinner-border-sm" role="status"></div>
+                    <span class="text-muted ms-1">{% if cached_comments is not none %}Refreshing comments from MSX...{% else %}Loading comments from MSX...{% endif %}</span>
+                </div>
+                {% endif %}
+                <!-- Cached comments shown immediately -->
+                <div id="commentsCached" {% if not cached_comments %}style="display:none;"{% endif %}>
+                    {% if cached_comments is not none %}
+                    {% if cached_comments %}
+                    <div class="list-group">
+                        {% for c in cached_comments|reverse %}
+                        <div class="list-group-item">
+                            <div class="d-flex w-100 justify-content-between mb-1">
+                                <strong>{{ c.displayName or c.userId or 'Unknown' }}</strong>
+                                <small class="text-muted"><i class="bi bi-clock"></i> {{ c.modifiedOn or '' }}</small>
+                            </div>
+                            <p class="mb-0" style="white-space:pre-wrap;">{{ c.comment or '' }}</p>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% else %}
+                    <p class="text-muted">No forecast comments yet. Be the first to add one!</p>
+                    {% endif %}
+                    {% endif %}
+                </div>
+                <div id="commentsMsx" style="display:none;"></div>
+                <div id="commentsError" style="display:none;"></div>
+                {% if not milestone.msx_milestone_id %}
+                <p class="text-muted mb-0">This milestone has no MSX ID - comments not available.</p>
+                {% endif %}
+            </div>
+        </div>
     </div>
 </div>
 
@@ -249,14 +309,11 @@
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body">
-                <!-- Error alert -->
                 <div id="task_error" class="alert alert-danger" style="display: none;"></div>
-                
-                <!-- Form fields -->
                 <div id="task_form_fields">
                     <div class="mb-3">
                         <label for="modal_task_subject" class="form-label">Task Title <span class="text-danger">*</span></label>
-                        <input type="text" class="form-control" id="modal_task_subject" 
+                        <input type="text" class="form-control" id="modal_task_subject"
                                placeholder="Brief task description...">
                     </div>
                     <div class="row mb-3">
@@ -275,7 +332,7 @@
                     </div>
                     <div class="mb-3">
                         <label for="modal_task_description" class="form-label">Description (optional)</label>
-                        <textarea class="form-control" id="modal_task_description" 
+                        <textarea class="form-control" id="modal_task_description"
                                   rows="2" placeholder="Additional details..."></textarea>
                     </div>
                 </div>
@@ -293,11 +350,192 @@
 {% endblock %}
 
 {% block extra_js %}
-{% if milestone.msx_milestone_id %}
 <script>
-let taskCategories = [];
+const MS_ID = {{ milestone.id }};
+const HAS_MSX_ID = {{ 'true' if milestone.msx_milestone_id else 'false' }};
 
-// Disable team buttons when VPN is blocked
+function escapeHtml(str) {
+    if (!str) return '';
+    const d = document.createElement('div');
+    d.textContent = str;
+    return d.innerHTML;
+}
+
+function formatCurrency(val) {
+    if (val == null) return '';
+    return '$' + Number(val).toLocaleString('en-US', { maximumFractionDigits: 0 });
+}
+
+// ── Lazy-load MSX details + comments ────────────────────────────────
+{% if milestone.msx_milestone_id %}
+function fetchMsxDetails(retriesLeft) {
+    fetch(`/api/milestone/${MS_ID}/msx-details`)
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                renderDetails(data.milestone);
+                renderComments(data.milestone);
+            } else if (retriesLeft > 0) {
+                setTimeout(() => fetchMsxDetails(retriesLeft - 1), 1500);
+            } else {
+                renderError(data.error, data.vpn_blocked);
+            }
+        })
+        .catch(err => {
+            if (retriesLeft > 0) {
+                setTimeout(() => fetchMsxDetails(retriesLeft - 1), 1500);
+            } else {
+                renderError('Network error: ' + err.message, false);
+            }
+        });
+}
+document.addEventListener('DOMContentLoaded', () => fetchMsxDetails(1));
+
+function renderDetails(ms) {
+    const spinner = document.getElementById('detailsSpinner');
+    if (spinner) spinner.style.display = 'none';
+
+    // Update the status badge at top of page
+    const badge = document.getElementById('statusBadgeTop');
+    if (badge && ms.msx_status) {
+        badge.textContent = ms.msx_status;
+        badge.className = 'badge fs-6 ' + ({
+            'On Track': 'bg-success', 'At Risk': 'bg-warning text-dark',
+            'Blocked': 'bg-danger', 'Completed': 'bg-info'
+        }[ms.msx_status] || 'bg-secondary');
+    }
+    // Cached details stay visible - DB is updated server-side by the API call
+}
+
+function renderComments(ms) {
+    const spinner = document.getElementById('commentsSpinner');
+    if (spinner) spinner.style.display = 'none';
+    const cached = document.getElementById('commentsCached');
+    if (cached) cached.style.display = 'none';
+    const cachedForm = document.getElementById('commentFormCached');
+    if (cachedForm) cachedForm.style.display = 'none';
+    const el = document.getElementById('commentsMsx');
+    el.style.display = '';
+    const countBadge = document.getElementById('commentCount');
+
+    const comments = ms.comments || [];
+    countBadge.style.display = '';
+    countBadge.textContent = comments.length + ' comment' + (comments.length !== 1 ? 's' : '');
+
+    // AJAX comment form
+    let html = `
+        <form id="commentFormMsx" class="mb-4" onsubmit="return postComment(event)">
+            <div class="input-group">
+                <textarea class="form-control" id="commentText" rows="2" placeholder="Add a forecast comment..." required></textarea>
+                <button type="submit" class="btn btn-primary" id="postCommentBtn">
+                    <i class="bi bi-send"></i> Post
+                </button>
+            </div>
+            <small class="text-muted">This comment will be posted to the MSX milestone record.</small>
+        </form>
+    `;
+
+    if (comments.length > 0) {
+        html += '<div class="list-group">';
+        for (const c of [...comments].reverse()) {
+            html += `
+                <div class="list-group-item">
+                    <div class="d-flex w-100 justify-content-between mb-1">
+                        <strong>${escapeHtml(c.displayName || c.userId || 'Unknown')}</strong>
+                        <small class="text-muted"><i class="bi bi-clock"></i> ${escapeHtml(c.modifiedOn || '')}</small>
+                    </div>
+                    <p class="mb-0" style="white-space:pre-wrap;">${escapeHtml(c.comment || '')}</p>
+                </div>`;
+        }
+        html += '</div>';
+    } else {
+        html += '<p class="text-muted">No forecast comments yet. Be the first to add one!</p>';
+    }
+
+    el.innerHTML = html;
+}
+
+function renderError(errorMsg, vpnBlocked) {
+    if (vpnBlocked && window.showVpnBanner) window.showVpnBanner();
+
+    const spinner = document.getElementById('detailsSpinner');
+    if (spinner) spinner.style.display = 'none';
+
+    const cached = document.getElementById('detailsCached');
+    const hasCachedData = cached && cached.innerHTML.trim().length > 0;
+    if (!hasCachedData) {
+        const errEl = document.getElementById('detailsError');
+        errEl.style.display = '';
+        if (vpnBlocked) {
+            errEl.innerHTML = `<div class="alert alert-secondary mb-0 mx-3 my-2">
+                <i class="bi bi-shield-lock"></i> <strong>VPN Required</strong><br>
+                <small>Connect to VPN to load milestone details.</small>
+            </div>`;
+        } else {
+            errEl.innerHTML = `<div class="alert alert-warning mb-0 mx-3 my-2">
+                <i class="bi bi-exclamation-triangle"></i> ${escapeHtml(errorMsg)}
+            </div>`;
+        }
+    }
+
+    const commSpinner = document.getElementById('commentsSpinner');
+    if (commSpinner) commSpinner.style.display = 'none';
+    const cachedComments = document.getElementById('commentsCached');
+    const hasCachedComments = cachedComments && cachedComments.innerHTML.trim().length > 0 && cachedComments.style.display !== 'none';
+    if (!hasCachedComments) {
+        const commErr = document.getElementById('commentsError');
+        commErr.style.display = '';
+        if (vpnBlocked) {
+            commErr.innerHTML = `<div class="alert alert-secondary mb-0">
+                <i class="bi bi-shield-lock"></i> <strong>VPN Required</strong><br>
+                <small>Connect to VPN to load forecast comments.</small>
+            </div>`;
+        } else {
+            commErr.innerHTML = `<div class="alert alert-warning mb-0">
+                <i class="bi bi-exclamation-triangle"></i> Could not load comments: ${escapeHtml(errorMsg)}
+            </div>`;
+        }
+    }
+}
+
+// ── Post comment via AJAX ───────────────────────────────────────────
+function postComment(e) {
+    e.preventDefault();
+    const textarea = document.getElementById('commentText');
+    const btn = document.getElementById('postCommentBtn');
+    const text = textarea.value.trim();
+    if (!text) return false;
+
+    const originalBtn = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+
+    fetch(`/api/milestone/${MS_ID}/comment`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ comment: text })
+    })
+    .then(r => r.json())
+    .then(data => {
+        btn.disabled = false;
+        btn.innerHTML = originalBtn;
+        if (data.success) {
+            textarea.value = '';
+            fetchMsxDetails(0);
+        } else {
+            alert('Failed to post comment: ' + (data.error || 'Unknown error'));
+        }
+    })
+    .catch(err => {
+        btn.disabled = false;
+        btn.innerHTML = originalBtn;
+        alert('Failed to post comment: ' + err.message);
+    });
+    return false;
+}
+{% endif %}
+
+// ── Milestone Team join/leave ───────────────────────────────────────
 fetch('/api/msx/vpn-status').then(r => r.json()).then(data => {
     if (data.blocked) {
         const joinBtn = document.getElementById('joinMilestoneTeamBtn');
@@ -318,7 +556,6 @@ fetch('/api/msx/vpn-status').then(r => r.json()).then(data => {
 async function joinMilestoneTeam(milestoneId) {
     const btn = document.getElementById('joinMilestoneTeamBtn');
     if (!btn) return;
-    // Pre-flight VPN check
     if (window.isVpnBlocked && window.isVpnBlocked()) {
         window.showVpnBanner();
         return;
@@ -334,7 +571,6 @@ async function joinMilestoneTeam(milestoneId) {
         });
         const data = await resp.json();
         if (data.success) {
-            const row = document.getElementById('milestoneTeamRow');
             const wrapper = document.createElement('span');
             const badge = document.createElement('span');
             badge.className = 'badge bg-success me-1';
@@ -378,8 +614,6 @@ async function leaveMilestoneTeam(milestoneId) {
         });
         const data = await resp.json();
         if (data.success) {
-            const row = document.getElementById('milestoneTeamRow');
-            // Replace badge + leave button with join button
             const joinBtn = document.createElement('button');
             joinBtn.className = 'btn btn-outline-primary btn-sm';
             joinBtn.id = 'joinMilestoneTeamBtn';
@@ -398,15 +632,17 @@ async function leaveMilestoneTeam(milestoneId) {
     }
 }
 
+{% if milestone.msx_milestone_id %}
+// ── Task creation ───────────────────────────────────────────────────
+let taskCategories = [];
+
 function getTomorrowDate() {
     const d = new Date();
     d.setDate(d.getDate() + 1);
     return d.toISOString().split('T')[0];
 }
 
-// Load task categories on page load
 document.addEventListener('DOMContentLoaded', function() {
-    // Auto-populate due date as tomorrow
     document.getElementById('modal_task_due_date').value = getTomorrowDate();
     fetch('/api/msx/task-categories')
         .then(response => response.json())
@@ -428,7 +664,7 @@ function populateTaskCategories() {
         option.textContent = cat.label;
         if (cat.is_hok) {
             option.style.fontWeight = 'bold';
-            option.textContent = '★ ' + cat.label;
+            option.textContent = '\u2605 ' + cat.label;
         }
         select.appendChild(option);
     });
@@ -450,17 +686,9 @@ function createTask() {
     const description = document.getElementById('modal_task_description').value.trim();
     const dueDate = document.getElementById('modal_task_due_date').value;
 
-    // Validation
-    if (!subject) {
-        showTaskError('Task title is required');
-        return;
-    }
-    if (!category) {
-        showTaskError('Task category is required');
-        return;
-    }
+    if (!subject) { showTaskError('Task title is required'); return; }
+    if (!category) { showTaskError('Task category is required'); return; }
 
-    // Show loading state
     const btn = document.getElementById('create_task_btn');
     const originalText = btn.innerHTML;
     btn.disabled = true;
@@ -482,9 +710,7 @@ function createTask() {
     .then(result => {
         btn.disabled = false;
         btn.innerHTML = originalText;
-
         if (result.success) {
-            // Refresh the page to show the new task
             window.location.reload();
         } else {
             showTaskError(result.error || 'Failed to create task');
@@ -497,7 +723,6 @@ function createTask() {
     });
 }
 
-// Reset modal form when it's closed
 document.getElementById('newTaskModal').addEventListener('hidden.bs.modal', function() {
     document.getElementById('modal_task_subject').value = '';
     document.getElementById('modal_task_category').value = '';
@@ -505,6 +730,6 @@ document.getElementById('newTaskModal').addEventListener('hidden.bs.modal', func
     document.getElementById('modal_task_due_date').value = getTomorrowDate();
     hideTaskError();
 });
-</script>
 {% endif %}
+</script>
 {% endblock %}

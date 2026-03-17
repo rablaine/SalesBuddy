@@ -1,8 +1,10 @@
 """
 Tests for milestone functionality.
 """
+import json
 import pytest
 from datetime import datetime
+from unittest.mock import patch
 from app.models import db, Milestone, Note
 
 
@@ -410,3 +412,233 @@ class TestMilestoneAPI:
         assert response.status_code == 400
         data = response.get_json()
         assert 'error' in data
+
+
+class TestMilestoneViewOverhaul:
+    """Tests for the overhauled milestone view page."""
+
+    def _create_milestone(self, app, **kwargs):
+        """Helper to create a milestone with defaults."""
+        with app.app_context():
+            defaults = {
+                'url': 'https://msxsalesplatform.dynamics.com/milestone/test',
+                'title': 'Test Milestone',
+                'msx_milestone_id': 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+                'msx_status': 'On Track',
+                'dollar_value': 50000,
+                'monthly_usage': 5000,
+                'workload': 'Azure Synapse',
+            }
+            defaults.update(kwargs)
+            ms = Milestone(**defaults)
+            db.session.add(ms)
+            db.session.commit()
+            return ms.id
+
+    def test_view_shows_engagements_in_nav(self, client, app, db_session, sample_user, sample_customer):
+        """Engagements linked to the milestone appear in the Navigation card."""
+        from app.models import Engagement
+        with app.app_context():
+            ms = Milestone(
+                url='https://test/ms', title='Nav Test',
+                msx_milestone_id='nav-test-1234',
+                customer_id=sample_customer.id,
+            )
+            db.session.add(ms)
+            db.session.flush()
+            eng = Engagement(
+                customer_id=sample_customer.id,
+                title='Fabric Migration',
+                status='Active',
+            )
+            db.session.add(eng)
+            db.session.flush()
+            eng.milestones.append(ms)
+            db.session.commit()
+            ms_id = ms.id
+
+        resp = client.get(f'/milestone/{ms_id}')
+        assert resp.status_code == 200
+        assert b'Fabric Migration' in resp.data
+        assert b'bi-lightning-charge' in resp.data
+
+    def test_view_shows_cached_comments(self, client, app, db_session, sample_user):
+        """Cached comments render immediately in the template."""
+        comments = [
+            {"userId": "abc", "displayName": "Jane Doe",
+             "modifiedOn": "2026-03-17T10:00:00Z",
+             "comment": "Looking good on track"},
+        ]
+        ms_id = self._create_milestone(
+            app, cached_comments_json=json.dumps(comments),
+        )
+        resp = client.get(f'/milestone/{ms_id}')
+        assert resp.status_code == 200
+        assert b'Jane Doe' in resp.data
+        assert b'Looking good on track' in resp.data
+
+    def test_view_no_msx_id_hides_spinners(self, client, app, db_session, sample_user):
+        """Milestone without MSX ID should not show loading spinners."""
+        ms_id = self._create_milestone(app, msx_milestone_id=None)
+        resp = client.get(f'/milestone/{ms_id}')
+        assert resp.status_code == 200
+        assert b'detailsSpinner' not in resp.data
+        assert b'commentsSpinner' not in resp.data
+
+    def test_tasks_in_left_column(self, client, app, db_session, sample_user):
+        """Tasks card should be in the left column (col-md-4)."""
+        ms_id = self._create_milestone(app)
+        resp = client.get(f'/milestone/{ms_id}')
+        html = resp.data.decode()
+        # Tasks header should appear before the right column starts
+        left_col_start = html.index('col-md-4')
+        right_col_start = html.index('col-md-8')
+        tasks_pos = html.index('Tasks</h5>')
+        assert left_col_start < tasks_pos < right_col_start
+
+    def test_notes_between_details_and_tasks(self, client, app, db_session, sample_user):
+        """Associated Notes card appears between Details and Tasks in left column."""
+        ms_id = self._create_milestone(app)
+        resp = client.get(f'/milestone/{ms_id}')
+        html = resp.data.decode()
+        # Use card header text to find positions
+        details_pos = html.index('Details</h5>')
+        notes_pos = html.index('Associated Notes</h5>')
+        tasks_pos = html.index('Tasks</h5>')
+        assert details_pos < notes_pos < tasks_pos
+
+
+class TestMilestoneMsxDetailsAPI:
+    """Tests for the lazy-load MSX details endpoint."""
+
+    def _create_milestone(self, app, **kwargs):
+        with app.app_context():
+            defaults = {
+                'url': 'https://test/ms',
+                'title': 'API Test',
+                'msx_milestone_id': 'aaaaaaaa-1111-2222-3333-444444444444',
+            }
+            defaults.update(kwargs)
+            ms = Milestone(**defaults)
+            db.session.add(ms)
+            db.session.commit()
+            return ms.id
+
+    @patch('app.services.msx_api.get_milestone_details')
+    def test_msx_details_success_caches_data(self, mock_get, client, app, db_session, sample_user):
+        """Successful MSX fetch caches comments and details_fetched_at."""
+        ms_id = self._create_milestone(app)
+        mock_get.return_value = {
+            'success': True,
+            'milestone': {
+                'title': 'Updated Title',
+                'milestone_number': '7-999',
+                'msx_status': 'At Risk',
+                'msx_status_code': 861980001,
+                'due_date': '2026-06-30T00:00:00Z',
+                'dollar_value': 75000,
+                'monthly_usage': 8000,
+                'workload': 'Azure Data Factory',
+                'comments': [
+                    {'userId': 'u1', 'displayName': 'Bob',
+                     'modifiedOn': '2026-03-17', 'comment': 'Test comment'},
+                ],
+            },
+        }
+        resp = client.get(f'/api/milestone/{ms_id}/msx-details')
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data['success'] is True
+        assert data['milestone']['msx_status'] == 'At Risk'
+
+        with app.app_context():
+            ms = db.session.get(Milestone, ms_id)
+            assert ms.title == 'Updated Title'
+            assert ms.msx_status == 'At Risk'
+            assert ms.cached_comments_json is not None
+            assert ms.details_fetched_at is not None
+
+    @patch('app.services.msx_api.get_milestone_details')
+    def test_msx_details_failure_returns_error(self, mock_get, client, app, db_session, sample_user):
+        """Failed MSX fetch returns error JSON."""
+        ms_id = self._create_milestone(app)
+        mock_get.return_value = {
+            'success': False,
+            'error': 'Connection timeout',
+            'vpn_blocked': False,
+        }
+        resp = client.get(f'/api/milestone/{ms_id}/msx-details')
+        data = resp.get_json()
+        assert data['success'] is False
+        assert 'Connection timeout' in data['error']
+
+    def test_msx_details_no_msx_id(self, client, app, db_session, sample_user):
+        """Milestone without MSX ID returns error."""
+        ms_id = self._create_milestone(app, msx_milestone_id=None)
+        resp = client.get(f'/api/milestone/{ms_id}/msx-details')
+        data = resp.get_json()
+        assert data['success'] is False
+        assert 'No MSX ID' in data['error']
+
+
+class TestMilestoneCommentAPI:
+    """Tests for the milestone comment endpoints."""
+
+    def _create_milestone(self, app, **kwargs):
+        with app.app_context():
+            defaults = {
+                'url': 'https://test/ms',
+                'title': 'Comment Test',
+                'msx_milestone_id': 'cccccccc-1111-2222-3333-444444444444',
+            }
+            defaults.update(kwargs)
+            ms = Milestone(**defaults)
+            db.session.add(ms)
+            db.session.commit()
+            return ms.id
+
+    @patch('app.services.msx_api.add_milestone_comment')
+    def test_post_comment_form(self, mock_add, client, app, db_session, sample_user):
+        """Form-based comment post redirects on success."""
+        ms_id = self._create_milestone(app)
+        mock_add.return_value = {'success': True, 'comment_count': 3}
+        resp = client.post(
+            f'/milestone/{ms_id}/comment',
+            data={'comment': 'Great progress'},
+            follow_redirects=False,
+        )
+        assert resp.status_code == 302
+        mock_add.assert_called_once()
+
+    @patch('app.services.msx_api.add_milestone_comment')
+    def test_post_comment_api(self, mock_add, client, app, db_session, sample_user):
+        """JSON API comment post returns success."""
+        ms_id = self._create_milestone(app)
+        mock_add.return_value = {'success': True, 'comment_count': 5}
+        resp = client.post(
+            f'/api/milestone/{ms_id}/comment',
+            json={'comment': 'Looking great'},
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data['success'] is True
+
+    def test_post_comment_api_empty(self, client, app, db_session, sample_user):
+        """Empty comment returns 400."""
+        ms_id = self._create_milestone(app)
+        resp = client.post(
+            f'/api/milestone/{ms_id}/comment',
+            json={'comment': '  '},
+        )
+        assert resp.status_code == 400
+
+    def test_post_comment_no_msx_id(self, client, app, db_session, sample_user):
+        """Milestone without MSX ID returns error for API comment."""
+        ms_id = self._create_milestone(app, msx_milestone_id=None)
+        resp = client.post(
+            f'/api/milestone/{ms_id}/comment',
+            json={'comment': 'test'},
+        )
+        assert resp.status_code == 400
+        data = resp.get_json()
+        assert 'No MSX ID' in data['error']

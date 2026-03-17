@@ -544,6 +544,117 @@ def extract_account_id_from_url(tpid_url: str) -> Optional[str]:
     return None
 
 
+def get_milestone_details(milestone_id: str) -> Dict[str, Any]:
+    """Fetch a single milestone's details and forecast comments from MSX.
+
+    Args:
+        milestone_id: The milestone GUID (msp_engagementmilestoneid).
+
+    Returns:
+        Dict with success, milestone details dict, and comments list.
+    """
+    import json as json_lib
+
+    try:
+        url = (
+            f"{CRM_BASE_URL}/msp_engagementmilestones({milestone_id})"
+            f"?$select=msp_name,msp_milestonestatus,msp_milestonenumber,"
+            f"msp_milestonedate,msp_bacvrate,msp_monthlyuse,"
+            f"_msp_workloadlkid_value,msp_forecastcommentsjsonfield"
+        )
+        response = _msx_request('GET', url)
+
+        if response.status_code == 200:
+            raw = response.json()
+
+            status_map = {
+                861980000: "On Track",
+                861980001: "At Risk",
+                861980002: "Blocked",
+                861980003: "Completed",
+                861980004: "Cancelled",
+                861980005: "Lost to Competitor",
+                861980006: "Hygiene/Duplicate",
+            }
+            status_code = raw.get("msp_milestonestatus")
+
+            # Parse due date
+            due_date_str = raw.get("msp_milestonedate")
+
+            # Parse comments
+            comments = []
+            json_str = raw.get("msp_forecastcommentsjsonfield")
+            if json_str:
+                try:
+                    comments = json_lib.loads(json_str)
+                except (json_lib.JSONDecodeError, TypeError):
+                    logger.warning(
+                        f"Could not parse comments JSON for milestone {milestone_id}"
+                    )
+
+            # Resolve userId GUIDs to display names
+            if comments:
+                unique_ids = set()
+                for c in comments:
+                    uid = c.get("userId", "").strip("{} ")
+                    if uid:
+                        unique_ids.add(uid)
+                name_cache = {}
+                for uid in unique_ids:
+                    try:
+                        user_url = f"{CRM_BASE_URL}/systemusers({uid})?$select=fullname"
+                        user_resp = _msx_request('GET', user_url)
+                        if user_resp.status_code == 200:
+                            name_cache[uid] = user_resp.json().get("fullname", "Unknown")
+                    except Exception:
+                        pass
+                for c in comments:
+                    uid = c.get("userId", "").strip("{} ")
+                    c["displayName"] = name_cache.get(uid, uid or "Unknown")
+
+            workload = raw.get(
+                "_msp_workloadlkid_value@OData.Community.Display.V1.FormattedValue", ""
+            )
+
+            milestone = {
+                "title": raw.get("msp_name", ""),
+                "milestone_number": raw.get("msp_milestonenumber", ""),
+                "msx_status": status_map.get(status_code, "Unknown"),
+                "msx_status_code": status_code,
+                "due_date": due_date_str,
+                "dollar_value": raw.get("msp_bacvrate"),
+                "monthly_usage": raw.get("msp_monthlyuse"),
+                "workload": workload,
+                "comments": comments,
+            }
+
+            return {"success": True, "milestone": milestone}
+
+        elif response.status_code == 403:
+            if is_vpn_blocked():
+                return {
+                    "success": False,
+                    "error": "IP address is blocked - connect to VPN and retry.",
+                    "vpn_blocked": True,
+                }
+            return {"success": False, "error": "Access denied."}
+        elif response.status_code == 404:
+            return {"success": False, "error": "Milestone not found in MSX."}
+        else:
+            return {
+                "success": False,
+                "error": f"HTTP {response.status_code}: {response.text[:200]}",
+            }
+
+    except requests.exceptions.Timeout:
+        return {"success": False, "error": "Request timed out. Check VPN connection."}
+    except requests.exceptions.ConnectionError as e:
+        return {"success": False, "error": f"Connection error (VPN?): {str(e)[:100]}"}
+    except Exception as e:
+        logger.exception(f"Error getting milestone details {milestone_id}")
+        return {"success": False, "error": str(e)}
+
+
 def get_milestones_by_account(
     account_id: str,
     active_only: bool = False,

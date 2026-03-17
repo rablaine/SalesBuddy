@@ -186,6 +186,11 @@ def run_migrations(db):
     # One-time: migrate backup_config.json -> database
     _migrate_backup_config_to_db(db)
 
+    # Migration: Add cached_comments_json and details_fetched_at to milestones
+    if _table_exists(inspector, 'milestones'):
+        _add_column_if_not_exists(db, inspector, 'milestones', 'cached_comments_json', 'TEXT')
+        _add_column_if_not_exists(db, inspector, 'milestones', 'details_fetched_at', 'DATETIME')
+
     # =========================================================================
     # End migrations
     # =========================================================================
