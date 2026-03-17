@@ -260,14 +260,16 @@ class GatewayConsentError(GatewayError):
 
 
 def get_user_name() -> str:
-    """Return the display name from the cached Azure AD JWT, or empty string."""
+    """Return the display name from the Azure AD JWT, or empty string."""
     import base64
     import json as _json
 
-    if not _cached_token:
+    try:
+        token = _get_token()
+    except Exception:
         return ''
     try:
-        payload_b64 = _cached_token.split('.')[1]
+        payload_b64 = token.split('.')[1]
         padding = 4 - len(payload_b64) % 4
         if padding != 4:
             payload_b64 += '=' * padding
