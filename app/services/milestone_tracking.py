@@ -235,9 +235,12 @@ def _track_note_worker(
             from app.services.msx_api import get_milestone_comments
             print(f"[milestone-tracking] reading existing comments from {msx_id}")
             read_result = get_milestone_comments(msx_id)
-            existing_comments = [
-                c.get("comment", "") for c in (read_result or {}).get("comments", [])
-            ]
+            raw_comments = (read_result or {}).get("comments", [])
+            existing_comments = [c.get("comment", "") for c in raw_comments]
+
+            # Check if this note already has a comment on this milestone
+            ref_marker = f"· {ref_tag} ·"
+            has_existing_post = any(ref_marker in c for c in existing_comments)
 
             # AI summarization with dedup context
             print(f"[milestone-tracking] calling AI summarize...")
@@ -254,10 +257,29 @@ def _track_note_worker(
                     comment_date=call_date_iso,
                 )
                 print(f"[milestone-tracking] AI summary upserted to {msx_id}")
+            elif not has_existing_post:
+                # First-time sync for this note - AI said no new info but we
+                # have never posted for this note before. Create a minimal
+                # comment so the note is represented on the milestone.
+                print(
+                    f"[milestone-tracking] no AI summary but no existing post "
+                    f"for {ref_tag} on {msx_id}, creating initial comment"
+                )
+                fallback = (
+                    f"Call log: {customer_name}\n"
+                    f"Topics: {topics}\n\n"
+                    f"{plain[:500]}"
+                )
+                content_with_footer = _add_footer(fallback, ref_tag)
+                _upsert_to_msx(
+                    msx_id, content_with_footer, ref_tag,
+                    comment_date=call_date_iso,
+                )
+                print(f"[milestone-tracking] fallback comment created on {msx_id}")
             else:
                 print(
                     f"[milestone-tracking] no AI summary for {ref_tag} on {msx_id}, "
-                    "skipping MSX write"
+                    "existing post found - no update needed"
                 )
         except Exception as e:
             print(f"[milestone-tracking] EXCEPTION for {msx_id}: {e}")

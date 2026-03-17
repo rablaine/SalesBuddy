@@ -329,7 +329,10 @@ function showReviewModal(current, generated) {
                     </div>
                     <div class="col-6">
                         <div class="small fw-semibold mb-1" style="color: ${field.color};">Generated</div>
-                        <div class="small" style="white-space: pre-wrap; color: ${field.color};">${isEmpty ? '<em class="text-muted">-</em>' : escapeHtml(newVal)}</div>
+                        ${isEmpty
+                            ? '<div class="small"><em class="text-muted">-</em></div>'
+                            : `<textarea class="form-control form-control-sm" id="gen_${field.key}" rows="3" style="color: ${field.color}; background: transparent; border-color: rgba(255,255,255,0.15); font-size: 0.85em;">${escapeHtml(newVal)}</textarea>`
+                        }
                     </div>
                 </div>
             </div>
@@ -350,8 +353,10 @@ function applySelectedFields() {
     const fields = {};
     checkboxes.forEach(cb => {
         const key = cb.dataset.field;
-        if (pendingStory[key]) {
-            fields[key] = pendingStory[key];
+        const textarea = document.getElementById('gen_' + key);
+        const val = textarea ? textarea.value.trim() : '';
+        if (val) {
+            fields[key] = val;
         }
     });
 

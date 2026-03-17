@@ -354,6 +354,49 @@ def api_customer_engagements(customer_id: int):
     ])
 
 
+@engagements_bp.route('/api/engagements/milestones')
+def api_engagements_milestones():
+    """Return milestones linked to the given engagement IDs.
+
+    Query params:
+        ids: comma-separated engagement IDs (e.g. ?ids=1,2,3)
+
+    Returns JSON shaped for the note form's selectMilestone() function.
+    """
+    raw_ids = request.args.get('ids', '')
+    try:
+        eng_ids = [int(x) for x in raw_ids.split(',') if x.strip()]
+    except ValueError:
+        return jsonify([])
+    if not eng_ids:
+        return jsonify([])
+
+    engagements = Engagement.query.filter(Engagement.id.in_(eng_ids)).all()
+    seen: set[str] = set()
+    results: list[dict] = []
+    for eng in engagements:
+        for m in eng.milestones:
+            key = m.msx_milestone_id or str(m.id)
+            if key in seen:
+                continue
+            seen.add(key)
+            results.append({
+                'id': m.msx_milestone_id or '',
+                'name': m.title or m.milestone_number or 'Milestone',
+                'number': m.milestone_number or '',
+                'status': m.msx_status or 'Unknown',
+                'status_code': m.msx_status_code,
+                'opportunity_name': m.opportunity_name or '',
+                'workload': m.workload or '',
+                'monthly_usage': m.monthly_usage,
+                'due_date': m.due_date.isoformat() if m.due_date else None,
+                'url': m.url or '',
+                'on_my_team': m.on_my_team,
+                'local_milestone_id': m.id,
+            })
+    return jsonify(results)
+
+
 @engagements_bp.route('/customer/<int:customer_id>/engagement/create-inline',
                        methods=['POST'])
 def engagement_create_inline(customer_id: int):

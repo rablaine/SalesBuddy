@@ -17,6 +17,20 @@ logger = logging.getLogger(__name__)
 notes_bp = Blueprint('notes', __name__)
 
 
+def _cross_link_milestones_to_engagements(note):
+    """Attach the note's milestones to its linked engagements if not already linked."""
+    if not note.milestones or not note.engagements:
+        return
+    for eng in note.engagements:
+        for ms in note.milestones:
+            if ms not in eng.milestones:
+                eng.milestones.append(ms)
+                logger.info(
+                    "Auto-linked milestone %s to engagement %s via note %s",
+                    ms.id, eng.id, note.id,
+                )
+
+
 def _handle_milestone_and_task(note):
     """
     Handle MSX milestone selection and optional task creation.
@@ -273,6 +287,9 @@ def note_create():
                 logger.exception("Error handling milestone/task during call log create")
                 flash(f'Note will be saved, but milestone/task failed: {e}', 'warning')
         
+        # Cross-link: attach note milestones to linked engagements
+        _cross_link_milestones_to_engagements(note)
+        
         # Auto-track this note on any linked milestones
         track_note_on_milestones(note)
 
@@ -483,6 +500,9 @@ def note_edit(id):
             except Exception as e:
                 logger.exception("Error handling milestone/task during call log edit")
                 flash(f'Note will be saved, but milestone/task failed: {e}', 'warning')
+        
+        # Cross-link: attach note milestones to linked engagements
+        _cross_link_milestones_to_engagements(note)
         
         # Auto-track this note on any linked milestones
         track_note_on_milestones(note)

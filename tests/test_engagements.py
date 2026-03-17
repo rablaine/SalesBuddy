@@ -13,7 +13,7 @@ import json
 from datetime import datetime, timezone, date
 
 import pytest
-from app.models import db, Customer, Seller, Territory, Note, Engagement, Topic
+from app.models import db, Customer, Seller, Territory, Note, Engagement, Topic, Milestone
 
 
 @pytest.fixture
@@ -772,3 +772,235 @@ class TestEngagementsHub:
         assert resp.status_code == 200
         assert b'navEngagements' in resp.data
         assert b'/engagements' in resp.data
+
+
+class TestEngagementMilestonesAPI:
+    """Test /api/engagements/milestones endpoint for milestone auto-suggest."""
+
+    def test_returns_milestones_for_engagement(self, client, app, engagement_data):
+        """Returns milestones linked to an engagement."""
+        cid = engagement_data['customer_id']
+        with app.app_context():
+            eng = Engagement(customer_id=cid, title='Has Milestones', status='Active')
+            ms = Milestone(
+                title='Migrate to Azure',
+                msx_milestone_id='ms-001',
+                milestone_number='7-100',
+                msx_status='On Track',
+                msx_status_code=861980000,
+                url='https://msx.example.com/ms-001',
+                customer_id=cid,
+                workload='Azure Compute',
+                on_my_team=True,
+            )
+            db.session.add_all([eng, ms])
+            db.session.flush()
+            eng.milestones.append(ms)
+            db.session.commit()
+            eid = eng.id
+
+        resp = client.get(f'/api/engagements/milestones?ids={eid}')
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert len(data) == 1
+        assert data[0]['id'] == 'ms-001'
+        assert data[0]['name'] == 'Migrate to Azure'
+        assert data[0]['number'] == '7-100'
+        assert data[0]['status'] == 'On Track'
+        assert data[0]['workload'] == 'Azure Compute'
+        assert data[0]['on_my_team'] is True
+        assert data[0]['url'] == 'https://msx.example.com/ms-001'
+
+    def test_deduplicates_shared_milestones(self, client, app, engagement_data):
+        """Same milestone on two engagements is only returned once."""
+        cid = engagement_data['customer_id']
+        with app.app_context():
+            eng1 = Engagement(customer_id=cid, title='Eng A', status='Active')
+            eng2 = Engagement(customer_id=cid, title='Eng B', status='Active')
+            ms = Milestone(
+                title='Shared Milestone',
+                msx_milestone_id='ms-shared',
+                url='https://msx.example.com/ms-shared',
+                customer_id=cid,
+            )
+            db.session.add_all([eng1, eng2, ms])
+            db.session.flush()
+            eng1.milestones.append(ms)
+            eng2.milestones.append(ms)
+            db.session.commit()
+            eid1, eid2 = eng1.id, eng2.id
+
+        resp = client.get(f'/api/engagements/milestones?ids={eid1},{eid2}')
+        data = resp.get_json()
+        assert len(data) == 1
+        assert data[0]['id'] == 'ms-shared'
+
+    def test_returns_multiple_milestones(self, client, app, engagement_data):
+        """Returns all distinct milestones across selected engagements."""
+        cid = engagement_data['customer_id']
+        with app.app_context():
+            eng = Engagement(customer_id=cid, title='Multi-MS', status='Active')
+            ms1 = Milestone(
+                title='Milestone A', msx_milestone_id='ms-a',
+                url='https://msx.example.com/a', customer_id=cid,
+            )
+            ms2 = Milestone(
+                title='Milestone B', msx_milestone_id='ms-b',
+                url='https://msx.example.com/b', customer_id=cid,
+            )
+            db.session.add_all([eng, ms1, ms2])
+            db.session.flush()
+            eng.milestones.extend([ms1, ms2])
+            db.session.commit()
+            eid = eng.id
+
+        resp = client.get(f'/api/engagements/milestones?ids={eid}')
+        data = resp.get_json()
+        assert len(data) == 2
+        ids = {m['id'] for m in data}
+        assert ids == {'ms-a', 'ms-b'}
+
+    def test_empty_ids_returns_empty(self, client):
+        """Empty or missing ids returns empty list."""
+        resp = client.get('/api/engagements/milestones')
+        assert resp.status_code == 200
+        assert resp.get_json() == []
+
+        resp = client.get('/api/engagements/milestones?ids=')
+        assert resp.status_code == 200
+        assert resp.get_json() == []
+
+    def test_invalid_ids_returns_empty(self, client):
+        """Non-integer ids return empty list."""
+        resp = client.get('/api/engagements/milestones?ids=abc')
+        assert resp.status_code == 200
+        assert resp.get_json() == []
+
+    def test_no_milestones_returns_empty(self, client, app, engagement_data):
+        """Engagement with no milestones returns empty list."""
+        cid = engagement_data['customer_id']
+        with app.app_context():
+            eng = Engagement(customer_id=cid, title='No MS', status='Active')
+            db.session.add(eng)
+            db.session.commit()
+            eid = eng.id
+
+        resp = client.get(f'/api/engagements/milestones?ids={eid}')
+        assert resp.status_code == 200
+        assert resp.get_json() == []
+
+    def test_nonexistent_ids_returns_empty(self, client):
+        """Non-existent engagement IDs return empty list."""
+        resp = client.get('/api/engagements/milestones?ids=99999')
+        assert resp.status_code == 200
+        assert resp.get_json() == []
+
+
+class TestMilestoneEngagementCrossLink:
+    """Test that saving a note cross-links its milestone to its engagements."""
+
+    def test_create_note_links_milestone_to_engagement(self, client, app, engagement_data):
+        """Creating a note with both engagement and milestone links the milestone to the engagement."""
+        cid = engagement_data['customer_id']
+        with app.app_context():
+            eng = Engagement(customer_id=cid, title='Cross Link Eng', status='Active')
+            ms = Milestone(
+                title='Cross Link MS',
+                msx_milestone_id='ms-cross-1',
+                url='https://msx.example.com/cross-1',
+                customer_id=cid,
+            )
+            db.session.add_all([eng, ms])
+            db.session.commit()
+            eng_id, ms_id = eng.id, ms.msx_milestone_id
+
+        resp = client.post('/note/new', data={
+            'customer_id': str(cid),
+            'call_date': '2026-01-29',
+            'call_time': '10:00',
+            'content': 'Note with both engagement and milestone.',
+            'engagement_ids': [str(eng_id)],
+            'milestone_msx_id': ms_id,
+            'milestone_url': 'https://msx.example.com/cross-1',
+            'milestone_name': 'Cross Link MS',
+        }, follow_redirects=True)
+        assert resp.status_code == 200
+
+        with app.app_context():
+            eng = db.session.get(Engagement, eng_id)
+            ms_titles = [m.title for m in eng.milestones]
+            assert 'Cross Link MS' in ms_titles
+
+    def test_edit_note_links_milestone_to_engagement(self, client, app, engagement_data):
+        """Editing a note to add a milestone also links it to the engagement."""
+        cid = engagement_data['customer_id']
+        with app.app_context():
+            eng = Engagement(customer_id=cid, title='Edit Cross Eng', status='Active')
+            ms = Milestone(
+                title='Edit Cross MS',
+                msx_milestone_id='ms-cross-edit',
+                url='https://msx.example.com/cross-edit',
+                customer_id=cid,
+            )
+            note = Note(
+                customer_id=cid,
+                call_date=datetime(2026, 1, 29, 10, 0, tzinfo=timezone.utc),
+                content='Original content.',
+            )
+            db.session.add_all([eng, ms, note])
+            db.session.flush()
+            note.engagements.append(eng)
+            db.session.commit()
+            eng_id = eng.id
+            note_id = note.id
+            ms_msx_id = ms.msx_milestone_id
+
+        resp = client.post(f'/note/{note_id}/edit', data={
+            'customer_id': str(cid),
+            'call_date': '2026-01-29',
+            'call_time': '10:00',
+            'content': 'Updated content with milestone.',
+            'engagement_ids': [str(eng_id)],
+            'milestone_msx_id': ms_msx_id,
+            'milestone_url': 'https://msx.example.com/cross-edit',
+            'milestone_name': 'Edit Cross MS',
+        }, follow_redirects=True)
+        assert resp.status_code == 200
+
+        with app.app_context():
+            eng = db.session.get(Engagement, eng_id)
+            ms_titles = [m.title for m in eng.milestones]
+            assert 'Edit Cross MS' in ms_titles
+
+    def test_no_duplicate_link_if_already_attached(self, client, app, engagement_data):
+        """If milestone is already on engagement, no duplicate is created."""
+        cid = engagement_data['customer_id']
+        with app.app_context():
+            eng = Engagement(customer_id=cid, title='Already Linked', status='Active')
+            ms = Milestone(
+                title='Already There MS',
+                msx_milestone_id='ms-already',
+                url='https://msx.example.com/already',
+                customer_id=cid,
+            )
+            db.session.add_all([eng, ms])
+            db.session.flush()
+            eng.milestones.append(ms)
+            db.session.commit()
+            eng_id = eng.id
+
+        resp = client.post('/note/new', data={
+            'customer_id': str(cid),
+            'call_date': '2026-01-29',
+            'call_time': '10:00',
+            'content': 'Note where milestone already on engagement.',
+            'engagement_ids': [str(eng_id)],
+            'milestone_msx_id': 'ms-already',
+            'milestone_url': 'https://msx.example.com/already',
+            'milestone_name': 'Already There MS',
+        }, follow_redirects=True)
+        assert resp.status_code == 200
+
+        with app.app_context():
+            eng = db.session.get(Engagement, eng_id)
+            assert len(eng.milestones) == 1  # no duplicate

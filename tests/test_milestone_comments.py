@@ -340,8 +340,8 @@ class TestTrackNoteOnMilestones:
                 # comment_date should be the call_date
                 assert final_args[1]["comment_date"] == "2026-03-12T00:00:00.000Z"
 
-    def test_skips_msx_write_when_ai_unavailable(self, app):
-        """When AI fails, nothing is written to MSX."""
+    def test_creates_fallback_when_ai_unavailable_and_no_existing_post(self, app):
+        """When AI returns None but note has no existing MSX post, write a fallback comment."""
         with app.app_context():
             customer = Customer(name='Fallback Corp', tpid=9501)
             db.session.add(customer)
@@ -377,7 +377,54 @@ class TestTrackNoteOnMilestones:
 
                 track_note_on_milestones(note, background=False)
 
-                # Upsert NOT called — no write when AI has no summary
+                # Fallback write - note has no existing post on this milestone
+                assert mock_upsert.call_count == 1
+                content = mock_upsert.call_args[0][1]
+                assert 'Fallback Corp' in content
+                assert f'· note-{note.id} ·' in content
+
+    def test_skips_write_when_ai_unavailable_but_post_exists(self, app):
+        """When AI returns None and note already has an MSX post, skip write."""
+        with app.app_context():
+            customer = Customer(name='Existing Corp', tpid=9510)
+            db.session.add(customer)
+            db.session.flush()
+
+            milestone = Milestone(
+                url='https://msx/m/exist1',
+                title='Existing MS',
+                customer_id=customer.id,
+                msx_milestone_id='exist-guid-1',
+            )
+            db.session.add(milestone)
+            db.session.flush()
+
+            note = Note(
+                customer_id=customer.id,
+                call_date=datetime(2026, 3, 12, tzinfo=timezone.utc),
+                content='<p>Already synced notes.</p>',
+            )
+            note.milestones.append(milestone)
+            db.session.add(note)
+            db.session.flush()
+            ref_tag = f'note-{note.id}'
+
+            # Simulate an existing comment with this note's ref tag
+            existing_comment = {
+                "userId": "Someone via Sales Buddy",
+                "comment": f"Previous summary\n\n· {ref_tag} ·",
+                "modifiedOn": "2026-03-10T00:00:00.000Z",
+            }
+
+            with patch('app.services.milestone_tracking._upsert_to_msx') as mock_upsert, \
+                 patch('app.services.milestone_tracking._ai_summarize_note') as mock_ai, \
+                 patch('app.services.msx_api.get_milestone_comments') as mock_read:
+                mock_read.return_value = {"success": True, "comments": [existing_comment]}
+                mock_ai.return_value = None  # AI says no new info
+
+                track_note_on_milestones(note, background=False)
+
+                # No write - already has an existing post and AI says nothing new
                 mock_upsert.assert_not_called()
 
     def test_skips_msx_for_no_msx_id(self, app):
