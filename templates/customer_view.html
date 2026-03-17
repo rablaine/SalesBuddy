@@ -333,14 +333,28 @@
         <div class="card mb-3">
             <div class="card-header d-flex justify-content-between align-items-center">
                 <h5 class="mb-0"><i class="bi bi-diagram-3"></i> Engagements</h5>
-                <a href="{{ url_for('engagements.engagement_create', customer_id=customer.id) }}" class="btn btn-sm btn-outline-primary">
-                    <i class="bi bi-plus"></i> New
-                </a>
+                <div class="d-flex align-items-center gap-2">
+                    <select id="engStatusFilter" class="form-select form-select-sm" style="width: auto; font-size: 0.8rem;">
+                        <option value="all">All Statuses</option>
+                        <option value="Active">Active</option>
+                        <option value="On Hold">On Hold</option>
+                        <option value="Won">Won</option>
+                        <option value="Lost">Lost</option>
+                    </select>
+                    <select id="engSortSelect" class="form-select form-select-sm" style="width: auto; font-size: 0.8rem;">
+                        <option value="newest">Newest</option>
+                        <option value="story-asc">Story % (low first)</option>
+                        <option value="story-desc">Story % (high first)</option>
+                    </select>
+                    <a href="{{ url_for('engagements.engagement_create', customer_id=customer.id) }}" class="btn btn-sm btn-outline-primary">
+                        <i class="bi bi-plus"></i> New
+                    </a>
+                </div>
             </div>
             <div class="card-body">
-                <div class="row g-3">
+                <div class="row g-3" id="engagementGrid">
                     {% for eng in engagements %}
-                    <div class="col-md-6">
+                    <div class="col-md-6 eng-card-col" data-status="{{ eng.status }}" data-story-pct="{{ eng.story_completeness }}" data-created="{{ eng.created_at.isoformat() }}">
                         <a href="{{ url_for('engagements.engagement_view', id=eng.id) }}" class="card engagement-card h-100 text-decoration-none border{% if eng.status == 'Active' %}-primary{% endif %}" style="{% if eng.status == 'Active' %}border-width: 2px;{% endif %}">
                             <div class="card-body p-3">
                                 <div class="d-flex justify-content-between align-items-start mb-2">
@@ -530,6 +544,64 @@ function cancelContextEdit() {
         document.getElementById('contextEmpty').style.display = 'block';
     }
 }
+
+// Engagement sort/filter with localStorage persistence
+(function() {
+    const grid = document.getElementById('engagementGrid');
+    if (!grid) return;
+
+    const STORAGE_KEY = 'engagements_{{ customer.id }}';
+    const filterSelect = document.getElementById('engStatusFilter');
+    const sortSelect = document.getElementById('engSortSelect');
+
+    // Restore saved selections
+    try {
+        const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+        if (saved.filter) filterSelect.value = saved.filter;
+        if (saved.sort) sortSelect.value = saved.sort;
+    } catch(e) {}
+
+    function saveSelections() {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({
+            filter: filterSelect.value,
+            sort: sortSelect.value
+        }));
+    }
+
+    function applyFilterSort() {
+        const statusVal = filterSelect.value;
+        const sortVal = sortSelect.value;
+        const cols = Array.from(grid.querySelectorAll('.eng-card-col'));
+
+        // Filter
+        cols.forEach(col => {
+            const match = statusVal === 'all' || col.dataset.status === statusVal;
+            col.style.display = match ? '' : 'none';
+        });
+
+        // Sort visible cards
+        const visible = cols.filter(c => c.style.display !== 'none');
+        visible.sort((a, b) => {
+            if (sortVal === 'story-asc') {
+                return parseInt(a.dataset.storyPct) - parseInt(b.dataset.storyPct);
+            } else if (sortVal === 'story-desc') {
+                return parseInt(b.dataset.storyPct) - parseInt(a.dataset.storyPct);
+            }
+            // newest: sort by created descending
+            return b.dataset.created.localeCompare(a.dataset.created);
+        });
+
+        // Re-append in sorted order (hidden cards stay at end)
+        visible.forEach(col => grid.appendChild(col));
+        cols.filter(c => c.style.display === 'none').forEach(col => grid.appendChild(col));
+
+        saveSelections();
+    }
+
+    filterSelect.addEventListener('change', applyFilterSort);
+    sortSelect.addEventListener('change', applyFilterSort);
+    applyFilterSort();
+})();
 </script>
 {% endblock %}
 

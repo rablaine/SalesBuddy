@@ -13,7 +13,7 @@ import re
 
 from app.models import (db, Note, Customer, Seller, Territory, Topic,
                         UserPreference, NoteTemplate, User, SyncStatus,
-                        Engagement)
+                        Engagement, Milestone)
 from app.services.backup import backup_template, delete_template_backup
 
 # Create blueprint
@@ -115,7 +115,7 @@ def index():
         'sellers': Seller.query.count(),
         'topics': Topic.query.count()
     }
-    has_milestones = SyncStatus.is_complete('milestones')
+    has_milestones = Milestone.query.first() is not None
     engagement_count = Engagement.query.filter(
         Engagement.status.in_(['Active', 'On Hold'])
     ).count()
@@ -193,6 +193,7 @@ def notes_calendar_api():
             'has_milestone': len(log.milestones) > 0,
             'has_task': log.msx_tasks.count() > 0,
             'has_hok': any(t.is_hok for t in log.msx_tasks.all()),
+            'has_engagement': len(log.engagements) > 0,
             'time': log.call_date.strftime('%I:%M %p').lstrip('0') if log.call_date.hour != 0 or log.call_date.minute != 0 else None
         })
     
@@ -890,7 +891,7 @@ def inject_preferences():
     first_run_modal_dismissed = pref.first_run_modal_dismissed if pref else False
     guided_tour_completed = pref.guided_tour_completed if pref else False
     accounts_synced = SyncStatus.is_complete('accounts')
-    has_milestones = SyncStatus.is_complete('milestones')
+    has_milestones = Milestone.query.first() is not None
     has_revenue = SyncStatus.is_complete('revenue_import')
     accounts_sync_state = SyncStatus.get_status('accounts')['state']
     milestones_sync_state = SyncStatus.get_status('milestones')['state']

@@ -210,12 +210,12 @@
         <div class="d-flex justify-content-between align-items-center mb-3">
             <h3 class="mb-0">Activity</h3>
             <ul class="nav nav-pills" id="noteViewTabs" role="tablist">
-                {% if has_milestones %}
                 <li class="nav-item" role="presentation">
                     <button class="nav-link active" id="calendar-tab" data-bs-toggle="pill" data-bs-target="#calendar-view" type="button" role="tab" aria-controls="calendar-view" aria-selected="true">
                         <i class="bi bi-calendar3"></i> Calendar
                     </button>
                 </li>
+                {% if has_milestones %}
                 <li class="nav-item" role="presentation">
                     <button class="nav-link" id="milestones-tab" data-bs-toggle="pill" data-bs-target="#milestones-view" type="button" role="tab" aria-controls="milestones-view" aria-selected="false">
                         <i class="bi bi-flag-fill"></i> Milestones Due
@@ -718,6 +718,9 @@
                             if (log.has_milestone) {
                                 indicators += '<i class="bi bi-flag-fill text-success" title="Has milestone"></i> ';
                             }
+                            if (log.has_engagement) {
+                                indicators += '<i class="bi bi-diagram-3 text-primary" title="Has engagement"></i> ';
+                            }
                             if (log.has_task) {
                                 indicators += '<i class="bi bi-check2-square text-info" title="Has task"></i> ';
                             }
@@ -726,7 +729,7 @@
                             }
                             let timePrefix = log.time ? `<small class="text-muted">${escapeHtml(log.time)}</small> ` : '';
                             entry.innerHTML = indicators + timePrefix + escapeHtml(log.customer_name);
-                            entry.title = (log.time ? log.time + ' - ' : '') + log.customer_name + (log.has_milestone ? ' (Milestone)' : '') + (log.has_task ? ' (Task)' : '') + (log.has_hok ? ' (HOK)' : '');
+                            entry.title = (log.time ? log.time + ' - ' : '') + log.customer_name + (log.has_milestone ? ' (Milestone)' : '') + (log.has_engagement ? ' (Engagement)' : '') + (log.has_task ? ' (Task)' : '') + (log.has_hok ? ' (HOK)' : '');
                             
                             // Hover: highlight all entries for this customer (skip for general notes)
                             if (!log.is_general) {

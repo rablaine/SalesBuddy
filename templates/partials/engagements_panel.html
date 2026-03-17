@@ -24,8 +24,15 @@
             </div>
             <select class="form-select form-select-sm" id="{{ body_id }}_sortSelect" aria-label="Sort engagements" style="width:auto;">
                 <option value="updated">Last Updated</option>
+                <option value="story-asc">Story % (low first)</option>
+                <option value="story-desc">Story % (high first)</option>
                 <option value="target">Target Date</option>
             </select>
+            {% if eng_show_seller | default(false) %}
+            <button type="button" class="btn btn-sm btn-outline-secondary" id="{{ body_id }}_groupToggle" title="Group by seller">
+                <i class="bi bi-people"></i>
+            </button>
+            {% endif %}
         </div>
     </div>
     <div class="card-body p-2" id="{{ body_id }}">
@@ -40,12 +47,47 @@
     const API_URL = {{ eng_api_url | tojson }};
     const BODY_ID = {{ body_id | tojson }};
     const COUNT_ID = {{ count_id | tojson }};
-    const SHOW_SELLER = {{ (eng_show_seller | default(false)) | tojson }};
+    const SHOW_SELLER_DEFAULT = {{ (eng_show_seller | default(false)) | tojson }};
     const EMPTY_MSG = {{ empty_msg | tojson }};
 
     let rawData = null;
     let statusFilter = '';
     let sortBy = 'updated';
+    let groupBySeller = SHOW_SELLER_DEFAULT;
+
+    const STORAGE_KEY = 'eng_panel_' + BODY_ID;
+
+    // Restore saved selections
+    try {
+        const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+        if (saved.filter != null) statusFilter = saved.filter;
+        if (saved.sort) sortBy = saved.sort;
+        if (saved.group != null) groupBySeller = saved.group;
+    } catch(e) {}
+
+    // Apply restored state to controls
+    if (statusFilter) {
+        document.querySelectorAll('#' + BODY_ID + '_statusFilter button').forEach(b => {
+            b.classList.toggle('active', b.dataset.status === statusFilter);
+        });
+    }
+    if (sortBy) {
+        document.getElementById(BODY_ID + '_sortSelect').value = sortBy;
+    }
+    const groupToggle = document.getElementById(BODY_ID + '_groupToggle');
+    if (groupToggle) {
+        groupToggle.classList.toggle('active', groupBySeller);
+        groupToggle.addEventListener('click', function() {
+            groupBySeller = !groupBySeller;
+            this.classList.toggle('active', groupBySeller);
+            saveSelections();
+            if (rawData) render();
+        });
+    }
+
+    function saveSelections() {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({ filter: statusFilter, sort: sortBy, group: groupBySeller }));
+    }
 
     // Filter buttons
     document.querySelectorAll('#' + BODY_ID + '_statusFilter button').forEach(btn => {
@@ -53,6 +95,7 @@
             document.querySelectorAll('#' + BODY_ID + '_statusFilter button').forEach(b => b.classList.remove('active'));
             this.classList.add('active');
             statusFilter = this.dataset.status;
+            saveSelections();
             if (rawData) render();
         });
     });
@@ -60,6 +103,7 @@
     // Sort select
     document.getElementById(BODY_ID + '_sortSelect').addEventListener('change', function() {
         sortBy = this.value;
+        saveSelections();
         if (rawData) render();
     });
 
@@ -95,7 +139,7 @@
         return d.innerHTML;
     }
 
-    function buildCard(eng) {
+    function buildCard(eng, showContext) {
         const statusClass = eng.status === 'Active' ? 'bg-success' : 'bg-warning text-dark';
         const completeness = eng.story_completeness || 0;
         const barClass = completeness >= 80 ? 'bg-success' : completeness >= 40 ? 'bg-warning' : 'bg-danger';
@@ -116,8 +160,23 @@
         if (eng.opportunity_count > 0) stats.push('<i class="bi bi-briefcase"></i> ' + eng.opportunity_count);
         if (eng.milestone_count > 0) stats.push('<i class="bi bi-flag"></i> ' + eng.milestone_count);
 
+        // Context line: seller and/or customer when not grouped
+        let contextHtml = '';
+        if (showContext) {
+            const parts = [];
+            if (eng.seller_name) parts.push('<i class="bi bi-person"></i> ' + escapeHtml(eng.seller_name));
+            if (eng.customer_name) {
+                const iconHtml = eng.customer_favicon
+                    ? '<img src="data:image/png;base64,' + eng.customer_favicon + '" width="12" height="12" alt="" style="vertical-align:middle;">' 
+                    : '<i class="bi bi-building"></i>';
+                parts.push(iconHtml + ' <a href="/customer/' + eng.customer_id + '" class="text-decoration-none" onclick="event.stopPropagation();">' + escapeHtml(eng.customer_name) + '</a>');
+            }
+            if (parts.length) contextHtml = '<div class="text-muted mb-1" style="font-size:0.75rem;">' + parts.join(' <span class="mx-1">|</span> ') + '</div>';
+        }
+
         return `<div style="width:300px; flex-shrink:0;"><div class="card h-100 border" style="cursor:pointer;" onclick="if(!event.target.closest('a')){window.location='/engagement/${eng.id}'}">
             <div class="card-body p-2">
+                ${contextHtml}
                 <div class="d-flex justify-content-between align-items-start mb-1">
                     <div class="d-flex align-items-center gap-1" style="min-width:0;">
                         <strong class="text-truncate" style="font-size:0.9rem;">${escapeHtml(eng.title)}</strong>
@@ -143,7 +202,7 @@
     }
 
     function buildCustomerGroup(group) {
-        const cards = group.items.map(buildCard).join('');
+        const cards = group.items.map(e => buildCard(e, false)).join('');
         const iconHtml = group.favicon
             ? '<img src="data:image/png;base64,' + group.favicon + '" width="16" height="16" alt="" style="vertical-align:middle;">'
             : '<i class="bi bi-building text-muted"></i>';
@@ -184,6 +243,10 @@
 
         if (sortBy === 'updated') {
             items.sort((a, b) => (b.updated_at || '').localeCompare(a.updated_at || ''));
+        } else if (sortBy === 'story-asc') {
+            items.sort((a, b) => (a.story_completeness || 0) - (b.story_completeness || 0));
+        } else if (sortBy === 'story-desc') {
+            items.sort((a, b) => (b.story_completeness || 0) - (a.story_completeness || 0));
         } else if (sortBy === 'target') {
             items.sort((a, b) => (a.target_date || '9999').localeCompare(b.target_date || '9999'));
         }
@@ -193,7 +256,7 @@
             return;
         }
 
-        if (SHOW_SELLER) {
+        if (groupBySeller) {
             // Group by seller first, then customer within
             const sellerMap = new Map();
             items.forEach(eng => {
@@ -216,10 +279,9 @@
                 </div>`;
             }).join('');
         } else {
-            // Just group by customer
-            const customerGroups = groupByCustomer(items);
-            body.innerHTML = '<div class="d-flex flex-wrap gap-3 align-items-start">' +
-                customerGroups.map(buildCustomerGroup).join('') +
+            // Flat list - no grouping, each card shows seller/customer
+            body.innerHTML = '<div class="d-flex flex-wrap gap-2 align-items-start">' +
+                items.map(e => buildCard(e, true)).join('') +
                 '</div>';
         }
     }

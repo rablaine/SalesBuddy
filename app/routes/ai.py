@@ -352,8 +352,18 @@ def api_ai_generate_engagement_story():
         opp_names = [o.name for o in engagement.opportunities]
         opp_context = f"Linked Opportunities: {', '.join(opp_names)}\n"
     if engagement.milestones:
-        ms_names = [m.display_text for m in engagement.milestones]
-        opp_context += f"Linked Milestones: {', '.join(ms_names)}\n"
+        ms_parts = []
+        for m in engagement.milestones:
+            part = m.display_text
+            dollar_parts = []
+            if m.monthly_usage:
+                dollar_parts.append(f"${m.monthly_usage:,.0f}/mo usage")
+            if m.dollar_value:
+                dollar_parts.append(f"${m.dollar_value:,.0f} value")
+            if dollar_parts:
+                part += f" ({', '.join(dollar_parts)})"
+            ms_parts.append(part)
+        opp_context += f"Linked Milestones: {'; '.join(ms_parts)}\n"
 
     from datetime import datetime as _dt
     date_str = _dt.now().strftime('%Y-%m-%d')
