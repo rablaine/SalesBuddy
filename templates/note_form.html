@@ -327,7 +327,7 @@
                         <div id="selected_milestone" class="mt-2">
                             {% if note and note.milestones %}
                                 {% for milestone in note.milestones %}
-                                <div class="card border-success" data-milestone-id="{{ milestone.id }}" data-msx-milestone-id="{{ milestone.msx_milestone_id }}">
+                                <div class="card border-success mb-2" data-milestone-id="{{ milestone.id }}" data-msx-milestone-id="{{ milestone.msx_milestone_id }}">
                                     <div class="card-body py-2 px-3">
                                         <div class="d-flex justify-content-between align-items-start">
                                             <div>
@@ -360,7 +360,8 @@
                                                 <br><small class="text-muted">{{ milestone.opportunity_name }}</small>
                                                 {% endif %}
                                             </div>
-                                            <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeMilestone()">
+                                            <button type="button" class="btn btn-sm btn-outline-danger ms-remove-btn"
+                                                data-msx-id="{{ milestone.msx_milestone_id }}">
                                                 <i class="bi bi-x"></i>
                                             </button>
                                         </div>
@@ -1108,20 +1109,20 @@ document.getElementById('noteForm').onsubmit = function(e) {
         document.getElementById('engMilestoneDismissAllBtn').addEventListener('click', dismissSuggestion);
     }
 
-    function hasMilestoneAlready() {
-        // Check JS state OR pre-existing milestone cards in the DOM (edit mode)
-        if (typeof selectedMilestoneData !== 'undefined' && selectedMilestoneData) return true;
+    function getSelectedMsxIds() {
+        // Collect MSX IDs from JS state and server-rendered cards
+        const ids = new Set(selectedMilestones.map(m => m.id));
         const container = document.getElementById('selected_milestone');
-        return container && container.querySelector('[data-milestone-id]') !== null;
+        if (container) {
+            container.querySelectorAll('[data-msx-milestone-id]').forEach(el => {
+                const v = el.dataset.msxMilestoneId;
+                if (v) ids.add(v);
+            });
+        }
+        return ids;
     }
 
     window.onEngagementSelectionChanged = function() {
-        // Don't suggest if a milestone is already selected
-        if (hasMilestoneAlready()) {
-            dismissSuggestion();
-            return;
-        }
-
         const engIds = getSelectedEngagementIds();
         if (engIds.length === 0) {
             dismissSuggestion();
@@ -1135,15 +1136,17 @@ document.getElementById('noteForm').onsubmit = function(e) {
                     dismissSuggestion();
                     return;
                 }
-                // Re-check: milestone may have been selected while we were fetching
-                if (hasMilestoneAlready()) {
+                // Filter out milestones already selected on this note
+                const alreadySelected = getSelectedMsxIds();
+                const available = milestones.filter(m => !alreadySelected.has(m.id));
+                if (available.length === 0) {
                     dismissSuggestion();
                     return;
                 }
-                if (milestones.length === 1) {
-                    renderSingleSuggestion(milestones[0]);
+                if (available.length === 1) {
+                    renderSingleSuggestion(available[0]);
                 } else {
-                    renderMultipleSuggestions(milestones);
+                    renderMultipleSuggestions(available);
                 }
             })
             .catch(err => {
@@ -1858,7 +1861,7 @@ let allMilestones = [];
 let currentMilestoneMatches = [];
 let selectedMilestoneIndex = -1;
 let taskCategories = [];
-let selectedMilestoneData = null;
+let selectedMilestones = [];
 
 const milestoneSearch = document.getElementById('milestone_search');
 const milestoneDropdown = document.getElementById('milestone_dropdown');
@@ -1867,6 +1870,27 @@ const milestoneLoading = document.getElementById('milestone_loading');
 const milestoneHelpText = document.getElementById('milestone_help_text');
 const taskCreationSection = document.getElementById('task_creation_section');
 const taskCategorySelect = document.getElementById('task_category');
+
+// Initialize selectedMilestones from server-rendered cards (edit mode)
+(function initExistingMilestones() {
+    selectedMilestoneContainer.querySelectorAll('[data-msx-milestone-id]').forEach(card => {
+        const msxId = card.dataset.msxMilestoneId;
+        if (msxId) {
+            selectedMilestones.push({
+                id: msxId,
+                name: card.querySelector('strong')?.textContent?.trim() || '',
+                status: card.querySelector('.badge')?.textContent?.trim() || '',
+                opportunity_name: card.querySelector('small.text-muted')?.textContent?.trim() || '',
+            });
+        }
+    });
+    // Bind remove buttons on server-rendered cards
+    selectedMilestoneContainer.querySelectorAll('.ms-remove-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            removeMilestone(this.dataset.msxId);
+        });
+    });
+})();
 
 // Load task categories on page load
 fetch('/api/msx/task-categories')
@@ -2230,33 +2254,70 @@ document.addEventListener('click', function(e) {
 });
 
 function selectMilestone(milestone) {
-    selectedMilestoneData = milestone;
     const msxId = milestone.id;
-    const name = milestone.name || 'Unnamed Milestone';
-    const number = milestone.number || '';
-    const status = milestone.status || 'Unknown';
-    const oppName = milestone.opportunity_name || '';
-    const workload = milestone.workload || '';
-    const monthlyUsage = milestone.monthly_usage;
-    const url = milestone.url || '';
-    const dueDate = milestone.due_date;
-    const statusClass = getStatusBadgeClass(status);
-    
-    // Format monthly usage as currency
-    const usageDisplay = monthlyUsage ? '$' + monthlyUsage.toLocaleString() + '/mo' : '';
-    
-    // Format due date for selected card
-    let selDateDisplay = '';
-    if (dueDate) {
-        const d = new Date(dueDate);
-        if (!isNaN(d)) {
-            const selDateLabel = status === 'Completed' ? 'Completed' : 'Est.';
-            selDateDisplay = selDateLabel + ' ' + d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
-        }
+    // Duplicate check by MSX ID
+    if (selectedMilestones.some(m => m.id === msxId)) return;
+
+    selectedMilestones.push(milestone);
+    renderSelectedMilestones();
+
+    // Show task creation section
+    taskCreationSection.style.display = 'block';
+
+    // Default due date to today if not already set
+    const dueDateInput = document.getElementById('task_due_date');
+    if (dueDateInput && !dueDateInput.value) {
+        dueDateInput.value = new Date().toISOString().split('T')[0];
     }
-    
-    selectedMilestoneContainer.innerHTML = `
-        <div class="card border-success" data-msx-milestone-id="${msxId}">
+
+    // Pre-fill task fields from meeting import suggestion (if available)
+    if (typeof pendingTaskSuggestion !== 'undefined' && pendingTaskSuggestion) {
+        var taskSubjectEl = document.getElementById('task_subject');
+        var taskDescEl = document.getElementById('task_description');
+        if (taskSubjectEl && !taskSubjectEl.value && pendingTaskSuggestion.subject) {
+            taskSubjectEl.value = pendingTaskSuggestion.subject;
+        }
+        if (taskDescEl && !taskDescEl.value && pendingTaskSuggestion.description) {
+            taskDescEl.value = pendingTaskSuggestion.description;
+        }
+        pendingTaskSuggestion = null;
+    }
+
+    // Clear search
+    milestoneSearch.value = '';
+    milestoneDropdown.style.display = 'none';
+    currentMilestoneMatches = [];
+    selectedMilestoneIndex = -1;
+
+    debouncedAutoSave();
+}
+
+function renderSelectedMilestones() {
+    let html = '';
+    for (const milestone of selectedMilestones) {
+        const msxId = milestone.id;
+        const name = milestone.name || 'Unnamed Milestone';
+        const number = milestone.number || '';
+        const status = milestone.status || 'Unknown';
+        const oppName = milestone.opportunity_name || '';
+        const workload = milestone.workload || '';
+        const monthlyUsage = milestone.monthly_usage;
+        const url = milestone.url || '';
+        const dueDate = milestone.due_date;
+        const statusClass = getStatusBadgeClass(status);
+
+        const usageDisplay = monthlyUsage ? '$' + monthlyUsage.toLocaleString() + '/mo' : '';
+        let selDateDisplay = '';
+        if (dueDate) {
+            const d = new Date(dueDate);
+            if (!isNaN(d)) {
+                const selDateLabel = status === 'Completed' ? 'Completed' : 'Est.';
+                selDateDisplay = selDateLabel + ' ' + d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+            }
+        }
+
+        html += `
+        <div class="card border-success mb-2" data-msx-milestone-id="${msxId}">
             <div class="card-body py-2 px-3">
                 <div class="d-flex justify-content-between align-items-start">
                     <div>
@@ -2272,7 +2333,7 @@ function selectMilestone(milestone) {
                         ${oppName ? '<br><small class="text-muted">' + oppName + '</small>' : ''}
                         ${workload ? '<br><small class="text-info"><i class="bi bi-cpu"></i> ' + workload + '</small>' : ''}
                     </div>
-                    <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeMilestone()">
+                    <button type="button" class="btn btn-sm btn-outline-danger ms-remove-btn" data-msx-id="${msxId}">
                         <i class="bi bi-x"></i>
                     </button>
                 </div>
@@ -2286,49 +2347,25 @@ function selectMilestone(milestone) {
             <input type="hidden" name="milestone_workload" value="${workload}">
             <input type="hidden" name="milestone_monthly_usage" value="${monthlyUsage || ''}">
             <input type="hidden" name="milestone_url" value="${url}">
-        </div>
-    `;
-    
-    // Show task creation section
-    taskCreationSection.style.display = 'block';
-    
-    // Default due date to today if not already set
-    const dueDateInput = document.getElementById('task_due_date');
-    if (dueDateInput && !dueDateInput.value) {
-        dueDateInput.value = new Date().toISOString().split('T')[0];
+        </div>`;
     }
-    
-    // Pre-fill task fields from meeting import suggestion (if available)
-    if (typeof pendingTaskSuggestion !== 'undefined' && pendingTaskSuggestion) {
-        var taskSubjectEl = document.getElementById('task_subject');
-        var taskDescEl = document.getElementById('task_description');
-        if (taskSubjectEl && !taskSubjectEl.value && pendingTaskSuggestion.subject) {
-            taskSubjectEl.value = pendingTaskSuggestion.subject;
-        }
-        if (taskDescEl && !taskDescEl.value && pendingTaskSuggestion.description) {
-            taskDescEl.value = pendingTaskSuggestion.description;
-        }
-        // Clear pending suggestion after applying
-        pendingTaskSuggestion = null;
-    }
-    
-    // Clear search
-    milestoneSearch.value = '';
-    milestoneDropdown.style.display = 'none';
-    currentMilestoneMatches = [];
-    selectedMilestoneIndex = -1;
-    
-    debouncedAutoSave();
+    selectedMilestoneContainer.innerHTML = html;
+
+    // Bind remove buttons
+    selectedMilestoneContainer.querySelectorAll('.ms-remove-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            removeMilestone(this.dataset.msxId);
+        });
+    });
 }
 
-function removeMilestone() {
-    selectedMilestoneData = null;
-    selectedMilestoneContainer.innerHTML = '';
-    taskCreationSection.style.display = 'none';
-    
-    // Clear task fields and created task
-    clearCreatedTask();
-    
+function removeMilestone(msxId) {
+    selectedMilestones = selectedMilestones.filter(m => m.id !== msxId);
+    renderSelectedMilestones();
+    if (selectedMilestones.length === 0) {
+        taskCreationSection.style.display = 'none';
+        clearCreatedTask();
+    }
     debouncedAutoSave();
 }
 
@@ -2630,17 +2667,17 @@ function saveDraft() {
     if (!draftKey) return; // Can't save without customer selected
     
     // Get milestone data if selected
-    const milestoneData = selectedMilestoneData ? {
-        id: selectedMilestoneData.id,
-        name: selectedMilestoneData.name,
-        number: selectedMilestoneData.number,
-        status: selectedMilestoneData.status,
-        status_code: selectedMilestoneData.status_code,
-        opportunity_name: selectedMilestoneData.opportunity_name,
-        workload: selectedMilestoneData.workload,
-        monthly_usage: selectedMilestoneData.monthly_usage,
-        url: selectedMilestoneData.url
-    } : null;
+    const milestoneData = selectedMilestones.map(m => ({
+        id: m.id,
+        name: m.name,
+        number: m.number,
+        status: m.status,
+        status_code: m.status_code,
+        opportunity_name: m.opportunity_name,
+        workload: m.workload,
+        monthly_usage: m.monthly_usage,
+        url: m.url
+    }));
     
     // Get task form data
     const taskData = {
@@ -2669,7 +2706,7 @@ function saveDraft() {
             id: parseInt(input.value),
             name: input.closest('.badge').textContent.trim().replace('×', '').trim()
         })),
-        milestone: milestoneData,
+        milestones: milestoneData,
         task: taskData,
         pendingTaskSuggestion: pendingTaskSuggestion || null,
         note_id: {% if note %}{{ note.id }}{% else %}null{% endif %},
@@ -2681,7 +2718,7 @@ function saveDraft() {
     tempDiv.innerHTML = draftData.content;
     const textContent = (tempDiv.textContent || tempDiv.innerText || '').trim();
     
-    if (textContent.length > 0 || draftData.topics.length > 0 || draftData.pendingTopics.length > 0 || draftData.partners.length > 0 || milestoneData) {
+    if (textContent.length > 0 || draftData.topics.length > 0 || draftData.pendingTopics.length > 0 || draftData.partners.length > 0 || milestoneData.length > 0) {
         try {
             localStorage.setItem(draftKey, JSON.stringify(draftData));
             console.log('Draft auto-saved');
@@ -2760,10 +2797,10 @@ function restoreDraft() {
             });
         }
         
-        // Restore milestone selection
-        if (draft.milestone) {
-            selectedMilestoneData = draft.milestone;
-            selectMilestone(draft.milestone);
+        // Restore milestone selection (support both old single and new array format)
+        const savedMilestones = draft.milestones || (draft.milestone ? [draft.milestone] : []);
+        if (savedMilestones.length > 0) {
+            savedMilestones.forEach(m => selectMilestone(m));
         }
         
         // Restore pending task suggestion (from meeting import, before milestone selected)
@@ -3058,7 +3095,7 @@ function discardDraft() {
         }
         
         // Clear milestone data from memory
-        selectedMilestoneData = null;
+        selectedMilestones = [];
         
         // Now clear from localStorage
         clearDraft();

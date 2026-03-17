@@ -35,82 +35,98 @@ def _handle_milestone_and_task(note):
     """
     Handle MSX milestone selection and optional task creation.
     
-    Reads form data for milestone info and creates/links the milestone.
+    Reads form data for milestone info and creates/links milestones.
     If task fields are provided, creates the task in MSX and stores it locally.
     
     Returns:
         tuple: (success: bool, error_message: str or None)
     """
-    # Get MSX milestone data from form
-    milestone_msx_id = request.form.get('milestone_msx_id', '').strip()
-    milestone_url = request.form.get('milestone_url', '').strip()
+    # Get MSX milestone data from form (supports multiple)
+    msx_ids = request.form.getlist('milestone_msx_id')
+    # Filter out empty strings
+    msx_ids = [mid.strip() for mid in msx_ids if mid.strip()]
     
-    if not milestone_msx_id:
-        # No milestone selected - clear any existing
+    if not msx_ids:
+        # No milestones selected - clear any existing
         note.milestones = []
         return True, None
     
-    # Get additional milestone metadata
-    milestone_name = request.form.get('milestone_name', '').strip()
-    milestone_number = request.form.get('milestone_number', '').strip()
-    milestone_status = request.form.get('milestone_status', '').strip()
-    milestone_status_code = request.form.get('milestone_status_code', '').strip()
-    milestone_opp_name = request.form.get('milestone_opportunity_name', '').strip()
-    milestone_workload = request.form.get('milestone_workload', '').strip()
-    milestone_monthly_usage_str = request.form.get('milestone_monthly_usage', '').strip()
-    milestone_monthly_usage = float(milestone_monthly_usage_str) if milestone_monthly_usage_str else None
+    # Parallel metadata arrays from hidden inputs
+    names = request.form.getlist('milestone_name')
+    numbers = request.form.getlist('milestone_number')
+    statuses = request.form.getlist('milestone_status')
+    status_codes = request.form.getlist('milestone_status_code')
+    opp_names = request.form.getlist('milestone_opportunity_name')
+    workloads = request.form.getlist('milestone_workload')
+    monthly_usages = request.form.getlist('milestone_monthly_usage')
+    urls = request.form.getlist('milestone_url')
     
-    # Get customer for milestone association
     customer_id = request.form.get('customer_id')
     
-    # Find or create milestone by MSX ID
-    milestone = Milestone.query.filter_by(msx_milestone_id=milestone_msx_id).first()
-    if not milestone:
-        # Create new milestone
-        milestone = Milestone(
-            msx_milestone_id=milestone_msx_id,
-            url=milestone_url,
-            milestone_number=milestone_number,
-            title=milestone_name,
-            msx_status=milestone_status,
-            msx_status_code=int(milestone_status_code) if milestone_status_code else None,
-            opportunity_name=milestone_opp_name,
-            workload=milestone_workload or None,
-            monthly_usage=milestone_monthly_usage,
-            customer_id=int(customer_id) if customer_id else None
-        )
-        db.session.add(milestone)
-    else:
-        # Update existing milestone with latest data
-        if milestone_name:
-            milestone.title = milestone_name
-        if milestone_url:
-            milestone.url = milestone_url
-        if milestone_status:
-            milestone.msx_status = milestone_status
-        if milestone_status_code:
-            milestone.msx_status_code = int(milestone_status_code)
-        if milestone_opp_name:
-            milestone.opportunity_name = milestone_opp_name
-        if milestone_workload:
-            milestone.workload = milestone_workload
-        if milestone_monthly_usage is not None:
-            milestone.monthly_usage = milestone_monthly_usage
+    milestones = []
+    first_milestone = None
     
-    # Associate milestone with call log
-    note.milestones = [milestone]
+    for i, msx_id in enumerate(msx_ids):
+        # Safe index into parallel arrays (edit-mode cards may not have all metadata)
+        name = names[i] if i < len(names) else ''
+        number = numbers[i] if i < len(numbers) else ''
+        status = statuses[i] if i < len(statuses) else ''
+        status_code = status_codes[i] if i < len(status_codes) else ''
+        opp_name = opp_names[i] if i < len(opp_names) else ''
+        workload = workloads[i] if i < len(workloads) else ''
+        monthly_usage_str = monthly_usages[i] if i < len(monthly_usages) else ''
+        url = urls[i] if i < len(urls) else ''
+        monthly_usage = float(monthly_usage_str) if monthly_usage_str else None
+        
+        milestone = Milestone.query.filter_by(msx_milestone_id=msx_id).first()
+        if not milestone:
+            milestone = Milestone(
+                msx_milestone_id=msx_id,
+                url=url,
+                milestone_number=number,
+                title=name,
+                msx_status=status,
+                msx_status_code=int(status_code) if status_code else None,
+                opportunity_name=opp_name,
+                workload=workload or None,
+                monthly_usage=monthly_usage,
+                customer_id=int(customer_id) if customer_id else None
+            )
+            db.session.add(milestone)
+        else:
+            if name:
+                milestone.title = name
+            if url:
+                milestone.url = url
+            if status:
+                milestone.msx_status = status
+            if status_code:
+                milestone.msx_status_code = int(status_code)
+            if opp_name:
+                milestone.opportunity_name = opp_name
+            if workload:
+                milestone.workload = workload
+            if monthly_usage is not None:
+                milestone.monthly_usage = monthly_usage
+        
+        milestones.append(milestone)
+        if first_milestone is None:
+            first_milestone = milestone
+        
+        # Auto-join the milestone access team (best-effort, non-blocking)
+        if msx_id and not milestone.on_my_team:
+            try:
+                join_result = add_user_to_milestone_team(msx_id)
+                if join_result.get('success') or 'already' in join_result.get('error', '').lower():
+                    milestone.on_my_team = True
+                    logger.info(f'Auto-joined milestone team for {msx_id}')
+                else:
+                    logger.warning(f'Could not auto-join milestone team: {join_result.get("error")}')
+            except Exception as e:
+                logger.warning(f'Auto-join milestone team failed (non-blocking): {e}')
     
-    # Auto-join the milestone access team (best-effort, non-blocking)
-    if milestone_msx_id and not milestone.on_my_team:
-        try:
-            join_result = add_user_to_milestone_team(milestone_msx_id)
-            if join_result.get('success') or 'already' in join_result.get('error', '').lower():
-                milestone.on_my_team = True
-                logger.info(f'Auto-joined milestone team for {milestone_msx_id}')
-            else:
-                logger.warning(f'Could not auto-join milestone team: {join_result.get("error")}')
-        except Exception as e:
-            logger.warning(f'Auto-join milestone team failed (non-blocking): {e}')
+    # Associate all milestones with call log
+    note.milestones = milestones
     
     # Check if a task was already created (via the "Create Task in MSX" button)
     created_task_id = request.form.get('created_task_id', '').strip()
@@ -157,7 +173,7 @@ def _handle_milestone_and_task(note):
             is_hok=created_task_is_hok,
             due_date=task_due_date,
             note=note,
-            milestone=milestone
+            milestone=first_milestone
         )
         db.session.add(msx_task)
         logger.info(f"Pre-created MSX task linked successfully: {created_task_id}")
