@@ -212,11 +212,18 @@ const PageHelp = (function () {
     `},
     { pattern: /^\/milestone-tracker/, title: 'Milestone Tracker', content: `
       <p>Board view of all milestones across your customers, pulled from MSX.</p>
-      <h6>Sync Behavior</h6>
+      <h6>Manual Sync</h6>
       <ul>
-        <li>Click <strong>Sync from MSX</strong> to pull the latest data - every milestone and opportunity is refreshed each time</li>
-        <li>There is no automatic background sync - milestones only update when you manually trigger a sync</li>
-        <li>Sync covers all customers assigned to your sellers</li>
+        <li>Click <strong>Sync from MSX</strong> to pull the latest data on demand</li>
+        <li>Every sync refreshes <em>all</em> milestones and opportunities for every customer with an MSX account link</li>
+        <li>Sync typically takes 6-10 minutes depending on how many customers you have</li>
+      </ul>
+      <h6>Scheduled Sync</h6>
+      <ul>
+        <li>A Windows scheduled task (<code>SalesBuddy-MilestoneSync</code>) runs automatically on Mon/Wed/Fri at 3:00 PM</li>
+        <li>It only runs if Sales Buddy is already running - it won't start the server on its own</li>
+        <li>The task is registered the first time you run <code>start.bat</code></li>
+        <li>Enable or disable it from <strong>Admin Panel > Milestone Sync</strong> toggle</li>
       </ul>
       <h6>Tips</h6>
       <ul>

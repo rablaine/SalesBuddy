@@ -45,7 +45,7 @@ if ($conn) {
 }
 
 # -- Remove scheduled tasks ----------------------------------------------------
-$taskNames = @('SalesBuddy-AutoStart', 'SalesBuddy-DailyBackup')
+$taskNames = @('SalesBuddy-AutoStart', 'SalesBuddy-DailyBackup', 'SalesBuddy-MilestoneSync')
 $removedAny = $false
 
 foreach ($taskName in $taskNames) {
@@ -70,7 +70,7 @@ Write-Host "  Uninstall complete." -ForegroundColor Green
 Write-Host ""
 Write-Host "  What was removed:" -ForegroundColor Gray
 Write-Host "    - Server process (stopped)" -ForegroundColor Gray
-Write-Host "    - Scheduled tasks (SalesBuddy-AutoStart, SalesBuddy-DailyBackup)" -ForegroundColor Gray
+Write-Host "    - Scheduled tasks (SalesBuddy-AutoStart, SalesBuddy-DailyBackup, SalesBuddy-MilestoneSync)" -ForegroundColor Gray
 Write-Host ""
 Write-Host "  What was NOT removed:" -ForegroundColor Gray
 Write-Host "    - App files (this folder: $RepoRoot)" -ForegroundColor Gray

@@ -628,6 +628,46 @@ if (-not $existingAutoStart) {
     Write-Host "  [OK] Auto-start at login registered." -ForegroundColor Green
 }
 
+# 12c: SalesBuddy-MilestoneSync (Mon/Wed/Fri at 3 PM)
+$MilestoneSyncTaskName = 'SalesBuddy-MilestoneSync'
+$existingMilestoneSync = Get-ScheduledTask -TaskName $MilestoneSyncTaskName -ErrorAction SilentlyContinue
+
+if (-not $existingMilestoneSync) {
+    Write-Host ""
+    Write-Host "  Registering daily milestone sync task..." -ForegroundColor Yellow
+
+    $syncScript = Join-Path $PSScriptRoot 'milestone-sync.ps1'
+    $msAction = New-ScheduledTaskAction `
+        -Execute 'powershell.exe' `
+        -Argument "-ExecutionPolicy Bypass -WindowStyle Hidden -File `"$syncScript`"" `
+        -WorkingDirectory $RepoRoot
+    $msTrigger = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Monday,Wednesday,Friday -At '3:00PM'
+    $msSettings = New-ScheduledTaskSettingsSet `
+        -AllowStartIfOnBatteries `
+        -DontStopIfGoingOnBatteries `
+        -StartWhenAvailable `
+        -ExecutionTimeLimit (New-TimeSpan -Minutes 15)
+
+    $msRegistered = $false
+    try {
+        $msPrincipal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Limited
+        Register-ScheduledTask `
+            -TaskName $MilestoneSyncTaskName -Action $msAction -Trigger $msTrigger `
+            -Principal $msPrincipal -Settings $msSettings `
+            -Description 'Milestone sync from MSX (Mon/Wed/Fri at 3 PM when Sales Buddy is running)' `
+            -ErrorAction Stop | Out-Null
+        $msRegistered = $true
+    } catch {
+        Write-Host "  [WARNING] Could not register milestone sync task: $_" -ForegroundColor Yellow
+    }
+
+    if ($msRegistered) {
+        Write-Host "  [OK] Milestone sync scheduled Mon/Wed/Fri at 3:00 PM." -ForegroundColor Green
+    }
+} elseif ($existingMilestoneSync) {
+    Write-Host "  [OK] Milestone sync task registered." -ForegroundColor Green
+}
+
 # ==============================================================================
 # Decision Logic
 # ==============================================================================
