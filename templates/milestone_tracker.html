@@ -5,7 +5,18 @@
 {% block content %}
 {% include 'partials/msx_auth_banner.html' %}
 
-{% if sync_status and sync_status.state == 'incomplete' %}
+{% if sync_status and sync_status.state == 'in_progress' %}
+<div class="alert alert-info d-flex align-items-center mb-3" role="alert">
+    <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+    <div>
+        <strong>Milestone sync is running.</strong>
+        Data is being updated in the background. Refresh the page in a minute to see new results.
+        {% if sync_status.started_at %}
+            <span class="text-muted small">(Started {{ sync_status.started_at.strftime('%b %d at %I:%M %p') }})</span>
+        {% endif %}
+    </div>
+</div>
+{% elif sync_status and sync_status.state == 'incomplete' %}
 <div class="alert alert-warning d-flex align-items-center mb-3" role="alert">
     <i class="bi bi-exclamation-triangle-fill me-2"></i>
     <div>

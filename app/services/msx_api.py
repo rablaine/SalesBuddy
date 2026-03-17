@@ -10,6 +10,7 @@ Uses msx_auth for token management.
 
 import requests
 import logging
+import os
 from datetime import datetime as dt, timezone as tz
 from typing import Optional, Dict, Any, List, Callable
 
@@ -29,6 +30,17 @@ MSX_APP_ID = "fe0c3504-3700-e911-a849-000d3a10b7cc"
 
 # Request timeout (seconds per attempt)
 REQUEST_TIMEOUT = 45
+
+
+def _is_writeback_disabled() -> bool:
+    """Check if MSX writeback is disabled via environment variable."""
+    return os.environ.get('MSX_WRITEBACK_DISABLED', '').lower() in ('true', '1', 'yes')
+
+
+_WRITEBACK_BLOCKED = {
+    "success": False,
+    "error": "MSX writeback is disabled (MSX_WRITEBACK_DISABLED=true)",
+}
 
 # Retry settings for transient failures (timeouts, connection errors)
 MAX_RETRIES = 3
@@ -954,6 +966,9 @@ def add_opportunity_comment(
         - comment_count: int (total comments after adding)
         - error: str if failed
     """
+    if _is_writeback_disabled():
+        logger.info("MSX writeback disabled - skipping add_opportunity_comment")
+        return dict(_WRITEBACK_BLOCKED)
     import json as json_lib
     
     try:
@@ -1133,6 +1148,9 @@ def upsert_milestone_comment(
         - existing_comments: list of other comment texts (for AI context)
         - error: str if failed
     """
+    if _is_writeback_disabled():
+        logger.info("MSX writeback disabled - skipping upsert_milestone_comment")
+        return dict(_WRITEBACK_BLOCKED)
     import json as json_lib
 
     try:
@@ -1231,6 +1249,9 @@ def add_milestone_comment(
 
     Prefer upsert_milestone_comment for new code.
     """
+    if _is_writeback_disabled():
+        logger.info("MSX writeback disabled - skipping add_milestone_comment")
+        return dict(_WRITEBACK_BLOCKED)
     import json as json_lib
 
     try:
@@ -1288,6 +1309,9 @@ def edit_milestone_comment(
     Returns:
         Dict with success bool and error string if failed.
     """
+    if _is_writeback_disabled():
+        logger.info("MSX writeback disabled - skipping edit_milestone_comment")
+        return dict(_WRITEBACK_BLOCKED)
     import json as json_lib
 
     try:
@@ -1341,6 +1365,9 @@ def delete_milestone_comment(
     Returns:
         Dict with success bool and error string if failed.
     """
+    if _is_writeback_disabled():
+        logger.info("MSX writeback disabled - skipping delete_milestone_comment")
+        return dict(_WRITEBACK_BLOCKED)
     import json as json_lib
 
     try:
@@ -1579,6 +1606,9 @@ def add_user_to_milestone_team(milestone_msx_id: str) -> Dict[str, Any]:
     Returns:
         Dict with success: bool and optional error message.
     """
+    if _is_writeback_disabled():
+        logger.info("MSX writeback disabled - skipping add_user_to_milestone_team")
+        return dict(_WRITEBACK_BLOCKED)
     try:
         user_id = get_current_user_id()
         if not user_id:
@@ -1637,6 +1667,9 @@ def remove_user_from_milestone_team(milestone_msx_id: str) -> Dict[str, Any]:
     Returns:
         Dict with success: bool and optional error message.
     """
+    if _is_writeback_disabled():
+        logger.info("MSX writeback disabled - skipping remove_user_from_milestone_team")
+        return dict(_WRITEBACK_BLOCKED)
     try:
         user_id = get_current_user_id()
         if not user_id:
@@ -1694,6 +1727,9 @@ def add_user_to_deal_team(opportunity_msx_id: str) -> Dict[str, Any]:
     Returns:
         Dict with success: bool and optional error message.
     """
+    if _is_writeback_disabled():
+        logger.info("MSX writeback disabled - skipping add_user_to_deal_team")
+        return dict(_WRITEBACK_BLOCKED)
     try:
         user_id = get_current_user_id()
         if not user_id:
@@ -1779,6 +1815,9 @@ def create_task(
         - task_url: str (MSX URL) if successful
         - error: str if failed
     """
+    if _is_writeback_disabled():
+        logger.info("MSX writeback disabled - skipping create_task")
+        return dict(_WRITEBACK_BLOCKED)
     # Get current user ID for task owner
     user_id = get_current_user_id()
     if not user_id:

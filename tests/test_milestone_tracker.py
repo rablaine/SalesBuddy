@@ -1892,3 +1892,84 @@ class TestOnMyTeamInCalendar:
         day_entries = data['days'].get('15', [])
         team_entries = [e for e in day_entries if e.get('on_my_team')]
         assert len(team_entries) >= 1
+
+
+# ---------------------------------------------------------------------------
+# SyncStatus heartbeat tests
+# ---------------------------------------------------------------------------
+
+class TestSyncStatusHeartbeat:
+    """Tests for the heartbeat-based in_progress detection."""
+
+    def test_fresh_heartbeat_shows_in_progress(self, app):
+        """A sync with a recent heartbeat should report state='in_progress'."""
+        from app.models import SyncStatus
+        with app.app_context():
+            SyncStatus.mark_started('milestones')
+            SyncStatus.update_heartbeat('milestones')
+            status = SyncStatus.get_status('milestones')
+            assert status['state'] == 'in_progress'
+
+    def test_stale_heartbeat_shows_incomplete(self, app):
+        """A sync with a stale heartbeat should report state='incomplete'."""
+        from app.models import SyncStatus, utc_now, db
+        from datetime import timedelta
+        with app.app_context():
+            SyncStatus.mark_started('milestones')
+            # Manually set heartbeat to 2 minutes ago (past the 60s threshold)
+            row = SyncStatus.query.filter_by(sync_type='milestones').first()
+            row.heartbeat_at = utc_now() - timedelta(seconds=120)
+            db.session.commit()
+            status = SyncStatus.get_status('milestones')
+            assert status['state'] == 'incomplete'
+
+    def test_no_heartbeat_shows_incomplete(self, app):
+        """A sync with no heartbeat at all should report state='incomplete'."""
+        from app.models import SyncStatus, db
+        with app.app_context():
+            SyncStatus.mark_started('milestones')
+            # Clear heartbeat to simulate old data without the column
+            row = SyncStatus.query.filter_by(sync_type='milestones').first()
+            row.heartbeat_at = None
+            db.session.commit()
+            status = SyncStatus.get_status('milestones')
+            assert status['state'] == 'incomplete'
+
+    def test_completed_sync_ignores_heartbeat(self, app):
+        """A completed sync should report 'complete' regardless of heartbeat age."""
+        from app.models import SyncStatus
+        with app.app_context():
+            SyncStatus.mark_started('milestones')
+            SyncStatus.mark_completed('milestones', success=True, items_synced=5)
+            status = SyncStatus.get_status('milestones')
+            assert status['state'] == 'complete'
+
+    def test_in_progress_banner_on_tracker_page(self, app, client):
+        """Milestone tracker should show 'sync is running' when heartbeat is fresh."""
+        from app.models import SyncStatus, Customer, db
+        with app.app_context():
+            if not Customer.query.first():
+                db.session.add(Customer(name='Banner Test', tpid=88888))
+                db.session.commit()
+            SyncStatus.mark_started('milestones')
+            SyncStatus.update_heartbeat('milestones')
+        resp = client.get('/milestone-tracker')
+        assert resp.status_code == 200
+        assert b'Milestone sync is running' in resp.data
+        assert b'spinner-border' in resp.data
+
+    def test_incomplete_banner_on_tracker_page(self, app, client):
+        """Milestone tracker should show 'didn\\'t finish' when heartbeat is stale."""
+        from app.models import SyncStatus, Customer, utc_now, db
+        from datetime import timedelta
+        with app.app_context():
+            if not Customer.query.first():
+                db.session.add(Customer(name='Banner Test', tpid=88888))
+                db.session.commit()
+            SyncStatus.mark_started('milestones')
+            row = SyncStatus.query.filter_by(sync_type='milestones').first()
+            row.heartbeat_at = utc_now() - timedelta(seconds=120)
+            db.session.commit()
+        resp = client.get('/milestone-tracker')
+        assert resp.status_code == 200
+        assert b"didn&#39;t finish" in resp.data or b"didn't finish" in resp.data

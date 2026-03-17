@@ -191,6 +191,10 @@ def run_migrations(db):
         _add_column_if_not_exists(db, inspector, 'milestones', 'cached_comments_json', 'TEXT')
         _add_column_if_not_exists(db, inspector, 'milestones', 'details_fetched_at', 'DATETIME')
 
+    # Migration: Add heartbeat_at column to sync_status (detect actively running syncs)
+    if _table_exists(inspector, 'sync_status'):
+        _add_column_if_not_exists(db, inspector, 'sync_status', 'heartbeat_at', 'DATETIME')
+
     # =========================================================================
     # End migrations
     # =========================================================================

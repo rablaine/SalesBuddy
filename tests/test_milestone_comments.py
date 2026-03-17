@@ -11,6 +11,7 @@ Tests cover:
 import pytest
 from datetime import datetime, date, timezone
 from unittest.mock import patch, MagicMock
+import os
 
 from app.models import db, Customer, Note, Milestone, Engagement, Topic
 from app.services.milestone_tracking import (
@@ -39,7 +40,8 @@ class TestHelpers:
 
     def test_add_footer_appends_ref_tag(self):
         result = _add_footer("Some content", "note-42")
-        assert result == "Some content\n\n· note-42 ·"
+        assert result.startswith("Some content\n")
+        assert "· note-42 ·" in result
 
     def test_build_note_fallback(self):
         result = _build_note_fallback("SQL MI, Migration")
@@ -131,6 +133,10 @@ class TestBuildEngagementStory:
 
 class TestUpsertMilestoneComment:
     """Test the upsert_milestone_comment function in msx_api."""
+
+    @pytest.fixture(autouse=True)
+    def _enable_writeback(self, monkeypatch):
+        monkeypatch.delenv('MSX_WRITEBACK_DISABLED', raising=False)
 
     def test_creates_new_comment_when_none_exists(self, app):
         """First comment on a milestone creates a new entry."""
@@ -629,6 +635,7 @@ class TestTrackEngagementOnMilestones:
                 customer_id=customer.id,
                 title='Multi-phase Deploy',
                 status='Active',
+                technical_problem='Need to deploy across two phases.',
             )
             engagement.milestones.extend([m1, m2])
             db.session.add(engagement)

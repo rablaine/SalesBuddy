@@ -94,6 +94,9 @@ def sync_all_customer_milestones() -> Dict[str, Any]:
             results["errors"].append("VPN/IP block detected — remaining customers skipped.")
             break
 
+        # Update heartbeat so page loads can tell the sync is still running
+        SyncStatus.update_heartbeat('milestones')
+
         try:
             customer_result = sync_customer_milestones(customer)
             
@@ -272,6 +275,7 @@ def sync_all_customer_milestones_stream(
                 elif evt == 'fetched':
                     fetch_results[cust_id] = result
                     fetched += 1
+                    SyncStatus.update_heartbeat('milestones')
                     pct = int((fetched / total) * 70)  # 0-70%
                     yield _sse_event('progress', {
                         'current': fetched,
@@ -307,6 +311,7 @@ def sync_all_customer_milestones_stream(
     for i, (cust_id, cust_name, _acct) in enumerate(customer_tasks, 1):
         customer = customer_map[cust_id]
         fetch_data = fetch_results.get(cust_id)
+        SyncStatus.update_heartbeat('milestones')
 
         if not fetch_data or not fetch_data.get('success'):
             failed += 1

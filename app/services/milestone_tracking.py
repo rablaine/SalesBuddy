@@ -390,6 +390,19 @@ def track_engagement_on_milestones(engagement, background: bool = True) -> list[
         print(f"[milestone-tracking] engagement {engagement.id}: no milestones linked, skipping")
         return [] if not background else None
 
+    # Skip if no story fields are filled out yet (just title/status isn't enough)
+    has_story = any([
+        engagement.key_individuals,
+        engagement.technical_problem,
+        engagement.business_impact,
+        engagement.solution_resources,
+        engagement.estimated_acr,
+        engagement.target_date,
+    ])
+    if not has_story:
+        print(f"[milestone-tracking] engagement {engagement.id}: no story fields populated, skipping MSX write")
+        return [] if not background else None
+
     story = _build_engagement_story(engagement)
     ref_tag = _ENG_REF.format(id=engagement.id)
     print(f"[milestone-tracking] engagement {engagement.id}: {len(engagement.milestones)} milestones, ref={ref_tag}")

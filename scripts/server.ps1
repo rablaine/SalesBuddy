@@ -643,9 +643,10 @@ if (-not $existingMilestoneSync) {
     $syncTimeStr = $syncTime.ToString('h:mmtt').ToLower()
 
     $syncScript = Join-Path $PSScriptRoot 'milestone-sync.ps1'
+    $hiddenLauncher = Join-Path $PSScriptRoot 'run-hidden.vbs'
     $msAction = New-ScheduledTaskAction `
-        -Execute 'powershell.exe' `
-        -Argument "-ExecutionPolicy Bypass -WindowStyle Hidden -File `"$syncScript`"" `
+        -Execute 'wscript.exe' `
+        -Argument "`"$hiddenLauncher`" `"$syncScript`"" `
         -WorkingDirectory $RepoRoot
     $msTrigger = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Monday,Wednesday,Friday -At $syncTime
     $msSettings = New-ScheduledTaskSettingsSet `

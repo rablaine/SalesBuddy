@@ -1226,9 +1226,13 @@ class SyncStatus(db.Model):
     sync_type = db.Column(db.String(50), unique=True, nullable=False)  # 'milestones', 'accounts', etc.
     started_at = db.Column(db.DateTime, nullable=True)
     completed_at = db.Column(db.DateTime, nullable=True)
+    heartbeat_at = db.Column(db.DateTime, nullable=True)
     success = db.Column(db.Boolean, nullable=True)
     items_synced = db.Column(db.Integer, nullable=True)
     details = db.Column(db.Text, nullable=True)  # JSON string for extra stats
+    
+    # A heartbeat within this many seconds means the sync is actively running
+    HEARTBEAT_ALIVE_SECONDS = 60
     
     @classmethod
     def is_complete(cls, sync_type: str) -> bool:
@@ -1267,8 +1271,15 @@ class SyncStatus(db.Model):
             'details': status.details,
         }
 
-        # Started but never completed — interrupted / in progress
+        # Started but never completed — check heartbeat to distinguish running vs crashed
         if status.completed_at is None:
+            if status.heartbeat_at is not None:
+                now = utc_now().replace(tzinfo=None)
+                hb = (status.heartbeat_at.replace(tzinfo=None)
+                      if status.heartbeat_at.tzinfo else status.heartbeat_at)
+                if (now - hb).total_seconds() < cls.HEARTBEAT_ALIVE_SECONDS:
+                    base['state'] = 'in_progress'
+                    return base
             base['state'] = 'incomplete'
             return base
 
@@ -1301,6 +1312,7 @@ class SyncStatus(db.Model):
             db.session.add(status)
         status.started_at = utc_now()
         status.completed_at = None
+        status.heartbeat_at = None
         status.success = None
         status.items_synced = None
         status.details = None
@@ -1321,6 +1333,14 @@ class SyncStatus(db.Model):
         status.details = details
         db.session.commit()
         return status
+
+    @classmethod
+    def update_heartbeat(cls, sync_type: str) -> None:
+        """Update the heartbeat timestamp to signal the sync is still running."""
+        status = cls.query.filter_by(sync_type=sync_type).first()
+        if status:
+            status.heartbeat_at = utc_now()
+            db.session.commit()
     
     def __repr__(self) -> str:
         return f'<SyncStatus {self.sync_type} success={self.success}>'
