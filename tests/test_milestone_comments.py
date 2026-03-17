@@ -80,12 +80,11 @@ class TestBuildEngagementStory:
             story = _build_engagement_story(eng)
 
             assert 'Engagement Overview: Oracle Migration [Active]' in story
-            assert 'John Smith (DBA), Sarah Chen (VP)' in story
-            assert '3 Oracle instances' in story
-            assert '$2M annual licensing' in story
-            assert 'SQL MI compatibility' in story
-            assert '$45K' in story
-            assert 'Jun 2026' in story
+            assert "I've been working with John Smith (DBA), Sarah Chen (VP)" in story
+            assert 'They have run into 3 Oracle instances' in story
+            assert "It's impacting $2M annual licensing" in story
+            assert 'We are addressing the opportunity with SQL MI compatibility' in story
+            assert 'This will result in $45K by Jun 2026.' in story
 
     def test_minimal_story_with_title_only(self, app):
         """Story works with just title and status."""
@@ -124,7 +123,7 @@ class TestBuildEngagementStory:
             db.session.flush()
 
             story = _build_engagement_story(eng)
-            assert 'Targeting $10K/mo.' in story
+            assert 'This will result in $10K/mo.' in story
 
 
 # ── Upsert logic tests (msx_api.py) ─────────────────────────────────────────
