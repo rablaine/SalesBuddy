@@ -13,46 +13,52 @@ Prompts are copied from the NoteHelper codebase:
 # ---------------------------------------------------------------------------
 # Common Azure abbreviation map for topic normalization
 # ---------------------------------------------------------------------------
-AZURE_ABBREVIATIONS = (
-    "AVD = Azure Virtual Desktop, "
-    "AKS = Azure Kubernetes Service, "
-    "ADF = Azure Data Factory, "
-    "ADB = Azure Databricks, "
-    "ADLS = Azure Data Lake Storage, "
-    "ADX = Azure Data Explorer, "
-    "AFD = Azure Front Door, "
-    "AGW = Application Gateway, "
-    "AML = Azure Machine Learning, "
-    "AOAI = Azure OpenAI, "
-    "APIM = API Management, "
-    "APM = Application Performance Monitoring, "
-    "ARO = Azure Red Hat OpenShift, "
-    "ASA = Azure Stream Analytics, "
-    "ASE = App Service Environment, "
-    "ASR = Azure Site Recovery, "
-    "CAF = Cloud Adoption Framework, "
-    "CDB = Cosmos DB, "
-    "CDN = Azure CDN, "
-    "DMS = Database Migration Service, "
-    "DNS = Azure DNS, "
-    "ER = ExpressRoute, "
-    "HCI = Azure Stack HCI, "
-    "HDI = HDInsight, "
-    "KV = Key Vault, "
-    "LAW = Log Analytics Workspace, "
-    "MDE = Microsoft Defender for Endpoint, "
-    "MDI = Microsoft Defender for Identity, "
-    "MDFC = Microsoft Defender for Cloud, "
-    "NVA = Network Virtual Appliance, "
-    "PE = Private Endpoint, "
-    "PLS = Private Link Service, "
-    "SQL DB = Azure SQL Database, "
-    "SQL MI = SQL Managed Instance, "
-    "SQL DW = Azure Synapse Analytics, "
-    "VA = Virtual Appliance, "
-    "VNET = Virtual Network, "
-    "VPN GW = VPN Gateway, "
-    "WAF = Web Application Firewall"
+# Dict form: abbreviation -> full name (used for server-side dedup)
+AZURE_ABBREVIATION_MAP = {
+    "AVD": "Azure Virtual Desktop",
+    "AKS": "Azure Kubernetes Service",
+    "ADF": "Azure Data Factory",
+    "ADB": "Azure Databricks",
+    "ADLS": "Azure Data Lake Storage",
+    "ADX": "Azure Data Explorer",
+    "AFD": "Azure Front Door",
+    "AGW": "Application Gateway",
+    "AML": "Azure Machine Learning",
+    "AOAI": "Azure OpenAI",
+    "APIM": "API Management",
+    "APM": "Application Performance Monitoring",
+    "ARO": "Azure Red Hat OpenShift",
+    "ASA": "Azure Stream Analytics",
+    "ASE": "App Service Environment",
+    "ASR": "Azure Site Recovery",
+    "CAF": "Cloud Adoption Framework",
+    "CDB": "Cosmos DB",
+    "CDN": "Azure CDN",
+    "DMS": "Database Migration Service",
+    "DNS": "Azure DNS",
+    "ER": "ExpressRoute",
+    "HCI": "Azure Stack HCI",
+    "HDI": "HDInsight",
+    "KV": "Key Vault",
+    "LAW": "Log Analytics Workspace",
+    "MDE": "Microsoft Defender for Endpoint",
+    "MDI": "Microsoft Defender for Identity",
+    "MDFC": "Microsoft Defender for Cloud",
+    "NVA": "Network Virtual Appliance",
+    "PE": "Private Endpoint",
+    "PLS": "Private Link Service",
+    "SQL DB": "Azure SQL Database",
+    "SQL MI": "SQL Managed Instance",
+    "SQL DW": "Azure Synapse Analytics",
+    "VA": "Virtual Appliance",
+    "VNET": "Virtual Network",
+    "VPN GW": "VPN Gateway",
+    "WAF": "Web Application Firewall",
+}
+
+# String form for embedding in prompts
+AZURE_ABBREVIATIONS = ", ".join(
+    f"{k} = {v}" for k, v in AZURE_ABBREVIATION_MAP.items()
 )
 
 # ---------------------------------------------------------------------------

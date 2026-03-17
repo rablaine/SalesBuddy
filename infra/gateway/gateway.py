@@ -19,6 +19,7 @@ from flask_socketio import SocketIO
 from openai_client import chat_completion, get_connect_deployment
 from prompts import (
     TOPIC_SUGGESTION_PROMPT,
+    AZURE_ABBREVIATION_MAP,
     MILESTONE_MATCH_PROMPT,
     ANALYZE_CALL_PROMPT,
     ENGAGEMENT_SUMMARY_PROMPT,
@@ -131,6 +132,63 @@ def _validate_gateway_secret():
 
 
 # ---------------------------------------------------------------------------
+# Topic dedup helpers
+# ---------------------------------------------------------------------------
+# Build bidirectional lookup: full_name_lower -> abbrev, abbrev_lower -> full_name
+_ABBREV_TO_FULL = {k.lower(): v for k, v in AZURE_ABBREVIATION_MAP.items()}
+_FULL_TO_ABBREV = {v.lower(): k for k, v in AZURE_ABBREVIATION_MAP.items()}
+
+
+def _dedup_topics_against_existing(topics: list, existing_topics: list) -> list:
+    """
+    Replace AI-suggested topics with existing topic forms when they match
+    by abbreviation, full name, or case-insensitive equality.
+
+    Examples:
+        - AI returns "Azure Virtual Desktop", existing has "AVD" -> use "AVD"
+        - AI returns "avd", existing has "AVD" -> use "AVD"
+        - AI returns "LoginVSI Hydra", existing has "Login VSI Hydra" -> use "Login VSI Hydra"
+    """
+    # Build case-insensitive lookup of existing topics
+    existing_lower = {t.lower(): t for t in existing_topics}
+
+    # Also map abbreviation forms to existing topics
+    # e.g. if "AVD" is in existing, map "azure virtual desktop" -> "AVD"
+    abbrev_to_existing = {}
+    for et in existing_topics:
+        et_lower = et.lower()
+        # If existing topic is an abbreviation, map its full name to it
+        if et_lower in _ABBREV_TO_FULL:
+            abbrev_to_existing[_ABBREV_TO_FULL[et_lower].lower()] = et
+        # If existing topic is a full name, map its abbreviation to it
+        if et_lower in _FULL_TO_ABBREV:
+            abbrev_to_existing[_FULL_TO_ABBREV[et_lower].lower()] = et
+
+    result = []
+    seen_lower = set()
+
+    for topic in topics:
+        t_lower = topic.lower()
+
+        # Exact case-insensitive match to existing topic
+        if t_lower in existing_lower:
+            canonical = existing_lower[t_lower]
+        # Abbreviation/full-name match to existing topic
+        elif t_lower in abbrev_to_existing:
+            canonical = abbrev_to_existing[t_lower]
+        else:
+            canonical = topic
+
+        # Deduplicate (skip if we already have this topic)
+        c_lower = canonical.lower()
+        if c_lower not in seen_lower:
+            seen_lower.add(c_lower)
+            result.append(canonical)
+
+    return result
+
+
+# ---------------------------------------------------------------------------
 # POST /v1/suggest-topics
 # ---------------------------------------------------------------------------
 @app.route("/v1/suggest-topics", methods=["POST"])
@@ -158,6 +216,11 @@ def suggest_topics():
 
         topics = _parse_json_array(result["text"])
         topics = [str(t).strip() for t in topics if t and str(t).strip()]
+
+        # Server-side dedup: if AI returned a full name or abbreviation that
+        # collides with an existing topic, keep the existing form.
+        if existing_topics:
+            topics = _dedup_topics_against_existing(topics, existing_topics)
 
         return jsonify({
             "success": True,

@@ -679,16 +679,28 @@ def api_get_meeting_summary():
     if not title:
         return jsonify({'error': 'title parameter is required'}), 400
     
-    # Pass existing topic names so WorkIQ prefers reusing them
-    existing_topics = [t.name for t in Topic.query.order_by(Topic.name).all()]
-    
     try:
         result = get_meeting_summary(title, date_str, custom_prompt=custom_prompt,
-                                     extract_impact=extract_impact,
-                                     existing_topics=existing_topics)
+                                     extract_impact=extract_impact)
+        
+        # Second pass: use OpenAI gateway for topic generation from the summary
+        topics = []
+        summary_text = result.get('summary', '')
+        if summary_text and not summary_text.startswith('Error'):
+            try:
+                from app.gateway_client import gateway_call
+                existing_topics = [t.name for t in Topic.query.order_by(Topic.name).all()]
+                ai_result = gateway_call('/v1/suggest-topics', {
+                    'call_notes': summary_text[:3000],
+                    'existing_topics': existing_topics,
+                })
+                topics = ai_result.get('topics', [])
+            except Exception as e:
+                logger.warning(f'Topic suggestion failed for "{title}": {e}')
+        
         return jsonify({
-            'summary': result.get('summary', ''),
-            'topics': result.get('topics', []),
+            'summary': summary_text,
+            'topics': topics,
             'action_items': result.get('action_items', []),
             'task_subject': result.get('task_subject', ''),
             'task_description': result.get('task_description', ''),
@@ -822,14 +834,15 @@ def api_fill_my_day_process():
         result['summary'] = f'[Could not fetch summary: {str(e)}]'
         result['content_html'] = f'<h2>{escape(title)}</h2><p><em>Summary unavailable</em></p>'
     
-    # Step 2: AI analysis (topics) - only if we got a real summary and AI is enabled
+    # Step 2: AI topic generation via gateway suggest-topics (dedup + normalization)
     if result['summary_ok']:
         try:
             from app.gateway_client import gateway_call, GatewayError
 
-            # Analyze call for topics via gateway
-            ai_result = gateway_call("/v1/analyze-call", {
+            existing_topics = [t.name for t in Topic.query.order_by(Topic.name).all()]
+            ai_result = gateway_call("/v1/suggest-topics", {
                 "call_notes": result['summary'][:3000],
+                "existing_topics": [t for t in existing_topics],
             })
             topic_names = ai_result.get("topics", [])
 

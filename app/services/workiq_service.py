@@ -31,32 +31,9 @@ _TASK_PROMPT_SUFFIX = (
     'Format the task suggestion on separate lines starting with TASK_TITLE: and TASK_DESCRIPTION:'
 )
 
-# Topic suggestion suffix - always appended server-side to get structured topic tags.
-_TOPIC_SUGGESTION_SUFFIX = (
-    ' Also list 5-6 short topic tags (1-3 words each) that describe the key '
-    'technologies, products, services, or themes discussed in this meeting. '
-    'Normalize common Azure abbreviations to their full names: '
-    'AVD = Azure Virtual Desktop, AKS = Azure Kubernetes Service, '
-    'ADF = Azure Data Factory, ADB = Azure Databricks, ADLS = Azure Data Lake Storage, '
-    'ADX = Azure Data Explorer, AFD = Azure Front Door, AML = Azure Machine Learning, '
-    'AOAI = Azure OpenAI, APIM = API Management, ARO = Azure Red Hat OpenShift, '
-    'SQL MI = SQL Managed Instance, SQL DW = Azure Synapse Analytics, '
-    'HCI = Azure Stack HCI, MDFC = Microsoft Defender for Cloud, '
-    'WAF = Web Application Firewall. '
-    'Format them as a comma-separated list on a single line starting with SUGGESTED_TOPICS:'
-)
-
-
-def _build_topic_suffix(existing_topics: list = None) -> str:
-    """Build topic suggestion suffix, optionally including existing topics to prefer."""
-    suffix = _TOPIC_SUGGESTION_SUFFIX
-    if existing_topics:
-        topics_list = ', '.join(existing_topics[:200])
-        suffix += (
-            f' When possible, prefer reusing these existing topics over creating '
-            f'new ones: {topics_list}'
-        )
-    return suffix
+# Topic extraction was removed from WorkIQ prompts. Topics are now generated
+# by the OpenAI gateway's /v1/suggest-topics endpoint as a second pass after
+# WorkIQ returns the meeting summary. This gives better dedup and normalization.
 
 # Connect impact extraction suffix - appended when user has the preference enabled.
 # Asks WorkIQ to identify customer impact signals useful for Connect self-evaluations,
@@ -592,8 +569,7 @@ def find_best_customer_match(meetings: List[Dict[str, Any]], customer_name: str)
 
 def get_meeting_summary(meeting_title: str, date_str: str = None,
                         custom_prompt: str = None,
-                        extract_impact: bool = False,
-                        existing_topics: list = None) -> Dict[str, Any]:
+                        extract_impact: bool = False) -> Dict[str, Any]:
     """
     Get a detailed 250-word summary for a specific meeting.
     
@@ -632,8 +608,6 @@ def get_meeting_summary(meeting_title: str, date_str: str = None,
     # Always append task suggestion instructions (not user-editable)
     question += _TASK_PROMPT_SUFFIX
     
-    # Always append topic suggestion instructions (with existing topics if available)
-    question += _build_topic_suffix(existing_topics)
     
     # Conditionally append Connect impact extraction
     if extract_impact:
@@ -648,7 +622,7 @@ def get_meeting_summary(meeting_title: str, date_str: str = None,
         # that should never appear in an actual meeting summary.
         if question in response:
             response = response.replace(question, '', 1)
-        for suffix in [_TASK_PROMPT_SUFFIX, _TOPIC_SUGGESTION_SUFFIX, _CONNECT_IMPACT_SUFFIX]:
+        for suffix in [_TASK_PROMPT_SUFFIX, _CONNECT_IMPACT_SUFFIX]:
             response = response.replace(suffix, '')
         response = response.strip()
 
@@ -772,20 +746,7 @@ def _parse_summary_response(response: str) -> Dict[str, Any]:
         '', response, flags=re.IGNORECASE
     ).strip()
     
-    # Extract SUGGESTED_TOPICS from response
-    topics_match = re.search(
-        r'SUGGESTED[_\s]TOPICS:\s*(.+?)(?:\n|$)', response, re.IGNORECASE
-    )
-    if topics_match:
-        raw_topics = topics_match.group(1).strip()
-        # Parse comma-separated list, clean up each tag
-        parsed_topics = [
-            t.strip().strip('"\'-*#') for t in raw_topics.split(',')
-            if t.strip() and t.strip().strip('"\'-*#')
-        ]
-        result['topics'] = parsed_topics[:6]
-    
-    # Remove SUGGESTED_TOPICS line from response before further parsing
+    # Remove any SUGGESTED_TOPICS line if WorkIQ includes one from cached prompts
     response = re.sub(
         r'SUGGESTED[_\s]TOPICS:\s*.+?(?:\n|$)', '', response, flags=re.IGNORECASE
     ).strip()
@@ -828,22 +789,6 @@ def _parse_summary_response(response: str) -> Dict[str, Any]:
         
         # The whole response is the summary  
         result['summary'] = clean_response.strip()
-        
-        # Use regex-based topic extraction as fallback only if SUGGESTED_TOPICS
-        # was not found in the response (the explicit suffix approach is preferred)
-        if not result['topics']:
-            azure_terms = re.findall(
-                r'\b(Azure[A-Za-z\s]*|Microsoft Fabric|Power BI|SQL Server|Cosmos DB|'
-                r'Synapse|Databricks|Data Factory|Logic Apps|Functions|'
-                r'App Service|AKS|Kubernetes|Storage|Machine Learning|'
-                r'Cognitive Services|OpenAI|AI|ML|ETL|Data Lake|'
-                r'DevOps|GitHub|Event Hub|Service Bus|API Management)\b',
-                cleaned_response, re.IGNORECASE
-            )
-            if azure_terms:
-                # Dedupe while preserving order
-                seen = set()
-                result['topics'] = [t for t in azure_terms if not (t.lower() in seen or seen.add(t.lower()))][:10]
         
         # Try to extract action items (look for "next steps" patterns)
         action_pattern = r'(?:next steps?|action items?|follow[- ]?ups?|to[- ]?do)[:\s]*(?:\n|$)((?:[-•*\d\.]+\s*.+\n?)+)'

@@ -10,7 +10,6 @@ from app.services.workiq_service import (
     _parse_summary_response,
     _clean_ai_preamble,
     find_best_customer_match,
-    _TOPIC_SUGGESTION_SUFFIX,
     _TASK_PROMPT_SUFFIX,
     DEFAULT_SUMMARY_PROMPT,
 )
@@ -417,8 +416,6 @@ class TestCleanAiPreamble:
         assert "Here's what I can summarize" not in result['summary']
         assert "If you'd like" not in result['summary']
         assert "Discovery Call" in result['summary']
-        # Should also extract topics from the cleaned content
-        assert any("Fabric" in t for t in result['topics'])
 
 
 class TestCitationStripping:
@@ -481,175 +478,5 @@ class TestCitationStripping:
         assert '[3]' not in result['summary']
 
 
-class TestSuggestedTopicsParsing:
-    """Test parsing of SUGGESTED_TOPICS from WorkIQ responses."""
-
-    def test_basic_topic_extraction(self):
-        """Comma-separated topics on a SUGGESTED_TOPICS line are parsed correctly."""
-        response = (
-            "The meeting covered data migration planning.\n\n"
-            "SUGGESTED_TOPICS: Azure Data Factory, Microsoft Fabric, SQL Server\n"
-        )
-        result = _parse_summary_response(response)
-        assert result['topics'] == ['Azure Data Factory', 'Microsoft Fabric', 'SQL Server']
-
-    def test_topics_stripped_from_summary(self):
-        """SUGGESTED_TOPICS line should not appear in the summary text."""
-        response = (
-            "The customer discussed their cloud strategy.\n\n"
-            "SUGGESTED_TOPICS: Azure, Kubernetes, DevOps\n"
-        )
-        result = _parse_summary_response(response)
-        assert 'SUGGESTED_TOPICS' not in result['summary']
-        assert 'cloud strategy' in result['summary']
-
-    def test_topics_capped_at_six(self):
-        """No more than 6 topics should be returned even if more are listed."""
-        response = (
-            "Wide-ranging discussion.\n\n"
-            "SUGGESTED_TOPICS: Azure, Fabric, SQL, Cosmos DB, AKS, DevOps, "
-            "Power BI, Synapse, Data Lake\n"
-        )
-        result = _parse_summary_response(response)
-        assert len(result['topics']) == 6
-
-    def test_topics_with_quotes_stripped(self):
-        """Quotes and extra punctuation around topic tags are cleaned up."""
-        response = (
-            "Meeting summary here.\n\n"
-            'SUGGESTED_TOPICS: "Azure Data Factory", \'Fabric\', #DevOps\n'
-        )
-        result = _parse_summary_response(response)
-        assert 'Azure Data Factory' in result['topics']
-        assert 'Fabric' in result['topics']
-        assert 'DevOps' in result['topics']
-
-    def test_topics_with_whitespace(self):
-        """Extra whitespace around topics is trimmed."""
-        response = (
-            "Discussion notes.\n\n"
-            "SUGGESTED_TOPICS:   Azure ,  SQL Server  ,  Cosmos DB  \n"
-        )
-        result = _parse_summary_response(response)
-        assert result['topics'] == ['Azure', 'SQL Server', 'Cosmos DB']
-
-    def test_topics_with_space_in_label(self):
-        """SUGGESTED TOPICS (with space) also matches."""
-        response = (
-            "The team met to discuss strategy.\n\n"
-            "SUGGESTED TOPICS: Azure, Fabric\n"
-        )
-        result = _parse_summary_response(response)
-        assert result['topics'] == ['Azure', 'Fabric']
-
-    def test_empty_topics_line(self):
-        """Empty SUGGESTED_TOPICS line yields no topics."""
-        response = (
-            "Short summary.\n\n"
-            "SUGGESTED_TOPICS: \n"
-        )
-        result = _parse_summary_response(response)
-        assert result['topics'] == []
-
-    def test_regex_fallback_when_no_suggested_topics(self):
-        """When no SUGGESTED_TOPICS line, regex extracts Azure terms as fallback."""
-        response = (
-            "The customer is migrating to Azure Kubernetes Service and plans "
-            "to use Azure DevOps for CI/CD pipelines."
-        )
-        result = _parse_summary_response(response)
-        # Should fall back to regex-based extraction
-        assert len(result['topics']) > 0
-        topic_str = ' '.join(result['topics']).lower()
-        assert 'azure' in topic_str or 'kubernetes' in topic_str
-
-    def test_suggested_topics_suppresses_regex_fallback(self):
-        """When SUGGESTED_TOPICS is found, regex fallback does not run."""
-        response = (
-            "The customer uses Azure Kubernetes Service and Azure DevOps.\n\n"
-            "SUGGESTED_TOPICS: Cloud Migration, Container Strategy\n"
-        )
-        result = _parse_summary_response(response)
-        # Should use the explicit topics, not regex-extracted Azure terms
-        assert result['topics'] == ['Cloud Migration', 'Container Strategy']
-        assert 'Azure Kubernetes Service' not in result['topics']
-
-    def test_topics_alongside_task_fields(self):
-        """SUGGESTED_TOPICS works alongside TASK_TITLE and TASK_DESCRIPTION."""
-        response = (
-            "The team discussed Fabric adoption.\n\n"
-            "SUGGESTED_TOPICS: Microsoft Fabric, Power BI, Data Lakehouse\n"
-            "TASK_TITLE: Schedule Fabric demo\n"
-            "TASK_DESCRIPTION: Set up a hands-on demo of Microsoft Fabric.\n"
-        )
-        result = _parse_summary_response(response)
-        assert result['topics'] == ['Microsoft Fabric', 'Power BI', 'Data Lakehouse']
-        assert result['task_subject'] == 'Schedule Fabric demo'
-        assert 'hands-on demo' in result['task_description']
-        assert 'SUGGESTED_TOPICS' not in result['summary']
-        assert 'TASK_TITLE' not in result['summary']
-
-    def test_topics_alongside_connect_impact(self):
-        """SUGGESTED_TOPICS works alongside CONNECT_IMPACT block."""
-        response = (
-            "Customer went live on AKS with 50 microservices.\n\n"
-            "CONNECT_IMPACT:\n"
-            "- Customer deployed 50 microservices on AKS\n"
-            "- Reduced deployment time by 40%\n\n"
-            "SUGGESTED_TOPICS: AKS, Kubernetes, Microservices\n"
-            "TASK_TITLE: Follow up on AKS monitoring\n"
-            "TASK_DESCRIPTION: Check Prometheus setup for production cluster.\n"
-        )
-        result = _parse_summary_response(response)
-        assert result['topics'] == ['AKS', 'Kubernetes', 'Microservices']
-        assert len(result['connect_impact']) == 2
-        assert result['task_subject'] == 'Follow up on AKS monitoring'
-
-    def test_all_blocks_stripped_from_summary(self):
-        """Summary text should be clean of all structured blocks."""
-        response = (
-            "Great meeting about data strategy.\n\n"
-            "CONNECT_IMPACT:\n"
-            "- Moved 2TB to Fabric lakehouse\n\n"
-            "SUGGESTED_TOPICS: Fabric, Data Strategy\n"
-            "TASK_TITLE: Send Fabric docs\n"
-            "TASK_DESCRIPTION: Share lakehouse architecture guide.\n"
-        )
-        result = _parse_summary_response(response)
-        assert 'CONNECT_IMPACT' not in result['summary']
-        assert 'SUGGESTED_TOPICS' not in result['summary']
-        assert 'TASK_TITLE' not in result['summary']
-        assert 'TASK_DESCRIPTION' not in result['summary']
-        assert 'data strategy' in result['summary']
 
 
-class TestTopicSuffixInPrompt:
-    """Test that the topic suggestion suffix is always appended to the prompt."""
-
-    def test_suffix_constant_is_not_empty(self):
-        """The topic suggestion suffix constant should be defined and not empty."""
-        assert _TOPIC_SUGGESTION_SUFFIX
-        assert 'SUGGESTED_TOPICS' in _TOPIC_SUGGESTION_SUFFIX
-
-    @patch('app.services.workiq_service.query_workiq')
-    def test_suffix_appended_to_prompt(self, mock_query):
-        """Topic suffix should always be present in the prompt sent to WorkIQ."""
-        from app.services.workiq_service import get_meeting_summary
-        mock_query.return_value = "Simple summary about data."
-        get_meeting_summary("Test Meeting", "2026-03-01")
-        
-        called_prompt = mock_query.call_args[0][0]
-        assert _TOPIC_SUGGESTION_SUFFIX in called_prompt
-        assert _TASK_PROMPT_SUFFIX in called_prompt
-
-    @patch('app.services.workiq_service.query_workiq')
-    def test_suffix_after_task_suffix(self, mock_query):
-        """Topic suffix should appear after the task suffix in the prompt."""
-        from app.services.workiq_service import get_meeting_summary
-        mock_query.return_value = "Summary."
-        get_meeting_summary("Meeting", "2026-03-01")
-        
-        called_prompt = mock_query.call_args[0][0]
-        task_pos = called_prompt.index(_TASK_PROMPT_SUFFIX)
-        topic_pos = called_prompt.index(_TOPIC_SUGGESTION_SUFFIX)
-        assert topic_pos > task_pos
