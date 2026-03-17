@@ -1312,7 +1312,7 @@ class SyncStatus(db.Model):
             db.session.add(status)
         status.started_at = utc_now()
         status.completed_at = None
-        status.heartbeat_at = utc_now()
+        status.heartbeat_at = None
         status.success = None
         status.items_synced = None
         status.details = None
@@ -1328,7 +1328,6 @@ class SyncStatus(db.Model):
             status = cls(sync_type=sync_type, started_at=utc_now())
             db.session.add(status)
         status.completed_at = utc_now()
-        status.heartbeat_at = utc_now()
         status.success = success
         status.items_synced = items_synced
         status.details = details
