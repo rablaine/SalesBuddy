@@ -1108,9 +1108,16 @@ document.getElementById('noteForm').onsubmit = function(e) {
         document.getElementById('engMilestoneDismissAllBtn').addEventListener('click', dismissSuggestion);
     }
 
+    function hasMilestoneAlready() {
+        // Check JS state OR pre-existing milestone cards in the DOM (edit mode)
+        if (typeof selectedMilestoneData !== 'undefined' && selectedMilestoneData) return true;
+        const container = document.getElementById('selected_milestone');
+        return container && container.querySelector('[data-milestone-id]') !== null;
+    }
+
     window.onEngagementSelectionChanged = function() {
         // Don't suggest if a milestone is already selected
-        if (typeof selectedMilestoneData !== 'undefined' && selectedMilestoneData) {
+        if (hasMilestoneAlready()) {
             dismissSuggestion();
             return;
         }
@@ -1129,7 +1136,7 @@ document.getElementById('noteForm').onsubmit = function(e) {
                     return;
                 }
                 // Re-check: milestone may have been selected while we were fetching
-                if (typeof selectedMilestoneData !== 'undefined' && selectedMilestoneData) {
+                if (hasMilestoneAlready()) {
                     dismissSuggestion();
                     return;
                 }
