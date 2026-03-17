@@ -1524,10 +1524,10 @@ class TestMilestoneCalendarTab:
     """Tests for the milestone calendar tab on the front page."""
 
     def _mark_milestones_synced(self, app):
-        """Mark milestones as synced so the tab renders on the home page."""
+        """Mark milestones as synced and create a milestone so the tab renders."""
         with app.app_context():
-            from app.models import db, SyncStatus
-            from datetime import datetime
+            from app.models import db, SyncStatus, Milestone, Customer
+            from datetime import datetime, date
             status = SyncStatus.query.filter_by(sync_type='milestones').first()
             if not status:
                 status = SyncStatus(sync_type='milestones')
@@ -1535,6 +1535,21 @@ class TestMilestoneCalendarTab:
             status.started_at = datetime(2026, 1, 1)
             status.completed_at = datetime(2026, 1, 1)
             status.success = True
+            # Ensure at least one milestone exists (has_milestones checks DB)
+            if not Milestone.query.first():
+                customer = Customer.query.first()
+                if not customer:
+                    customer = Customer(name='Cal Test Customer', tpid=99999)
+                    db.session.add(customer)
+                    db.session.flush()
+                ms = Milestone(
+                    title='Calendar Test Milestone',
+                    customer_id=customer.id,
+                    msx_status='On Track',
+                    url='https://example.com/milestone/1',
+                    due_date=date(2026, 4, 1),
+                )
+                db.session.add(ms)
             db.session.commit()
 
     def test_index_has_milestones_tab(self, client, app, sample_data):

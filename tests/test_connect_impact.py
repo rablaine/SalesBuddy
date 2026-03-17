@@ -370,7 +370,7 @@ class TestConnectImpactUI:
         assert response.status_code == 200
         html = response.data.decode()
         assert 'connectImpactSwitch' in html
-        assert 'Extract Connect Impact Signals' in html
+        assert 'Extract Connect &' in html
 
     def test_settings_toggle_checked_by_default(self, client, app):
         """Toggle should be checked when preference is True (default)."""
