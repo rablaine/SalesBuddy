@@ -220,7 +220,8 @@ const PageHelp = (function () {
       </ul>
       <h6>Scheduled Sync</h6>
       <ul>
-        <li>A Windows scheduled task (<code>SalesBuddy-MilestoneSync</code>) runs automatically on Mon/Wed/Fri at 3:00 PM</li>
+        <li>A Windows scheduled task (<code>SalesBuddy-MilestoneSync</code>) runs automatically on Mon/Wed/Fri</li>
+        <li>The sync time is randomly assigned between 9:30 AM and 4:30 PM when first registered, spreading load across users</li>
         <li>It only runs if Sales Buddy is already running - it won't start the server on its own</li>
         <li>The task is registered the first time you run <code>start.bat</code></li>
         <li>Enable or disable it from <strong>Admin Panel > Milestone Sync</strong> toggle</li>
