@@ -176,6 +176,15 @@
             }
         }
 
+        /* Active nav item styling */
+        .navbar-dark .navbar-nav .nav-item.active > .nav-link,
+        .navbar-dark .navbar-nav .nav-item.active > .nav-link:hover {
+            color: #ffffff !important;
+            background-image: linear-gradient(#ffffff, #ffffff);
+            background-size: calc(100% - 16px) 2px;
+            background-position: center bottom;
+            background-repeat: no-repeat;
+        }
         /* Improve navbar link contrast */
         .navbar-dark .navbar-nav .nav-link {
             color: rgba(255, 255, 255, 0.85) !important;
@@ -381,9 +390,9 @@
                             <i class="bi bi-building"></i> Partners
                         </a>
                     </li>
-                    <li class="nav-item" id="navTopics">
-                        <a class="nav-link" href="{{ url_for('topics.topics_list') }}">
-                            <i class="bi bi-tags"></i> Topics
+                    <li class="nav-item" id="navEngagements">
+                        <a class="nav-link" href="{{ url_for('engagements.engagements_hub') }}">
+                            <i class="bi bi-kanban"></i> Engagements
                         </a>
                     </li>
                     <li class="nav-item" id="navMilestones">
@@ -396,12 +405,13 @@
                             <i class="bi bi-currency-dollar"></i> Revenue
                         </a>
                     </li>
-                    <li class="nav-item dropdown">
+                    <li class="nav-item dropdown nav-hover-dropdown" id="navMore">
                         <a class="nav-link dropdown-toggle" href="#" id="moreMenuDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
                             <i class="bi bi-three-dots"></i> More
                         </a>
                         <ul class="dropdown-menu" aria-labelledby="moreMenuDropdown">
                             <li><a class="dropdown-item" href="{{ url_for('customers.customers_list') }}"><i class="bi bi-building"></i> Customers</a></li>
+                            <li><a class="dropdown-item" href="{{ url_for('topics.topics_list') }}"><i class="bi bi-tags"></i> Topics</a></li>
                             <li><a class="dropdown-item" href="{{ url_for('pods.pods_list') }}"><i class="bi bi-diagram-3"></i> PODs</a></li>
                             <li><a class="dropdown-item" href="{{ url_for('main.search') }}"><i class="bi bi-search"></i> Search</a></li>
                             <li><a class="dropdown-item" href="{{ url_for('main.analytics') }}"><i class="bi bi-graph-up"></i> Analytics</a></li>
@@ -1172,16 +1182,54 @@
     <!-- Navbar hover dropdown: click on the main link navigates, hover opens menu -->
     <script>
     (function() {
-        var ddLink = document.querySelector('.nav-hover-dropdown > .dropdown-toggle');
-        if (ddLink) {
+        document.querySelectorAll('.nav-hover-dropdown > .dropdown-toggle').forEach(function(ddLink) {
             ddLink.addEventListener('click', function(e) {
-                // On desktop, clicking the link navigates to sellers list
-                if (window.innerWidth >= 768) {
-                    window.location.href = ddLink.getAttribute('href');
+                var href = ddLink.getAttribute('href');
+                if (window.innerWidth >= 768 && href && href !== '#') {
+                    window.location.href = href;
                     e.preventDefault();
                     e.stopPropagation();
                 }
             });
+        });
+    })();
+    </script>
+
+    <!-- Navbar active state highlighting -->
+    <script>
+    (function() {
+        var path = window.location.pathname;
+        var navMap = {
+            'navSellers':      ['/sellers', '/seller/'],
+            'navNotes':        ['/notes', '/note/'],
+            'navPartners':     ['/partners', '/partner/'],
+            'navEngagements':  ['/engagements', '/engagement/'],
+            'navMilestones':   ['/milestones', '/milestone'],
+            'navRevenue':      ['/revenue'],
+        };
+        // Top-level nav items
+        for (var id in navMap) {
+            var prefixes = navMap[id];
+            for (var i = 0; i < prefixes.length; i++) {
+                if (path === prefixes[i] || path.startsWith(prefixes[i])) {
+                    var el = document.getElementById(id);
+                    if (el) el.classList.add('active');
+                    break;
+                }
+            }
+        }
+        // More dropdown items - highlight the dropdown-item AND the More nav-item
+        var moreEl = document.getElementById('navMore');
+        if (moreEl) {
+            var items = moreEl.querySelectorAll('.dropdown-item');
+            for (var j = 0; j < items.length; j++) {
+                var href = items[j].getAttribute('href');
+                if (href && (path === href || path.startsWith(href + '/'))) {
+                    items[j].classList.add('active');
+                    moreEl.classList.add('active');
+                    break;
+                }
+            }
         }
     })();
     </script>

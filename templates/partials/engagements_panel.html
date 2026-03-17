@@ -21,6 +21,10 @@
                 <button type="button" class="btn btn-outline-secondary active" data-status="">All</button>
                 <button type="button" class="btn btn-outline-success" data-status="Active">Active</button>
                 <button type="button" class="btn btn-outline-warning" data-status="On Hold">On Hold</button>
+                {% if eng_show_closed | default(false) %}
+                <button type="button" class="btn btn-outline-primary" data-status="Won">Won</button>
+                <button type="button" class="btn btn-outline-secondary" data-status="Lost">Lost</button>
+                {% endif %}
             </div>
             <select class="form-select form-select-sm" id="{{ body_id }}_sortSelect" aria-label="Sort engagements" style="width:auto;">
                 <option value="updated">Last Updated</option>

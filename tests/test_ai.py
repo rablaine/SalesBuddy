@@ -424,3 +424,182 @@ class TestGenerateButtonVisibility:
         resp = client.get(f'/engagement/{eid}')
         assert resp.status_code == 200
         assert b'id="generateStoryBtn"' not in resp.data
+
+
+# ---------------------------------------------------------------------------
+# Engagement story preview + apply tests
+# ---------------------------------------------------------------------------
+
+class TestEngagementStoryPreviewAndApply:
+    """Tests for the two-step generate preview and apply workflow."""
+
+    def _create_engagement_with_notes(self, app):
+        """Helper to create an engagement with linked notes."""
+        from app.models import Customer, Note, Engagement
+        with app.app_context():
+            customer = Customer(name="Preview Test Customer", tpid=77777)
+            db.session.add(customer)
+            db.session.flush()
+            engagement = Engagement(
+                customer_id=customer.id, title="Preview Engagement",
+                status="Active", key_individuals="Old contact",
+                technical_problem="Old problem",
+            )
+            db.session.add(engagement)
+            db.session.flush()
+            note = Note(
+                customer_id=customer.id, call_date=datetime(2025, 6, 15),
+                content="Discussed migration to Azure.",
+            )
+            db.session.add(note)
+            db.session.flush()
+            engagement.notes.append(note)
+            db.session.commit()
+            return engagement.id
+
+    @patch('app.routes.ai.gateway_call')
+    def test_preview_returns_current_and_generated(self, mock_gw, app, client):
+        """Preview mode should return both current and generated values without saving."""
+        eid = self._create_engagement_with_notes(app)
+        mock_gw.return_value = {
+            'story': {
+                'key_individuals': 'Jane Smith, CTO',
+                'technical_problem': 'Legacy monolith',
+                'business_impact': 'Slow releases',
+            },
+            'usage': {},
+        }
+
+        resp = client.post(
+            '/api/ai/generate-engagement-story',
+            json={'engagement_id': eid, 'preview': True},
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data['success'] is True
+        assert data['current']['key_individuals'] == 'Old contact'
+        assert data['current']['technical_problem'] == 'Old problem'
+        assert data['story']['key_individuals'] == 'Jane Smith, CTO'
+
+        # Verify nothing was saved
+        from app.models import Engagement
+        with app.app_context():
+            eng = Engagement.query.get(eid)
+            assert eng.key_individuals == 'Old contact'
+            assert eng.technical_problem == 'Old problem'
+
+    @patch('app.routes.ai.gateway_call')
+    def test_non_preview_still_saves(self, mock_gw, app, client):
+        """Without preview flag, generate should save fields (legacy behavior)."""
+        eid = self._create_engagement_with_notes(app)
+        mock_gw.return_value = {
+            'story': {
+                'key_individuals': 'Jane Smith, CTO',
+                'technical_problem': 'Legacy monolith',
+            },
+            'usage': {},
+        }
+
+        resp = client.post(
+            '/api/ai/generate-engagement-story',
+            json={'engagement_id': eid},
+        )
+        assert resp.status_code == 200
+
+        from app.models import Engagement
+        with app.app_context():
+            eng = Engagement.query.get(eid)
+            assert eng.key_individuals == 'Jane Smith, CTO'
+
+    def test_apply_updates_selected_fields(self, app, client):
+        """Apply endpoint should update only the fields provided."""
+        eid = self._create_engagement_with_notes(app)
+
+        resp = client.post(
+            '/api/ai/apply-engagement-story',
+            json={
+                'engagement_id': eid,
+                'fields': {
+                    'key_individuals': 'Jane Smith, CTO',
+                    'business_impact': 'Slow release velocity',
+                },
+            },
+        )
+        assert resp.status_code == 200
+        assert resp.get_json()['success'] is True
+
+        from app.models import Engagement
+        with app.app_context():
+            eng = Engagement.query.get(eid)
+            assert eng.key_individuals == 'Jane Smith, CTO'
+            assert eng.business_impact == 'Slow release velocity'
+            # technical_problem should remain unchanged
+            assert eng.technical_problem == 'Old problem'
+
+    def test_apply_rejects_empty_fields(self, app, client):
+        """Apply should return 400 when no fields are selected."""
+        eid = self._create_engagement_with_notes(app)
+
+        resp = client.post(
+            '/api/ai/apply-engagement-story',
+            json={'engagement_id': eid, 'fields': {}},
+        )
+        assert resp.status_code == 400
+        assert 'No fields' in resp.get_json()['error']
+
+    def test_apply_rejects_missing_engagement_id(self, app, client):
+        """Apply should return 400 when engagement_id is missing."""
+        resp = client.post(
+            '/api/ai/apply-engagement-story',
+            json={'fields': {'key_individuals': 'test'}},
+        )
+        assert resp.status_code == 400
+
+    def test_apply_rejects_unknown_engagement(self, app, client):
+        """Apply should return 404 for nonexistent engagement."""
+        resp = client.post(
+            '/api/ai/apply-engagement-story',
+            json={'engagement_id': 999999, 'fields': {'key_individuals': 'test'}},
+        )
+        assert resp.status_code == 404
+
+    def test_apply_ignores_disallowed_fields(self, app, client):
+        """Apply should ignore fields not in the allowed list."""
+        eid = self._create_engagement_with_notes(app)
+
+        resp = client.post(
+            '/api/ai/apply-engagement-story',
+            json={
+                'engagement_id': eid,
+                'fields': {
+                    'key_individuals': 'Jane',
+                    'title': 'HACKED TITLE',
+                },
+            },
+        )
+        assert resp.status_code == 200
+
+        from app.models import Engagement
+        with app.app_context():
+            eng = Engagement.query.get(eid)
+            assert eng.key_individuals == 'Jane'
+            assert eng.title == 'Preview Engagement'  # unchanged
+
+    def test_apply_handles_target_date(self, app, client):
+        """Apply should correctly parse and save target_date."""
+        eid = self._create_engagement_with_notes(app)
+
+        resp = client.post(
+            '/api/ai/apply-engagement-story',
+            json={
+                'engagement_id': eid,
+                'fields': {'target_date': '2025-12-31'},
+            },
+        )
+        assert resp.status_code == 200
+
+        from app.models import Engagement
+        from datetime import date
+        with app.app_context():
+            eng = Engagement.query.get(eid)
+            assert eng.target_date == date(2025, 12, 31)

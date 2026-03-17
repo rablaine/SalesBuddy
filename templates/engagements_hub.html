@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+
+{% block title %}Engagements - Sales Buddy{% endblock %}
+
+{% block content %}
+<style>
+    .stat-card {
+        text-align: center;
+        padding: 1rem;
+    }
+    .stat-card .stat-number {
+        font-size: 2rem;
+        font-weight: 700;
+        line-height: 1.1;
+    }
+    .stat-card .stat-label {
+        font-size: 0.8rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+    .story-bar {
+        height: 6px;
+        border-radius: 3px;
+    }
+</style>
+
+<!-- Header -->
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h1 class="mb-0"><i class="bi bi-kanban"></i> Engagements</h1>
+</div>
+
+<!-- Summary Stats -->
+<div class="row g-3 mb-4">
+    <div class="col">
+        <div class="card stat-card h-100">
+            <div class="stat-number text-success">{{ stats.active }}</div>
+            <div class="stat-label text-muted">Active</div>
+        </div>
+    </div>
+    <div class="col">
+        <div class="card stat-card h-100">
+            <div class="stat-number text-warning">{{ stats.on_hold }}</div>
+            <div class="stat-label text-muted">On Hold</div>
+        </div>
+    </div>
+    <div class="col">
+        <div class="card stat-card h-100">
+            <div class="stat-number text-primary">{{ stats.won }}</div>
+            <div class="stat-label text-muted">Won</div>
+        </div>
+    </div>
+    <div class="col">
+        <div class="card stat-card h-100">
+            <div class="stat-number text-secondary">{{ stats.lost }}</div>
+            <div class="stat-label text-muted">Lost</div>
+        </div>
+    </div>
+    <div class="col">
+        <div class="card stat-card h-100">
+            <div class="stat-label text-muted mb-2">Story Health (Active)</div>
+            <div class="d-flex justify-content-center gap-3" style="font-size: 0.85rem;">
+                <span class="text-danger"><i class="bi bi-circle-fill"></i> {{ stats.story_empty }} empty</span>
+                <span class="text-warning"><i class="bi bi-circle-fill"></i> {{ stats.story_partial }} partial</span>
+                <span class="text-success"><i class="bi bi-circle-fill"></i> {{ stats.story_complete }} complete</span>
+            </div>
+            {% set story_total = stats.story_empty + stats.story_partial + stats.story_complete %}
+            {% if story_total > 0 %}
+            <div class="progress story-bar mt-2 mx-auto" style="max-width: 200px;">
+                <div class="progress-bar bg-danger" style="width: {{ (stats.story_empty / story_total * 100)|round }}%"></div>
+                <div class="progress-bar bg-warning" style="width: {{ (stats.story_partial / story_total * 100)|round }}%"></div>
+                <div class="progress-bar bg-success" style="width: {{ (stats.story_complete / story_total * 100)|round }}%"></div>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- Engagements Panel (reusable partial) -->
+{% set eng_api_url = '/api/engagements/all' %}
+{% set eng_auto_load = true %}
+{% set eng_show_seller = true %}
+{% set eng_show_closed = true %}
+{% set eng_body_id = 'engHubBody' %}
+{% set eng_count_id = 'engHubCount' %}
+{% set eng_empty_msg = 'No engagements match the current filter.' %}
+{% include 'partials/engagements_panel.html' %}
+
+{% endblock %}

@@ -17,6 +17,84 @@ logger = logging.getLogger(__name__)
 engagements_bp = Blueprint('engagements', __name__)
 
 
+@engagements_bp.route('/engagements')
+def engagements_hub():
+    """Engagements hub - overview of all engagements across customers."""
+    # Summary stats
+    total = Engagement.query.count()
+    active = Engagement.query.filter_by(status='Active').count()
+    on_hold = Engagement.query.filter_by(status='On Hold').count()
+    won = Engagement.query.filter_by(status='Won').count()
+    lost = Engagement.query.filter_by(status='Lost').count()
+
+    # Story completeness breakdown (active + on hold only)
+    active_engagements = Engagement.query.filter(
+        Engagement.status.in_(['Active', 'On Hold'])
+    ).all()
+    story_empty = sum(1 for e in active_engagements if e.story_completeness == 0)
+    story_partial = sum(1 for e in active_engagements if 0 < e.story_completeness < 100)
+    story_complete = sum(1 for e in active_engagements if e.story_completeness == 100)
+
+    return render_template(
+        'engagements_hub.html',
+        stats={
+            'total': total,
+            'active': active,
+            'on_hold': on_hold,
+            'won': won,
+            'lost': lost,
+            'story_empty': story_empty,
+            'story_partial': story_partial,
+            'story_complete': story_complete,
+        },
+    )
+
+
+@engagements_bp.route('/api/engagements/all')
+def api_all_engagements():
+    """Return all engagements, optionally filtered by status."""
+    from sqlalchemy.orm import joinedload, subqueryload
+
+    status_filter = request.args.get('status', '').strip()
+
+    query = Engagement.query
+    if status_filter in Engagement.STATUSES:
+        query = query.filter(Engagement.status == status_filter)
+
+    query = query.options(
+        joinedload(Engagement.customer).joinedload(Customer.seller),
+        subqueryload(Engagement.notes),
+        subqueryload(Engagement.opportunities),
+        subqueryload(Engagement.milestones),
+    )
+
+    engagements = query.order_by(Engagement.updated_at.desc()).all()
+
+    results = []
+    for eng in engagements:
+        results.append({
+            'id': eng.id,
+            'title': eng.title,
+            'status': eng.status,
+            'customer_name': eng.customer.name if eng.customer else 'Unknown',
+            'customer_id': eng.customer_id,
+            'seller_name': (eng.customer.seller.name
+                           if eng.customer and eng.customer.seller else None),
+            'customer_favicon': (eng.customer.favicon_b64
+                                if eng.customer and eng.customer.favicon_b64
+                                else None),
+            'estimated_acr': eng.estimated_acr,
+            'target_date': eng.target_date.isoformat() if eng.target_date else None,
+            'story_completeness': eng.story_completeness,
+            'linked_note_count': eng.linked_note_count,
+            'opportunity_count': len(eng.opportunities),
+            'milestone_count': len(eng.milestones),
+            'updated_at': eng.updated_at.isoformat() if eng.updated_at else None,
+        })
+
+    return jsonify({'success': True, 'engagements': results, 'count': len(results)})
+
+
 @engagements_bp.route('/engagement/<int:id>')
 def engagement_view(id: int):
     """View engagement details with linked notes, opportunities, and milestones."""

@@ -668,3 +668,107 @@ class TestActiveEngagementsAPI:
         resp = client.get('/')
         assert resp.status_code == 200
         assert b'engagements-tab' not in resp.data
+
+
+class TestEngagementsHub:
+    """Test the engagements hub page and all-engagements API."""
+
+    def test_hub_page_loads(self, client, engagement_data):
+        """Hub page returns 200 and shows header."""
+        resp = client.get('/engagements')
+        assert resp.status_code == 200
+        assert b'Engagements' in resp.data
+
+    def test_hub_shows_stats(self, client, app, engagement_data):
+        """Hub page shows summary stat cards with correct counts."""
+        cid = engagement_data['customer_id']
+        with app.app_context():
+            db.session.add_all([
+                Engagement(customer_id=cid, title='E1', status='Active'),
+                Engagement(customer_id=cid, title='E2', status='Active'),
+                Engagement(customer_id=cid, title='E3', status='On Hold'),
+                Engagement(customer_id=cid, title='E4', status='Won'),
+                Engagement(customer_id=cid, title='E5', status='Lost'),
+            ])
+            db.session.commit()
+
+        resp = client.get('/engagements')
+        assert resp.status_code == 200
+        html = resp.data.decode()
+        # Check stat numbers appear in the page
+        assert 'Active' in html
+        assert 'On Hold' in html
+        assert 'Won' in html
+        assert 'Lost' in html
+        assert 'Story Health' in html
+
+    def test_all_engagements_api_returns_all_statuses(self, client, app, engagement_data):
+        """API returns engagements of all statuses."""
+        cid = engagement_data['customer_id']
+        with app.app_context():
+            db.session.add_all([
+                Engagement(customer_id=cid, title='Active', status='Active'),
+                Engagement(customer_id=cid, title='Won', status='Won'),
+                Engagement(customer_id=cid, title='Lost', status='Lost'),
+            ])
+            db.session.commit()
+
+        resp = client.get('/api/engagements/all')
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data['success'] is True
+        assert data['count'] == 3
+        statuses = {e['status'] for e in data['engagements']}
+        assert statuses == {'Active', 'Won', 'Lost'}
+
+    def test_all_engagements_api_filter_by_status(self, client, app, engagement_data):
+        """API supports filtering by status query param."""
+        cid = engagement_data['customer_id']
+        with app.app_context():
+            db.session.add_all([
+                Engagement(customer_id=cid, title='A1', status='Active'),
+                Engagement(customer_id=cid, title='W1', status='Won'),
+            ])
+            db.session.commit()
+
+        resp = client.get('/api/engagements/all?status=Won')
+        data = resp.get_json()
+        assert data['count'] == 1
+        assert data['engagements'][0]['title'] == 'W1'
+
+    def test_all_engagements_api_empty(self, client, engagement_data):
+        """API returns empty list when no engagements exist."""
+        resp = client.get('/api/engagements/all')
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data['success'] is True
+        assert data['count'] == 0
+
+    def test_all_engagements_api_includes_expected_fields(self, client, app, engagement_data):
+        """API response includes all expected fields for each engagement."""
+        cid = engagement_data['customer_id']
+        with app.app_context():
+            db.session.add(Engagement(
+                customer_id=cid, title='Field Check', status='Active',
+                target_date=date(2026, 3, 1),
+            ))
+            db.session.commit()
+
+        resp = client.get('/api/engagements/all')
+        data = resp.get_json()
+        e = data['engagements'][0]
+        expected_fields = [
+            'id', 'title', 'status', 'customer_name', 'customer_id',
+            'seller_name', 'estimated_acr', 'target_date',
+            'story_completeness', 'linked_note_count',
+            'opportunity_count', 'milestone_count', 'updated_at',
+        ]
+        for field in expected_fields:
+            assert field in e, f"Missing field: {field}"
+
+    def test_navbar_has_engagements_link(self, client, engagement_data):
+        """Navbar should have an Engagements link."""
+        resp = client.get('/')
+        assert resp.status_code == 200
+        assert b'navEngagements' in resp.data
+        assert b'/engagements' in resp.data

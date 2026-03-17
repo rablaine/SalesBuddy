@@ -376,6 +376,21 @@ def api_ai_generate_engagement_story():
         f"Notes:\n\n{call_text}"
     )
 
+    preview = data.get('preview', False)
+
+    # Build current values for the review diff
+    current = {
+        'key_individuals': engagement.key_individuals or '',
+        'technical_problem': engagement.technical_problem or '',
+        'business_impact': engagement.business_impact or '',
+        'solution_resources': engagement.solution_resources or '',
+        'estimated_acr': engagement.estimated_acr or '',
+        'target_date': (
+            engagement.target_date.strftime('%Y-%m-%d')
+            if engagement.target_date else ''
+        ),
+    }
+
     try:
         result = gateway_call("/v1/engagement-story", {
             "user_message": user_message,
@@ -383,7 +398,27 @@ def api_ai_generate_engagement_story():
         story_data = result.get("story", {})
         usage = result.get("usage", {})
 
-        # Save story fields to engagement
+        log_entry = AIQueryLog(
+            request_text=f"Story for engagement '{engagement.title}' ({len(notes)} notes)",
+            response_text=json.dumps(story_data)[:500],
+            success=True,
+            model=usage.get("model", "gateway"),
+            prompt_tokens=usage.get("prompt_tokens"),
+            completion_tokens=usage.get("completion_tokens"),
+            total_tokens=usage.get("total_tokens"),
+        )
+        db.session.add(log_entry)
+        db.session.commit()
+
+        if preview:
+            return jsonify({
+                'success': True,
+                'story': story_data,
+                'current': current,
+                'note_count': len(notes)
+            })
+
+        # Non-preview: save all fields immediately (legacy behavior)
         from datetime import datetime as _datetime
         if story_data.get('key_individuals'):
             engagement.key_individuals = story_data['key_individuals']
@@ -402,17 +437,6 @@ def api_ai_generate_engagement_story():
                 ).date()
             except (ValueError, TypeError):
                 pass
-
-        log_entry = AIQueryLog(
-            request_text=f"Story for engagement '{engagement.title}' ({len(notes)} notes)",
-            response_text=json.dumps(story_data)[:500],
-            success=True,
-            model=usage.get("model", "gateway"),
-            prompt_tokens=usage.get("prompt_tokens"),
-            completion_tokens=usage.get("completion_tokens"),
-            total_tokens=usage.get("total_tokens"),
-        )
-        db.session.add(log_entry)
         db.session.commit()
 
         # Track engagement story on linked milestones
@@ -453,3 +477,50 @@ def api_ai_generate_engagement_story():
             'success': False,
             'error': f'AI request failed: {e}'
         }), 500
+
+
+@ai_bp.route('/api/ai/apply-engagement-story', methods=['POST'])
+def api_ai_apply_engagement_story():
+    """Apply user-selected story fields to an engagement."""
+    data = request.get_json()
+    if not data:
+        return jsonify({'success': False, 'error': 'No data provided'}), 400
+
+    engagement_id = data.get('engagement_id')
+    fields = data.get('fields', {})
+    if not engagement_id:
+        return jsonify({'success': False, 'error': 'engagement_id is required'}), 400
+    if not fields:
+        return jsonify({'success': False, 'error': 'No fields selected'}), 400
+
+    from app.models import Engagement
+    engagement = Engagement.query.get(engagement_id)
+    if not engagement:
+        return jsonify({'success': False, 'error': 'Engagement not found'}), 404
+
+    allowed_fields = {
+        'key_individuals', 'technical_problem', 'business_impact',
+        'solution_resources', 'estimated_acr', 'target_date',
+    }
+
+    from datetime import datetime as _datetime
+    for field_name, value in fields.items():
+        if field_name not in allowed_fields:
+            continue
+        if field_name == 'target_date' and value:
+            try:
+                engagement.target_date = _datetime.strptime(
+                    value, '%Y-%m-%d'
+                ).date()
+            except (ValueError, TypeError):
+                pass
+        else:
+            setattr(engagement, field_name, value or None)
+
+    db.session.commit()
+
+    if engagement.milestones:
+        from app.services.milestone_tracking import track_engagement_on_milestones
+        track_engagement_on_milestones(engagement)
+
+    return jsonify({'success': True})

@@ -220,7 +220,48 @@
 </div>
 
 {% if linked_notes %}
+<!-- Review Modal -->
+<div class="modal fade" id="storyReviewModal" tabindex="-1" aria-labelledby="storyReviewModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="storyReviewModalLabel">
+                    <i class="bi bi-stars"></i> Review Generated Story
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted small mb-3">Select the fields you want to update. Uncheck any you want to keep as-is.</p>
+                <div id="storyReviewFields"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-success" id="applyStoryBtn" onclick="applySelectedFields()">
+                    <i class="bi bi-check-lg"></i> Apply Selected
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <script>
+const STORY_FIELDS = [
+    {key: 'key_individuals', label: 'Key Individuals & Titles', color: '#ffffff'},
+    {key: 'technical_problem', label: 'Technical/Business Problem', color: '#b388ff'},
+    {key: 'business_impact', label: 'Business Process/Strategy Impact', color: '#ff9800'},
+    {key: 'solution_resources', label: 'Solution Resources', color: '#ffe135'},
+    {key: 'estimated_acr', label: 'Business Outcome / Estimated ACR', color: '#69f0ae'},
+    {key: 'target_date', label: 'Target Date/Timeline', color: '#64b5f6'},
+];
+
+let pendingStory = null;
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
 function generateStory() {
     const btn = document.getElementById('generateStoryBtn');
     const origHTML = btn.innerHTML;
@@ -230,22 +271,118 @@ function generateStory() {
     fetch('/api/ai/generate-engagement-story', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({engagement_id: {{ engagement.id }}})
+        body: JSON.stringify({engagement_id: {{ engagement.id }}, preview: true})
     })
     .then(r => r.json())
     .then(data => {
+        btn.disabled = false;
+        btn.innerHTML = origHTML;
         if (data.success) {
-            window.location.reload();
+            pendingStory = data.story;
+            showReviewModal(data.current, data.story);
         } else {
             alert(data.error || 'Failed to generate story.');
-            btn.disabled = false;
-            btn.innerHTML = origHTML;
         }
     })
     .catch(err => {
         alert('Request failed: ' + err.message);
         btn.disabled = false;
         btn.innerHTML = origHTML;
+    });
+}
+
+function showReviewModal(current, generated) {
+    const container = document.getElementById('storyReviewFields');
+    container.innerHTML = '';
+
+    let hasFields = false;
+    STORY_FIELDS.forEach(field => {
+        const oldVal = (current[field.key] || '').trim();
+        let rawNew = (generated[field.key] || '').trim();
+        // Treat literal "null" from AI as empty
+        if (rawNew.toLowerCase() === 'null') rawNew = '';
+        const newVal = rawNew;
+
+        // Skip if both sides are empty - nothing to show
+        if (!oldVal && !newVal) return;
+
+        hasFields = true;
+        const isEmpty = !newVal;
+        const changed = !isEmpty && oldVal !== newVal;
+        const checked = changed ? 'checked' : '';
+        const disabled = isEmpty ? 'disabled' : '';
+
+        const card = document.createElement('div');
+        card.className = 'card mb-3';
+        card.style.opacity = isEmpty ? '0.5' : '1';
+        card.innerHTML = `
+            <div class="card-header d-flex align-items-center gap-2 py-2">
+                <input class="form-check-input mt-0" type="checkbox" id="field_${field.key}" ${checked} ${disabled} data-field="${field.key}">
+                <label class="form-check-label fw-semibold small" for="field_${field.key}">${escapeHtml(field.label)}</label>
+                ${isEmpty ? '<span class="badge bg-secondary ms-auto">No value generated</span>' : (!changed ? '<span class="badge bg-secondary ms-auto">No change</span>' : '')}
+            </div>
+            <div class="card-body py-2">
+                <div class="row">
+                    <div class="col-6">
+                        <div class="text-muted small fw-semibold mb-1">Current</div>
+                        <div class="small" style="white-space: pre-wrap; opacity: 0.8;">${oldVal ? escapeHtml(oldVal) : '<em class="text-muted">Empty</em>'}</div>
+                    </div>
+                    <div class="col-6">
+                        <div class="small fw-semibold mb-1" style="color: ${field.color};">Generated</div>
+                        <div class="small" style="white-space: pre-wrap; color: ${field.color};">${isEmpty ? '<em class="text-muted">-</em>' : escapeHtml(newVal)}</div>
+                    </div>
+                </div>
+            </div>
+        `;
+        container.appendChild(card);
+    });
+
+    if (!hasFields) {
+        container.innerHTML = '<p class="text-muted">AI did not generate any new values.</p>';
+    }
+
+    const modal = new bootstrap.Modal(document.getElementById('storyReviewModal'));
+    modal.show();
+}
+
+function applySelectedFields() {
+    const checkboxes = document.querySelectorAll('#storyReviewFields input[type=checkbox]:checked');
+    const fields = {};
+    checkboxes.forEach(cb => {
+        const key = cb.dataset.field;
+        if (pendingStory[key]) {
+            fields[key] = pendingStory[key];
+        }
+    });
+
+    if (Object.keys(fields).length === 0) {
+        alert('No fields selected.');
+        return;
+    }
+
+    const btn = document.getElementById('applyStoryBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Applying...';
+
+    fetch('/api/ai/apply-engagement-story', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({engagement_id: {{ engagement.id }}, fields: fields})
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            window.location.reload();
+        } else {
+            alert(data.error || 'Failed to apply story fields.');
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-check-lg"></i> Apply Selected';
+        }
+    })
+    .catch(err => {
+        alert('Request failed: ' + err.message);
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-check-lg"></i> Apply Selected';
     });
 }
 </script>
