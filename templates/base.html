@@ -2590,6 +2590,8 @@
         document.querySelectorAll('.local-datetime').forEach(function(el) {
             var utc = el.getAttribute('data-utc');
             if (!utc) return;
+            // Naive datetimes from SQLite have no timezone suffix - treat as UTC
+            if (!/[Zz]|\+\d/.test(utc)) utc += 'Z';
             var d = new Date(utc);
             if (isNaN(d)) return;
             var fmt = el.getAttribute('data-fmt') || 'datetime';

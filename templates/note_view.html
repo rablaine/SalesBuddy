@@ -132,11 +132,11 @@
                 <hr>
                 
                 <p class="mb-1"><small class="text-muted">
-                    Created: <span class="local-datetime" data-utc="{{ note.created_at.isoformat() }}">{{ note.created_at.strftime('%b %d, %Y %I:%M %p') }}</span> <span class="timezone-label"></span>
+                    Created: <span class="local-datetime" data-utc="{{ note.created_at.isoformat() }}"></span> <span class="timezone-label"></span>
                 </small></p>
                 {% if note.updated_at and note.updated_at != note.created_at %}
                     <p class="mb-0"><small class="text-muted">
-                        Updated: <span class="local-datetime" data-utc="{{ note.updated_at.isoformat() }}">{{ note.updated_at.strftime('%b %d, %Y %I:%M %p') }}</span> <span class="timezone-label"></span>
+                        Updated: <span class="local-datetime" data-utc="{{ note.updated_at.isoformat() }}"></span> <span class="timezone-label"></span>
                     </small></p>
                 {% endif %}
             </div>

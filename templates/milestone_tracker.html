@@ -12,7 +12,7 @@
         <strong>Milestone sync is running.</strong>
         Data is being updated in the background. Refresh the page in a minute to see new results.
         {% if sync_status.started_at %}
-            <span class="text-muted small">(Started <span class="local-datetime" data-utc="{{ sync_status.started_at.isoformat() }}" data-fmt="short">{{ sync_status.started_at.strftime('%b %d at %I:%M %p') }}</span>)</span>
+            <span class="text-muted small">(Started <span class="local-datetime" data-utc="{{ sync_status.started_at.isoformat() }}" data-fmt="short"></span>)</span>
         {% endif %}
     </div>
 </div>
@@ -23,7 +23,7 @@
         <strong>Last milestone sync didn't finish.</strong>
         Your milestone data may be incomplete. Click "Sync from MSX" to run a full sync.
         {% if sync_status.started_at %}
-            <span class="text-muted small">(Started <span class="local-datetime" data-utc="{{ sync_status.started_at.isoformat() }}" data-fmt="short">{{ sync_status.started_at.strftime('%b %d at %I:%M %p') }}</span>)</span>
+            <span class="text-muted small">(Started <span class="local-datetime" data-utc="{{ sync_status.started_at.isoformat() }}" data-fmt="short"></span>)</span>
         {% endif %}
     </div>
 </div>
@@ -45,7 +45,7 @@
         <p class="text-muted mb-0">
             Active uncommitted milestones across all customers
             {% if last_sync %}
-                &middot; Last synced <span class="local-datetime" data-utc="{{ last_sync.isoformat() }}">{{ last_sync.strftime('%b %d, %Y at %I:%M %p') }}</span> <span class="timezone-label"></span>
+                &middot; Last synced <span class="local-datetime" data-utc="{{ last_sync.isoformat() }}"></span> <span class="timezone-label"></span>
             {% endif %}
         </p>
     </div>

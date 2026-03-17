@@ -184,7 +184,7 @@
                     <td>{{ export.start_date.strftime('%Y-%m-%d') }} to {{ export.end_date.strftime('%Y-%m-%d') }}</td>
                     <td>{{ export.note_count }}</td>
                     <td>{{ export.customer_count }}</td>
-                    <td><span class="local-datetime" data-utc="{{ export.created_at.isoformat() }}">{{ export.created_at.strftime('%Y-%m-%d %H:%M') }}</span></td>
+                    <td><span class="local-datetime" data-utc="{{ export.created_at.isoformat() }}"></span></td>
                     <td class="text-end">
                         <button class="btn btn-outline-primary btn-sm" 
                                 onclick="viewExport({{ export.id }})">
