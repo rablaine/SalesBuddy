@@ -81,7 +81,7 @@
         <div class="row mb-4">
             <div class="col-md-6 d-flex flex-column mb-4 mb-md-0">
                 <!-- MSX Integration -->
-                <div class="card flex-grow-1">
+                <div class="card mb-4">
                     <div class="card-header">
                         <h5 class="mb-0"><i class="bi bi-link-45deg"></i> MSX Integration</h5>
                     </div>
@@ -206,6 +206,25 @@
 
                     </div>
                 </div>
+
+                <!-- Milestone Sync -->
+                <div class="card flex-grow-1">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="bi bi-flag-fill"></i> Milestone Sync</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="d-flex align-items-center justify-content-between">
+                            <div>
+                                <span id="milestoneSyncStatus" class="text-muted">Checking...</span>
+                            </div>
+                            <div class="form-check form-switch mb-0">
+                                <input class="form-check-input" type="checkbox" role="switch" id="milestoneSyncToggle" onchange="toggleTask('milestone-sync', this.checked)" disabled>
+                            </div>
+                        </div>
+                        <small class="text-muted d-block mt-1">Syncs milestones from MSX on Mon/Wed/Fri at 3:00 PM (when Sales Buddy is running).</small>
+                    </div>
+                </div>
+
             </div>
             <div class="col-md-6 d-flex flex-column">
                 <!-- Update Check -->
@@ -1704,6 +1723,7 @@ document.addEventListener('DOMContentLoaded', function() {
     checkForUpdates(false);
     loadBackupStatus();
     loadAutoStartStatus();
+    loadMilestoneSyncStatus();
     loadTelemetryStats();
 
     document.getElementById('telemetryDays').addEventListener('change', function() {
@@ -2087,7 +2107,17 @@ function runDbBackupNow() {
 
 function toggleTask(taskKey, enabled) {
     // Determine which toggle to disable during the request
-    const toggleId = taskKey === 'backup' ? 'backupTaskToggle' : 'autoStartToggle';
+    const toggleMap = {
+        'backup': 'backupTaskToggle',
+        'autostart': 'autoStartToggle',
+        'milestone-sync': 'milestoneSyncToggle',
+    };
+    const reloadMap = {
+        'backup': loadBackupStatus,
+        'autostart': loadAutoStartStatus,
+        'milestone-sync': loadMilestoneSyncStatus,
+    };
+    const toggleId = toggleMap[taskKey];
     const toggle = document.getElementById(toggleId);
     toggle.disabled = true;
 
@@ -2099,11 +2129,7 @@ function toggleTask(taskKey, enabled) {
     .then(r => r.json())
     .then(data => {
         if (data.success) {
-            if (taskKey === 'backup') {
-                loadBackupStatus();
-            } else {
-                loadAutoStartStatus();
-            }
+            reloadMap[taskKey]();
         } else {
             // Revert toggle on failure
             toggle.checked = !enabled;
@@ -2138,6 +2164,33 @@ function loadAutoStartStatus() {
         })
         .catch(() => {
             document.getElementById('autoStartStatus').innerHTML = '<span class="text-muted">Could not check</span>';
+        });
+}
+
+function loadMilestoneSyncStatus() {
+    fetch('/api/admin/tasks/milestone-sync/status')
+        .then(r => r.json())
+        .then(data => {
+            const statusEl = document.getElementById('milestoneSyncStatus');
+            const toggle = document.getElementById('milestoneSyncToggle');
+            if (data.task_exists) {
+                const isEnabled = data.task_status !== 'Disabled';
+                const badgeClass = isEnabled ? 'bg-success' : 'bg-secondary';
+                let label = data.task_status || 'Active';
+                if (isEnabled && data.task_next_run) {
+                    label += ` - next: ${data.task_next_run}`;
+                }
+                statusEl.innerHTML = `<span class="badge ${badgeClass}">${label}</span>`;
+                toggle.checked = isEnabled;
+                toggle.disabled = false;
+            } else {
+                statusEl.innerHTML = '<span class="badge bg-secondary">Not registered</span> <small class="text-muted">Run start.bat to register</small>';
+                toggle.checked = false;
+                toggle.disabled = true;
+            }
+        })
+        .catch(() => {
+            document.getElementById('milestoneSyncStatus').innerHTML = '<span class="text-muted">Could not check</span>';
         });
 }
 

@@ -675,6 +675,7 @@ def _list_backup_files(backup_dir: str, limit: int = 10) -> list[dict]:
 # Scheduled task names (must match scripts/backup.ps1 and scripts/server.ps1)
 _BACKUP_TASK_NAME = 'SalesBuddy-DailyBackup'
 _AUTOSTART_TASK_NAME = 'SalesBuddy-AutoStart'
+_MILESTONE_SYNC_TASK_NAME = 'SalesBuddy-MilestoneSync'
 
 
 def _check_scheduled_task(task_name: str) -> dict:
@@ -807,6 +808,7 @@ def api_task_toggle(task_key: str):
     task_map = {
         'backup': _BACKUP_TASK_NAME,
         'autostart': _AUTOSTART_TASK_NAME,
+        'milestone-sync': _MILESTONE_SYNC_TASK_NAME,
     }
     task_name = task_map.get(task_key)
     if not task_name:
@@ -832,6 +834,17 @@ def api_task_toggle(task_key: str):
 def api_autostart_status():
     """Return the autostart scheduled task status."""
     task_info = _check_scheduled_task(_AUTOSTART_TASK_NAME)
+    return jsonify({
+        'task_exists': task_info['exists'],
+        'task_next_run': task_info['next_run'],
+        'task_status': task_info['status'],
+    })
+
+
+@admin_bp.route('/api/admin/tasks/milestone-sync/status', methods=['GET'])
+def api_milestone_sync_status():
+    """Return the milestone sync scheduled task status."""
+    task_info = _check_scheduled_task(_MILESTONE_SYNC_TASK_NAME)
     return jsonify({
         'task_exists': task_info['exists'],
         'task_next_run': task_info['next_run'],
