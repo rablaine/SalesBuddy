@@ -87,6 +87,16 @@
                 </p>
                 {% endif %}
                 
+                {% if note.engagements|length > 0 %}
+                <p><strong>Engagements:</strong><br>
+                    {% for eng in note.engagements %}
+                        <a href="{{ url_for('engagements.engagement_view', id=eng.id) }}" class="badge bg-info text-dark text-decoration-none">
+                            <i class="bi bi-lightning-charge"></i> {{ eng.title[:50] }}{% if eng.title|length > 50 %}...{% endif %}
+                        </a>
+                    {% endfor %}
+                </p>
+                {% endif %}
+                
                 {% if note.milestones|length > 0 %}
                 <p><strong>Milestones:</strong><br>
                     {% for milestone in note.milestones %}

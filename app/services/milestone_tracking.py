@@ -178,31 +178,37 @@ def _build_note_fallback(topics: str) -> str:
 def _build_engagement_story(engagement) -> str:
     """Assemble the engagement story comment from structured fields.
 
-    Uses the engagement's 6 narrative fields (key_individuals,
-    technical_problem, business_impact, solution_resources,
-    estimated_acr, target_date) to build a readable summary.
+    Uses the engagement's 6 narrative fields to build a readable summary
+    that mirrors the story prompts from the engagement view page.
     """
     parts = [f"Engagement Overview: {engagement.title} [{engagement.status}]"]
 
     if engagement.key_individuals:
-        parts.append(f"\nWorking with {_strip_html(engagement.key_individuals)}.")
+        parts.append(f"\nI've been working with {_strip_html(engagement.key_individuals)}.")
 
     if engagement.technical_problem:
-        parts.append(_strip_html(engagement.technical_problem))
+        parts.append(
+            f"They have run into {_strip_html(engagement.technical_problem)}"
+        )
 
     if engagement.business_impact:
-        parts.append(_strip_html(engagement.business_impact))
+        parts.append(
+            f"It's impacting {_strip_html(engagement.business_impact)}"
+        )
 
     if engagement.solution_resources:
-        parts.append(f"Addressing with {_strip_html(engagement.solution_resources)}.")
+        parts.append(
+            f"We are addressing the opportunity with "
+            f"{_strip_html(engagement.solution_resources)}."
+        )
 
     acr = engagement.estimated_acr
     target = engagement.target_date
     if acr and target:
         target_str = target.strftime('%b %Y') if isinstance(target, date) else str(target)
-        parts.append(f"Targeting {acr} by {target_str}.")
+        parts.append(f"This will result in {acr} by {target_str}.")
     elif acr:
-        parts.append(f"Targeting {acr}.")
+        parts.append(f"This will result in {acr}.")
     elif target:
         target_str = target.strftime('%b %Y') if isinstance(target, date) else str(target)
         parts.append(f"Target date: {target_str}.")
