@@ -12,7 +12,7 @@
         <strong>Milestone sync is running.</strong>
         Data is being updated in the background. Refresh the page in a minute to see new results.
         {% if sync_status.started_at %}
-            <span class="text-muted small">(Started {{ sync_status.started_at.strftime('%b %d at %I:%M %p') }})</span>
+            <span class="text-muted small">(Started <span class="local-datetime" data-utc="{{ sync_status.started_at.isoformat() }}" data-fmt="short">{{ sync_status.started_at.strftime('%b %d at %I:%M %p') }}</span>)</span>
         {% endif %}
     </div>
 </div>
@@ -23,7 +23,7 @@
         <strong>Last milestone sync didn't finish.</strong>
         Your milestone data may be incomplete. Click "Sync from MSX" to run a full sync.
         {% if sync_status.started_at %}
-            <span class="text-muted small">(Started {{ sync_status.started_at.strftime('%b %d at %I:%M %p') }})</span>
+            <span class="text-muted small">(Started <span class="local-datetime" data-utc="{{ sync_status.started_at.isoformat() }}" data-fmt="short">{{ sync_status.started_at.strftime('%b %d at %I:%M %p') }}</span>)</span>
         {% endif %}
     </div>
 </div>
@@ -325,22 +325,5 @@ function syncMilestones() {
         }
     });
 })();
-</script>
-<script>
-// Convert UTC timestamps to local time
-document.addEventListener('DOMContentLoaded', function() {
-    const now = new Date();
-    const shortTZ = now.toLocaleTimeString('en-US', { timeZoneName: 'short' }).split(' ').pop();
-    document.querySelectorAll('.local-datetime').forEach(function(el) {
-        const utcDate = new Date(el.getAttribute('data-utc'));
-        el.textContent = utcDate.toLocaleString('en-US', {
-            year: 'numeric', month: 'short', day: 'numeric',
-            hour: 'numeric', minute: '2-digit', hour12: true
-        });
-    });
-    document.querySelectorAll('.timezone-label').forEach(function(el) {
-        el.textContent = '(' + shortTZ + ')';
-    });
-});
 </script>
 {% endblock %}

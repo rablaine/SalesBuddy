@@ -143,34 +143,6 @@
         </div>
     </div>
     
-    <script>
-    // Convert UTC timestamps to local time and add timezone indicator
-    document.addEventListener('DOMContentLoaded', function() {
-        // Get timezone abbreviation
-        const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-        const now = new Date();
-        const shortTimeZone = now.toLocaleTimeString('en-US', { timeZoneName: 'short' }).split(' ').pop();
-        
-        document.querySelectorAll('.local-datetime').forEach(function(element) {
-            const utcDate = new Date(element.getAttribute('data-utc'));
-            const options = { 
-                year: 'numeric', 
-                month: 'short', 
-                day: 'numeric', 
-                hour: 'numeric', 
-                minute: '2-digit', 
-                hour12: true 
-            };
-            element.textContent = utcDate.toLocaleString('en-US', options);
-        });
-        
-        // Add timezone labels
-        document.querySelectorAll('.timezone-label').forEach(function(element) {
-            element.textContent = '(' + shortTimeZone + ')';
-        });
-    });
-    </script>
-    
     <div class="col-md-8">
         <div class="card mb-3">
             <div class="card-header">

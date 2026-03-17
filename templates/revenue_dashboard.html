@@ -10,7 +10,7 @@
             <strong>Last revenue import didn't finish.</strong>
             Your revenue data may be incomplete. <a href="{{ url_for('revenue.revenue_import') }}" class="alert-link">Re-import your data</a> to get a full sync.
             {% if import_status.started_at %}
-                <span class="text-muted small">(Started {{ import_status.started_at.strftime('%b %d at %I:%M %p') }})</span>
+                <span class="text-muted small">(Started <span class="local-datetime" data-utc="{{ import_status.started_at.isoformat() }}" data-fmt="short">{{ import_status.started_at.strftime('%b %d at %I:%M %p') }}</span>)</span>
             {% endif %}
         </div>
     </div>

@@ -29,7 +29,7 @@
                     <tbody>
                         {% for engagement in engagements %}
                             <tr>
-                                <td>{{ engagement.created_at.strftime('%b %d, %Y %H:%M') }}</td>
+                                <td><span class="local-datetime" data-utc="{{ engagement.created_at.isoformat() }}">{{ engagement.created_at.strftime('%b %d, %Y %H:%M') }}</span></td>
                                 <td>
                                     {% if engagement.analysis %}
                                         <a href="{{ url_for('revenue.customer_revenue_view', customer_name=engagement.analysis.customer_name) }}">

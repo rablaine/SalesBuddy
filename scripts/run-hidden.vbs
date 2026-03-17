@@ -8,8 +8,9 @@ If WScript.Arguments.Count = 0 Then
     WScript.Quit 1
 End If
 
-Dim shell, scriptPath, command
+Dim shell, scriptPath, command, exitCode
 Set shell = CreateObject("WScript.Shell")
 scriptPath = WScript.Arguments(0)
 command = "powershell.exe -ExecutionPolicy Bypass -NonInteractive -WindowStyle Hidden -File """ & scriptPath & """"
-shell.Run command, 0, True
+exitCode = shell.Run(command, 0, True)
+WScript.Quit exitCode

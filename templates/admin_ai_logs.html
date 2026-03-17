@@ -27,7 +27,7 @@
                 <div class="card-header {% if log.success %}bg-success bg-opacity-10{% else %}bg-danger bg-opacity-10{% endif %}">
                     <div class="row align-items-center">
                         <div class="col-auto">
-                            <strong>{{ log.timestamp.strftime('%m/%d %H:%M:%S') }}</strong>
+                            <strong><span class="local-datetime" data-utc="{{ log.timestamp.isoformat() }}" data-fmt="short">{{ log.timestamp.strftime('%m/%d %H:%M:%S') }}</span></strong>
                         </div>
                         <div class="col-auto">
                             <span class="text-muted">|</span>

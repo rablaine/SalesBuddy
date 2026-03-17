@@ -2583,6 +2583,33 @@
         });
     </script>
     
+    <!-- Convert UTC timestamps to local time (any page with class="local-datetime") -->
+    <script>
+    document.addEventListener('DOMContentLoaded', function() {
+        var shortTZ = new Date().toLocaleTimeString('en-US', { timeZoneName: 'short' }).split(' ').pop();
+        document.querySelectorAll('.local-datetime').forEach(function(el) {
+            var utc = el.getAttribute('data-utc');
+            if (!utc) return;
+            var d = new Date(utc);
+            if (isNaN(d)) return;
+            var fmt = el.getAttribute('data-fmt') || 'datetime';
+            if (fmt === 'short') {
+                el.textContent = d.toLocaleString('en-US', {
+                    month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true
+                });
+            } else {
+                el.textContent = d.toLocaleString('en-US', {
+                    year: 'numeric', month: 'short', day: 'numeric',
+                    hour: 'numeric', minute: '2-digit', hour12: true
+                });
+            }
+        });
+        document.querySelectorAll('.timezone-label').forEach(function(el) {
+            el.textContent = '(' + shortTZ + ')';
+        });
+    });
+    </script>
+
     {% block extra_js %}{% endblock %}
 
     <!-- Global VPN Block Detection -->
