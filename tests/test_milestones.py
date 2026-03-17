@@ -642,3 +642,102 @@ class TestMilestoneCommentAPI:
         assert resp.status_code == 400
         data = resp.get_json()
         assert 'No MSX ID' in data['error']
+
+
+class TestMilestoneCommentEditDelete:
+    """Tests for editing and deleting milestone comments."""
+
+    def _create_milestone(self, app, **kwargs):
+        with app.app_context():
+            defaults = {
+                'url': 'https://test/ms-ed',
+                'title': 'Edit Delete Test',
+                'msx_milestone_id': 'dddddddd-1111-2222-3333-444444444444',
+            }
+            defaults.update(kwargs)
+            ms = Milestone(**defaults)
+            db.session.add(ms)
+            db.session.commit()
+            return ms.id
+
+    @patch('app.services.msx_api.edit_milestone_comment')
+    def test_edit_comment_success(self, mock_edit, client, app, db_session, sample_user):
+        """PUT comment returns success when MSX edit succeeds."""
+        ms_id = self._create_milestone(app)
+        mock_edit.return_value = {'success': True}
+        resp = client.put(
+            f'/api/milestone/{ms_id}/comment',
+            json={
+                'modifiedOn': '2026-03-01T10:00:00.000Z',
+                'userId': 'Alex via Sales Buddy',
+                'comment': 'Updated text',
+            },
+        )
+        assert resp.status_code == 200
+        assert resp.get_json()['success'] is True
+        mock_edit.assert_called_once()
+
+    def test_edit_comment_empty(self, client, app, db_session, sample_user):
+        """PUT with empty comment returns 400."""
+        ms_id = self._create_milestone(app)
+        resp = client.put(
+            f'/api/milestone/{ms_id}/comment',
+            json={'modifiedOn': 'x', 'userId': 'y', 'comment': '  '},
+        )
+        assert resp.status_code == 400
+
+    def test_edit_comment_missing_id(self, client, app, db_session, sample_user):
+        """PUT without modifiedOn or userId returns 400."""
+        ms_id = self._create_milestone(app)
+        resp = client.put(
+            f'/api/milestone/{ms_id}/comment',
+            json={'comment': 'hello'},
+        )
+        assert resp.status_code == 400
+        assert 'Missing comment identifier' in resp.get_json()['error']
+
+    def test_edit_comment_no_msx_id(self, client, app, db_session, sample_user):
+        """PUT on milestone without MSX ID returns 400."""
+        ms_id = self._create_milestone(app, msx_milestone_id=None)
+        resp = client.put(
+            f'/api/milestone/{ms_id}/comment',
+            json={'modifiedOn': 'x', 'userId': 'y', 'comment': 'hello'},
+        )
+        assert resp.status_code == 400
+        assert 'No MSX ID' in resp.get_json()['error']
+
+    @patch('app.services.msx_api.delete_milestone_comment')
+    def test_delete_comment_success(self, mock_delete, client, app, db_session, sample_user):
+        """DELETE comment returns success when MSX delete succeeds."""
+        ms_id = self._create_milestone(app)
+        mock_delete.return_value = {'success': True}
+        resp = client.delete(
+            f'/api/milestone/{ms_id}/comment',
+            json={
+                'modifiedOn': '2026-03-01T10:00:00.000Z',
+                'userId': 'Alex via Sales Buddy',
+            },
+        )
+        assert resp.status_code == 200
+        assert resp.get_json()['success'] is True
+        mock_delete.assert_called_once()
+
+    def test_delete_comment_missing_id(self, client, app, db_session, sample_user):
+        """DELETE without modifiedOn or userId returns 400."""
+        ms_id = self._create_milestone(app)
+        resp = client.delete(
+            f'/api/milestone/{ms_id}/comment',
+            json={'modifiedOn': 'x'},
+        )
+        assert resp.status_code == 400
+        assert 'Missing comment identifier' in resp.get_json()['error']
+
+    def test_delete_comment_no_msx_id(self, client, app, db_session, sample_user):
+        """DELETE on milestone without MSX ID returns 400."""
+        ms_id = self._create_milestone(app, msx_milestone_id=None)
+        resp = client.delete(
+            f'/api/milestone/{ms_id}/comment',
+            json={'modifiedOn': 'x', 'userId': 'y'},
+        )
+        assert resp.status_code == 400
+        assert 'No MSX ID' in resp.get_json()['error']

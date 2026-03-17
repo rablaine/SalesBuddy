@@ -317,6 +317,49 @@ def api_milestone_add_comment(id: int):
     return jsonify(result)
 
 
+@bp.route('/api/milestone/<int:id>/comment', methods=['PUT'])
+def api_milestone_edit_comment(id: int):
+    """API endpoint to edit a milestone comment (AJAX)."""
+    from app.services.msx_api import edit_milestone_comment
+
+    milestone = Milestone.query.get_or_404(id)
+    data = request.get_json()
+    if not data or not data.get('comment', '').strip():
+        return jsonify({"success": False, "error": "Comment cannot be empty"}), 400
+    if not data.get('modifiedOn') or not data.get('userId'):
+        return jsonify({"success": False, "error": "Missing comment identifier"}), 400
+    if not milestone.msx_milestone_id:
+        return jsonify({"success": False, "error": "No MSX ID on this milestone"}), 400
+
+    result = edit_milestone_comment(
+        milestone.msx_milestone_id,
+        data['modifiedOn'],
+        data['userId'],
+        data['comment'].strip(),
+    )
+    return jsonify(result)
+
+
+@bp.route('/api/milestone/<int:id>/comment', methods=['DELETE'])
+def api_milestone_delete_comment(id: int):
+    """API endpoint to delete a milestone comment (AJAX)."""
+    from app.services.msx_api import delete_milestone_comment
+
+    milestone = Milestone.query.get_or_404(id)
+    data = request.get_json()
+    if not data or not data.get('modifiedOn') or not data.get('userId'):
+        return jsonify({"success": False, "error": "Missing comment identifier"}), 400
+    if not milestone.msx_milestone_id:
+        return jsonify({"success": False, "error": "No MSX ID on this milestone"}), 400
+
+    result = delete_milestone_comment(
+        milestone.msx_milestone_id,
+        data['modifiedOn'],
+        data['userId'],
+    )
+    return jsonify(result)
+
+
 @bp.route('/api/milestones/find-or-create', methods=['POST'])
 def api_find_or_create_milestone():
     """Find an existing milestone by URL or create a new one.

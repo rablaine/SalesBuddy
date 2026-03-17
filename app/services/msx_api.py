@@ -1271,6 +1271,113 @@ def add_milestone_comment(
         return {"success": False, "error": str(e)}
 
 
+def edit_milestone_comment(
+    milestone_id: str,
+    modified_on: str,
+    user_id: str,
+    new_text: str,
+) -> Dict[str, Any]:
+    """Edit an existing comment on a milestone, matched by userId + modifiedOn.
+
+    Args:
+        milestone_id: The milestone GUID.
+        modified_on: The modifiedOn timestamp of the comment to edit.
+        user_id: The userId field of the comment to edit.
+        new_text: The new comment text.
+
+    Returns:
+        Dict with success bool and error string if failed.
+    """
+    import json as json_lib
+
+    try:
+        read_result = get_milestone_comments(milestone_id)
+        if not read_result["success"]:
+            return {"success": False, "error": read_result.get("error")}
+        comments = read_result["comments"]
+
+        found = False
+        for c in comments:
+            if c.get("modifiedOn") == modified_on and c.get("userId") == user_id:
+                c["comment"] = new_text
+                found = True
+                break
+
+        if not found:
+            return {"success": False, "error": "Comment not found in MSX."}
+
+        patch_url = f"{CRM_BASE_URL}/msp_engagementmilestones({milestone_id})"
+        payload = {"msp_forecastcommentsjsonfield": json_lib.dumps(comments)}
+        patch_response = _msx_request('PATCH', patch_url, json_data=payload)
+
+        if patch_response.status_code < 400:
+            return {"success": True}
+        elif patch_response.status_code == 403 and is_vpn_blocked():
+            return {"success": False, "error": "IP blocked - connect to VPN."}
+        else:
+            return {"success": False, "error": f"PATCH failed: HTTP {patch_response.status_code}"}
+
+    except requests.exceptions.Timeout:
+        return {"success": False, "error": "Request timed out."}
+    except requests.exceptions.ConnectionError as e:
+        return {"success": False, "error": f"Connection error: {str(e)[:100]}"}
+    except Exception as e:
+        logger.exception(f"Error editing comment on milestone {milestone_id}")
+        return {"success": False, "error": str(e)}
+
+
+def delete_milestone_comment(
+    milestone_id: str,
+    modified_on: str,
+    user_id: str,
+) -> Dict[str, Any]:
+    """Delete a comment from a milestone, matched by userId + modifiedOn.
+
+    Args:
+        milestone_id: The milestone GUID.
+        modified_on: The modifiedOn timestamp of the comment to delete.
+        user_id: The userId field of the comment to delete.
+
+    Returns:
+        Dict with success bool and error string if failed.
+    """
+    import json as json_lib
+
+    try:
+        read_result = get_milestone_comments(milestone_id)
+        if not read_result["success"]:
+            return {"success": False, "error": read_result.get("error")}
+        comments = read_result["comments"]
+
+        original_len = len(comments)
+        comments = [
+            c for c in comments
+            if not (c.get("modifiedOn") == modified_on and c.get("userId") == user_id)
+        ]
+
+        if len(comments) == original_len:
+            return {"success": False, "error": "Comment not found in MSX."}
+
+        patch_url = f"{CRM_BASE_URL}/msp_engagementmilestones({milestone_id})"
+        payload = {"msp_forecastcommentsjsonfield": json_lib.dumps(comments)}
+        patch_response = _msx_request('PATCH', patch_url, json_data=payload)
+
+        if patch_response.status_code < 400:
+            return {"success": True}
+        elif patch_response.status_code == 403 and is_vpn_blocked():
+            return {"success": False, "error": "IP blocked - connect to VPN."}
+        else:
+            return {"success": False, "error": f"PATCH failed: HTTP {patch_response.status_code}"}
+
+    except requests.exceptions.Timeout:
+        return {"success": False, "error": "Request timed out."}
+    except requests.exceptions.ConnectionError as e:
+        return {"success": False, "error": f"Connection error: {str(e)[:100]}"}
+    except Exception as e:
+        logger.exception(f"Error deleting comment on milestone {milestone_id}")
+        return {"success": False, "error": str(e)}
+
+
 # Milestone Access Team template ID (from MSX EntityDefinitions)
 MILESTONE_TEAM_TEMPLATE_ID = "316e4735-9e83-eb11-a812-0022481e1be0"
 

@@ -58,9 +58,8 @@
                 {% if milestone.engagements %}
                 {% for eng in milestone.engagements %}
                 <p class="mb-2">
-                    <a href="{{ url_for('engagements.engagement_view', id=eng.id) }}" class="badge bg-info text-dark text-decoration-none">
-                        <i class="bi bi-lightning-charge"></i> {{ eng.title[:50] }}{% if eng.title|length > 50 %}...{% endif %}
-                    </a>
+                    <i class="bi bi-lightning-charge"></i> <strong>Engagement:</strong>
+                    <a href="{{ url_for('engagements.engagement_view', id=eng.id) }}">{{ eng.title[:50] }}{% if eng.title|length > 50 %}...{% endif %}</a>
                 </p>
                 {% endfor %}
                 {% endif %}
@@ -438,13 +437,26 @@ function renderComments(ms) {
     if (comments.length > 0) {
         html += '<div class="list-group">';
         for (const c of [...comments].reverse()) {
+            const cId = btoa(c.modifiedOn + '|' + (c.userId || '')).replace(/=/g, '');
             html += `
-                <div class="list-group-item">
+                <div class="list-group-item" id="comment-${cId}">
                     <div class="d-flex w-100 justify-content-between mb-1">
                         <strong>${escapeHtml(c.displayName || c.userId || 'Unknown')}</strong>
-                        <small class="text-muted"><i class="bi bi-clock"></i> ${escapeHtml(c.modifiedOn || '')}</small>
+                        <div>
+                            <small class="text-muted me-2"><i class="bi bi-clock"></i> ${escapeHtml(c.modifiedOn || '')}</small>
+                            <button class="btn btn-sm btn-outline-secondary py-0 px-1 me-1" title="Edit"
+                                onclick="startEditComment('${cId}', ${JSON.stringify(JSON.stringify(c.modifiedOn || ''))}, ${JSON.stringify(JSON.stringify(c.userId || ''))}, this)">
+                                <i class="bi bi-pencil"></i>
+                            </button>
+                            <button class="btn btn-sm btn-outline-danger py-0 px-1" title="Delete"
+                                onclick="deleteComment(${JSON.stringify(JSON.stringify(c.modifiedOn || ''))}, ${JSON.stringify(JSON.stringify(c.userId || ''))}, this)">
+                                <i class="bi bi-trash"></i>
+                            </button>
+                        </div>
                     </div>
-                    <p class="mb-0" style="white-space:pre-wrap;">${escapeHtml(c.comment || '')}</p>
+                    <div id="comment-body-${cId}">
+                        <p class="mb-0" style="white-space:pre-wrap;">${escapeHtml(c.comment || '')}</p>
+                    </div>
                 </div>`;
         }
         html += '</div>';
@@ -532,6 +544,76 @@ function postComment(e) {
         alert('Failed to post comment: ' + err.message);
     });
     return false;
+}
+
+function startEditComment(cId, modifiedOn, userId, btn) {
+    const bodyEl = document.getElementById('comment-body-' + cId);
+    const currentText = bodyEl.querySelector('p').textContent;
+    bodyEl.innerHTML = `
+        <textarea class="form-control mb-2" id="editText-${cId}" rows="3">${escapeHtml(currentText)}</textarea>
+        <div>
+            <button class="btn btn-sm btn-primary me-1" onclick="saveEditComment('${cId}', ${JSON.stringify(modifiedOn)}, ${JSON.stringify(userId)})">
+                <i class="bi bi-check"></i> Save
+            </button>
+            <button class="btn btn-sm btn-secondary" onclick="fetchMsxDetails(0)">Cancel</button>
+        </div>
+    `;
+}
+
+function saveEditComment(cId, modifiedOn, userId) {
+    const textarea = document.getElementById('editText-' + cId);
+    const text = textarea.value.trim();
+    if (!text) return;
+
+    const bodyEl = document.getElementById('comment-body-' + cId);
+    bodyEl.querySelectorAll('button').forEach(b => b.disabled = true);
+
+    fetch(`/api/milestone/${MS_ID}/comment`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ modifiedOn: modifiedOn, userId: userId, comment: text })
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            fetchMsxDetails(0);
+        } else {
+            alert('Failed to edit comment: ' + (data.error || 'Unknown error'));
+            bodyEl.querySelectorAll('button').forEach(b => b.disabled = false);
+        }
+    })
+    .catch(err => {
+        alert('Failed to edit comment: ' + err.message);
+        bodyEl.querySelectorAll('button').forEach(b => b.disabled = false);
+    });
+}
+
+function deleteComment(modifiedOn, userId, btn) {
+    if (!confirm('Delete this comment from the MSX milestone?')) return;
+
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+
+    fetch(`/api/milestone/${MS_ID}/comment`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ modifiedOn: modifiedOn, userId: userId })
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            fetchMsxDetails(0);
+        } else {
+            alert('Failed to delete comment: ' + (data.error || 'Unknown error'));
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-trash"></i>';
+        }
+    })
+    .catch(err => {
+        alert('Failed to delete comment: ' + err.message);
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-trash"></i>';
+    });
 }
 {% endif %}
 
