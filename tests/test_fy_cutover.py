@@ -605,11 +605,11 @@ class TestNavbarReorgExtended:
         html = resp.data.decode()
         assert 'id="navPartners"' in html
 
-    def test_topics_in_main_nav(self, client):
-        """Topics should be a top-level nav item."""
+    def test_topics_in_more_dropdown(self, client):
+        """Topics should be in the More dropdown menu."""
         resp = client.get('/')
         html = resp.data.decode()
-        assert 'id="navTopics"' in html
+        assert '/topics' in html
 
 
 class TestCallsToNotesRename:

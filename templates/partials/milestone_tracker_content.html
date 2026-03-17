@@ -147,7 +147,7 @@
         <tbody>
             {% for ms in milestones %}
             <tr class="milestone-row" style="cursor: pointer;"
-                onclick="window.open('{{ url_for('milestones.milestone_view', id=ms.id) }}', '_blank');"
+                onclick="window.location.href='{{ url_for('milestones.milestone_view', id=ms.id) }}';"
                 data-seller-id="{{ ms.seller.id if ms.seller else '' }}"
                 data-status="{{ ms.status }}"
                 data-area="{{ ms.workload_area }}"
@@ -195,7 +195,7 @@
                 <!-- Customer -->
                 <td>
                     {% if ms.customer %}
-                        <a href="{{ url_for('customers.customer_view', id=ms.customer.id) }}" class="text-decoration-none" onclick="event.stopPropagation();" target="_blank">
+                        <a href="{{ url_for('customers.customer_view', id=ms.customer.id) }}" class="text-decoration-none" onclick="event.stopPropagation();">
                             {{ customer_favicon(ms.customer) }} {{ ms.customer.name }}
                         </a>
                     {% else %}
@@ -209,7 +209,7 @@
                     {% if ms.seller %}
                         <a href="{{ url_for('sellers.seller_view', id=ms.seller.id) }}" 
                            class="badge {{ get_seller_color(ms.seller.id) }} text-decoration-none"
-                           onclick="event.stopPropagation();" target="_blank">
+                           onclick="event.stopPropagation();">
                             <i class="bi bi-person"></i> {{ ms.seller.name }}
                         </a>
                     {% else %}
