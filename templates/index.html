@@ -721,11 +721,10 @@
                             if (log.has_engagement) {
                                 indicators += '<i class="bi bi-diagram-3 text-primary" title="Has engagement"></i> ';
                             }
-                            if (log.has_task) {
-                                indicators += '<i class="bi bi-check2-square text-info" title="Has task"></i> ';
-                            }
                             if (log.has_hok) {
                                 indicators += '<i class="bi bi-keyboard text-warning" title="HOK task"></i> ';
+                            } else if (log.has_task) {
+                                indicators += '<i class="bi bi-check2-square text-info" title="Has task"></i> ';
                             }
                             let timePrefix = log.time ? `<small class="text-muted">${escapeHtml(log.time)}</small> ` : '';
                             entry.innerHTML = indicators + timePrefix + escapeHtml(log.customer_name);
