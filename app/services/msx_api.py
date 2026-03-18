@@ -868,10 +868,15 @@ def get_opportunity(opportunity_id: str) -> Dict[str, Any]:
             
             # Resolve userId GUIDs to display names
             if comments:
+                import re as _re
+                _guid_re = _re.compile(
+                    r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
+                    _re.IGNORECASE,
+                )
                 unique_ids = set()
                 for c in comments:
                     uid = c.get("userId", "").strip("{} ")
-                    if uid:
+                    if uid and _guid_re.match(uid):
                         unique_ids.add(uid)
                 
                 name_cache = {}
@@ -886,7 +891,11 @@ def get_opportunity(opportunity_id: str) -> Dict[str, Any]:
                 
                 for c in comments:
                     uid = c.get("userId", "").strip("{} ")
-                    c["displayName"] = name_cache.get(uid, "Unknown")
+                    if _guid_re.match(uid):
+                        c["displayName"] = name_cache.get(uid, "Unknown")
+                    else:
+                        # userId is already a display name (posted by Sales Buddy)
+                        c["displayName"] = uid or "Unknown"
             
             # Build structured response
             state_formatted = raw.get(
@@ -966,9 +975,6 @@ def add_opportunity_comment(
         - comment_count: int (total comments after adding)
         - error: str if failed
     """
-    if _is_writeback_disabled():
-        logger.info("MSX writeback disabled - skipping add_opportunity_comment")
-        return dict(_WRITEBACK_BLOCKED)
     import json as json_lib
     
     try:
@@ -993,20 +999,7 @@ def add_opportunity_comment(
             current_comments = []
         
         # Step 2: Get current user display name
-        user_id = get_current_user_id()
-        if not user_id:
-            return {"success": False, "error": "Could not get current user ID"}
-
-        user_name = "Sales Buddy"
-        try:
-            name_resp = _msx_request(
-                'GET',
-                f"{CRM_BASE_URL}/systemusers({user_id})?$select=fullname",
-            )
-            if name_resp.status_code == 200:
-                user_name = name_resp.json().get("fullname") or user_name
-        except Exception:
-            pass  # Fall back to default name
+        user_name = f"{get_msx_user_display_name()} via Sales Buddy"
         
         # Step 3: Build new comment (matching MSX UI format)
         now = dt.now(tz.utc)
@@ -1044,6 +1037,159 @@ def add_opportunity_comment(
         return {"success": False, "error": f"Connection error (VPN?): {str(e)[:100]}"}
     except Exception as e:
         logger.exception(f"Error adding comment to opportunity {opportunity_id}")
+        return {"success": False, "error": str(e)}
+
+
+def get_opportunity_comments(opportunity_id: str) -> Dict[str, Any]:
+    """Read the current comments array from an opportunity.
+
+    Args:
+        opportunity_id: The opportunity GUID.
+
+    Returns:
+        Dict with:
+        - success: bool
+        - comments: list of comment dicts (userId, modifiedOn, comment)
+        - error: str if failed
+    """
+    import json as json_lib
+
+    try:
+        read_url = (
+            f"{CRM_BASE_URL}/opportunities({opportunity_id})"
+            f"?$select=msp_forecastcommentsjsonfield"
+        )
+        read_response = _msx_request('GET', read_url)
+
+        if read_response.status_code != 200:
+            return {
+                "success": False,
+                "comments": [],
+                "error": f"Failed to read comments: HTTP {read_response.status_code}",
+            }
+
+        resp_data = read_response.json()
+        current_json_str = resp_data.get("msp_forecastcommentsjsonfield") or "[]"
+        try:
+            comments = json_lib.loads(current_json_str)
+        except (json_lib.JSONDecodeError, TypeError):
+            comments = []
+
+        return {"success": True, "comments": comments}
+
+    except requests.exceptions.Timeout:
+        return {"success": False, "comments": [], "error": "Request timed out."}
+    except requests.exceptions.ConnectionError as e:
+        return {"success": False, "comments": [], "error": f"Connection error: {str(e)[:100]}"}
+    except Exception as e:
+        logger.exception(f"Error reading comments for opportunity {opportunity_id}")
+        return {"success": False, "comments": [], "error": str(e)}
+
+
+def edit_opportunity_comment(
+    opportunity_id: str,
+    modified_on: str,
+    user_id: str,
+    new_text: str,
+) -> Dict[str, Any]:
+    """Edit an existing comment on an opportunity, matched by userId + modifiedOn.
+
+    Args:
+        opportunity_id: The opportunity GUID.
+        modified_on: The modifiedOn timestamp of the comment to edit.
+        user_id: The userId field of the comment to edit.
+        new_text: The new comment text.
+
+    Returns:
+        Dict with success bool and error string if failed.
+    """
+    import json as json_lib
+
+    try:
+        read_result = get_opportunity_comments(opportunity_id)
+        if not read_result["success"]:
+            return {"success": False, "error": read_result.get("error")}
+        comments = read_result["comments"]
+
+        found = False
+        for c in comments:
+            if c.get("modifiedOn") == modified_on and c.get("userId") == user_id:
+                c["comment"] = new_text
+                found = True
+                break
+
+        if not found:
+            return {"success": False, "error": "Comment not found in MSX."}
+
+        patch_url = f"{CRM_BASE_URL}/opportunities({opportunity_id})"
+        payload = {"msp_forecastcommentsjsonfield": json_lib.dumps(comments)}
+        patch_response = _msx_request('PATCH', patch_url, json_data=payload)
+
+        if patch_response.status_code < 400:
+            return {"success": True}
+        elif patch_response.status_code == 403 and is_vpn_blocked():
+            return {"success": False, "error": "IP blocked - connect to VPN."}
+        else:
+            return {"success": False, "error": f"PATCH failed: HTTP {patch_response.status_code}"}
+
+    except requests.exceptions.Timeout:
+        return {"success": False, "error": "Request timed out."}
+    except requests.exceptions.ConnectionError as e:
+        return {"success": False, "error": f"Connection error: {str(e)[:100]}"}
+    except Exception as e:
+        logger.exception(f"Error editing comment on opportunity {opportunity_id}")
+        return {"success": False, "error": str(e)}
+
+
+def delete_opportunity_comment(
+    opportunity_id: str,
+    modified_on: str,
+    user_id: str,
+) -> Dict[str, Any]:
+    """Delete a comment from an opportunity, matched by userId + modifiedOn.
+
+    Args:
+        opportunity_id: The opportunity GUID.
+        modified_on: The modifiedOn timestamp of the comment to delete.
+        user_id: The userId field of the comment to delete.
+
+    Returns:
+        Dict with success bool and error string if failed.
+    """
+    import json as json_lib
+
+    try:
+        read_result = get_opportunity_comments(opportunity_id)
+        if not read_result["success"]:
+            return {"success": False, "error": read_result.get("error")}
+        comments = read_result["comments"]
+
+        original_len = len(comments)
+        comments = [
+            c for c in comments
+            if not (c.get("modifiedOn") == modified_on and c.get("userId") == user_id)
+        ]
+
+        if len(comments) == original_len:
+            return {"success": False, "error": "Comment not found in MSX."}
+
+        patch_url = f"{CRM_BASE_URL}/opportunities({opportunity_id})"
+        payload = {"msp_forecastcommentsjsonfield": json_lib.dumps(comments)}
+        patch_response = _msx_request('PATCH', patch_url, json_data=payload)
+
+        if patch_response.status_code < 400:
+            return {"success": True}
+        elif patch_response.status_code == 403 and is_vpn_blocked():
+            return {"success": False, "error": "IP blocked - connect to VPN."}
+        else:
+            return {"success": False, "error": f"PATCH failed: HTTP {patch_response.status_code}"}
+
+    except requests.exceptions.Timeout:
+        return {"success": False, "error": "Request timed out."}
+    except requests.exceptions.ConnectionError as e:
+        return {"success": False, "error": f"Connection error: {str(e)[:100]}"}
+    except Exception as e:
+        logger.exception(f"Error deleting comment on opportunity {opportunity_id}")
         return {"success": False, "error": str(e)}
 
 
@@ -1249,9 +1395,6 @@ def add_milestone_comment(
 
     Prefer upsert_milestone_comment for new code.
     """
-    if _is_writeback_disabled():
-        logger.info("MSX writeback disabled - skipping add_milestone_comment")
-        return dict(_WRITEBACK_BLOCKED)
     import json as json_lib
 
     try:
@@ -1309,9 +1452,6 @@ def edit_milestone_comment(
     Returns:
         Dict with success bool and error string if failed.
     """
-    if _is_writeback_disabled():
-        logger.info("MSX writeback disabled - skipping edit_milestone_comment")
-        return dict(_WRITEBACK_BLOCKED)
     import json as json_lib
 
     try:
@@ -1365,9 +1505,6 @@ def delete_milestone_comment(
     Returns:
         Dict with success bool and error string if failed.
     """
-    if _is_writeback_disabled():
-        logger.info("MSX writeback disabled - skipping delete_milestone_comment")
-        return dict(_WRITEBACK_BLOCKED)
     import json as json_lib
 
     try:
@@ -1606,9 +1743,6 @@ def add_user_to_milestone_team(milestone_msx_id: str) -> Dict[str, Any]:
     Returns:
         Dict with success: bool and optional error message.
     """
-    if _is_writeback_disabled():
-        logger.info("MSX writeback disabled - skipping add_user_to_milestone_team")
-        return dict(_WRITEBACK_BLOCKED)
     try:
         user_id = get_current_user_id()
         if not user_id:
@@ -1667,9 +1801,6 @@ def remove_user_from_milestone_team(milestone_msx_id: str) -> Dict[str, Any]:
     Returns:
         Dict with success: bool and optional error message.
     """
-    if _is_writeback_disabled():
-        logger.info("MSX writeback disabled - skipping remove_user_from_milestone_team")
-        return dict(_WRITEBACK_BLOCKED)
     try:
         user_id = get_current_user_id()
         if not user_id:
@@ -1727,9 +1858,6 @@ def add_user_to_deal_team(opportunity_msx_id: str) -> Dict[str, Any]:
     Returns:
         Dict with success: bool and optional error message.
     """
-    if _is_writeback_disabled():
-        logger.info("MSX writeback disabled - skipping add_user_to_deal_team")
-        return dict(_WRITEBACK_BLOCKED)
     try:
         user_id = get_current_user_id()
         if not user_id:
@@ -1815,9 +1943,6 @@ def create_task(
         - task_url: str (MSX URL) if successful
         - error: str if failed
     """
-    if _is_writeback_disabled():
-        logger.info("MSX writeback disabled - skipping create_task")
-        return dict(_WRITEBACK_BLOCKED)
     # Get current user ID for task owner
     user_id = get_current_user_id()
     if not user_id:

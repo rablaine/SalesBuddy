@@ -928,3 +928,216 @@ class TestOpportunityApiCommentRoute:
 
         # Flask returns 415 for non-JSON content type
         assert response.status_code in (400, 415)
+
+
+class TestOpportunityCommentEditDelete:
+    """Tests for editing and deleting opportunity comments."""
+
+    def _make_opp(self, db_session):
+        """Helper to create an opportunity for testing."""
+        opp = Opportunity(
+            msx_opportunity_id='opp-edit-delete-test',
+            name='Edit Delete Test Opp',
+        )
+        db_session.add(opp)
+        db_session.commit()
+        return opp
+
+    @patch('app.routes.opportunities.edit_opportunity_comment')
+    def test_edit_comment_success(self, mock_edit, app, client, db_session, sample_user):
+        """Test editing a comment via PUT."""
+        opp = self._make_opp(db_session)
+        mock_edit.return_value = {"success": True}
+
+        response = client.put(
+            f'/api/opportunity/{opp.id}/comment',
+            json={
+                'modifiedOn': '2026-03-18T10:00:00.000Z',
+                'userId': 'Alex Blaine',
+                'comment': 'Updated comment text',
+            },
+        )
+
+        assert response.status_code == 200
+        data = response.get_json()
+        assert data['success'] is True
+        mock_edit.assert_called_once_with(
+            'opp-edit-delete-test',
+            '2026-03-18T10:00:00.000Z',
+            'Alex Blaine',
+            'Updated comment text',
+        )
+
+    def test_edit_comment_empty_text(self, app, client, db_session, sample_user):
+        """Test editing with empty comment returns 400."""
+        opp = self._make_opp(db_session)
+
+        response = client.put(
+            f'/api/opportunity/{opp.id}/comment',
+            json={
+                'modifiedOn': '2026-03-18T10:00:00.000Z',
+                'userId': 'Alex Blaine',
+                'comment': '',
+            },
+        )
+
+        assert response.status_code == 400
+        data = response.get_json()
+        assert data['success'] is False
+
+    def test_edit_comment_missing_identifier(self, app, client, db_session, sample_user):
+        """Test editing without modifiedOn/userId returns 400."""
+        opp = self._make_opp(db_session)
+
+        response = client.put(
+            f'/api/opportunity/{opp.id}/comment',
+            json={'comment': 'Some text'},
+        )
+
+        assert response.status_code == 400
+        data = response.get_json()
+        assert data['success'] is False
+        assert 'Missing comment identifier' in data['error']
+
+    def test_edit_comment_no_msx_id(self, app, client, db_session, sample_user):
+        """Test editing on opportunity without MSX ID returns error."""
+        opp = Opportunity(
+            msx_opportunity_id='',
+            name='No MSX ID Opp',
+        )
+        db_session.add(opp)
+        db_session.commit()
+
+        response = client.put(
+            f'/api/opportunity/{opp.id}/comment',
+            json={
+                'modifiedOn': '2026-03-18T10:00:00.000Z',
+                'userId': 'Alex',
+                'comment': 'Test',
+            },
+        )
+
+        assert response.status_code == 400
+        data = response.get_json()
+        assert data['success'] is False
+        assert 'No MSX ID' in data['error']
+
+    def test_edit_comment_404(self, client):
+        """Test editing comment on nonexistent opportunity."""
+        response = client.put(
+            '/api/opportunity/99999/comment',
+            json={
+                'modifiedOn': '2026-03-18T10:00:00.000Z',
+                'userId': 'Alex',
+                'comment': 'Test',
+            },
+        )
+        assert response.status_code == 404
+
+    @patch('app.routes.opportunities.delete_opportunity_comment')
+    def test_delete_comment_success(self, mock_delete, app, client, db_session, sample_user):
+        """Test deleting a comment via DELETE."""
+        opp = self._make_opp(db_session)
+        mock_delete.return_value = {"success": True}
+
+        response = client.delete(
+            f'/api/opportunity/{opp.id}/comment',
+            json={
+                'modifiedOn': '2026-03-18T10:00:00.000Z',
+                'userId': 'Alex Blaine',
+            },
+        )
+
+        assert response.status_code == 200
+        data = response.get_json()
+        assert data['success'] is True
+        mock_delete.assert_called_once_with(
+            'opp-edit-delete-test',
+            '2026-03-18T10:00:00.000Z',
+            'Alex Blaine',
+        )
+
+    def test_delete_comment_missing_identifier(self, app, client, db_session, sample_user):
+        """Test deleting without modifiedOn/userId returns 400."""
+        opp = self._make_opp(db_session)
+
+        response = client.delete(
+            f'/api/opportunity/{opp.id}/comment',
+            json={'modifiedOn': '2026-03-18T10:00:00.000Z'},
+        )
+
+        assert response.status_code == 400
+        data = response.get_json()
+        assert data['success'] is False
+
+    def test_delete_comment_no_msx_id(self, app, client, db_session, sample_user):
+        """Test deleting on opportunity without MSX ID returns error."""
+        opp = Opportunity(
+            msx_opportunity_id='',
+            name='No MSX ID Opp Del',
+        )
+        db_session.add(opp)
+        db_session.commit()
+
+        response = client.delete(
+            f'/api/opportunity/{opp.id}/comment',
+            json={
+                'modifiedOn': '2026-03-18T10:00:00.000Z',
+                'userId': 'Alex',
+            },
+        )
+
+        assert response.status_code == 400
+        data = response.get_json()
+        assert data['success'] is False
+        assert 'No MSX ID' in data['error']
+
+    def test_delete_comment_404(self, client):
+        """Test deleting comment on nonexistent opportunity."""
+        response = client.delete(
+            '/api/opportunity/99999/comment',
+            json={
+                'modifiedOn': '2026-03-18T10:00:00.000Z',
+                'userId': 'Alex',
+            },
+        )
+        assert response.status_code == 404
+
+    @patch('app.routes.opportunities.edit_opportunity_comment')
+    def test_edit_comment_msx_failure(self, mock_edit, app, client, db_session, sample_user):
+        """Test edit returns error when MSX call fails."""
+        opp = self._make_opp(db_session)
+        mock_edit.return_value = {"success": False, "error": "Comment not found in MSX."}
+
+        response = client.put(
+            f'/api/opportunity/{opp.id}/comment',
+            json={
+                'modifiedOn': '2026-03-18T10:00:00.000Z',
+                'userId': 'Alex',
+                'comment': 'Updated text',
+            },
+        )
+
+        assert response.status_code == 200
+        data = response.get_json()
+        assert data['success'] is False
+        assert 'not found' in data['error']
+
+    @patch('app.routes.opportunities.delete_opportunity_comment')
+    def test_delete_comment_msx_failure(self, mock_delete, app, client, db_session, sample_user):
+        """Test delete returns error when MSX call fails."""
+        opp = self._make_opp(db_session)
+        mock_delete.return_value = {"success": False, "error": "Comment not found in MSX."}
+
+        response = client.delete(
+            f'/api/opportunity/{opp.id}/comment',
+            json={
+                'modifiedOn': '2026-03-18T10:00:00.000Z',
+                'userId': 'Alex',
+            },
+        )
+
+        assert response.status_code == 200
+        data = response.get_json()
+        assert data['success'] is False
+        assert 'not found' in data['error']

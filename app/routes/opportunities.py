@@ -9,7 +9,13 @@ from datetime import datetime, timezone
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, g
 
 from app.models import db, Opportunity, Milestone
-from app.services.msx_api import get_opportunity, add_opportunity_comment, build_opportunity_url
+from app.services.msx_api import (
+    get_opportunity,
+    add_opportunity_comment,
+    edit_opportunity_comment,
+    delete_opportunity_comment,
+    build_opportunity_url,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -138,4 +144,43 @@ def api_opportunity_add_comment(id: int):
         data['comment'].strip()
     )
     
+    return jsonify(result)
+
+
+@opportunities_bp.route('/api/opportunity/<int:id>/comment', methods=['PUT'])
+def api_opportunity_edit_comment(id: int):
+    """API endpoint to edit an opportunity comment (AJAX)."""
+    opportunity = Opportunity.query.get_or_404(id)
+    data = request.get_json()
+    if not data or not data.get('comment', '').strip():
+        return jsonify({"success": False, "error": "Comment cannot be empty"}), 400
+    if not data.get('modifiedOn') or not data.get('userId'):
+        return jsonify({"success": False, "error": "Missing comment identifier"}), 400
+    if not opportunity.msx_opportunity_id:
+        return jsonify({"success": False, "error": "No MSX ID on this opportunity"}), 400
+
+    result = edit_opportunity_comment(
+        opportunity.msx_opportunity_id,
+        data['modifiedOn'],
+        data['userId'],
+        data['comment'].strip(),
+    )
+    return jsonify(result)
+
+
+@opportunities_bp.route('/api/opportunity/<int:id>/comment', methods=['DELETE'])
+def api_opportunity_delete_comment(id: int):
+    """API endpoint to delete an opportunity comment (AJAX)."""
+    opportunity = Opportunity.query.get_or_404(id)
+    data = request.get_json()
+    if not data or not data.get('modifiedOn') or not data.get('userId'):
+        return jsonify({"success": False, "error": "Missing comment identifier"}), 400
+    if not opportunity.msx_opportunity_id:
+        return jsonify({"success": False, "error": "No MSX ID on this opportunity"}), 400
+
+    result = delete_opportunity_comment(
+        opportunity.msx_opportunity_id,
+        data['modifiedOn'],
+        data['userId'],
+    )
     return jsonify(result)
