@@ -1021,6 +1021,25 @@
             </div>
         </div>
     </div>
+
+    <!-- Quick New Engagement Modal -->
+    <div class="modal fade" id="quickEngagementModal" tabindex="-1" aria-labelledby="quickEngagementModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-scrollable">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="quickEngagementModalLabel">New Engagement</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="engagementCustomerSearch" class="form-label">Choose a Customer</label>
+                        <input type="text" class="form-control" id="engagementCustomerSearch" placeholder="Search customers..." autocomplete="off">
+                    </div>
+                    <div id="engagementCustomerResults" class="list-group" style="max-height: 400px; overflow-y: auto;"></div>
+                </div>
+            </div>
+        </div>
+    </div>
     
     <!-- Page Help Modal (F1) -->
     <div class="modal fade" id="pageHelpModal" tabindex="-1" aria-labelledby="pageHelpModalLabel" aria-hidden="true">
@@ -2342,6 +2361,8 @@
             setupCustomerSearchModal('quickNoteModal', 'customerSearch', 'customerResults', '{{ url_for("notes.note_create") }}?customer_id=', '{{ url_for("notes.note_create") }}');
             // Setup for customer lookup modal - goes directly to customer page
             setupCustomerSearchModal('quickCustomerLookupModal', 'customerLookupSearch', 'customerLookupResults', '{{ url_for("customers.customer_view", id=0) }}'.replace('/0', '/'));
+            // Setup for new engagement modal - goes to engagement form
+            setupCustomerSearchModal('quickEngagementModal', 'engagementCustomerSearch', 'engagementCustomerResults', '{{ url_for("customers.customer_view", id=0) }}'.replace('/0', '/'), null, function() { return '/engagement/new'; });
             // Setup for calendar quick-create modal (if present on page)
             // Uses a dynamic URL suffix so the selected date is appended
             var calendarDateSuffix = '';
