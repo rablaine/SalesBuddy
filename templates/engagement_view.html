@@ -381,8 +381,8 @@ function showReviewModal(current, generated) {
 
     let hasFields = false;
     STORY_FIELDS.forEach(field => {
-        const oldVal = (current[field.key] || '').trim();
-        let rawNew = (generated[field.key] || '').trim();
+        const oldVal = (current[field.key] || '').toString().trim();
+        let rawNew = (generated[field.key] || '').toString().trim();
         // Treat literal "null" from AI as empty
         if (rawNew.toLowerCase() === 'null') rawNew = '';
         const newVal = rawNew;

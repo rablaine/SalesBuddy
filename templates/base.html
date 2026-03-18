@@ -2554,7 +2554,7 @@
                     // If inside an open modal, click its primary action button
                     const modal = e.target.closest('.modal.show');
                     if (modal) {
-                        const primaryBtn = modal.querySelector('.modal-footer .btn-primary');
+                        const primaryBtn = modal.querySelector('.modal-footer .btn-primary, .modal-footer .btn-success');
                         if (primaryBtn && !primaryBtn.disabled) {
                             primaryBtn.click();
                         }

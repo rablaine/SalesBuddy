@@ -528,7 +528,10 @@
                     
                     <div id="meetingNoResults" class="alert alert-warning" style="display: none;">
                         <i class="bi bi-calendar-x"></i> No meetings found for this date.
-                        <br><small>The calendar service occasionally returns empty results &mdash; close this dialog and try again.</small>
+                        <br><small>The calendar service occasionally returns empty results - try again.</small>
+                        <br><button type="button" class="btn btn-sm btn-warning mt-2" onclick="meetingImportModal.hide(); openMeetingImport();">
+                            <i class="bi bi-arrow-clockwise"></i> Retry
+                        </button>
                     </div>
                     
                     <div class="list-group" id="meetingList">
@@ -2787,6 +2790,20 @@ function getCustomerName() {
 
 // Save draft to localStorage
 function saveDraft() {
+    // Apply any pending meeting selection (show the picker modal)
+    if (_pendingMeetingSelection) {
+        var pendingSel = _pendingMeetingSelection;
+        _pendingMeetingSelection = null;
+        hideMeetingStatusCard();
+        showMeetingImportModalReady(pendingSel.meetings, pendingSel.autoSelectedIndex, pendingSel.autoSelectedReason);
+    }
+    // Apply any pending meeting import (insert content)
+    if (_pendingMeetingImport) {
+        var pending = _pendingMeetingImport;
+        _pendingMeetingImport = null;
+        applyMeetingImport(pending);
+    }
+    
     const draftKey = getDraftKey();
     if (!draftKey) return; // Can't save without customer selected
     
@@ -3378,6 +3395,8 @@ var selectedMeetingIndex = null;
 var loadedMeetings = [];
 var autoFillAborted = false;
 var pendingTaskSuggestion = null;  // Stores task title/description from meeting import
+var _pendingMeetingImport = null;  // Queued WorkIQ response waiting for typing pause
+var _pendingMeetingSelection = null;  // Queued meeting list waiting for typing pause
 
 // WorkIQ prompt customization
 var userWorkiqPrompt = {{ (workiq_prompt or default_workiq_prompt)|tojson }};
@@ -3776,6 +3795,101 @@ function setAutoFillStep(stepNum, state) {
 
 var _meetingAbortController = null;
 
+// Apply a queued meeting import (insert content into editor)
+function applyMeetingImport(pendingData) {
+    var meeting = pendingData.meeting;
+    var data = pendingData.data;
+    
+    hideMeetingStatusCard();
+    
+    // Build rich content for Quill
+    var content = '<h2>' + escapeHtml(meeting.title) + '</h2>';
+    content += '<p><strong>Summary:</strong></p>';
+    content += textToHtml(data.summary);
+    
+    if (data.action_items && data.action_items.length > 0) {
+        content += '<p><strong>Action Items:</strong></p><ul>';
+        data.action_items.forEach(function(item) {
+            content += '<li>' + escapeHtml(item) + '</li>';
+        });
+        content += '</ul>';
+    }
+    
+    if (data.connect_impact && data.connect_impact.length > 0) {
+        content += '<hr><p><strong>Impact Signals:</strong></p><ul>';
+        data.connect_impact.forEach(function(item) {
+            content += '<li>' + escapeHtml(item) + '</li>';
+        });
+        content += '</ul>';
+    }
+    
+    if (data.engagement_signals && Object.keys(data.engagement_signals).length > 0) {
+        content += '<hr><p><strong>Engagement Metadata:</strong></p><ul>';
+        Object.keys(data.engagement_signals).forEach(function(field) {
+            content += '<li><strong>' + escapeHtml(field) + ':</strong> ' + escapeHtml(data.engagement_signals[field]) + '</li>';
+        });
+        content += '</ul>';
+    }
+    
+    // Append after existing content with separator
+    var existing = quill.root.innerHTML.trim();
+    if (existing && existing !== '<p><br></p>' && existing !== '<p></p>') {
+        quill.root.innerHTML = existing + '<p><br></p><p><br></p><hr>' + content;
+    } else {
+        quill.root.innerHTML = content;
+    }
+    
+    // Update the call date and time from meeting
+    if (meeting.start_time) {
+        var meetingDate = new Date(meeting.start_time);
+        var dateStr = meetingDate.getFullYear() + '-' + 
+            String(meetingDate.getMonth() + 1).padStart(2, '0') + '-' + 
+            String(meetingDate.getDate()).padStart(2, '0');
+        document.getElementById('call_date').value = dateStr;
+        
+        var timeStr = String(meetingDate.getHours()).padStart(2, '0') + ':' + 
+            String(meetingDate.getMinutes()).padStart(2, '0');
+        document.getElementById('call_time').value = timeStr;
+    }
+    
+    // Auto-suggest topics
+    if (data.topics && data.topics.length > 0) {
+        autoSuggestTopics(data.topics);
+    }
+    
+    // Store task suggestion
+    if (data.task_subject || data.task_description) {
+        pendingTaskSuggestion = {
+            subject: data.task_subject || '',
+            description: data.task_description || ''
+        };
+    }
+    
+    // Trigger autosave
+    if (typeof debouncedAutoSave === 'function') {
+        debouncedAutoSave();
+    }
+}
+
+// Manual trigger from the "Insert Now" button on the status card
+function applyPendingMeetingImport() {
+    if (_pendingMeetingImport) {
+        var pending = _pendingMeetingImport;
+        _pendingMeetingImport = null;
+        applyMeetingImport(pending);
+    }
+}
+
+// Manual trigger from the "Pick Now" button on the status card
+function applyPendingMeetingSelection() {
+    if (_pendingMeetingSelection) {
+        var pending = _pendingMeetingSelection;
+        _pendingMeetingSelection = null;
+        hideMeetingStatusCard();
+        showMeetingImportModalReady(pending.meetings, pending.autoSelectedIndex, pending.autoSelectedReason);
+    }
+}
+
 function showMeetingStatusCard(html) {
     var card = document.getElementById('meetingStatusCard');
     document.getElementById('statusCardContent').innerHTML = html;
@@ -3791,6 +3905,8 @@ function cancelMeetingStatus() {
         _meetingAbortController.abort();
         _meetingAbortController = null;
     }
+    _pendingMeetingImport = null;
+    _pendingMeetingSelection = null;
     hideMeetingStatusCard();
     document.getElementById('importMeetingBtn').disabled = false;
 }
@@ -3858,17 +3974,28 @@ function openMeetingImport() {
             
             loadedMeetings = data.meetings || [];
             
-            if (loadedMeetings.length === 0) {
-                hideMeetingStatusCard();
-                document.getElementById('importMeetingBtn').disabled = false;
-                showMeetingImportModalReady(loadedMeetings, null, null);
-                return;
-            }
-            
-            // Meetings loaded — hide status card, show modal for user to pick
+            // Meetings loaded — hide status card
             hideMeetingStatusCard();
             document.getElementById('importMeetingBtn').disabled = false;
-            showMeetingImportModalReady(loadedMeetings, data.auto_selected_index, data.auto_selected_reason);
+            
+            // If user is typing, defer the selection modal
+            if (quill.hasFocus()) {
+                _pendingMeetingSelection = {
+                    meetings: loadedMeetings,
+                    autoSelectedIndex: data.auto_selected_index,
+                    autoSelectedReason: data.auto_selected_reason
+                };
+                var msg = loadedMeetings.length === 0
+                    ? '<strong class="text-warning"><i class="bi bi-calendar-x"></i> No meetings found</strong>'
+                    : '<strong class="text-success"><i class="bi bi-check-circle"></i> ' + loadedMeetings.length + ' meeting' + (loadedMeetings.length !== 1 ? 's' : '') + ' found</strong>';
+                showMeetingStatusCard(
+                    '<div>' + msg +
+                    '<br><small class="text-muted">Will show when you pause typing</small>' +
+                    '<br><button class="btn btn-sm btn-primary mt-2" onclick="applyPendingMeetingSelection()"><i class="bi bi-list-check"></i> Show Now</button></div>'
+                );
+            } else {
+                showMeetingImportModalReady(loadedMeetings, data.auto_selected_index, data.auto_selected_reason);
+            }
         })
         .catch(error => {
             _meetingAbortController = null;
@@ -4085,70 +4212,20 @@ function importSelectedMeeting() {
                 return;
             }
             
-            // Success — hide status card
-            hideMeetingStatusCard();
+            // Success — queue the import instead of inserting immediately
+            var pendingData = { meeting: meeting, data: data };
             
-            // Build rich content for Quill
-            var content = '<h2>' + escapeHtml(meeting.title) + '</h2>';
-            content += '<p><strong>Summary:</strong></p>';
-            content += textToHtml(data.summary);
-            
-            if (data.action_items && data.action_items.length > 0) {
-                content += '<p><strong>Action Items:</strong></p><ul>';
-                data.action_items.forEach(function(item) {
-                    content += '<li>' + escapeHtml(item) + '</li>';
-                });
-                content += '</ul>';
-            }
-            
-            if (data.connect_impact && data.connect_impact.length > 0) {
-                content += '<hr><p><strong>Impact Signals:</strong></p><ul>';
-                data.connect_impact.forEach(function(item) {
-                    content += '<li>' + escapeHtml(item) + '</li>';
-                });
-                content += '</ul>';
-            }
-            
-            if (data.engagement_signals && Object.keys(data.engagement_signals).length > 0) {
-                content += '<hr><p><strong>Engagement Metadata:</strong></p><ul>';
-                Object.keys(data.engagement_signals).forEach(function(field) {
-                    content += '<li><strong>' + escapeHtml(field) + ':</strong> ' + escapeHtml(data.engagement_signals[field]) + '</li>';
-                });
-                content += '</ul>';
-            }
-            
-            // Append after existing content with separator
-            var existing = quill.root.innerHTML.trim();
-            if (existing && existing !== '<p><br></p>' && existing !== '<p></p>') {
-                quill.root.innerHTML = existing + '<p><br></p><p><br></p><hr>' + content;
+            // If user is actively typing in the editor, defer insertion
+            if (quill.hasFocus()) {
+                _pendingMeetingImport = pendingData;
+                showMeetingStatusCard(
+                    '<div><strong class="text-success"><i class="bi bi-check-circle"></i> Summary ready</strong>' +
+                    '<br><small class="text-muted">Will insert when you pause typing</small>' +
+                    '<br><button class="btn btn-sm btn-success mt-2" onclick="applyPendingMeetingImport()"><i class="bi bi-arrow-down-circle"></i> Insert Now</button></div>'
+                );
             } else {
-                quill.root.innerHTML = content;
-            }
-            
-            // Update the call date and time from meeting
-            if (meeting.start_time) {
-                var meetingDate = new Date(meeting.start_time);
-                var dateStr = meetingDate.getFullYear() + '-' + 
-                    String(meetingDate.getMonth() + 1).padStart(2, '0') + '-' + 
-                    String(meetingDate.getDate()).padStart(2, '0');
-                document.getElementById('call_date').value = dateStr;
-                
-                var timeStr = String(meetingDate.getHours()).padStart(2, '0') + ':' + 
-                    String(meetingDate.getMinutes()).padStart(2, '0');
-                document.getElementById('call_time').value = timeStr;
-            }
-            
-            // Auto-suggest topics
-            if (data.topics && data.topics.length > 0) {
-                autoSuggestTopics(data.topics);
-            }
-            
-            // Store task suggestion
-            if (data.task_subject || data.task_description) {
-                pendingTaskSuggestion = {
-                    subject: data.task_subject || '',
-                    description: data.task_description || ''
-                };
+                // User isn't typing — apply immediately
+                applyMeetingImport(pendingData);
             }
             
             // Trigger autosave
