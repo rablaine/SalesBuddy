@@ -205,6 +205,7 @@
 <script>
 const OPP_ID = {{ opportunity.id }};
 const OPP_ON_DEAL_TEAM = {{ 'true' if opportunity.on_deal_team else 'false' }};
+let _skipCommentRestore = false;
 
 // ── Fetch MSX details + comments (auto-retry once on failure) ───────
 function fetchMsxDetails(retriesLeft) {
@@ -298,6 +299,24 @@ function renderDetails(opp) {
 // ── Render comments into the Comments card ──────────────────────────
 function renderComments(opp) {
     document.getElementById('commentsSpinner').style.display = 'none';
+    // Preserve any in-progress comment text before re-rendering
+    let pendingText = '';
+    let hadFocus = false;
+    if (!_skipCommentRestore) {
+        const existingTextarea = document.getElementById('commentText');
+        if (existingTextarea) {
+            pendingText = existingTextarea.value;
+            hadFocus = (document.activeElement === existingTextarea);
+        }
+        if (!pendingText) {
+            const cachedTextarea = document.querySelector('#commentFormCached textarea');
+            if (cachedTextarea) {
+                pendingText = cachedTextarea.value;
+                hadFocus = hadFocus || (document.activeElement === cachedTextarea);
+            }
+        }
+    }
+    _skipCommentRestore = false;
     // Hide cached content - fresh data replaces it
     const cached = document.getElementById('commentsCached');
     if (cached) cached.style.display = 'none';
@@ -359,6 +378,18 @@ function renderComments(opp) {
 
     el.innerHTML = html;
 
+    // Restore any in-progress comment text and focus
+    if (pendingText) {
+        const newTextarea = document.getElementById('commentText');
+        if (newTextarea) {
+            newTextarea.value = pendingText;
+            if (hadFocus) {
+                newTextarea.focus();
+                newTextarea.selectionStart = newTextarea.selectionEnd = newTextarea.value.length;
+            }
+        }
+    }
+
     // Store reversed comments and bind edit/delete handlers via event delegation
     const reversedComments = [...(opp.comments || [])].reverse();
     el.querySelectorAll('[data-action="edit"]').forEach(btn => {
@@ -396,12 +427,12 @@ function postComment(e) {
     })
     .then(r => r.json())
     .then(data => {
-        btn.disabled = false;
-        btn.innerHTML = originalBtn;
         if (data.success) {
-            textarea.value = '';
+            _skipCommentRestore = true;
             fetchMsxDetails(0);
         } else {
+            btn.disabled = false;
+            btn.innerHTML = originalBtn;
             alert('Failed to post comment: ' + (data.error || 'Unknown error'));
         }
     })
@@ -439,7 +470,9 @@ function saveEditComment(idx, modifiedOn, userId) {
     if (!text) return;
 
     const bodyEl = document.getElementById('comment-body-' + idx);
+    const saveBtn = document.getElementById('saveEdit-' + idx);
     bodyEl.querySelectorAll('button').forEach(b => b.disabled = true);
+    if (saveBtn) saveBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Saving...';
 
     fetch(`/api/opportunity/${OPP_ID}/comment`, {
         method: 'PUT',

@@ -868,10 +868,15 @@ def get_opportunity(opportunity_id: str) -> Dict[str, Any]:
             
             # Resolve userId GUIDs to display names
             if comments:
+                import re as _re
+                _guid_re = _re.compile(
+                    r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
+                    _re.IGNORECASE,
+                )
                 unique_ids = set()
                 for c in comments:
                     uid = c.get("userId", "").strip("{} ")
-                    if uid:
+                    if uid and _guid_re.match(uid):
                         unique_ids.add(uid)
                 
                 name_cache = {}
@@ -886,7 +891,11 @@ def get_opportunity(opportunity_id: str) -> Dict[str, Any]:
                 
                 for c in comments:
                     uid = c.get("userId", "").strip("{} ")
-                    c["displayName"] = name_cache.get(uid, "Unknown")
+                    if _guid_re.match(uid):
+                        c["displayName"] = name_cache.get(uid, "Unknown")
+                    else:
+                        # userId is already a display name (posted by Sales Buddy)
+                        c["displayName"] = uid or "Unknown"
             
             # Build structured response
             state_formatted = raw.get(
@@ -990,20 +999,7 @@ def add_opportunity_comment(
             current_comments = []
         
         # Step 2: Get current user display name
-        user_id = get_current_user_id()
-        if not user_id:
-            return {"success": False, "error": "Could not get current user ID"}
-
-        user_name = "Sales Buddy"
-        try:
-            name_resp = _msx_request(
-                'GET',
-                f"{CRM_BASE_URL}/systemusers({user_id})?$select=fullname",
-            )
-            if name_resp.status_code == 200:
-                user_name = name_resp.json().get("fullname") or user_name
-        except Exception:
-            pass  # Fall back to default name
+        user_name = f"{get_msx_user_display_name()} via Sales Buddy"
         
         # Step 3: Build new comment (matching MSX UI format)
         now = dt.now(tz.utc)
