@@ -3,89 +3,152 @@
 {% block title %}Home - Sales Buddy{% endblock %}
 
 {% block content %}
-<div class="row">
+<div class="row mb-3">
     <div class="col-md-12">
-        <div class="mb-4">
-            <h1 class="mb-2">Welcome to Sales Buddy</h1>
-            <p class="lead mb-0">Everything you need to stay on top of your accounts.</p>
+        <h1 class="mb-0">Dashboard</h1>
+    </div>
+</div>
+
+<!-- Dashboard Cards Row -->
+<div class="row mb-4">
+    <!-- Action Items -->
+    <div class="col-lg-4 mb-3">
+        <div class="card h-100">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-check2-square"></i> Action Items</h5>
+                {% if open_tasks %}<span class="badge bg-primary">{{ open_tasks|length }}</span>{% endif %}
+            </div>
+            <div class="card-body p-0" style="max-height: 360px; overflow-y: auto;">
+                {% if open_tasks %}
+                <div class="list-group list-group-flush">
+                    {% for task in open_tasks %}
+                    <a href="{{ url_for('engagements.engagement_view', id=task.engagement_id) }}" class="list-group-item list-group-item-action py-2 px-3">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <div class="me-2" style="min-width: 0;">
+                                <div class="fw-semibold text-truncate{% if task.priority == 'high' %} text-danger{% endif %}">
+                                    {% if task.priority == 'high' %}<i class="bi bi-exclamation-triangle-fill me-1"></i>{% endif %}{{ task.title }}
+                                </div>
+                                <div class="text-muted small text-truncate">
+                                    {{ task.engagement.customer.name if task.engagement.customer else task.engagement.title }}
+                                </div>
+                            </div>
+                            {% if task.due_date %}
+                            <span class="badge flex-shrink-0 {% if task.is_overdue %}bg-danger{% else %}bg-secondary{% endif %}">
+                                {{ task.due_date.strftime('%b %d') }}
+                            </span>
+                            {% endif %}
+                        </div>
+                    </a>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <div class="text-center text-muted py-4">
+                    <i class="bi bi-check-circle" style="font-size: 2rem;"></i>
+                    <p class="mb-0 mt-2">All clear - no open tasks.</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Milestones Coming Due -->
+    <div class="col-lg-4 mb-3">
+        <div class="card h-100">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-flag-fill" style="color: #c49000;"></i> Milestones Due</h5>
+                {% if upcoming_milestones %}<span class="badge bg-warning text-dark">{{ upcoming_milestones|length }}</span>{% endif %}
+            </div>
+            <div class="card-body p-0" style="max-height: 360px; overflow-y: auto;">
+                {% if upcoming_milestones %}
+                <div class="list-group list-group-flush">
+                    {% for ms in upcoming_milestones %}
+                    <a href="{{ url_for('milestones.milestone_view', id=ms.id) }}" class="list-group-item list-group-item-action py-2 px-3">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <div class="me-2" style="min-width: 0;">
+                                <div class="fw-semibold text-truncate">
+                                    {{ ms.title or ms.opportunity_name or 'Milestone #' ~ ms.id }}
+                                </div>
+                                <div class="text-muted small text-truncate">
+                                    {% if ms.customer %}{{ ms.customer.name }}{% endif %}
+                                    {% if ms.workload %} - {{ ms.workload }}{% endif %}
+                                </div>
+                            </div>
+                            <div class="text-end flex-shrink-0">
+                                {% if ms.due_date %}
+                                <span class="badge {% if ms.due_date_urgency == 'past_due' %}bg-danger{% elif ms.due_date_urgency == 'this_week' %}bg-warning text-dark{% else %}bg-secondary{% endif %}">
+                                    {{ ms.due_date.strftime('%b %d') }}
+                                </span>
+                                {% endif %}
+                                <div>
+                                    <span class="badge {% if ms.msx_status == 'On Track' %}bg-success{% elif ms.msx_status == 'At Risk' %}bg-warning text-dark{% elif ms.msx_status == 'Blocked' %}bg-danger{% else %}bg-secondary{% endif %}" style="font-size: 0.65rem;">
+                                        {{ ms.msx_status }}
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                    </a>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <div class="text-center text-muted py-4">
+                    <i class="bi bi-flag" style="font-size: 2rem;"></i>
+                    <p class="mb-0 mt-2">No milestones due in the next 30 days.</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Revenue Alerts -->
+    <div class="col-lg-4 mb-3">
+        <div class="card h-100">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-exclamation-diamond text-danger"></i> Revenue Alerts</h5>
+                {% if revenue_alerts %}<span class="badge bg-danger">{{ revenue_alerts|length }}</span>{% endif %}
+            </div>
+            <div class="card-body p-0" style="max-height: 360px; overflow-y: auto;">
+                {% if revenue_alerts %}
+                <div class="list-group list-group-flush">
+                    {% for alert in revenue_alerts %}
+                    <a href="{{ url_for('revenue.revenue_customer_view', customer_id=alert.customer_id) if alert.customer_id else url_for('revenue.revenue_dashboard') }}" class="list-group-item list-group-item-action py-2 px-3">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <div class="me-2" style="min-width: 0;">
+                                <div class="fw-semibold text-truncate">{{ alert.customer_name }}</div>
+                                <div class="text-muted small text-truncate">
+                                    {{ alert.bucket }} - {{ alert.recommended_action|replace('_', ' ')|title }}
+                                </div>
+                            </div>
+                            <div class="text-end flex-shrink-0">
+                                <span class="badge {% if alert.category == 'CHURN_RISK' %}bg-danger{% elif alert.category == 'RECENT_DIP' %}bg-warning text-dark{% elif alert.category == 'EXPANSION_OPPORTUNITY' %}bg-success{% else %}bg-info{% endif %}">
+                                    {{ alert.category|replace('_', ' ')|title }}
+                                </span>
+                                {% if alert.dollars_at_risk %}
+                                <div class="text-danger small fw-semibold">${{ '{:,.0f}'.format(alert.dollars_at_risk) }}</div>
+                                {% elif alert.dollars_opportunity %}
+                                <div class="text-success small fw-semibold">${{ '{:,.0f}'.format(alert.dollars_opportunity) }}</div>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </a>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <div class="text-center text-muted py-4">
+                    <i class="bi bi-shield-check" style="font-size: 2rem;"></i>
+                    <p class="mb-0 mt-2">No unactioned revenue alerts.</p>
+                </div>
+                {% endif %}
+            </div>
+            {% if revenue_alerts %}
+            <div class="card-footer text-center">
+                <a href="{{ url_for('revenue.revenue_dashboard') }}" class="text-decoration-none small">View all alerts <i class="bi bi-arrow-right"></i></a>
+            </div>
+            {% endif %}
         </div>
     </div>
 </div>
 
 <style>
-    .home-cta-button {
-        border: 1px solid rgba(0, 0, 0, 0.15) !important;
-        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15) !important;
-    }
-    .home-cta-button:hover {
-        box-shadow: 0 3px 6px rgba(0, 0, 0, 0.2) !important;
-        transform: translateY(-1px);
-        transition: all 0.2s;
-    }
-    [data-bs-theme="dark"] .home-cta-button {
-        border: 1px solid rgba(255, 255, 255, 0.15) !important;
-        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.4) !important;
-    }
-    [data-bs-theme="dark"] .home-cta-button:hover {
-        box-shadow: 0 3px 6px rgba(0, 0, 0, 0.5) !important;
-    }
-</style>
-
-<div class="row mt-4">
-    <div class="col-md-3">
-        <a href="{{ url_for('customers.customers_list') }}" class="text-decoration-none">
-            <div class="card text-center h-100 home-cta-card" style="cursor: pointer; transition: transform 0.2s;">
-                <div class="card-body">
-                    <i class="bi bi-building text-success" style="font-size: 3rem;"></i>
-                    <p class="h5 card-title mt-3 mb-0">Customers</p>
-                    <p class="card-text text-muted">{{ stats.customers }} total</p>
-                </div>
-            </div>
-        </a>
-    </div>
-    <div class="col-md-3">
-        <a href="{{ url_for('sellers.sellers_list') }}" class="text-decoration-none">
-            <div class="card text-center h-100 home-cta-card" style="cursor: pointer; transition: transform 0.2s;">
-                <div class="card-body">
-                    <i class="bi bi-people text-info" style="font-size: 3rem;"></i>
-                    <p class="h5 card-title mt-3 mb-0">Sellers</p>
-                    <p class="card-text text-muted">{{ stats.sellers }} total</p>
-                </div>
-            </div>
-        </a>
-    </div>
-    <div class="col-md-3">
-        <a href="{{ url_for('milestones.milestone_tracker') }}" class="text-decoration-none">
-            <div class="card text-center h-100 home-cta-card" style="cursor: pointer; transition: transform 0.2s;">
-                <div class="card-body">
-                    <i class="bi bi-flag-fill" style="font-size: 3rem; color: #c49000;"></i>
-                    <p class="h5 card-title mt-3 mb-0">Milestone Tracker</p>
-                    <p class="card-text text-muted">Track customer milestones</p>
-                </div>
-            </div>
-        </a>
-    </div>
-    <div class="col-md-3">
-        <a href="{{ url_for('revenue.revenue_dashboard') }}" class="text-decoration-none">
-            <div class="card text-center h-100 home-cta-card" style="cursor: pointer; transition: transform 0.2s;">
-                <div class="card-body">
-                    <i class="bi bi-graph-up-arrow" style="font-size: 3rem; color: #742774;"></i>
-                    <p class="h5 card-title mt-3 mb-0">Revenue Analyzer</p>
-                    <p class="card-text text-muted">Trends & service breakdowns</p>
-                </div>
-            </div>
-        </a>
-    </div>
-</div>
-
-<style>
-    .home-cta-card:hover {
-        transform: translateY(-5px);
-        box-shadow: 0 4px 8px rgba(0,0,0,0.1);
-    }
-    html[data-bs-theme="dark"] .home-cta-card:hover {
-        box-shadow: 0 4px 12px rgba(0,0,0,0.6);
-    }
     /* Calendar styles */
     #calendarTable {
         table-layout: fixed;
@@ -205,7 +268,7 @@
     </div>
 </div>
 
-<div class="row mt-5">
+<div class="row mt-2">
     <div class="col-md-12">
         <div class="d-flex justify-content-between align-items-center mb-3">
             <h3 class="mb-0">Activity</h3>

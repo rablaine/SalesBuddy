@@ -24,6 +24,7 @@
 
     <!-- Analysis Cards by Bucket -->
     {% if analyses %}
+    {% from 'partials/review_action.html' import review_badge, action_buttons %}
     <div class="row mb-4">
         {% for a in analyses %}
         <div class="col-md-4">
@@ -86,8 +87,12 @@
                     </div>
                     {% endif %}
                 </div>
-                <div class="card-footer text-muted">
-                    <small>Analyzed: {{ a.analyzed_at.strftime('%b %d, %Y') }} ({{ a.months_analyzed }} months)</small>
+                <div class="card-footer d-flex justify-content-between align-items-center">
+                    <span data-review-id="{{ a.id }}">{{ review_badge(a) }}</span>
+                    <div class="d-flex align-items-center gap-2">
+                        {{ action_buttons(a) }}
+                        <small class="text-muted">{{ a.analyzed_at.strftime('%b %d, %Y') }} ({{ a.months_analyzed }} months)</small>
+                    </div>
                 </div>
             </div>
         </div>
@@ -199,4 +204,7 @@
     </div>
     {% endfor %}
 </div>
+
+{% include 'partials/review_action.html' %}
+
 {% endblock %}

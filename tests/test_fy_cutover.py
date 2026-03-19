@@ -351,12 +351,11 @@ class TestNavbarReorg:
         # Notes should be in the main nav area with id="navNotes"
         assert 'id="navNotes"' in html
 
-    def test_customers_in_more_menu(self, client):
-        """Customers should be inside the More dropdown."""
+    def test_customers_in_main_nav(self, client):
+        """Customers should be a top-level nav item."""
         resp = client.get('/')
         html = resp.data.decode()
-        # Customers should NOT have a top-level nav item anymore
-        assert 'id="navCustomers"' not in html
+        assert 'id="navCustomers"' in html
 
 
 class TestArchiveExplorer:

@@ -104,6 +104,7 @@
 - Test file naming: `test_*.py` or `*_test.py`
 - **Run scoped tests during development** - Run only the test file(s) relevant to what you're building (e.g., `pytest tests/test_views.py`). Do NOT run the full suite (`pytest tests/`) - the user runs that manually.
 - Add tests for any bugs discovered to prevent regression
+- **Fix ALL test failures the user reports** - If the user shows you test failures, fix them ALL. Do not dismiss failures as "pre-existing" or "unrelated to our changes." If the user took the time to show you failures, they want them fixed. Period.
 
 ## Terminal Command Rules
 

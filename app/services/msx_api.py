@@ -1395,6 +1395,8 @@ def add_milestone_comment(
 
     Prefer upsert_milestone_comment for new code.
     """
+    if _is_writeback_disabled():
+        return dict(_WRITEBACK_BLOCKED)
     import json as json_lib
 
     try:
@@ -1743,6 +1745,8 @@ def add_user_to_milestone_team(milestone_msx_id: str) -> Dict[str, Any]:
     Returns:
         Dict with success: bool and optional error message.
     """
+    if _is_writeback_disabled():
+        return dict(_WRITEBACK_BLOCKED)
     try:
         user_id = get_current_user_id()
         if not user_id:
@@ -1801,6 +1805,8 @@ def remove_user_from_milestone_team(milestone_msx_id: str) -> Dict[str, Any]:
     Returns:
         Dict with success: bool and optional error message.
     """
+    if _is_writeback_disabled():
+        return dict(_WRITEBACK_BLOCKED)
     try:
         user_id = get_current_user_id()
         if not user_id:
@@ -1858,6 +1864,8 @@ def add_user_to_deal_team(opportunity_msx_id: str) -> Dict[str, Any]:
     Returns:
         Dict with success: bool and optional error message.
     """
+    if _is_writeback_disabled():
+        return dict(_WRITEBACK_BLOCKED)
     try:
         user_id = get_current_user_id()
         if not user_id:
@@ -1943,6 +1951,8 @@ def create_task(
         - task_url: str (MSX URL) if successful
         - error: str if failed
     """
+    if _is_writeback_disabled():
+        return dict(_WRITEBACK_BLOCKED)
     # Get current user ID for task owner
     user_id = get_current_user_id()
     if not user_id:

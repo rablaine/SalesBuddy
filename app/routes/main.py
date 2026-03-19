@@ -4,7 +4,7 @@ Handles index, search, preferences, and API endpoints.
 """
 from flask import (Blueprint, render_template, request, redirect, url_for,
                    flash, jsonify, session, g, send_from_directory, current_app)
-from datetime import datetime, timezone, date
+from datetime import datetime, timezone, date, timedelta
 from sqlalchemy import func, extract
 import calendar as cal
 import json
@@ -13,7 +13,7 @@ import re
 
 from app.models import (db, Note, Customer, Seller, Territory, Topic,
                         UserPreference, NoteTemplate, User, SyncStatus,
-                        Engagement, Milestone)
+                        Engagement, EngagementTask, Milestone, RevenueAnalysis)
 from app.services.backup import backup_template, delete_template_backup
 
 # Create blueprint
@@ -107,21 +107,47 @@ def get_seller_color(seller_id: int) -> str:
 
 @main_bp.route('/')
 def index():
-    """Home page showing recent activity and stats."""
-    # Count queries are fast on these small tables
-    stats = {
-        'notes': Note.query.count(),
-        'customers': Customer.query.count(),
-        'sellers': Seller.query.count(),
-        'topics': Topic.query.count()
-    }
+    """Home page dashboard showing actionable items and activity."""
+    today = date.today()
+
+    # Open tasks from engagements, ordered by due date
+    open_tasks = EngagementTask.query.filter(
+        EngagementTask.status == 'open'
+    ).options(
+        db.joinedload(EngagementTask.engagement).joinedload(Engagement.customer)
+    ).order_by(
+        EngagementTask.due_date.asc().nullslast(),
+        EngagementTask.priority.desc(),
+        EngagementTask.created_at.desc()
+    ).all()
+
+    # Milestones due in the next 30 days (active, on my team only)
+    upcoming_milestones = Milestone.query.filter(
+        Milestone.on_my_team == True,
+        Milestone.msx_status.in_(['On Track', 'At Risk', 'Blocked']),
+        Milestone.due_date.isnot(None),
+        Milestone.due_date <= today + timedelta(days=30),
+    ).options(
+        db.joinedload(Milestone.customer)
+    ).order_by(Milestone.due_date.asc()).all()
+
+    # Unactioned revenue alerts (new or to_be_reviewed, top priority)
+    revenue_alerts = RevenueAnalysis.query.filter(
+        RevenueAnalysis.review_status.in_(['new', 'to_be_reviewed'])
+    ).order_by(
+        RevenueAnalysis.priority_score.desc()
+    ).limit(10).all()
+
     has_milestones = Milestone.query.first() is not None
     engagement_count = Engagement.query.filter(
         Engagement.status.in_(['Active', 'On Hold'])
     ).count()
+
     return render_template(
         'index.html',
-        stats=stats,
+        open_tasks=open_tasks,
+        upcoming_milestones=upcoming_milestones,
+        revenue_alerts=revenue_alerts,
         has_milestones=has_milestones,
         has_engagements=engagement_count > 0,
         engagement_count=engagement_count,
