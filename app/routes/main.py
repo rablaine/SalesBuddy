@@ -205,14 +205,20 @@ def notes_calendar_api():
     last_day = date(year, month, cal.monthrange(year, month)[1])
     
     # Query call logs for this month with customer data and relationships
-    notes = Note.query.options(
+    seller_mode_sid = get_seller_mode_seller_id()
+    cal_query = Note.query.options(
         db.joinedload(Note.customer),
         db.joinedload(Note.milestones),
         db.joinedload(Note.topics),
     ).filter(
         Note.call_date >= first_day,
         Note.call_date <= last_day
-    ).order_by(Note.call_date).all()
+    )
+    if seller_mode_sid:
+        cal_query = cal_query.join(Customer, Note.customer_id == Customer.id).filter(
+            Customer.seller_id == seller_mode_sid
+        )
+    notes = cal_query.order_by(Note.call_date).all()
     
     # Group by day (notes already sorted by call_date from query)
     days = {}
