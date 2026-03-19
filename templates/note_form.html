@@ -148,10 +148,12 @@
                             {% if not note and preselect_customer_id %}
                                 <input type="hidden" name="customer_id" value="{{ preselect_customer_id }}">
                             {% endif %}
+                            {% if not seller_mode %}
                             {% if note and note.customer and note.customer.seller %}
                                 <div class="form-text">Seller: <strong>{{ note.customer.seller.name }}</strong></div>
                             {% elif preselect_customer and preselect_customer.seller %}
                                 <div class="form-text">Seller: <strong>{{ preselect_customer.seller.name }}</strong></div>
+                            {% endif %}
                             {% endif %}
                         </div>
                         <div class="col-md-5" id="engagementSection" {% if not preselect_customer_id and not (note and note.customer_id) %}style="display: none;"{% endif %}>

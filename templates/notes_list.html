@@ -56,7 +56,7 @@
                     {{ call.content|striptags|truncate(200, true) }}
                 </p>
                 <div>
-                    {% if call.seller %}
+                    {% if call.seller and not seller_mode %}
                         <a href="{{ url_for('sellers.seller_view', id=call.seller.id) }}" class="badge {{ get_seller_color(call.seller.id) }} text-decoration-none" onclick="event.stopPropagation();"><i class="bi bi-person"></i> {{ call.seller.name }}</a>
                     {% endif %}
                     {% if call.territory %}

@@ -15,6 +15,7 @@ from app.models import (db, Note, Customer, Seller, Territory, Topic,
                         UserPreference, NoteTemplate, User, SyncStatus,
                         Engagement, EngagementTask, Milestone, RevenueAnalysis)
 from app.services.backup import backup_template, delete_template_backup
+from app.services.seller_mode import get_seller_mode_seller_id
 
 # Create blueprint
 main_bp = Blueprint('main', __name__)
@@ -109,39 +110,62 @@ def get_seller_color(seller_id: int) -> str:
 def index():
     """Home page dashboard showing actionable items and activity."""
     today = date.today()
+    seller_mode_sid = get_seller_mode_seller_id()
 
     # Open tasks from engagements, ordered by due date
-    open_tasks = EngagementTask.query.filter(
+    open_tasks_q = EngagementTask.query.filter(
         EngagementTask.status == 'open'
     ).options(
         db.joinedload(EngagementTask.engagement).joinedload(Engagement.customer)
-    ).order_by(
+    )
+    if seller_mode_sid:
+        open_tasks_q = open_tasks_q.join(
+            Engagement, EngagementTask.engagement_id == Engagement.id
+        ).join(Customer, Engagement.customer_id == Customer.id).filter(
+            Customer.seller_id == seller_mode_sid
+        )
+    open_tasks = open_tasks_q.order_by(
         EngagementTask.due_date.asc().nullslast(),
         EngagementTask.priority.desc(),
         EngagementTask.created_at.desc()
     ).all()
 
     # Milestones due in the next 30 days (active, on my team only)
-    upcoming_milestones = Milestone.query.filter(
+    milestones_q = Milestone.query.filter(
         Milestone.on_my_team == True,
         Milestone.msx_status.in_(['On Track', 'At Risk', 'Blocked']),
         Milestone.due_date.isnot(None),
         Milestone.due_date <= today + timedelta(days=30),
     ).options(
         db.joinedload(Milestone.customer)
-    ).order_by(Milestone.due_date.asc()).all()
+    )
+    if seller_mode_sid:
+        milestones_q = milestones_q.join(Customer, Milestone.customer_id == Customer.id).filter(
+            Customer.seller_id == seller_mode_sid
+        )
+    upcoming_milestones = milestones_q.order_by(Milestone.due_date.asc()).all()
 
     # Unactioned revenue alerts (new or to_be_reviewed, top priority)
-    revenue_alerts = RevenueAnalysis.query.filter(
+    alerts_q = RevenueAnalysis.query.filter(
         RevenueAnalysis.review_status.in_(['new', 'to_be_reviewed'])
-    ).order_by(
+    )
+    if seller_mode_sid:
+        seller = Seller.query.get(seller_mode_sid)
+        if seller:
+            alerts_q = alerts_q.filter(RevenueAnalysis.seller_name == seller.name)
+    revenue_alerts = alerts_q.order_by(
         RevenueAnalysis.priority_score.desc()
     ).limit(10).all()
 
     has_milestones = Milestone.query.first() is not None
-    engagement_count = Engagement.query.filter(
+    engagement_q = Engagement.query.filter(
         Engagement.status.in_(['Active', 'On Hold'])
-    ).count()
+    )
+    if seller_mode_sid:
+        engagement_q = engagement_q.join(Customer, Engagement.customer_id == Customer.id).filter(
+            Customer.seller_id == seller_mode_sid
+        )
+    engagement_count = engagement_q.count()
 
     return render_template(
         'index.html',
@@ -311,6 +335,11 @@ def search():
     seller_id = request.args.get('seller_id', type=int)
     territory_id = request.args.get('territory_id', type=int)
     topic_ids = request.args.getlist('topic_ids', type=int)
+    seller_mode_sid = get_seller_mode_seller_id()
+    
+    # In seller mode, force seller filter
+    if seller_mode_sid:
+        seller_id = seller_mode_sid
     
     # Check if any search criteria provided
     has_search = bool(search_text or customer_id or seller_id or territory_id or topic_ids)
@@ -863,6 +892,10 @@ def reset_onboarding():
     pref = UserPreference.query.first()
     if pref:
         pref.first_run_modal_dismissed = False
+        pref.user_role = None
+        pref.my_seller_id = None
+        pref.my_seller_alias = None
+        session.pop('seller_mode_seller_id', None)
         db.session.commit()
     
     return jsonify({'first_run_modal_dismissed': False}), 200
@@ -901,6 +934,79 @@ def update_workiq_connect_impact():
     db.session.commit()
     
     return jsonify({'success': True, 'workiq_connect_impact': pref.workiq_connect_impact}), 200
+
+
+# =============================================================================
+# User Role & Seller Mode
+# =============================================================================
+
+@main_bp.route('/api/preferences/user-role', methods=['POST'])
+def set_user_role():
+    """Set the user role (DSS or SE). Can only be set once during onboarding."""
+    data = request.get_json()
+    role = data.get('role', '').strip().lower()
+    
+    if role not in ('se', 'dss'):
+        return jsonify({'error': 'Invalid role. Must be "se" or "dss".'}), 400
+    
+    pref = UserPreference.query.first()
+    if not pref:
+        pref = UserPreference()
+        db.session.add(pref)
+    
+    # Role is permanent once set, unless onboarding is being re-run
+    if pref.user_role is not None and pref.first_run_modal_dismissed:
+        return jsonify({'error': 'Role already set. Reset onboarding to change.'}), 409
+    
+    pref.user_role = role
+    db.session.commit()
+    
+    return jsonify({'user_role': pref.user_role}), 200
+
+
+@main_bp.route('/api/seller-mode/activate/<int:seller_id>', methods=['POST'])
+def activate_seller_mode(seller_id: int):
+    """Activate seller mode for a specific seller (SE only)."""
+    seller = db.session.get(Seller, seller_id)
+    if not seller:
+        return jsonify({'error': 'Seller not found.'}), 404
+    
+    session['seller_mode_seller_id'] = seller_id
+    return jsonify({'seller_mode': True, 'seller_id': seller_id, 'seller_name': seller.name}), 200
+
+
+@main_bp.route('/api/seller-mode/deactivate', methods=['POST'])
+def deactivate_seller_mode():
+    """Deactivate seller mode (return to normal SE view)."""
+    session.pop('seller_mode_seller_id', None)
+    return jsonify({'seller_mode': False}), 200
+
+
+@main_bp.route('/api/admin/dev-toggle-role', methods=['POST'])
+def dev_toggle_role():
+    """Dev-only: Toggle between SE and DSS mode for testing."""
+    if os.environ.get('FLASK_ENV') != 'development':
+        return jsonify({'error': 'Dev-only endpoint.'}), 403
+    
+    pref = UserPreference.query.first()
+    if not pref:
+        pref = UserPreference()
+        db.session.add(pref)
+    
+    if pref.user_role == 'dss':
+        # Switch to SE
+        pref.user_role = 'se'
+        pref.my_seller_id = None
+        pref.my_seller_alias = None
+        session.pop('seller_mode_seller_id', None)
+    else:
+        # Switch to DSS with seller ID 7
+        pref.user_role = 'dss'
+        pref.my_seller_id = 7
+    
+    db.session.commit()
+    
+    return jsonify({'user_role': pref.user_role, 'my_seller_id': pref.my_seller_id}), 200
 
 
 # =============================================================================
@@ -960,6 +1066,23 @@ def inject_preferences():
         if fy_last_completed != next_fy:
             fy_changeover_reminder = next_fy
 
+    # Seller mode resolution
+    user_role_raw = pref.user_role if pref else None
+    user_role = user_role_raw or 'se'
+    user_role_set = user_role_raw is not None
+    seller_mode = False
+    seller_mode_seller = None
+    if user_role == 'dss' and pref and pref.my_seller_id:
+        seller_mode = True
+        seller_mode_seller = pref.my_seller
+    elif user_role == 'se' and session.get('seller_mode_seller_id'):
+        seller = db.session.get(Seller, session['seller_mode_seller_id'])
+        if seller:
+            seller_mode = True
+            seller_mode_seller = seller
+        else:
+            session.pop('seller_mode_seller_id', None)
+
     return dict(
         dark_mode=dark_mode, 
         customer_view_grouped=customer_view_grouped, 
@@ -980,5 +1103,9 @@ def inject_preferences():
         fy_transition_label=fy_transition_label,
         fy_sync_complete=fy_sync_complete,
         fy_changeover_reminder=fy_changeover_reminder,
+        user_role=user_role,
+        user_role_set=user_role_set,
+        seller_mode=seller_mode,
+        seller_mode_seller=seller_mode_seller,
     )
 

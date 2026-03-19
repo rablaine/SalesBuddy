@@ -45,6 +45,7 @@
                     {% endif %}
                 </p>
                 
+                {% if not seller_mode %}
                 <p><strong>Seller:</strong><br>
                     {% if note.seller %}
                         <a href="{{ url_for('sellers.seller_view', id=note.seller.id) }}" class="badge bg-primary text-decoration-none">
@@ -54,6 +55,7 @@
                         <span class="text-muted">Not specified</span>
                     {% endif %}
                 </p>
+                {% endif %}
                 
                 <p><strong>Territory:</strong><br>
                     {% if note.territory %}

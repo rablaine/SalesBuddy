@@ -2,12 +2,13 @@
 Call log routes for Sales Buddy.
 Handles call log listing, creation, viewing, editing, and Fill My Day bulk import.
 """
-from flask import Blueprint, render_template, request, redirect, url_for, flash, g, jsonify
+from flask import Blueprint, render_template, request, redirect, url_for, flash, g, jsonify, session
 from datetime import datetime
 import logging
 
 from app.models import db, Note, Customer, Seller, Territory, Topic, Partner, Milestone, MsxTask, UserPreference, NoteTemplate
 from app.services.msx_api import TASK_CATEGORIES, add_user_to_milestone_team
+from app.services.seller_mode import get_seller_mode_seller_id as _get_seller_mode_seller_id
 from app.services.backup import backup_customer as _backup_customer
 from app.services.milestone_tracking import track_note_on_milestones
 
@@ -192,6 +193,11 @@ def notes_list():
         db.joinedload(Note.topics),
         db.joinedload(Note.partners)
     )
+    
+    # Seller mode scoping
+    seller_mode_seller_id = _get_seller_mode_seller_id()
+    if seller_mode_seller_id:
+        query = query.join(Note.customer).filter(Customer.seller_id == seller_mode_seller_id)
     
     if filter_type == 'customer':
         query = query.filter(Note.customer_id.isnot(None))

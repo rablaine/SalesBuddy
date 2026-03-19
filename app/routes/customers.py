@@ -7,6 +7,7 @@ from sqlalchemy import func, or_
 
 from app.models import db, Customer, CustomerCSAM, CustomerContact, Seller, Territory, Note, UserPreference
 from app.services.backup import backup_customer as _backup_customer
+from app.services.seller_mode import get_seller_mode_seller_id
 
 # Create blueprint
 customers_bp = Blueprint('customers', __name__)
@@ -16,6 +17,7 @@ customers_bp = Blueprint('customers', __name__)
 def customers_list():
     """List all customers - alphabetical, grouped by seller, or sorted by call count based on preference."""
     pref = UserPreference.query.first()
+    seller_mode_sid = get_seller_mode_seller_id()
     
     # Check preference for showing customers without calls (default: True = show all)
     show_customers_without_calls = pref.show_customers_without_calls if pref else True
@@ -24,6 +26,10 @@ def customers_list():
     sort_by = pref.customer_sort_by if pref else 'alphabetical'
     if sort_by == 'grouped' or (pref and pref.customer_view_grouped and sort_by == 'alphabetical'):
         sort_by = 'grouped'
+    
+    # In seller mode, force non-grouped view (grouping by seller is meaningless)
+    if seller_mode_sid and sort_by == 'grouped':
+        sort_by = 'alphabetical'
     
     if sort_by == 'grouped':
         # Grouped view - get all sellers with their customers
@@ -72,7 +78,10 @@ def customers_list():
             db.joinedload(Customer.seller),
             db.joinedload(Customer.territory),
             db.joinedload(Customer.notes)
-        ).outerjoin(Note).group_by(Customer.id).order_by(
+        )
+        if seller_mode_sid:
+            customers_query = customers_query.filter(Customer.seller_id == seller_mode_sid)
+        customers_query = customers_query.outerjoin(Note).group_by(Customer.id).order_by(
             func.count(Note.id).desc(),
             Customer.name
         )
@@ -91,7 +100,10 @@ def customers_list():
             db.joinedload(Customer.seller),
             db.joinedload(Customer.territory),
             db.joinedload(Customer.notes)
-        ).order_by(Customer.name)
+        )
+        if seller_mode_sid:
+            customers_query = customers_query.filter(Customer.seller_id == seller_mode_sid)
+        customers_query = customers_query.order_by(Customer.name)
         
         # Filter out customers without calls if preference is False
         if not show_customers_without_calls:

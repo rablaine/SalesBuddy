@@ -30,6 +30,7 @@
                     </select>
                 </div>
                 
+                {% if not seller_mode %}
                 <div class="col-md-6">
                     <label for="seller_id" class="form-label">Seller</label>
                     <select class="form-select" id="seller_id" name="seller_id">
@@ -42,6 +43,7 @@
                         {% endfor %}
                     </select>
                 </div>
+                {% endif %}
                 
                 <div class="col-md-6">
                     <label for="territory_id" class="form-label">Territory</label>
@@ -91,6 +93,7 @@
     <!-- Grouped Results: Seller → Customer → Notes -->
     {% for seller_id, seller_data in grouped_data.items() %}
         <div class="mb-4">
+            {% if not seller_mode %}
             <div class="d-flex align-items-center mb-3 pb-2 border-bottom">
                 <h5 class="mb-0">
                     <i class="bi bi-person text-primary"></i> 
@@ -103,6 +106,7 @@
                     {% endif %}
                 </h5>
             </div>
+            {% endif %}
             
             {% for customer_data in seller_data.customers_sorted %}
                 <div class="ms-3 mb-4">

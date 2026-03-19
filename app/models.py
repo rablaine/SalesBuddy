@@ -959,12 +959,16 @@ class UserPreference(db.Model):
     backup_retention_daily = db.Column(db.Integer, default=7, nullable=False)  # Number of daily backups to keep
     backup_retention_weekly = db.Column(db.Integer, default=4, nullable=False)  # Number of weekly backups to keep
     backup_retention_monthly = db.Column(db.Integer, default=3, nullable=False)  # Number of monthly backups to keep
+    user_role = db.Column(db.String(10), nullable=True)  # 'se' or 'dss' - null until set during onboarding
+    my_seller_id = db.Column(db.Integer, db.ForeignKey('sellers.id'), nullable=True)  # DSS's own Seller record
+    my_seller_alias = db.Column(db.String(100), nullable=True)  # DSS's az login alias (persisted for offline use)
     created_at = db.Column(db.DateTime, default=utc_now, nullable=False)
     updated_at = db.Column(db.DateTime, default=utc_now, onupdate=utc_now, nullable=False)
     
     # Relationships
     default_template_customer = db.relationship('NoteTemplate', foreign_keys=[default_template_customer_id])
     default_template_noncustomer = db.relationship('NoteTemplate', foreign_keys=[default_template_noncustomer_id])
+    my_seller = db.relationship('Seller', foreign_keys=[my_seller_id])
     
     def __repr__(self) -> str:
         return f'<UserPreference dark_mode={self.dark_mode} customer_view_grouped={self.customer_view_grouped} customer_sort_by={self.customer_sort_by} topic_sort_by_calls={self.topic_sort_by_calls} territory_view_accounts={self.territory_view_accounts} show_customers_without_calls={self.show_customers_without_calls} first_run_modal_dismissed={self.first_run_modal_dismissed}>'

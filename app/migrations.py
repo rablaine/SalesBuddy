@@ -202,6 +202,11 @@ def run_migrations(db):
 
     # Note: customer_contacts table is created by db.create_all() - no migration needed
 
+    # Migration: Add DSS seller mode columns to user_preferences
+    _add_column_if_not_exists(db, inspector, 'user_preferences', 'user_role', 'VARCHAR(10)')
+    _add_column_if_not_exists(db, inspector, 'user_preferences', 'my_seller_id', 'INTEGER REFERENCES sellers(id)')
+    _add_column_if_not_exists(db, inspector, 'user_preferences', 'my_seller_alias', 'VARCHAR(100)')
+
     # =========================================================================
     # End migrations
     # =========================================================================

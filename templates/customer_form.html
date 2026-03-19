@@ -45,6 +45,9 @@
                         <div class="form-text">Link to this customer's account record in Microsoft Sales Experience (MSX)</div>
                     </div>
                     
+                    {% if seller_mode and seller_mode_seller %}
+                    <input type="hidden" name="seller_id" value="{{ seller_mode_seller.id }}">
+                    {% else %}
                     <div class="mb-3">
                         <label for="seller_id" class="form-label">Seller</label>
                         <select class="form-select" id="seller_id" name="seller_id">
@@ -68,6 +71,7 @@
                             Or <a href="#" data-bs-toggle="modal" data-bs-target="#newSellerModal">create a new seller</a>
                         </div>
                     </div>
+                    {% endif %}
                     
                     <div class="mb-3">
                         <label for="territory_id" class="form-label">Territory</label>

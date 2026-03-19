@@ -10,6 +10,7 @@ from app.models import (
     db, Engagement, EngagementTask, Customer, Note, Opportunity, Milestone, Topic
 )
 from app.services.milestone_tracking import track_engagement_on_milestones
+from app.services.seller_mode import get_seller_mode_seller_id
 
 logger = logging.getLogger(__name__)
 
@@ -20,15 +21,25 @@ engagements_bp = Blueprint('engagements', __name__)
 @engagements_bp.route('/engagements')
 def engagements_hub():
     """Engagements hub - overview of all engagements across customers."""
+    seller_mode_sid = get_seller_mode_seller_id()
+
+    def _base_q():
+        q = Engagement.query
+        if seller_mode_sid:
+            q = q.join(Customer, Engagement.customer_id == Customer.id).filter(
+                Customer.seller_id == seller_mode_sid
+            )
+        return q
+
     # Summary stats
-    total = Engagement.query.count()
-    active = Engagement.query.filter_by(status='Active').count()
-    on_hold = Engagement.query.filter_by(status='On Hold').count()
-    won = Engagement.query.filter_by(status='Won').count()
-    lost = Engagement.query.filter_by(status='Lost').count()
+    total = _base_q().count()
+    active = _base_q().filter(Engagement.status == 'Active').count()
+    on_hold = _base_q().filter(Engagement.status == 'On Hold').count()
+    won = _base_q().filter(Engagement.status == 'Won').count()
+    lost = _base_q().filter(Engagement.status == 'Lost').count()
 
     # Story completeness breakdown (active + on hold only)
-    active_engagements = Engagement.query.filter(
+    active_engagements = _base_q().filter(
         Engagement.status.in_(['Active', 'On Hold'])
     ).all()
     story_empty = sum(1 for e in active_engagements if e.story_completeness == 0)
@@ -56,10 +67,16 @@ def api_all_engagements():
     from sqlalchemy.orm import joinedload, subqueryload
 
     status_filter = request.args.get('status', '').strip()
+    seller_mode_sid = get_seller_mode_seller_id()
 
     query = Engagement.query
     if status_filter in Engagement.STATUSES:
         query = query.filter(Engagement.status == status_filter)
+
+    if seller_mode_sid:
+        query = query.join(Customer, Engagement.customer_id == Customer.id).filter(
+            Customer.seller_id == seller_mode_sid
+        )
 
     query = query.options(
         joinedload(Engagement.customer).joinedload(Customer.seller),

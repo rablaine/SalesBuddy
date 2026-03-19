@@ -7,6 +7,11 @@
 <div class="d-flex justify-content-between align-items-center mb-4">
     <h1><i class="bi bi-person"></i> {{ seller.name }}</h1>
     <div>
+        {% if not seller_mode %}
+        <button class="btn btn-outline-secondary me-2" onclick="activateSellerMode({{ seller.id }})">
+            <i class="bi bi-eye"></i> View as Seller
+        </button>
+        {% endif %}
         <a href="{{ url_for('customers.customer_create', seller_id=seller.id) }}" class="btn btn-success me-2">
             <i class="bi bi-plus-circle"></i> New Customer
         </a>

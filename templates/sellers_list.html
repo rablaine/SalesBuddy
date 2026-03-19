@@ -60,6 +60,9 @@
                         <a href="{{ url_for('customers.customer_create', seller_id=seller.id) }}" class="btn btn-sm btn-success text-white" onclick="event.stopPropagation();">
                             <i class="bi bi-plus-circle"></i> New Customer
                         </a>
+                        <button class="btn btn-sm btn-outline-secondary" onclick="event.stopPropagation(); activateSellerMode({{ seller.id }});">
+                            <i class="bi bi-eye"></i> View as Seller
+                        </button>
                     </div>
                 </div>
             </div>

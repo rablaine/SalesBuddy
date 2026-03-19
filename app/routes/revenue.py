@@ -27,6 +27,7 @@ from app.services.revenue_analysis import (
     run_analysis_for_all, run_analysis_streaming, get_actionable_analyses,
     get_seller_alerts, AnalysisConfig
 )
+from app.services.seller_mode import get_seller_mode_seller_id
 
 # Create blueprint
 revenue_bp = Blueprint('revenue', __name__)
@@ -35,8 +36,16 @@ revenue_bp = Blueprint('revenue', __name__)
 @revenue_bp.route('/revenue')
 def revenue_dashboard():
     """Main revenue attention dashboard."""
-    # Get actionable analyses
-    analyses = get_actionable_analyses(min_priority=20, limit=50)
+    seller_mode_sid = get_seller_mode_seller_id()
+    seller_mode_name = None
+    if seller_mode_sid:
+        seller_obj = Seller.query.get(seller_mode_sid)
+        seller_mode_name = seller_obj.name if seller_obj else None
+
+    # Get actionable analyses (scoped to seller in seller mode)
+    analyses = get_actionable_analyses(
+        min_priority=20, limit=50, seller_name=seller_mode_name
+    )
     
     # Group by category for summary
     category_counts = {}
@@ -49,10 +58,15 @@ def revenue_dashboard():
         category_counts[cat]['total_opportunity'] += a.dollars_opportunity or 0
     
     # Get unique sellers with alerts
-    seller_names = db.session.query(RevenueAnalysis.seller_name).filter(
+    seller_alerts_q = db.session.query(RevenueAnalysis.seller_name).filter(
         RevenueAnalysis.seller_name.isnot(None),
         RevenueAnalysis.recommended_action.notin_(["NO ACTION", "MONITOR"])
-    ).distinct().all()
+    )
+    if seller_mode_name:
+        seller_alerts_q = seller_alerts_q.filter(
+            RevenueAnalysis.seller_name == seller_mode_name
+        )
+    seller_names = seller_alerts_q.distinct().all()
     sellers_with_alerts = [s[0] for s in seller_names if s[0]]
 
     # Map seller names to IDs for color-coding badges
@@ -463,8 +477,11 @@ def revenue_customer_view(customer_id: int):
     # Get all analyses for this customer (all buckets)
     analyses = RevenueAnalysis.query.filter_by(customer_id=customer_id).all()
     
-    # Get revenue history by bucket
-    buckets = ['Core DBs', 'Analytics', 'Modern DBs']
+    # Get revenue history by bucket (discover buckets dynamically from data)
+    bucket_rows = db.session.query(CustomerRevenueData.bucket).filter(
+        CustomerRevenueData.customer_id == customer_id
+    ).distinct().all()
+    buckets = sorted([r[0] for r in bucket_rows if r[0]])
     revenue_by_bucket = {}
     products_by_bucket = {}
     bucket_product_data = {}  # Full product data with monthly revenues

@@ -74,9 +74,11 @@
             <button type="button" class="btn btn-sm {{ 'btn-primary' if sort_by == 'alphabetical' else 'btn-outline-secondary' }}" data-sort="alphabetical" title="Sort alphabetically">
                 <i class="bi bi-sort-alpha-down"></i> A-Z
             </button>
+            {% if not seller_mode %}
             <button type="button" class="btn btn-sm {{ 'btn-primary' if sort_by == 'grouped' else 'btn-outline-secondary' }}" data-sort="grouped" title="Group by seller">
                 <i class="bi bi-people"></i> Grouped
             </button>
+            {% endif %}
             <button type="button" class="btn btn-sm {{ 'btn-primary' if sort_by == 'by_calls' else 'btn-outline-secondary' }}" data-sort="by_calls" title="Sort by number of notes">
                 <i class="bi bi-journal-text"></i> By Notes
             </button>

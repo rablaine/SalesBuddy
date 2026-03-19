@@ -342,6 +342,7 @@
                             <i class="bi bi-building"></i> Customers
                         </a>
                     </li>
+                    {% if not seller_mode %}
                     <li class="nav-item dropdown nav-hover-dropdown" id="navSellers">
                         <a class="nav-link dropdown-toggle" href="{{ url_for('sellers.sellers_list') }}" role="button" data-bs-toggle="dropdown" aria-expanded="false">
                             <i class="bi bi-people"></i> Sellers
@@ -364,6 +365,7 @@
                             {% endif %}
                         </ul>
                     </li>
+                    {% endif %}
                     <li class="nav-item" id="navNotes">
                         <a class="nav-link" href="{{ url_for('notes.notes_list') }}">
                             <i class="bi bi-journal-text"></i> Notes
@@ -625,30 +627,48 @@
                         <div class="progress-bar" id="onboardingProgress" role="progressbar" style="width: 20%"></div>
                     </div>
 
-                    <!-- STEP 1: Welcome + Dark Mode -->
+                    <!-- STEP 1: Role Selection + Theme -->
                     <div class="onboarding-step" id="onboardingStep1">
-                        <p class="lead mb-3">Let's get you set up! This wizard will walk you through connecting to MSX, enabling AI-powered features, and importing your data.</p>
+                        <p class="lead mb-3">Let's get you set up! First, tell us about your role.</p>
                         
-                        <div class="card mb-3">
-                            <div class="card-body">
-                                <div class="d-flex justify-content-between align-items-center">
-                                    <div>
-                                        <h6 class="card-title mb-1"><i class="bi bi-moon-stars text-primary"></i> Choose Your Theme</h6>
-                                        <p class="text-muted small mb-0">You can always change this later in <i class="bi bi-gear"></i> Settings</p>
-                                    </div>
-                                    <div class="d-flex align-items-center gap-2 ms-3">
-                                        <span class="small text-nowrap" style="cursor: pointer;" onclick="document.getElementById('onboardDarkModeToggle').click()"><i class="bi bi-sun-fill text-warning"></i> Light</span>
-                                        <div class="form-check form-switch mb-0">
-                                            <input class="form-check-input" type="checkbox" role="switch" id="onboardDarkModeToggle" style="width: 3em; height: 1.5em;" {{ 'checked' if dark_mode else '' }}>
+                        <h6 class="mb-3"><i class="bi bi-person-badge text-primary"></i> What's your role?</h6>
+                        
+                        <div class="d-flex flex-column gap-2 mb-3">
+                            <div class="card role-choice-card" id="roleDssCard" style="cursor: pointer; transition: border-color 0.15s;" onclick="selectRole('dss')">
+                                <div class="card-body py-2">
+                                    <div class="d-flex align-items-center">
+                                        <i class="bi bi-person-fill fs-4 text-primary me-3"></i>
+                                        <div>
+                                            <h6 class="mb-0">Digital Sales Specialist (DSS)</h6>
+                                            <small class="text-muted">I manage my own accounts directly</small>
                                         </div>
-                                        <span class="small text-nowrap" style="cursor: pointer;" onclick="document.getElementById('onboardDarkModeToggle').click()"><i class="bi bi-moon-fill"></i> Dark</span>
+                                        <i class="bi bi-check-circle-fill text-primary ms-auto d-none" id="roleDssCheck"></i>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="card role-choice-card" id="roleSeCard" style="cursor: pointer; transition: border-color 0.15s;" onclick="selectRole('se')">
+                                <div class="card-body py-2">
+                                    <div class="d-flex align-items-center">
+                                        <i class="bi bi-people-fill fs-4 text-primary me-3"></i>
+                                        <div>
+                                            <h6 class="mb-0">Solution Engineer (SE)</h6>
+                                            <small class="text-muted">I support multiple sellers and their accounts</small>
+                                        </div>
+                                        <i class="bi bi-check-circle-fill text-primary ms-auto d-none" id="roleSeCheck"></i>
                                     </div>
                                 </div>
                             </div>
                         </div>
                         
-                        <div class="alert alert-info mb-0">
-                            <i class="bi bi-info-circle"></i> <strong>What's next:</strong> We'll sign you in to Azure (which also enables AI features like topic suggestions and engagement summaries), then import your accounts, milestones, and revenue data.
+                        <div class="d-flex justify-content-between align-items-center border-top pt-3">
+                            <span class="small text-muted"><i class="bi bi-moon-stars"></i> Theme</span>
+                            <div class="d-flex align-items-center gap-2">
+                                <span class="small text-nowrap" style="cursor: pointer;" onclick="document.getElementById('onboardDarkModeToggle').click()"><i class="bi bi-sun-fill text-warning"></i></span>
+                                <div class="form-check form-switch mb-0">
+                                    <input class="form-check-input" type="checkbox" role="switch" id="onboardDarkModeToggle" style="width: 2.5em; height: 1.25em;" {{ 'checked' if dark_mode else '' }}>
+                                </div>
+                                <span class="small text-nowrap" style="cursor: pointer;" onclick="document.getElementById('onboardDarkModeToggle').click()"><i class="bi bi-moon-fill"></i></span>
+                            </div>
                         </div>
                     </div>
 
@@ -981,6 +1001,27 @@
     </div>
     {% endif %}
 
+    <!-- Seller Mode Banner (SE only - shows when viewing as a specific seller) -->
+    {% if seller_mode and user_role == 'se' and seller_mode_seller %}
+    <div class="alert alert-info mb-0 py-2 rounded-0 border-start-0 border-end-0" style="border-top: 0;">
+        <div class="container d-flex align-items-center justify-content-between">
+            <span>
+                <i class="bi bi-eye-fill me-1"></i>
+                <strong>Viewing as:</strong> {{ seller_mode_seller.name }}
+                {% if seller_mode_seller.seller_type %}
+                <span class="badge bg-success ms-1">{{ seller_mode_seller.seller_type }}</span>
+                {% endif %}
+                {% if seller_mode_seller.territories %}
+                <span class="text-muted ms-1">- {{ seller_mode_seller.territories|map(attribute='name')|join(', ') }}</span>
+                {% endif %}
+            </span>
+            <button class="btn btn-sm btn-outline-danger" onclick="exitSellerMode()">
+                <i class="bi bi-x-lg"></i> Exit Seller Mode
+            </button>
+        </div>
+    </div>
+    {% endif %}
+
     <!-- Main Content -->
     <main id="main-content" class="container my-4" role="main">
         {% block content %}{% endblock %}
@@ -1236,6 +1277,26 @@
     })();
     </script>
 
+    <!-- Seller Mode Scripts -->
+    <script defer>
+        async function exitSellerMode() {
+            try {
+                await fetch('/api/seller-mode/deactivate', { method: 'POST' });
+                window.location.href = '/';
+            } catch (err) {
+                console.error('Failed to exit seller mode:', err);
+            }
+        }
+        async function activateSellerMode(sellerId) {
+            try {
+                await fetch('/api/seller-mode/activate/' + sellerId, { method: 'POST' });
+                window.location.href = '/';
+            } catch (err) {
+                console.error('Failed to activate seller mode:', err);
+            }
+        }
+    </script>
+
     <!-- Dark Mode and Colored Sellers Toggle Scripts -->
     <script defer>
         const htmlElement = document.documentElement;
@@ -1256,6 +1317,7 @@
                 let milestonesImported = {{ 'true' if has_milestones else 'false' }};
                 let revenueImported = {{ 'true' if has_revenue else 'false' }};
                 let aiEnabled = true;
+                let roleSelected = {{ 'true' if user_role_set else 'false' }};
                 const milestonesSyncState = '{{ milestones_sync_state }}';
                 const revenueSyncState = '{{ revenue_sync_state }}';
 
@@ -1337,7 +1399,9 @@
 
                 function updateNextButton() {
                     const skipStepBtn = document.getElementById('onboardSkipStepBtn');
-                    if (currentStep === 2 && !(authCompleted && vpnVerified)) {
+                    if (currentStep === 1 && !roleSelected) {
+                        nextBtn.disabled = true;
+                    } else if (currentStep === 2 && !(authCompleted && vpnVerified)) {
                         nextBtn.disabled = true;
                     } else if (currentStep === 3 && !accountsImported) {
                         nextBtn.disabled = true;
@@ -1397,6 +1461,35 @@
                 }
 
                 // --- Step 1: Dark Mode Toggle ---
+                // --- Step 1: Role Selection ---
+                async function selectRole(role) {
+                    const dssCard = document.getElementById('roleDssCard');
+                    const seCard = document.getElementById('roleSeCard');
+                    const dssCheck = document.getElementById('roleDssCheck');
+                    const seCheck = document.getElementById('roleSeCheck');
+                    
+                    // Visual selection
+                    dssCard.classList.toggle('border-primary', role === 'dss');
+                    dssCard.classList.toggle('border-2', role === 'dss');
+                    seCard.classList.toggle('border-primary', role === 'se');
+                    seCard.classList.toggle('border-2', role === 'se');
+                    dssCheck.classList.toggle('d-none', role !== 'dss');
+                    seCheck.classList.toggle('d-none', role !== 'se');
+                    
+                    roleSelected = true;
+                    updateNextButton();
+                    
+                    try {
+                        await fetch('/api/preferences/user-role', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ role: role })
+                        });
+                    } catch (err) {
+                        console.error('Failed to save role:', err);
+                    }
+                }
+
                 const onboardDarkToggle = document.getElementById('onboardDarkModeToggle');
                 if (onboardDarkToggle) {
                     onboardDarkToggle.addEventListener('change', async function() {

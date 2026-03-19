@@ -81,7 +81,7 @@
 <!-- Engagements Panel (reusable partial) -->
 {% set eng_api_url = '/api/engagements/all' %}
 {% set eng_auto_load = true %}
-{% set eng_show_seller = true %}
+{% set eng_show_seller = not seller_mode %}
 {% set eng_show_closed = true %}
 {% set eng_body_id = 'engHubBody' %}
 {% set eng_count_id = 'engHubCount' %}
