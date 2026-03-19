@@ -130,10 +130,9 @@ def index():
         EngagementTask.created_at.desc()
     ).all()
 
-    # Milestones due in the next 30 days
-    # In seller mode: show all active milestones for the seller's customers
-    # In SE mode: show only milestones the SE has joined the team on
+    # Milestones due in the next 30 days (active, on my team only)
     milestones_q = Milestone.query.filter(
+        Milestone.on_my_team == True,
         Milestone.msx_status.in_(['On Track', 'At Risk', 'Blocked']),
         Milestone.due_date.isnot(None),
         Milestone.due_date <= today + timedelta(days=30),
@@ -144,8 +143,6 @@ def index():
         milestones_q = milestones_q.join(Customer, Milestone.customer_id == Customer.id).filter(
             Customer.seller_id == seller_mode_sid
         )
-    else:
-        milestones_q = milestones_q.filter(Milestone.on_my_team == True)
     upcoming_milestones = milestones_q.order_by(Milestone.due_date.asc()).all()
 
     # Unactioned revenue alerts (new or to_be_reviewed, top priority)
