@@ -540,7 +540,7 @@ def milestones_calendar_api():
     first_day = date(year, month, 1)
     last_day = date(year, month, cal.monthrange(year, month)[1])
 
-    milestones = (
+    milestones_q = (
         Milestone.query
         .filter(
             Milestone.msx_status.in_(ACTIVE_STATUSES),
@@ -550,9 +550,13 @@ def milestones_calendar_api():
         .options(
             db.joinedload(Milestone.customer).joinedload(Customer.seller),
         )
-        .order_by(Milestone.due_date)
-        .all()
     )
+    seller_mode_sid = get_seller_mode_seller_id()
+    if seller_mode_sid:
+        milestones_q = milestones_q.join(Customer, Milestone.customer_id == Customer.id).filter(
+            Customer.seller_id == seller_mode_sid
+        )
+    milestones = milestones_q.order_by(Milestone.due_date).all()
 
     days: dict = {}
     for ms in milestones:
