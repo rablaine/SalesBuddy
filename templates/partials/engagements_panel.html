@@ -283,6 +283,12 @@
                     <div class="d-flex flex-wrap gap-3 align-items-start">${customerGroups.map(buildCustomerGroup).join('')}</div>
                 </div>`;
             }).join('');
+        } else if (!SHOW_SELLER_DEFAULT) {
+            // Seller mode - group by customer only (no seller header)
+            const customerGroups = groupByCustomer(items);
+            body.innerHTML = '<div class="d-flex flex-wrap gap-3 align-items-start">' +
+                customerGroups.map(buildCustomerGroup).join('') +
+                '</div>';
         } else {
             // Flat list - no grouping, each card shows seller/customer
             body.innerHTML = '<div class="d-flex flex-wrap gap-2 align-items-start">' +
