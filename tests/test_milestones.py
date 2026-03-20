@@ -482,8 +482,9 @@ class TestMilestoneViewOverhaul:
         ms_id = self._create_milestone(app, msx_milestone_id=None)
         resp = client.get(f'/milestone/{ms_id}')
         assert resp.status_code == 200
-        assert b'detailsSpinner' not in resp.data
-        assert b'commentsSpinner' not in resp.data
+        # Check for actual spinner div elements, not just JS references
+        assert b'id="detailsSpinner"' not in resp.data
+        assert b'id="commentsSpinner"' not in resp.data
 
     def test_tasks_in_left_column(self, client, app, db_session, sample_user):
         """Tasks card should be in the left column (col-md-4)."""

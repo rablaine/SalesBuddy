@@ -148,55 +148,10 @@
 
     <!-- Right column: Comments (lazy-loaded) -->
     <div class="col-md-8">
-        <div class="card mb-3">
-            <div class="card-header d-flex justify-content-between align-items-center">
-                <h5 class="mb-0"><i class="bi bi-chat-dots"></i> Forecast Comments</h5>
-                <span class="badge bg-secondary" id="commentCount" {% if not cached_comments %}style="display:none;"{% endif %}>{% if cached_comments %}{{ cached_comments|length }} comment{{ 's' if cached_comments|length != 1 else '' }}{% endif %}</span>
-            </div>
-            <div class="card-body" id="commentsBody">
-                <!-- Comment form (always visible when we have cached data) -->
-                <div id="commentFormCached" {% if not cached_comments %}style="display:none;"{% endif %}>
-                    {% if cached_comments is not none %}
-                    <form action="/opportunity/{{ opportunity.id }}/comment" method="post" class="mb-4">
-                        <div class="input-group">
-                            <textarea class="form-control" name="comment" rows="2" placeholder="Add a forecast comment..." required></textarea>
-                            <button type="submit" class="btn btn-primary">
-                                <i class="bi bi-send"></i> Post
-                            </button>
-                        </div>
-                        <small class="text-muted">This comment will be posted to the MSX opportunity record.</small>
-                    </form>
-                    {% endif %}
-                </div>
-                <!-- Spinner between form and comments -->
-                <div id="commentsSpinner" class="text-center py-3 mb-3">
-                    <div class="spinner-border spinner-border-sm" role="status"></div>
-                    <span class="text-muted ms-1">{% if cached_comments is not none %}Refreshing comments from MSX...{% else %}Loading comments from MSX...{% endif %}</span>
-                </div>
-                <!-- Cached comments shown immediately -->
-                <div id="commentsCached" {% if not cached_comments %}style="display:none;"{% endif %}>
-                    {% if cached_comments is not none %}
-                    {% if cached_comments %}
-                    <div class="list-group">
-                        {% for c in cached_comments|reverse %}
-                        <div class="list-group-item">
-                            <div class="d-flex w-100 justify-content-between mb-1">
-                                <strong>{{ c.displayName or 'Unknown' }}</strong>
-                                <small class="text-muted"><i class="bi bi-clock"></i> {{ c.modifiedOn or '' }}</small>
-                            </div>
-                            <p class="mb-0" style="white-space:pre-wrap;">{{ c.comment or '' }}</p>
-                        </div>
-                        {% endfor %}
-                    </div>
-                    {% else %}
-                    <p class="text-muted">No forecast comments yet. Be the first to add one!</p>
-                    {% endif %}
-                    {% endif %}
-                </div>
-                <div id="commentsMsx" style="display:none;"></div>
-                <div id="commentsError" style="display:none;"></div>
-            </div>
-        </div>
+        {% set comment_form_action = "/opportunity/" ~ opportunity.id ~ "/comment" %}
+        {% set entity_label = "opportunity" %}
+        {% set show_comments = true %}
+        {% include '_forecast_comments.html' %}
     </div>
 </div>
 {% endblock %}
@@ -205,7 +160,9 @@
 <script>
 const OPP_ID = {{ opportunity.id }};
 const OPP_ON_DEAL_TEAM = {{ 'true' if opportunity.on_deal_team else 'false' }};
-let _skipCommentRestore = false;
+const COMMENT_ENTITY_ID = OPP_ID;
+const COMMENT_API_PREFIX = '/api/opportunity';
+const COMMENT_ENTITY_LABEL = 'opportunity';
 
 // ── Fetch MSX details + comments (auto-retry once on failure) ───────
 function fetchMsxDetails(retriesLeft) {
@@ -237,6 +194,8 @@ function escapeHtml(str) {
     d.textContent = str;
     return d.innerHTML;
 }
+
+{% include '_forecast_comments_js.html' %}
 
 function formatCurrency(val) {
     if (val == null) return '';
@@ -296,244 +255,17 @@ function renderDetails(opp) {
     }).catch(() => {});
 }
 
-// ── Render comments into the Comments card ──────────────────────────
-function renderComments(opp) {
-    document.getElementById('commentsSpinner').style.display = 'none';
-    // Preserve any in-progress comment text before re-rendering
-    let pendingText = '';
-    let hadFocus = false;
-    if (!_skipCommentRestore) {
-        const existingTextarea = document.getElementById('commentText');
-        if (existingTextarea) {
-            pendingText = existingTextarea.value;
-            hadFocus = (document.activeElement === existingTextarea);
-        }
-        if (!pendingText) {
-            const cachedTextarea = document.querySelector('#commentFormCached textarea');
-            if (cachedTextarea) {
-                pendingText = cachedTextarea.value;
-                hadFocus = hadFocus || (document.activeElement === cachedTextarea);
-            }
-        }
-    }
-    _skipCommentRestore = false;
-    // Hide cached content - fresh data replaces it
-    const cached = document.getElementById('commentsCached');
-    if (cached) cached.style.display = 'none';
-    const cachedForm = document.getElementById('commentFormCached');
-    if (cachedForm) cachedForm.style.display = 'none';
-    const el = document.getElementById('commentsMsx');
-    el.style.display = '';
-    const badge = document.getElementById('commentCount');
-
-    const comments = opp.comments || [];
-    if (comments.length > 0) {
-        badge.style.display = '';
-        badge.textContent = comments.length + ' comment' + (comments.length !== 1 ? 's' : '');
-    }
-
-    // AJAX comment form
-    let html = `
-        <form onsubmit="return postComment(event)" class="mb-4">
-            <div class="input-group">
-                <textarea class="form-control" id="commentText" rows="2" placeholder="Add a forecast comment..." required></textarea>
-                <button type="submit" class="btn btn-primary" id="postCommentBtn">
-                    <i class="bi bi-send"></i> Post
-                </button>
-            </div>
-            <small class="text-muted">This comment will be posted to the MSX opportunity record.</small>
-        </form>
-    `;
-
-    if (comments.length > 0) {
-        html += '<div class="list-group">';
-        // Reverse to show newest first
-        for (let i = 0; i < [...comments].reverse().length; i++) {
-            const c = [...comments].reverse()[i];
-            html += `
-                <div class="list-group-item">
-                    <div class="d-flex w-100 justify-content-between mb-1">
-                        <strong>${escapeHtml(c.displayName || c.userId || 'Unknown')}</strong>
-                        <div>
-                            <small class="text-muted me-2"><i class="bi bi-clock"></i> ${escapeHtml(c.modifiedOn || '')}</small>
-                            <button class="btn btn-sm btn-outline-secondary py-0 px-1 me-1" title="Edit"
-                                data-action="edit" data-idx="${i}">
-                                <i class="bi bi-pencil"></i>
-                            </button>
-                            <button class="btn btn-sm btn-outline-danger py-0 px-1" title="Delete"
-                                data-action="delete" data-idx="${i}">
-                                <i class="bi bi-trash"></i>
-                            </button>
-                        </div>
-                    </div>
-                    <div id="comment-body-${i}">
-                        <p class="mb-0" style="white-space:pre-wrap;">${escapeHtml(c.comment || '')}</p>
-                    </div>
-                </div>`;
-        }
-        html += '</div>';
-    } else {
-        html += '<p class="text-muted">No forecast comments yet. Be the first to add one!</p>';
-    }
-
-    el.innerHTML = html;
-
-    // Restore any in-progress comment text and focus
-    if (pendingText) {
-        const newTextarea = document.getElementById('commentText');
-        if (newTextarea) {
-            newTextarea.value = pendingText;
-            if (hadFocus) {
-                newTextarea.focus();
-                newTextarea.selectionStart = newTextarea.selectionEnd = newTextarea.value.length;
-            }
-        }
-    }
-
-    // Store reversed comments and bind edit/delete handlers via event delegation
-    const reversedComments = [...(opp.comments || [])].reverse();
-    el.querySelectorAll('[data-action="edit"]').forEach(btn => {
-        btn.addEventListener('click', () => {
-            const idx = parseInt(btn.dataset.idx);
-            const c = reversedComments[idx];
-            startEditComment(idx, c.modifiedOn, c.userId);
-        });
-    });
-    el.querySelectorAll('[data-action="delete"]').forEach(btn => {
-        btn.addEventListener('click', () => {
-            const idx = parseInt(btn.dataset.idx);
-            const c = reversedComments[idx];
-            deleteComment(c.modifiedOn, c.userId, btn);
-        });
-    });
-}
-
-// ── Post comment via AJAX ───────────────────────────────────────────
-function postComment(e) {
-    e.preventDefault();
-    const textarea = document.getElementById('commentText');
-    const btn = document.getElementById('postCommentBtn');
-    const text = textarea.value.trim();
-    if (!text) return false;
-
-    const originalBtn = btn.innerHTML;
-    btn.disabled = true;
-    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
-
-    fetch(`/api/opportunity/${OPP_ID}/comment`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ comment: text })
-    })
-    .then(r => r.json())
-    .then(data => {
-        if (data.success) {
-            _skipCommentRestore = true;
-            fetchMsxDetails(0);
-        } else {
-            btn.disabled = false;
-            btn.innerHTML = originalBtn;
-            alert('Failed to post comment: ' + (data.error || 'Unknown error'));
-        }
-    })
-    .catch(err => {
-        btn.disabled = false;
-        btn.innerHTML = originalBtn;
-        alert('Failed to post comment: ' + err.message);
-    });
-    return false;
-}
-
-function startEditComment(idx, modifiedOn, userId) {
-    const bodyEl = document.getElementById('comment-body-' + idx);
-    const currentText = bodyEl.querySelector('p').textContent;
-    bodyEl.innerHTML = `
-        <textarea class="form-control mb-2" id="editText-${idx}" rows="6">${escapeHtml(currentText)}</textarea>
-        <div>
-            <button class="btn btn-sm btn-primary me-1" id="saveEdit-${idx}">
-                <i class="bi bi-check"></i> Save
-            </button>
-            <button class="btn btn-sm btn-secondary" id="cancelEdit-${idx}">Cancel</button>
-        </div>
-    `;
-    document.getElementById('saveEdit-' + idx).addEventListener('click', () => {
-        saveEditComment(idx, modifiedOn, userId);
-    });
-    document.getElementById('cancelEdit-' + idx).addEventListener('click', () => {
-        bodyEl.innerHTML = `<p class="mb-0" style="white-space:pre-wrap;">${escapeHtml(currentText)}</p>`;
-    });
-}
-
-function saveEditComment(idx, modifiedOn, userId) {
-    const textarea = document.getElementById('editText-' + idx);
-    const text = textarea.value.trim();
-    if (!text) return;
-
-    const bodyEl = document.getElementById('comment-body-' + idx);
-    const saveBtn = document.getElementById('saveEdit-' + idx);
-    bodyEl.querySelectorAll('button').forEach(b => b.disabled = true);
-    if (saveBtn) saveBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Saving...';
-
-    fetch(`/api/opportunity/${OPP_ID}/comment`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ modifiedOn: modifiedOn, userId: userId, comment: text })
-    })
-    .then(r => r.json())
-    .then(data => {
-        if (data.success) {
-            fetchMsxDetails(0);
-        } else {
-            alert('Failed to edit comment: ' + (data.error || 'Unknown error'));
-            bodyEl.querySelectorAll('button').forEach(b => b.disabled = false);
-        }
-    })
-    .catch(err => {
-        alert('Failed to edit comment: ' + err.message);
-        bodyEl.querySelectorAll('button').forEach(b => b.disabled = false);
-    });
-}
-
-function deleteComment(modifiedOn, userId, btn) {
-    if (!confirm('Delete this comment from the MSX opportunity?')) return;
-
-    btn.disabled = true;
-    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
-
-    fetch(`/api/opportunity/${OPP_ID}/comment`, {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ modifiedOn: modifiedOn, userId: userId })
-    })
-    .then(r => r.json())
-    .then(data => {
-        if (data.success) {
-            fetchMsxDetails(0);
-        } else {
-            alert('Failed to delete comment: ' + (data.error || 'Unknown error'));
-            btn.disabled = false;
-            btn.innerHTML = '<i class="bi bi-trash"></i>';
-        }
-    })
-    .catch(err => {
-        alert('Failed to delete comment: ' + err.message);
-        btn.disabled = false;
-        btn.innerHTML = '<i class="bi bi-trash"></i>';
-    });
-}
-
 // ── Render error state ──────────────────────────────────────────────
 function renderError(errorMsg, vpnBlocked) {
     // Show global VPN banner when blocked
     if (vpnBlocked && window.showVpnBanner) window.showVpnBanner();
 
-    // Details card — hide spinner, but keep cached data visible if present
+    // Details card - hide spinner, but keep cached data visible if present
     document.getElementById('detailsSpinner').style.display = 'none';
     const cached = document.getElementById('detailsCached');
     const hasCachedData = cached && cached.innerHTML.trim().length > 0 && cached.style.display !== 'none';
 
     if (!hasCachedData) {
-        // No cached data — show error in the error div
         const errEl = document.getElementById('detailsError');
         errEl.style.display = '';
         if (vpnBlocked) {
@@ -547,27 +279,8 @@ function renderError(errorMsg, vpnBlocked) {
             </div>`;
         }
     }
-    // If we have cached data, it stays visible — no error shown for details
 
-    // Comments card — keep cached comments visible if present
-    document.getElementById('commentsSpinner').style.display = 'none';
-    const cachedComments = document.getElementById('commentsCached');
-    const hasCachedComments = cachedComments && cachedComments.innerHTML.trim().length > 0 && cachedComments.style.display !== 'none';
-
-    if (!hasCachedComments) {
-        const commErr = document.getElementById('commentsError');
-        commErr.style.display = '';
-        if (vpnBlocked) {
-            commErr.innerHTML = `<div class="alert alert-secondary mb-0">
-                <i class="bi bi-shield-lock"></i> <strong>VPN Required</strong><br>
-                <small>Connect to VPN to load forecast comments.</small>
-            </div>`;
-        } else {
-            commErr.innerHTML = `<div class="alert alert-warning mb-0">
-                <i class="bi bi-exclamation-triangle"></i> Could not load comments: ${escapeHtml(errorMsg)}
-            </div>`;
-        }
-    }
+    renderCommentsError(errorMsg, vpnBlocked);
 }
 
 // ── Join Deal Team ──────────────────────────────────────────────────

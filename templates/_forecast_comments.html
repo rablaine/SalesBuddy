@@ -1,0 +1,65 @@
+{#
+    Shared forecast comments partial - used by milestone_view.html and opportunity_view.html.
+
+    Required variables:
+        cached_comments  - list of comment dicts (or None if no cache)
+        comment_form_action - URL for the cached form POST fallback
+        entity_label     - "milestone" or "opportunity" (for display text)
+        show_comments    - bool: whether to show the comments section at all
+                           (False when milestone has no MSX ID)
+#}
+
+<!-- Right column: MSX Forecast Comments (lazy-loaded) -->
+<div class="card mb-3">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h5 class="mb-0"><i class="bi bi-chat-dots"></i> Forecast Comments</h5>
+        <span class="badge bg-secondary" id="commentCount" {% if not cached_comments %}style="display:none;"{% endif %}>{% if cached_comments %}{{ cached_comments|length }} comment{{ 's' if cached_comments|length != 1 else '' }}{% endif %}</span>
+    </div>
+    <div class="card-body" id="commentsBody">
+        {% if show_comments %}
+        <!-- Comment form (visible when we have cached data) -->
+        <div id="commentFormCached" {% if cached_comments is none %}style="display:none;"{% endif %}>
+            {% if cached_comments is not none %}
+            <form action="{{ comment_form_action }}" method="post" class="mb-4">
+                <div class="input-group">
+                    <textarea class="form-control" name="comment" rows="2" placeholder="Add a forecast comment..." required></textarea>
+                    <button type="submit" class="btn btn-primary">
+                        <i class="bi bi-send"></i> Post
+                    </button>
+                </div>
+                <small class="text-muted">This comment will be posted to the MSX {{ entity_label }} record.</small>
+            </form>
+            {% endif %}
+        </div>
+        <!-- Spinner while fetching -->
+        <div id="commentsSpinner" class="text-center py-3 mb-3">
+            <div class="spinner-border spinner-border-sm" role="status"></div>
+            <span class="text-muted ms-1">{% if cached_comments is not none %}Refreshing comments from MSX...{% else %}Loading comments from MSX...{% endif %}</span>
+        </div>
+        <!-- Cached comments shown immediately -->
+        <div id="commentsCached" {% if not cached_comments %}style="display:none;"{% endif %}>
+            {% if cached_comments is not none %}
+            {% if cached_comments %}
+            <div class="list-group" id="cachedCommentsList">
+                {% for c in cached_comments %}
+                <div class="list-group-item" data-modified="{{ c.modifiedOn or '' }}">
+                    <div class="d-flex w-100 justify-content-between mb-1">
+                        <strong>{{ c.displayName or c.userId or 'Unknown' }}</strong>
+                        <small class="text-muted"><i class="bi bi-clock"></i> <span class="comment-time" datetime="{{ c.modifiedOn or '' }}">{{ c.modifiedOn or '' }}</span></small>
+                    </div>
+                    <p class="mb-0 comment-text" style="white-space:pre-wrap;">{{ c.comment or '' }}</p>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <p class="text-muted">No forecast comments yet. Be the first to add one!</p>
+            {% endif %}
+            {% endif %}
+        </div>
+        <div id="commentsMsx" style="display:none;"></div>
+        <div id="commentsError" style="display:none;"></div>
+        {% else %}
+        <p class="text-muted mb-0">This {{ entity_label }} has no MSX ID - comments not available.</p>
+        {% endif %}
+    </div>
+</div>

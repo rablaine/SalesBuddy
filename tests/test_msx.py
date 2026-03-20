@@ -446,7 +446,11 @@ class TestNoteMilestoneTaskFlow:
 # ---------------------------------------------------------------------------
 
 class TestMsxWritebackDisabled:
-    """Test that MSX_WRITEBACK_DISABLED blocks all write operations."""
+    """Test that MSX_WRITEBACK_DISABLED blocks automatic write operations only.
+
+    Manual actions (add_milestone_comment, create_task, team operations) should
+    NOT be blocked - only the automatic upsert_milestone_comment is gated.
+    """
 
     def test_upsert_comment_blocked(self, app):
         """upsert_milestone_comment should return error when writeback disabled."""
@@ -461,34 +465,34 @@ class TestMsxWritebackDisabled:
             finally:
                 os.environ.pop('MSX_WRITEBACK_DISABLED', None)
 
-    def test_add_comment_blocked(self, app):
-        """add_milestone_comment should return error when writeback disabled."""
+    def test_add_comment_not_blocked(self, app):
+        """add_milestone_comment (manual) should NOT be blocked by writeback flag."""
         from app.services.msx_api import add_milestone_comment
         with app.app_context():
             import os
             os.environ['MSX_WRITEBACK_DISABLED'] = 'true'
             try:
                 result = add_milestone_comment('ms-id', 'text')
-                assert result['success'] is False
-                assert 'disabled' in result['error'].lower()
+                # Should attempt the MSX call, not return 'disabled'
+                assert 'disabled' not in result.get('error', '').lower()
             finally:
                 os.environ.pop('MSX_WRITEBACK_DISABLED', None)
 
-    def test_create_task_blocked(self, app):
-        """create_task should return error when writeback disabled."""
+    def test_create_task_not_blocked(self, app):
+        """create_task (manual) should NOT be blocked by writeback flag."""
         from app.services.msx_api import create_task
         with app.app_context():
             import os
             os.environ['MSX_WRITEBACK_DISABLED'] = 'true'
             try:
                 result = create_task('ms-id', 'subject', 1)
-                assert result['success'] is False
-                assert 'disabled' in result['error'].lower()
+                # Should attempt the MSX call, not return 'disabled'
+                assert 'disabled' not in result.get('error', '').lower()
             finally:
                 os.environ.pop('MSX_WRITEBACK_DISABLED', None)
 
-    def test_team_operations_blocked(self, app):
-        """Team operations should return error when writeback disabled."""
+    def test_team_operations_not_blocked(self, app):
+        """Team operations (manual) should NOT be blocked by writeback flag."""
         from app.services.msx_api import (
             add_user_to_milestone_team,
             remove_user_from_milestone_team,
@@ -502,8 +506,8 @@ class TestMsxWritebackDisabled:
                            remove_user_from_milestone_team,
                            add_user_to_deal_team]:
                     result = fn('some-id')
-                    assert result['success'] is False
-                    assert 'disabled' in result['error'].lower()
+                    # Should attempt the MSX call, not return 'disabled'
+                    assert 'disabled' not in result.get('error', '').lower()
             finally:
                 os.environ.pop('MSX_WRITEBACK_DISABLED', None)
 

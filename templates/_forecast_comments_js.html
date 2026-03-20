@@ -1,0 +1,306 @@
+{#
+    Shared forecast comments JavaScript - used by milestone_view.html and opportunity_view.html.
+
+    Required JS variables (must be set before including this):
+        COMMENT_ENTITY_ID   - the entity's DB ID (e.g. MS_ID or OPP_ID)
+        COMMENT_API_PREFIX  - API URL prefix (e.g. "/api/milestone" or "/api/opportunity")
+        COMMENT_ENTITY_LABEL - display name for confirms (e.g. "milestone" or "opportunity")
+#}
+
+let _skipCommentRestore = false;
+
+function linkifyRefTags(html) {
+    // Convert · note-123 · to clickable link
+    html = html.replace(/\u00b7 note-(\d+) \u00b7/g,
+        '<a href="/note/$1" class="link-info">&middot; note-$1 &middot;</a>');
+    // Convert · eng-123 · to clickable link
+    html = html.replace(/\u00b7 eng-(\d+) \u00b7/g,
+        '<a href="/engagement/$1" class="link-info">&middot; eng-$1 &middot;</a>');
+    return html;
+}
+
+// Format a UTC ISO timestamp to the user's local timezone
+function formatCommentTimestamp(isoStr) {
+    if (!isoStr) return '';
+    try {
+        const d = new Date(isoStr);
+        if (isNaN(d)) return isoStr;
+        return d.toLocaleString(undefined, {
+            year: 'numeric', month: 'short', day: 'numeric',
+            hour: 'numeric', minute: '2-digit'
+        });
+    } catch (e) {
+        return isoStr;
+    }
+}
+
+// Linkify ref tags, localize timestamps, and sort cached comments on page load
+document.querySelectorAll('#commentsCached .comment-text').forEach(el => {
+    el.innerHTML = linkifyRefTags(el.innerHTML);
+});
+document.querySelectorAll('#commentsCached .comment-time').forEach(el => {
+    el.textContent = formatCommentTimestamp(el.getAttribute('datetime'));
+});
+// Sort cached comment items by date (descending) since Jinja string sort can't handle mixed date formats
+const cachedList = document.getElementById('cachedCommentsList');
+if (cachedList) {
+    const items = [...cachedList.children];
+    items.sort((a, b) => new Date(b.dataset.modified || 0) - new Date(a.dataset.modified || 0));
+    items.forEach(item => cachedList.appendChild(item));
+}
+
+function renderComments(entity) {
+    const spinner = document.getElementById('commentsSpinner');
+    if (spinner) spinner.style.display = 'none';
+
+    // Preserve any in-progress comment text before re-rendering
+    let pendingText = '';
+    let hadFocus = false;
+    if (!_skipCommentRestore) {
+        const existingTextarea = document.getElementById('commentText');
+        if (existingTextarea) {
+            pendingText = existingTextarea.value;
+            hadFocus = (document.activeElement === existingTextarea);
+        }
+        if (!pendingText) {
+            const cachedTextarea = document.querySelector('#commentFormCached textarea');
+            if (cachedTextarea) {
+                pendingText = cachedTextarea.value;
+                hadFocus = hadFocus || (document.activeElement === cachedTextarea);
+            }
+        }
+    }
+    _skipCommentRestore = false;
+
+    // Hide cached content - fresh data replaces it
+    const cached = document.getElementById('commentsCached');
+    if (cached) cached.style.display = 'none';
+    const cachedForm = document.getElementById('commentFormCached');
+    if (cachedForm) cachedForm.style.display = 'none';
+    const el = document.getElementById('commentsMsx');
+    el.style.display = '';
+    const countBadge = document.getElementById('commentCount');
+
+    const comments = entity.comments || [];
+    countBadge.style.display = '';
+    countBadge.textContent = comments.length + ' comment' + (comments.length !== 1 ? 's' : '');
+
+    // AJAX comment form
+    let html = `
+        <form id="commentFormMsx" class="mb-4" onsubmit="return postComment(event)">
+            <div class="input-group">
+                <textarea class="form-control" id="commentText" rows="2" placeholder="Add a forecast comment..." required></textarea>
+                <button type="submit" class="btn btn-primary" id="postCommentBtn">
+                    <i class="bi bi-send"></i> Post
+                </button>
+            </div>
+            <small class="text-muted">This comment will be posted to the MSX ${COMMENT_ENTITY_LABEL} record.</small>
+        </form>
+    `;
+
+    if (comments.length > 0) {
+        const sorted = [...comments].sort((a, b) => new Date(b.modifiedOn || 0) - new Date(a.modifiedOn || 0));
+        html += '<div class="list-group">';
+        for (let i = 0; i < sorted.length; i++) {
+            const c = sorted[i];
+            html += `
+                <div class="list-group-item" id="comment-${i}">
+                    <div class="d-flex w-100 justify-content-between mb-1">
+                        <strong>${escapeHtml(c.displayName || c.userId || 'Unknown')}</strong>
+                        <div>
+                            <small class="text-muted me-2"><i class="bi bi-clock"></i> ${formatCommentTimestamp(c.modifiedOn)}</small>
+                            <button class="btn btn-sm btn-outline-secondary py-0 px-1 me-1" title="Edit"
+                                data-action="edit" data-idx="${i}">
+                                <i class="bi bi-pencil"></i>
+                            </button>
+                            <button class="btn btn-sm btn-outline-danger py-0 px-1" title="Delete"
+                                data-action="delete" data-idx="${i}">
+                                <i class="bi bi-trash"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div id="comment-body-${i}">
+                        <p class="mb-0" style="white-space:pre-wrap;">${linkifyRefTags(escapeHtml(c.comment || ''))}</p>
+                    </div>
+                </div>`;
+        }
+        html += '</div>';
+    } else {
+        html += '<p class="text-muted">No forecast comments yet. Be the first to add one!</p>';
+    }
+
+    el.innerHTML = html;
+
+    // Restore any in-progress comment text and focus
+    if (pendingText) {
+        const newTextarea = document.getElementById('commentText');
+        if (newTextarea) {
+            newTextarea.value = pendingText;
+            if (hadFocus) {
+                newTextarea.focus();
+                newTextarea.selectionStart = newTextarea.selectionEnd = newTextarea.value.length;
+            }
+        }
+    }
+
+    // Bind edit/delete handlers via event delegation
+    const sortedComments = [...(entity.comments || [])].sort((a, b) => new Date(b.modifiedOn || 0) - new Date(a.modifiedOn || 0));
+    el.querySelectorAll('[data-action="edit"]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const idx = parseInt(btn.dataset.idx);
+            const c = sortedComments[idx];
+            startEditComment(idx, c.modifiedOn, c.userId);
+        });
+    });
+    el.querySelectorAll('[data-action="delete"]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const idx = parseInt(btn.dataset.idx);
+            const c = sortedComments[idx];
+            deleteComment(c.modifiedOn, c.userId, btn);
+        });
+    });
+}
+
+// ── Comment error rendering ─────────────────────────────────────────
+function renderCommentsError(errorMsg, vpnBlocked) {
+    const commSpinner = document.getElementById('commentsSpinner');
+    if (commSpinner) commSpinner.style.display = 'none';
+    const cachedComments = document.getElementById('commentsCached');
+    const hasCachedComments = cachedComments && cachedComments.innerHTML.trim().length > 0 && cachedComments.style.display !== 'none';
+    if (!hasCachedComments) {
+        const commErr = document.getElementById('commentsError');
+        commErr.style.display = '';
+        if (vpnBlocked) {
+            commErr.innerHTML = `<div class="alert alert-secondary mb-0">
+                <i class="bi bi-shield-lock"></i> <strong>VPN Required</strong><br>
+                <small>Connect to VPN to load forecast comments.</small>
+            </div>`;
+        } else {
+            commErr.innerHTML = `<div class="alert alert-warning mb-0">
+                <i class="bi bi-exclamation-triangle"></i> Could not load comments: ${escapeHtml(errorMsg)}
+            </div>`;
+        }
+    }
+}
+
+// ── Post comment via AJAX ───────────────────────────────────────────
+function postComment(e) {
+    e.preventDefault();
+    const textarea = document.getElementById('commentText');
+    const btn = document.getElementById('postCommentBtn');
+    const text = textarea.value.trim();
+    if (!text) return false;
+
+    const originalBtn = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+
+    fetch(`${COMMENT_API_PREFIX}/${COMMENT_ENTITY_ID}/comment`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ comment: text })
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            // Keep button spinner and textarea text visible until refresh completes.
+            // _skipCommentRestore tells renderComments to clear the text on redraw.
+            _skipCommentRestore = true;
+            fetchMsxDetails(0);
+        } else {
+            btn.disabled = false;
+            btn.innerHTML = originalBtn;
+            alert('Failed to post comment: ' + (data.error || 'Unknown error'));
+        }
+    })
+    .catch(err => {
+        btn.disabled = false;
+        btn.innerHTML = originalBtn;
+        alert('Failed to post comment: ' + err.message);
+    });
+    return false;
+}
+
+function startEditComment(idx, modifiedOn, userId) {
+    const bodyEl = document.getElementById('comment-body-' + idx);
+    const currentText = bodyEl.querySelector('p').textContent;
+    bodyEl.innerHTML = `
+        <textarea class="form-control mb-2" id="editText-${idx}" rows="6">${escapeHtml(currentText)}</textarea>
+        <div>
+            <button class="btn btn-sm btn-primary me-1" id="saveEdit-${idx}">
+                <i class="bi bi-check"></i> Save
+            </button>
+            <button class="btn btn-sm btn-secondary" id="cancelEdit-${idx}">Cancel</button>
+        </div>
+    `;
+    document.getElementById('saveEdit-' + idx).addEventListener('click', () => {
+        saveEditComment(idx, modifiedOn, userId);
+    });
+    document.getElementById('editText-' + idx).addEventListener('keydown', (e) => {
+        if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+            e.preventDefault();
+            saveEditComment(idx, modifiedOn, userId);
+        }
+    });
+    document.getElementById('cancelEdit-' + idx).addEventListener('click', () => {
+        bodyEl.innerHTML = `<p class="mb-0" style="white-space:pre-wrap;">${escapeHtml(currentText)}</p>`;
+    });
+}
+
+function saveEditComment(idx, modifiedOn, userId) {
+    const textarea = document.getElementById('editText-' + idx);
+    const text = textarea.value.trim();
+    if (!text) return;
+
+    const bodyEl = document.getElementById('comment-body-' + idx);
+    bodyEl.querySelectorAll('button').forEach(b => b.disabled = true);
+    const saveBtn = document.getElementById('saveEdit-' + idx);
+    if (saveBtn) saveBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Saving...';
+
+    fetch(`${COMMENT_API_PREFIX}/${COMMENT_ENTITY_ID}/comment`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ modifiedOn: modifiedOn, userId: userId, comment: text })
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            fetchMsxDetails(0);
+        } else {
+            alert('Failed to edit comment: ' + (data.error || 'Unknown error'));
+            bodyEl.querySelectorAll('button').forEach(b => b.disabled = false);
+        }
+    })
+    .catch(err => {
+        alert('Failed to edit comment: ' + err.message);
+        bodyEl.querySelectorAll('button').forEach(b => b.disabled = false);
+    });
+}
+
+function deleteComment(modifiedOn, userId, btn) {
+    if (!confirm(`Delete this comment from the MSX ${COMMENT_ENTITY_LABEL}?`)) return;
+
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+
+    fetch(`${COMMENT_API_PREFIX}/${COMMENT_ENTITY_ID}/comment`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ modifiedOn: modifiedOn, userId: userId })
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            fetchMsxDetails(0);
+        } else {
+            alert('Failed to delete comment: ' + (data.error || 'Unknown error'));
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-trash"></i>';
+        }
+    })
+    .catch(err => {
+        alert('Failed to delete comment: ' + err.message);
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-trash"></i>';
+    });
+}

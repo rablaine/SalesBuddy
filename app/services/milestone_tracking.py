@@ -392,7 +392,11 @@ def track_note_on_milestones(note, background: bool = True) -> list[dict] | None
     topics = ', '.join(t.name for t in note.topics[:5]) if note.topics else 'None'
     plain = _strip_html(note.content)
     ref_tag = _NOTE_REF.format(id=note.id)
-    call_date_iso = note.call_date.strftime('%Y-%m-%dT00:00:00.000Z')
+    # call_date is naive local time; convert to UTC for MSX
+    cd = note.call_date
+    if cd.tzinfo is None:
+        cd = cd.astimezone()  # interpret as local timezone
+    call_date_iso = cd.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.000Z')
 
     milestones_data = [
         {"msx_milestone_id": m.msx_milestone_id, "milestone_id": m.id}
