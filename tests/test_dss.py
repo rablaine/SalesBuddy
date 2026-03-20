@@ -153,7 +153,7 @@ class TestDSSPodGrouping:
             db.session.commit()
         resp = client.get(f'/pod/{dss_data["pod_id"]}')
         html = resp.data.decode()
-        assert 'Select Security' in html
+        assert '— Select —' in html
         assert 'DSS Carol' in html
         assert 'DSS Frank' in html
 

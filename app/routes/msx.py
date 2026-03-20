@@ -1335,7 +1335,7 @@ def import_stream():
             role = init_result.get("role", "Unknown")
             yield _sse({
                 "message": f"Found {len(account_ids)} accounts to import...",
-                "user": user_info.get("name"), "role": role, "progress": 2,
+                "user": user_info.get("name"), "role": role, "progress": 1,
             })
 
             if not account_ids:
@@ -1352,7 +1352,7 @@ def import_stream():
 
             yield _sse({
                 "message": f"Querying {len(account_ids)} accounts in parallel ({_PARALLEL_WORKERS} workers)...",
-                "progress": 3,
+                "progress": 1,
             })
 
             accounts_raw: dict = {}
@@ -1368,20 +1368,20 @@ def import_stream():
                             yield _sse({"message": evt['message']})
                             continue
                         completed += 1
-                        pct = 3 + int((completed / max(total_batches, 1)) * 9)
+                        pct = 1 + int((completed / max(total_batches, 1)) * 7)
                         yield _sse({
                             "message": f"Querying accounts... ({evt['fetched']} fetched)",
-                            "progress": min(pct, 12),
+                            "progress": min(pct, 8),
                         })
                 for evt in _drain(progress_q):
                     if evt.get('retry'):
                         yield _sse({"message": evt['message']})
                         continue
                     completed += 1
-                    pct = 3 + int((completed / max(total_batches, 1)) * 9)
+                    pct = 1 + int((completed / max(total_batches, 1)) * 7)
                     yield _sse({
                         "message": f"Querying accounts... ({evt['fetched']} fetched)",
-                        "progress": min(pct, 12),
+                        "progress": min(pct, 8),
                     })
                 for f in futures:
                     accounts_raw.update(f.result())
@@ -1392,7 +1392,7 @@ def import_stream():
 
             yield _sse({
                 "message": f"Retrieved {len(accounts_raw)} accounts. Getting territory details...",
-                "progress": 13,
+                "progress": 8,
             })
 
             # ----------------------------------------------------------
@@ -1413,7 +1413,7 @@ def import_stream():
 
                 yield _sse({
                     "message": f"Querying {len(territory_ids)} territories in parallel...",
-                    "progress": 14,
+                    "progress": 8,
                 })
 
                 with ThreadPoolExecutor(max_workers=_PARALLEL_WORKERS) as pool:
@@ -1428,25 +1428,25 @@ def import_stream():
                                 yield _sse({"message": evt['message']})
                                 continue
                             t_done += 1
-                            pct = 14 + int((t_done / max(t_total, 1)) * 6)
+                            pct = 8 + int((t_done / max(t_total, 1)) * 1)
                             yield _sse({
                                 "message": f"Querying territories... ({evt['fetched']} fetched)",
-                                "progress": min(pct, 20),
+                                "progress": min(pct, 9),
                             })
                     for evt in _drain(progress_q):
                         if evt.get('retry'):
                             yield _sse({"message": evt['message']})
                             continue
                         t_done += 1
-                        pct = 14 + int((t_done / max(t_total, 1)) * 6)
+                        pct = 8 + int((t_done / max(t_total, 1)) * 1)
                         yield _sse({
                             "message": f"Querying territories... ({evt['fetched']} fetched)",
-                            "progress": min(pct, 20),
+                            "progress": min(pct, 9),
                         })
                     for f in futures:
                         territories_raw.update(f.result())
 
-            yield _sse({"message": "Processing account data...", "progress": 21})
+            yield _sse({"message": "Processing account data...", "progress": 9})
 
             # ----------------------------------------------------------
             # Process accounts into data structures (same as sequential)
@@ -1545,7 +1545,7 @@ def import_stream():
                     f"{len(territories_seen)} territories, "
                     f"{len(pod_accounts)} PODs"
                 ),
-                "progress": 22,
+                "progress": 9,
             })
 
             # ----------------------------------------------------------
@@ -1562,7 +1562,7 @@ def import_stream():
                     f"Fetching sellers and SEs in parallel "
                     f"({_PARALLEL_WORKERS} workers, ~{team_total} batches)..."
                 ),
-                "progress": 25,
+                "progress": 9,
             })
 
             account_sellers: dict = {}
@@ -1581,21 +1581,21 @@ def import_stream():
                             yield _sse({"message": evt['message']})
                             continue
                         team_done += 1
-                        pct = 25 + int((team_done / max(team_total, 1)) * 60)
+                        pct = 9 + int((team_done / max(team_total, 1)) * 39)
                         if team_done % 3 == 0 or team_done == 1:
                             yield _sse({
                                 "message": f"Querying teams batch {team_done}/{team_total}...",
-                                "progress": min(pct, 85),
+                                "progress": min(pct, 48),
                             })
                 for evt in _drain(progress_q):
                     if evt.get('retry'):
                         yield _sse({"message": evt['message']})
                         continue
                     team_done += 1
-                    pct = 25 + int((team_done / max(team_total, 1)) * 60)
+                    pct = 9 + int((team_done / max(team_total, 1)) * 39)
                     yield _sse({
                         "message": f"Querying teams batch {team_done}/{team_total}...",
-                        "progress": min(pct, 85),
+                        "progress": min(pct, 48),
                     })
                 for f in futures:
                     r = f.result()
@@ -1607,7 +1607,7 @@ def import_stream():
             # Phase 4b: Parallel CSAM queries (3 workers)
             # ----------------------------------------------------------
             phase = "querying CSAMs"
-            yield _sse({"message": "Querying CSAMs...", "progress": 85})
+            yield _sse({"message": "Querying CSAMs...", "progress": 48})
 
             csam_chunks = _split_chunks(all_ids, _PARALLEL_WORKERS)
             csam_total = sum(
@@ -1634,7 +1634,7 @@ def import_stream():
                     if csam_done > 0 and csam_done % 3 == 0:
                         yield _sse({
                             "message": f"Querying CSAMs batch {csam_done}/{csam_total}...",
-                            "progress": 85 + round((csam_done / max(csam_total, 1)) * 1),
+                            "progress": 48 + round((csam_done / max(csam_total, 1)) * 4),
                         })
                 for evt in _drain(progress_q):
                     if evt.get('retry'):
@@ -1648,14 +1648,14 @@ def import_stream():
 
             yield _sse({
                 "message": f"Found {len(csams_seen)} CSAMs",
-                "progress": 86,
+                "progress": 52,
             })
 
             # ----------------------------------------------------------
             # Phase 4c: Parallel DSS queries (3 workers)
             # ----------------------------------------------------------
             phase = "querying DSSs"
-            yield _sse({"message": "Querying DSSs...", "progress": 86})
+            yield _sse({"message": "Querying DSSs...", "progress": 52})
 
             dss_chunks = _split_chunks(all_ids, _PARALLEL_WORKERS)
             dss_batch_total = sum(
@@ -1682,7 +1682,7 @@ def import_stream():
                     if dss_done > 0 and dss_done % 3 == 0:
                         yield _sse({
                             "message": f"Querying DSSs batch {dss_done}...",
-                            "progress": 86 + round((dss_done / max(dss_batch_total, 1)) * 1),
+                            "progress": 52 + round((dss_done / max(dss_batch_total, 1)) * 7),
                         })
                 for evt in _drain(progress_q):
                     if evt.get('retry'):
@@ -1749,14 +1749,14 @@ def import_stream():
                     f"{len(dss_seen)} DSSs for "
                     f"{accounts_with_sellers}/{len(accounts_data)} accounts"
                 ),
-                "progress": 87,
+                "progress": 59,
             })
 
             # ----------------------------------------------------------
             # Phase 5: Database writes (sequential, same as original)
             # ----------------------------------------------------------
             phase = "creating database records"
-            yield _sse({"message": "Creating PODs...", "progress": 88})
+            yield _sse({"message": "Creating PODs...", "progress": 59})
 
             pods_map = {}
             pods_created = 0
@@ -1780,11 +1780,11 @@ def import_stream():
 
             yield _sse({
                 "message": f"Created {pods_created} new PODs (rebuilding associations)",
-                "progress": 88,
+                "progress": 59,
             })
 
             # Territories
-            yield _sse({"message": "Creating territories...", "progress": 89})
+            yield _sse({"message": "Creating territories...", "progress": 59})
             territories_map = {}
             territories_created = 0
             for terr_name, terr_info in territories_seen.items():
@@ -1806,15 +1806,16 @@ def import_stream():
 
             yield _sse({
                 "message": f"Created {territories_created} new territories",
-                "progress": 90,
+                "progress": 59,
             })
 
             # Sellers
-            yield _sse({"message": "Creating sellers...", "progress": 91})
+            yield _sse({"message": "Creating sellers...", "progress": 59})
             sellers_map = {}
             sellers_created = 0
             sellers_updated = 0
-            for seller_name, seller_info in sellers_seen.items():
+            sellers_total = len(sellers_seen)
+            for seller_idx, (seller_name, seller_info) in enumerate(sellers_seen.items(), 1):
                 existing = Seller.query.filter_by(
                     name=seller_name).first()
                 if existing:
@@ -1844,6 +1845,11 @@ def import_stream():
                     db.session.add(seller)
                     sellers_map[seller_name] = seller
                     sellers_created += 1
+                if seller_idx % 5 == 0 or seller_idx == sellers_total:
+                    yield _sse({
+                        "message": f"Creating sellers ({seller_idx}/{sellers_total})...",
+                        "progress": 59 + round((seller_idx / max(sellers_total, 1)) * 7),
+                    })
             db.session.flush()
 
             # Associate sellers with territories
@@ -1859,11 +1865,17 @@ def import_stream():
 
             yield _sse({
                 "message": f"Created {sellers_created} new sellers, updated {sellers_updated}",
-                "progress": 92,
+                "progress": 66,
             })
 
             # Solution Engineers
-            yield _sse({"message": "Creating solution engineers...", "progress": 93})
+            yield _sse({"message": "Creating solution engineers...", "progress": 66})
+            se_items_total = sum(
+                len(se_list)
+                for team in pod_teams.values()
+                for se_list in team.values()
+            )
+            se_items_done = 0
             se_map = {}
             ses_created = 0
             specialty_map = {
@@ -1877,6 +1889,7 @@ def import_stream():
                     continue
                 for se_role, specialty in specialty_map.items():
                     for se_info in team.get(se_role, []):
+                        se_items_done += 1
                         if not se_info.get("name"):
                             continue
                         se_key = (se_info["name"], specialty)
@@ -1899,11 +1912,16 @@ def import_stream():
                         se = se_map.get(se_key)
                         if se and pod not in se.pods:
                             se.pods.append(pod)
+                        if se_items_done % 5 == 0 or se_items_done == se_items_total:
+                            yield _sse({
+                                "message": f"Creating SEs ({se_items_done}/{se_items_total})...",
+                                "progress": 66 + round((se_items_done / max(se_items_total, 1)) * 7),
+                            })
             db.session.flush()
 
             yield _sse({
                 "message": f"Created {ses_created} new solution engineers",
-                "progress": 94,
+                "progress": 73,
             })
 
             # Digital Solution Specialists (DSSs)
@@ -1914,7 +1932,7 @@ def import_stream():
 
             yield _sse({
                 "message": f"Syncing digital solution specialists (0/{dss_total})...",
-                "progress": 95,
+                "progress": 73,
             })
 
             # Build account_id → territory_name for DSS territory linking
@@ -1949,7 +1967,7 @@ def import_stream():
                 if dss_idx % 5 == 0 or dss_idx == dss_total:
                     yield _sse({
                         "message": f"Syncing DSSs ({dss_idx}/{dss_total})...",
-                        "progress": 95 + round((dss_idx / max(dss_total, 1)) * 1),
+                        "progress": 73 + round((dss_idx / max(dss_total, 1)) * 7),
                     })
             db.session.flush()
 
@@ -1968,7 +1986,7 @@ def import_stream():
 
             yield _sse({
                 "message": f"Created {dss_created} new DSSs, linked to territories",
-                "progress": 96,
+                "progress": 80,
             })
 
             # CSAMs
@@ -1978,7 +1996,7 @@ def import_stream():
 
             yield _sse({
                 "message": f"Syncing CSAMs (0/{csam_total})...",
-                "progress": 96,
+                "progress": 80,
             })
 
             for csam_idx, (csam_name, csam_info) in enumerate(csams_seen.items(), 1):
@@ -2000,7 +2018,7 @@ def import_stream():
                 if csam_idx % 5 == 0 or csam_idx == csam_total:
                     yield _sse({
                         "message": f"Syncing CSAMs ({csam_idx}/{csam_total})...",
-                        "progress": 96 + round((csam_idx / max(csam_total, 1)) * 1),
+                        "progress": 80 + round((csam_idx / max(csam_total, 1)) * 17),
                     })
             db.session.flush()
 
@@ -2027,11 +2045,11 @@ def import_stream():
                 if dae_idx % 5 == 0 or dae_idx == dae_total:
                     yield _sse({
                         "message": f"Resolving account owner aliases ({dae_idx}/{dae_total})...",
-                        "progress": 97 + round((dae_idx / max(dae_total, 1)) * 1),
+                        "progress": 97 + round((dae_idx / max(dae_total, 1)) * 2),
                     })
 
             # Verticals
-            yield _sse({"message": "Creating verticals...", "progress": 98})
+            yield _sse({"message": "Creating verticals...", "progress": 99})
             verticals_map = {}
             verticals_created = 0
             for vn in verticals_seen:
@@ -2048,12 +2066,12 @@ def import_stream():
 
             yield _sse({
                 "message": f"Created {verticals_created} new verticals",
-                "progress": 98,
+                "progress": 99,
             })
 
             # Customers
             SyncStatus.mark_started('accounts')
-            yield _sse({"message": "Syncing customers...", "progress": 98})
+            yield _sse({"message": "Syncing customers...", "progress": 99})
             customers_created = 0
             customers_skipped = 0
             customers_updated = 0
@@ -2085,7 +2103,7 @@ def import_stream():
                     if idx % 50 == 0:
                         yield _sse({
                             "message": f"Processing customer {idx}/{len(accounts_data)}...",
-                            "progress": 98 + round((idx / len(accounts_data)) * 1),
+                            "progress": 99,
                         })
 
                     tpid = ad.get("tpid")
