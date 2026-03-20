@@ -8,27 +8,41 @@
 </div>
 
 {% if pods %}
-    <div class="list-group">
+    <div class="row row-cols-1 row-cols-sm-2 row-cols-lg-4 g-3">
         {% for pod in pods %}
-            <div class="list-group-item" style="cursor: pointer;" onclick="window.location='{{ url_for('pods.pod_view', id=pod.id) }}'">
-                <div class="d-flex w-100 justify-content-between align-items-start">
-                    <div class="flex-grow-1">
-                        <h5 class="mb-1">{{ pod.name }}</h5>
-                        <p class="mb-1">
+        <div class="col">
+            <div class="card" style="cursor: pointer;" onclick="window.location='{{ url_for('pods.pod_view', id=pod.id) }}'">
+                <div class="card-body pb-2">
+                    {% set pod_sellers = [] %}
+                    {% for t in pod.territories %}
+                        {% for s in t.sellers %}
+                            {% if s not in pod_sellers %}
+                                {% set _ = pod_sellers.append(s) %}
+                            {% endif %}
+                        {% endfor %}
+                    {% endfor %}
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <h6 class="card-title mb-0">{{ pod.name }}</h6>
+                        <div class="d-flex gap-1 flex-shrink-0">
                             <span class="badge bg-primary">{{ pod.territories|length }} territories</span>
-                            <span class="badge bg-info text-dark">{{ pod.solution_engineers|length }} solution engineers</span>
-                        </p>
-                        {% if pod.solution_engineers %}
-                            <p class="mb-0 text-muted small">
-                                SEs: 
-                                {% for se in pod.solution_engineers|sort(attribute='name') %}
-                                    {{ se.name }}{% if se.specialty %} ({{ se.specialty }}){% endif %}{% if not loop.last %}, {% endif %}
-                                {% endfor %}
-                            </p>
-                        {% endif %}
+                            <span class="badge bg-info text-dark">{{ pod.solution_engineers|length }} SEs</span>
+                        </div>
+                    </div>
+                    <div class="d-flex justify-content-between align-items-start" style="font-size: 0.7rem; line-height: 1.4;">
+                        <div>
+                            {% for seller in pod_sellers|sort(attribute='name') %}
+                            <div class="text-muted text-nowrap"><i class="bi bi-person-fill"></i> {{ seller.name }}</div>
+                            {% endfor %}
+                        </div>
+                        <div class="text-end">
+                            {% for se in pod.solution_engineers|sort(attribute='name') %}
+                            <div class="text-muted text-nowrap">{{ se.name }}</div>
+                            {% endfor %}
+                        </div>
                     </div>
                 </div>
             </div>
+        </div>
         {% endfor %}
     </div>
 {% else %}

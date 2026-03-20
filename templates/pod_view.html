@@ -106,36 +106,37 @@
                 <i class="bi bi-chevron-down" id="dssChevron"></i>
             </div>
             <div class="card-body collapse" id="dssCardBody">
+                <div class="row row-cols-1 row-cols-md-2 row-cols-xl-4 g-3">
                 {% for territory, specialties in territory_dss_grouped.items() %}
-                    {% if not loop.first %}
-                        <hr class="my-3">
-                    {% endif %}
-                    <h6 class="mb-2 fw-bold">
-                        <i class="bi bi-geo-alt"></i> {{ territory.name }}
-                    </h6>
-                    {% for spec, info in specialties.items() %}
-                        <div class="mb-2" id="dssSection_{{ territory.id }}_{{ spec|replace(' ', '_')|replace('-', '_') }}">
-                            <div class="text-muted small">{{ spec }}</div>
-                            <div id="dssValue_{{ territory.id }}_{{ spec|replace(' ', '_')|replace('-', '_') }}">
-                                {% if info.selected_id %}
-                                    {% for dss in info.dss_list if dss.id == info.selected_id %}
-                                        <span class="badge bg-secondary"><i class="bi bi-person"></i> {{ dss.name }}</span>
-                                    {% endfor %}
-                                {% elif info.dss_list|length == 1 %}
-                                    <span class="badge bg-secondary"><i class="bi bi-person"></i> {{ info.dss_list[0].name }}</span>
-                                {% else %}
-                                    <select class="form-select form-select-sm d-inline-block" style="width: auto; min-width: 200px;"
-                                            onchange="saveDssSelection({{ territory.id }}, '{{ spec }}', this.value, this)">
-                                        <option value="" disabled selected>— Select {{ spec }} —</option>
-                                        {% for dss in info.dss_list %}
-                                            <option value="{{ dss.id }}">{{ dss.name }}</option>
+                    <div class="col">
+                        <h6 class="mb-2 fw-bold">
+                            <i class="bi bi-geo-alt"></i> {{ territory.name }}
+                        </h6>
+                        {% for spec, info in specialties.items() %}
+                            <div class="mb-2" id="dssSection_{{ territory.id }}_{{ spec|replace(' ', '_')|replace('-', '_') }}">
+                                <div class="text-muted small">{{ spec }}</div>
+                                <div id="dssValue_{{ territory.id }}_{{ spec|replace(' ', '_')|replace('-', '_') }}">
+                                    {% if info.selected_id %}
+                                        {% for dss in info.dss_list if dss.id == info.selected_id %}
+                                            <span class="badge bg-secondary"><i class="bi bi-person"></i> {{ dss.name }}</span>
                                         {% endfor %}
-                                    </select>
-                                {% endif %}
+                                    {% elif info.dss_list|length == 1 %}
+                                        <span class="badge bg-secondary"><i class="bi bi-person"></i> {{ info.dss_list[0].name }}</span>
+                                    {% else %}
+                                        <select class="form-select form-select-sm" style="max-width: 100%;"
+                                                onchange="saveDssSelection({{ territory.id }}, '{{ spec }}', this.value, this)">
+                                            <option value="" disabled selected>— Select —</option>
+                                            {% for dss in info.dss_list %}
+                                                <option value="{{ dss.id }}">{{ dss.name }}</option>
+                                            {% endfor %}
+                                        </select>
+                                    {% endif %}
+                                </div>
                             </div>
-                        </div>
-                    {% endfor %}
+                        {% endfor %}
+                    </div>
                 {% endfor %}
+                </div>
             </div>
         </div>
     </div>
