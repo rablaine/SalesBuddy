@@ -3294,7 +3294,7 @@ function renderEngagementDetail(data) {
     if (data.customer_name) html += `<div class="text-muted mb-2"><span class="archive-detail-link" onclick="navigateToCustomerById(${data.customer_id})">${escArchive(data.customer_name)}</span></div>`;
     html += '<table class="table table-sm"><tbody>';
     if (data.status) html += `<tr><td class="text-muted">Status</td><td><span class="badge bg-secondary">${escArchive(data.status)}</span></td></tr>`;
-    if (data.estimated_acr) html += `<tr><td class="text-muted">Est. ACR</td><td>$${Number(data.estimated_acr).toLocaleString()}</td></tr>`;
+    if (data.estimated_acr) html += `<tr><td class="text-muted">Est. ACR</td><td>$${Number(data.estimated_acr).toLocaleString()}/mo</td></tr>`;
     html += '</tbody></table>';
     if (data.technical_problem) html += `<h6>Technical Problem</h6><p>${escArchive(data.technical_problem)}</p>`;
     if (data.business_impact) html += `<h6>Business Impact</h6><p>${escArchive(data.business_impact)}</p>`;

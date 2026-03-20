@@ -653,7 +653,7 @@ class Engagement(db.Model):
     technical_problem = db.Column(db.Text, nullable=True)  # "...they have run into..."
     business_impact = db.Column(db.Text, nullable=True)  # "...and it's impacting..."
     solution_resources = db.Column(db.Text, nullable=True)  # "We are addressing the Opportunity with..."
-    estimated_acr = db.Column(db.String(200), nullable=True)  # "...which will result in..."
+    estimated_acr = db.Column(db.Integer, nullable=True)  # Monthly ACR in dollars
     target_date = db.Column(db.Date, nullable=True)  # "...by..."
 
     created_at = db.Column(db.DateTime, default=utc_now, nullable=False)

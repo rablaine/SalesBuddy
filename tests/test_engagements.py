@@ -84,7 +84,7 @@ class TestEngagementCRUD:
                 'technical_problem': 'Legacy on-prem workloads need modernization',
                 'business_impact': 'Reducing data center costs by 40%',
                 'solution_resources': 'Azure Migrate, App Service',
-                'estimated_acr': '$50k/month',
+                'estimated_acr': '50000',
                 'target_date': '2025-06-30',
             },
             follow_redirects=True,
@@ -100,7 +100,7 @@ class TestEngagementCRUD:
             assert eng.technical_problem == 'Legacy on-prem workloads need modernization'
             assert eng.business_impact == 'Reducing data center costs by 40%'
             assert eng.solution_resources == 'Azure Migrate, App Service'
-            assert eng.estimated_acr == '$50k/month'
+            assert eng.estimated_acr == 50000
             assert eng.target_date == date(2025, 6, 30)
             assert eng.story_completeness == 100
 
@@ -558,7 +558,7 @@ class TestStoryCompleteness:
                 technical_problem='Legacy systems',
                 business_impact='Cost reduction',
                 solution_resources='Azure Migrate',
-                estimated_acr='$100k',
+                estimated_acr=100000,
                 target_date=date(2025, 12, 31),
             )
             db.session.add(eng)
@@ -586,7 +586,7 @@ class TestActiveEngagementsAPI:
                 customer_id=cid,
                 title='Cloud Migration',
                 status='Active',
-                estimated_acr='$50k',
+                estimated_acr=50000,
                 target_date=date(2026, 6, 30),
             )
             db.session.add(eng)
@@ -602,7 +602,7 @@ class TestActiveEngagementsAPI:
         assert e['title'] == 'Cloud Migration'
         assert e['status'] == 'Active'
         assert e['customer_name'] == 'Contoso Ltd'
-        assert e['estimated_acr'] == '$50k'
+        assert e['estimated_acr'] == 50000
         assert e['target_date'] == '2026-06-30'
         assert 'story_completeness' in e
         assert 'linked_note_count' in e

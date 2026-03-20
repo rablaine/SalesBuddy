@@ -76,7 +76,7 @@ class TestBuildEngagementStory:
                 technical_problem='3 Oracle instances need migration to Azure SQL MI.',
                 business_impact='$2M annual licensing savings plus improved DR.',
                 solution_resources='SQL MI compatibility assessment + migration planning.',
-                estimated_acr='$45K',
+                estimated_acr=45000,
                 target_date=date(2026, 6, 1),
             )
             db.session.add(eng)
@@ -89,7 +89,7 @@ class TestBuildEngagementStory:
             assert 'They have run into 3 Oracle instances' in story
             assert "It's impacting $2M annual licensing" in story
             assert 'We are addressing the opportunity with SQL MI compatibility' in story
-            assert 'This will result in $45K by Jun 2026.' in story
+            assert 'This will result in $45,000/mo by Jun 2026.' in story
 
     @patch('app.services.milestone_tracking._ai_compose_story', return_value=None)
     def test_minimal_story_with_title_only(self, mock_ai, app):
@@ -124,13 +124,13 @@ class TestBuildEngagementStory:
                 customer_id=customer.id,
                 title='ACR Test',
                 status='Active',
-                estimated_acr='$10K/mo',
+                estimated_acr=10000,
             )
             db.session.add(eng)
             db.session.flush()
 
             story = _build_engagement_story(eng)
-            assert 'This will result in $10K/mo.' in story
+            assert 'This will result in $10,000/mo.' in story
 
     def test_ai_compose_success_uses_ai_text(self, app):
         """When AI compose succeeds, _build_engagement_story uses the AI text."""

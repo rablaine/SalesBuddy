@@ -27,7 +27,7 @@
         <span class="text-muted ms-2 small"><i class="bi bi-calendar"></i> Target: {{ engagement.target_date.strftime('%b %d, %Y') }}</span>
         {% endif %}
         {% if engagement.estimated_acr %}
-        <span class="text-muted ms-2 small"><i class="bi bi-currency-dollar"></i> {{ engagement.estimated_acr }}</span>
+        <span class="text-muted ms-2 small"><i class="bi bi-currency-dollar"></i> ${{ "{:,}".format(engagement.estimated_acr) }}/mo</span>
         {% endif %}
     </div>
     <div class="flex-shrink-0 d-flex gap-2">
@@ -80,7 +80,7 @@
                         <strong class="small">Business Outcome</strong>
                         <small class="text-muted d-block fst-italic">"...which will result in..."</small>
                         {% if engagement.estimated_acr %}
-                        <p class="mb-0 mt-1" style="color: #69f0ae;">{{ engagement.estimated_acr }}</p>
+                        <p class="mb-0 mt-1" style="color: #69f0ae;">${{ "{:,}".format(engagement.estimated_acr) }}/mo</p>
                         {% else %}
                         <p class="text-muted mb-0 mt-1 fst-italic small">Not yet filled in</p>
                         {% endif %}
@@ -387,6 +387,11 @@ function showReviewModal(current, generated) {
         if (rawNew.toLowerCase() === 'null') rawNew = '';
         const newVal = rawNew;
 
+        // Format estimated_acr as currency for display
+        const formatAcr = (v) => v && !isNaN(v) ? '$' + Number(v).toLocaleString() + '/mo' : v;
+        const displayOld = field.key === 'estimated_acr' ? formatAcr(oldVal) : oldVal;
+        const displayNew = field.key === 'estimated_acr' ? formatAcr(newVal) : newVal;
+
         // Skip if both sides are empty - nothing to show
         if (!oldVal && !newVal) return;
 
@@ -409,7 +414,7 @@ function showReviewModal(current, generated) {
                 <div class="row">
                     <div class="col-6">
                         <div class="text-muted small fw-semibold mb-1">Current</div>
-                        <div class="small" style="white-space: pre-wrap; opacity: 0.8;">${oldVal ? escapeHtml(oldVal) : '<em class="text-muted">Empty</em>'}</div>
+                        <div class="small" style="white-space: pre-wrap; opacity: 0.8;">${oldVal ? escapeHtml(displayOld) : '<em class="text-muted">Empty</em>'}</div>
                     </div>
                     <div class="col-6">
                         <div class="small fw-semibold mb-1" style="color: ${field.color};">Generated</div>

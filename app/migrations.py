@@ -207,6 +207,9 @@ def run_migrations(db):
     _add_column_if_not_exists(db, inspector, 'user_preferences', 'my_seller_id', 'INTEGER REFERENCES sellers(id)')
     _add_column_if_not_exists(db, inspector, 'user_preferences', 'my_seller_alias', 'VARCHAR(100)')
 
+    # Migration: Convert estimated_acr from string to integer (monthly $ amount)
+    _migrate_estimated_acr_to_int(db, inspector)
+
     # =========================================================================
     # End migrations
     # =========================================================================
@@ -1214,3 +1217,59 @@ def _cleanup_total_revenue_rows(db, existing_tables):
             conn.commit()
             if result.rowcount > 0:
                 print(f"  Cleaned {result.rowcount} 'Total' summary rows from {table}")
+
+
+def _migrate_estimated_acr_to_int(db, inspector):
+    """Convert estimated_acr column from string to integer (monthly $ amount).
+
+    Parses values like '$500/mo', '$50K', '$50k/month', '500' into integers.
+    Idempotent: skips rows that are already integer-like or NULL.
+    """
+    if not _table_exists(inspector, 'engagements'):
+        return
+
+    import re
+    with db.engine.connect() as conn:
+        rows = conn.execute(
+            text("SELECT id, estimated_acr FROM engagements WHERE estimated_acr IS NOT NULL")
+        ).fetchall()
+
+        converted = 0
+        for row in rows:
+            val = str(row[1]).strip()
+            # Already a clean integer
+            try:
+                int(val)
+                continue
+            except (ValueError, TypeError):
+                pass
+
+            # Strip $, commas, whitespace, /mo, /month
+            cleaned = re.sub(r'[$,\s]', '', val)
+            cleaned = re.sub(r'/(mo(nth)?)?$', '', cleaned, flags=re.IGNORECASE)
+
+            # Handle K/k suffix (e.g. 50K -> 50000)
+            k_match = re.match(r'^(\d+(?:\.\d+)?)[kK]$', cleaned)
+            if k_match:
+                num = int(float(k_match.group(1)) * 1000)
+            else:
+                try:
+                    num = int(float(cleaned))
+                except (ValueError, TypeError):
+                    print(f"  WARNING: Could not parse estimated_acr '{val}' for engagement {row[0]}, setting to NULL")
+                    conn.execute(
+                        text("UPDATE engagements SET estimated_acr = NULL WHERE id = :id"),
+                        {"id": row[0]}
+                    )
+                    converted += 1
+                    continue
+
+            conn.execute(
+                text("UPDATE engagements SET estimated_acr = :acr WHERE id = :id"),
+                {"acr": num, "id": row[0]}
+            )
+            converted += 1
+
+        if converted:
+            conn.commit()
+            print(f"  Converted {converted} estimated_acr values from string to integer")

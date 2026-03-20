@@ -267,7 +267,7 @@ class TestSellerEngagementsAPI:
                 customer_id=sample_data['customer1_id'],
                 title='Full Fields Test',
                 status='Active',
-                estimated_acr='$50K',
+                estimated_acr=50000,
                 target_date=date(2026, 6, 15),
                 key_individuals='John Doe',
                 technical_problem='Migration issues',
@@ -285,7 +285,7 @@ class TestSellerEngagementsAPI:
         assert eng_data['status'] == 'Active'
         assert eng_data['customer_name'] == 'Acme Corp'
         assert eng_data['customer_id'] == sample_data['customer1_id']
-        assert eng_data['estimated_acr'] == '$50K'
+        assert eng_data['estimated_acr'] == 50000
         assert eng_data['target_date'] == '2026-06-15'
         assert eng_data['story_completeness'] == 83  # 5 of 6 fields filled
         assert 'linked_note_count' in eng_data

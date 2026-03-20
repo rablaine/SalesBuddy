@@ -196,7 +196,7 @@
                 <div class="d-flex flex-wrap gap-2 text-muted" style="font-size:0.75rem;">
                     ${stats.length || eng.estimated_acr || targetDisplay
                         ? (stats.length ? '<span>' + stats.join('</span><span>') + '</span>' : '')
-                          + (eng.estimated_acr ? '<span><i class="bi bi-currency-dollar"></i> ' + escapeHtml(eng.estimated_acr) + '</span>' : '')
+                          + (eng.estimated_acr ? '<span><i class="bi bi-currency-dollar"></i> $' + Number(eng.estimated_acr).toLocaleString() + '/mo</span>' : '')
                           + (targetDisplay ? '<span><i class="bi bi-calendar"></i> ' + targetDisplay + '</span>' : '')
                         : '<span>&nbsp;</span>'}
                 </div>

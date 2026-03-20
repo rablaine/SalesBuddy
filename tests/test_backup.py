@@ -816,7 +816,7 @@ class TestCustomerToDict:
                 technical_problem='Legacy on-prem',
                 business_impact='$2M annual savings',
                 solution_resources='Azure Migrate',
-                estimated_acr='$500K',
+                estimated_acr=500000,
                 target_date=date_type(2025, 6, 30),
             )
             eng.notes.append(note)
@@ -835,7 +835,7 @@ class TestCustomerToDict:
             assert eng_data["technical_problem"] == "Legacy on-prem"
             assert eng_data["business_impact"] == "$2M annual savings"
             assert eng_data["solution_resources"] == "Azure Migrate"
-            assert eng_data["estimated_acr"] == "$500K"
+            assert eng_data["estimated_acr"] == 500000
             assert eng_data["target_date"] == "2025-06-30"
             assert len(eng_data["linked_notes"]) == 1
             assert eng_data["linked_opportunities"] == ["OPP-BBB"]
@@ -1249,7 +1249,7 @@ class TestRestoreFromBackup:
                     "technical_problem": "Legacy systems",
                     "business_impact": "Cost savings",
                     "solution_resources": "Azure Migrate",
-                    "estimated_acr": "$300K",
+                    "estimated_acr": 300000,
                     "target_date": "2025-12-31",
                     "created_at": "2025-01-01T00:00:00+00:00",
                     "updated_at": "2025-01-15T00:00:00+00:00",
@@ -1271,7 +1271,7 @@ class TestRestoreFromBackup:
             assert eng.technical_problem == "Legacy systems"
             assert eng.business_impact == "Cost savings"
             assert eng.solution_resources == "Azure Migrate"
-            assert eng.estimated_acr == "$300K"
+            assert eng.estimated_acr == 300000
             assert eng.target_date.isoformat() == "2025-12-31"
 
     def test_restore_deduplicates_engagements_by_title(self, app):
@@ -1564,7 +1564,7 @@ class TestRestoreFromBackup:
                 technical_problem='Container orchestration',
                 business_impact='Faster releases',
                 solution_resources='AKS + Arc',
-                estimated_acr='$200K',
+                estimated_acr=200000,
                 target_date=date_type(2025, 9, 30),
             )
             eng.notes.append(note1)
@@ -1634,7 +1634,7 @@ class TestRestoreFromBackup:
             eng = Engagement.query.filter_by(customer_id=customer.id).first()
             assert eng.title == "AKS Deployment"
             assert eng.key_individuals == "CTO, VP Eng"
-            assert eng.estimated_acr == "$200K"
+            assert eng.estimated_acr == 200000
 
             # Verify engagement links
             assert len(eng.notes) == 1

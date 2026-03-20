@@ -253,6 +253,36 @@ def _sanitize_folder_name(name: str) -> str:
     return sanitized
 
 
+def _parse_acr_value(val) -> Optional[int]:
+    """Parse an estimated_acr value to int, handling old string formats.
+
+    Handles values like '$500/mo', '$50K', '500', 50000, or None.
+    """
+    if val is None:
+        return None
+    if isinstance(val, int):
+        return val
+    val_str = str(val).strip()
+    if not val_str:
+        return None
+    # Already a clean integer
+    try:
+        return int(val_str)
+    except (ValueError, TypeError):
+        pass
+    # Strip $, commas, whitespace, /mo, /month
+    cleaned = re.sub(r'[$,\s]', '', val_str)
+    cleaned = re.sub(r'/(mo(nth)?)?$', '', cleaned, flags=re.IGNORECASE)
+    # Handle K/k suffix (e.g. 50K -> 50000)
+    k_match = re.match(r'^(\d+(?:\.\d+)?)[kK]$', cleaned)
+    if k_match:
+        return int(float(k_match.group(1)) * 1000)
+    try:
+        return int(float(cleaned))
+    except (ValueError, TypeError):
+        return None
+
+
 def _customer_to_dict(customer: Customer) -> Dict[str, Any]:
     """Serialize a customer and all related data to a backup dict.
 
@@ -1143,7 +1173,7 @@ def restore_from_backup(data: Dict[str, Any]) -> Dict[str, Any]:
             technical_problem=eng_data.get("technical_problem"),
             business_impact=eng_data.get("business_impact"),
             solution_resources=eng_data.get("solution_resources"),
-            estimated_acr=eng_data.get("estimated_acr"),
+            estimated_acr=_parse_acr_value(eng_data.get("estimated_acr")),
             target_date=target_date,
         )
         db.session.add(eng)

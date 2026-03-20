@@ -155,7 +155,8 @@ def engagement_create(customer_id: int):
         technical_problem = request.form.get('technical_problem', '').strip() or None
         business_impact = request.form.get('business_impact', '').strip() or None
         solution_resources = request.form.get('solution_resources', '').strip() or None
-        estimated_acr = request.form.get('estimated_acr', '').strip() or None
+        estimated_acr_str = request.form.get('estimated_acr', '').strip()
+        estimated_acr = int(estimated_acr_str) if estimated_acr_str else None
         target_date_str = request.form.get('target_date', '').strip()
 
         if not title:
@@ -245,7 +246,8 @@ def engagement_edit(id: int):
         technical_problem = request.form.get('technical_problem', '').strip() or None
         business_impact = request.form.get('business_impact', '').strip() or None
         solution_resources = request.form.get('solution_resources', '').strip() or None
-        estimated_acr = request.form.get('estimated_acr', '').strip() or None
+        estimated_acr_str = request.form.get('estimated_acr', '').strip()
+        estimated_acr = int(estimated_acr_str) if estimated_acr_str else None
         target_date_str = request.form.get('target_date', '').strip()
 
         if not title:
@@ -436,10 +438,16 @@ def engagement_create_inline(customer_id: int):
     # Optional story fields
     if data:
         for field in ('key_individuals', 'technical_problem', 'business_impact',
-                       'solution_resources', 'estimated_acr'):
+                       'solution_resources'):
             val = data.get(field, '').strip()
             if val:
                 setattr(engagement, field, val)
+        acr_val = data.get('estimated_acr', '').strip() if data.get('estimated_acr') else ''
+        if acr_val:
+            try:
+                engagement.estimated_acr = int(acr_val)
+            except (ValueError, TypeError):
+                pass
         target = data.get('target_date', '').strip() if data.get('target_date') else ''
         if target:
             from datetime import date as date_cls

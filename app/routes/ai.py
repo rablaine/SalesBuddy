@@ -442,7 +442,7 @@ def api_ai_generate_engagement_story():
         'technical_problem': engagement.technical_problem or '',
         'business_impact': engagement.business_impact or '',
         'solution_resources': engagement.solution_resources or '',
-        'estimated_acr': engagement.estimated_acr or '',
+        'estimated_acr': str(engagement.estimated_acr) if engagement.estimated_acr else '',
         'target_date': (
             engagement.target_date.strftime('%Y-%m-%d')
             if engagement.target_date else ''
@@ -463,7 +463,7 @@ def api_ai_generate_engagement_story():
                 if m.monthly_usage
             )
             if total_acr > 0:
-                story_data['estimated_acr'] = f"${total_acr:,.0f}/mo"
+                story_data['estimated_acr'] = str(total_acr)
             else:
                 story_data['estimated_acr'] = None
         else:
@@ -583,6 +583,11 @@ def api_ai_apply_engagement_story():
                 engagement.target_date = _datetime.strptime(
                     value, '%Y-%m-%d'
                 ).date()
+            except (ValueError, TypeError):
+                pass
+        elif field_name == 'estimated_acr' and value:
+            try:
+                engagement.estimated_acr = int(value)
             except (ValueError, TypeError):
                 pass
         else:

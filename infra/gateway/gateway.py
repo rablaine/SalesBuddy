@@ -540,7 +540,12 @@ def compose_engagement_story():
         if fields.get("solution_resources"):
             parts.append(f"Solution: {fields['solution_resources']}")
         if fields.get("estimated_acr"):
-            parts.append(f"Estimated ACR: {fields['estimated_acr']}")
+            acr_val = fields['estimated_acr']
+            try:
+                acr_formatted = f"${int(acr_val):,}/mo"
+            except (ValueError, TypeError):
+                acr_formatted = str(acr_val)
+            parts.append(f"Estimated ACR (monthly Azure revenue increase): {acr_formatted}")
         if fields.get("target_date"):
             parts.append(f"Target Date: {fields['target_date']}")
 
