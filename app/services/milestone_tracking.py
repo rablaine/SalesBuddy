@@ -338,12 +338,11 @@ def _build_engagement_html_table(engagement) -> str:
 
     table_rows = '\n'.join(rows)
     return (
-        f'<div style="font-family:Segoe UI,sans-serif;max-width:600px;">'
-        f'<table style="width:100%;border-collapse:collapse;'
-        f'border:1px solid #dee2e6;">'
+        f'<table style="font-family:Segoe UI,sans-serif;max-width:600px;'
+        f'width:100%;border-collapse:collapse;border:1px solid #dee2e6;'
+        f'margin:0;padding:0;">'
         f'{table_rows}'
         f'</table>'
-        f'</div>'
     )
 
 
