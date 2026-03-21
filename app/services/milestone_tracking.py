@@ -339,7 +339,8 @@ def _build_engagement_html_table(engagement) -> str:
     table_rows = ''.join(rows)
     return (
         f'<table style="max-width:600px;width:100%;border-collapse:collapse;'
-        f'border:1px solid #dee2e6;margin:0;padding:0;">'
+        f'border:1px solid #dee2e6;margin:0;padding:0;font-size:inherit;'
+        f'font-weight:inherit;">'
         f'{table_rows}'
         f'</table>'
     )
