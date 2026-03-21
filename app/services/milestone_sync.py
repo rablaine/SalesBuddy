@@ -26,6 +26,7 @@ from app.services.msx_api import (
     HOK_TASK_CATEGORIES,
 )
 from app.services.msx_auth import is_vpn_blocked
+from app.services.diagnostic_log import set_suppressed
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +57,8 @@ def sync_all_customer_milestones() -> Dict[str, Any]:
         - duration_seconds: float
     """
     start_time = datetime.now(timezone.utc)
-    
+    set_suppressed(True)
+
     results = {
         "success": True,
         "customers_synced": 0,
@@ -155,6 +157,7 @@ def sync_all_customer_milestones() -> Dict[str, Any]:
         }),
     )
     
+    set_suppressed(False)
     return results
 
 
@@ -172,6 +175,7 @@ def _ms_fetch_worker(
     Sends ('done', None, None, None) when finished.
     """
     from app.services.msx_api import msx_retry_state
+    set_suppressed(True)
 
     for cust_id, cust_name, account_id in tasks:
         if is_vpn_blocked():
@@ -212,6 +216,7 @@ def sync_all_customer_milestones_stream(
         - complete: final summary (includes opportunities_created)
     """
     start_time = _time.time()
+    set_suppressed(True)
 
     customers = Customer.query.filter(
         Customer.tpid_url.isnot(None),
@@ -431,6 +436,7 @@ def sync_all_customer_milestones_stream(
         'duration': duration,
         'errors': errors[:5],
     })
+    set_suppressed(False)
 
 
 def _sse_event(event_type: str, data: Dict[str, Any]) -> str:

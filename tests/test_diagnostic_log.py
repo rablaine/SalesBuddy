@@ -11,6 +11,7 @@ import pytest
 from app.services.diagnostic_log import (
     diag_log, prune_old_entries, get_log_stats, get_log_path,
     set_correlation_id, get_correlation_id,
+    suppress_diagnostic_log, set_suppressed, is_suppressed,
     LOG_FILE, RETENTION_HOURS,
 )
 
@@ -204,6 +205,65 @@ class TestAdminEndpoints:
         assert resp.status_code == 200
         assert resp.get_json()['success'] is True
         assert get_log_path() is None
+
+
+class TestSuppression:
+    """Tests for the bulk-operation suppression mechanism."""
+
+    def test_context_manager_suppresses(self, _isolate_log_file):
+        """Entries inside suppress_diagnostic_log() context are skipped."""
+        diag_log('before')
+        with suppress_diagnostic_log():
+            diag_log('suppressed_1')
+            diag_log('suppressed_2')
+        diag_log('after')
+
+        with open(_isolate_log_file, 'r') as f:
+            entries = [json.loads(l) for l in f if l.strip()]
+        cats = [e['cat'] for e in entries]
+        assert cats == ['before', 'after']
+
+    def test_set_suppressed_function(self, _isolate_log_file):
+        """set_suppressed(True/False) controls logging."""
+        set_suppressed(True)
+        diag_log('should_skip')
+        set_suppressed(False)
+        diag_log('should_appear')
+
+        with open(_isolate_log_file, 'r') as f:
+            entries = [json.loads(l) for l in f if l.strip()]
+        assert len(entries) == 1
+        assert entries[0]['cat'] == 'should_appear'
+
+    def test_suppression_is_per_thread(self, _isolate_log_file):
+        """Suppression in one thread does not affect another."""
+        import threading
+        results = []
+
+        def worker():
+            results.append(is_suppressed())
+
+        set_suppressed(True)
+        t = threading.Thread(target=worker)
+        t.start()
+        t.join()
+        set_suppressed(False)
+
+        # Worker thread should NOT be suppressed
+        assert results[0] is False
+
+    def test_is_suppressed_default(self):
+        """is_suppressed returns False by default."""
+        import threading
+        result = [None]
+
+        def worker():
+            result[0] = is_suppressed()
+
+        t = threading.Thread(target=worker)
+        t.start()
+        t.join()
+        assert result[0] is False
 
 
 class TestFlaskIntegration:

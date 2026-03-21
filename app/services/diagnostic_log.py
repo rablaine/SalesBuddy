@@ -39,6 +39,51 @@ _write_lock = threading.Lock()
 
 _correlation_id = threading.local()
 
+# ---------------------------------------------------------------------------
+# Bulk-operation suppression (prevents sync floods)
+# ---------------------------------------------------------------------------
+
+_suppressed = threading.local()
+
+
+class suppress_diagnostic_log:
+    """Suppress diagnostic logging in the current thread.
+
+    Works as a context manager or via set_suppressed(True/False) for
+    worker threads that need to set the flag manually.
+
+    Usage (context manager)::
+
+        with suppress_diagnostic_log():
+            sync_all_customer_milestones()  # no diag_log entries
+
+    Usage (worker threads)::
+
+        set_suppressed(True)
+        try:
+            do_bulk_work()
+        finally:
+            set_suppressed(False)
+    """
+
+    def __enter__(self):
+        set_suppressed(True)
+        return self
+
+    def __exit__(self, *exc):
+        set_suppressed(False)
+        return False
+
+
+def set_suppressed(value: bool) -> None:
+    """Set or clear the suppression flag for the current thread."""
+    _suppressed.value = value
+
+
+def is_suppressed() -> bool:
+    """Return True if diagnostic logging is suppressed in this thread."""
+    return getattr(_suppressed, 'value', False)
+
 
 def set_correlation_id(cid: str | None = None) -> str:
     """Set or generate a correlation ID for the current request."""
@@ -63,6 +108,8 @@ def diag_log(category: str, **fields) -> None:
         category: Event type (e.g. 'msx_api', 'gateway', 'writeback', 'error').
         **fields: Arbitrary key-value pairs for the event.
     """
+    if is_suppressed():
+        return
     try:
         entry = {
             'ts': datetime.now(timezone.utc).isoformat(),
