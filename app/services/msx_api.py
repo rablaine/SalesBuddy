@@ -630,7 +630,16 @@ def get_milestone_details(milestone_id: str) -> Dict[str, Any]:
                     if uid:
                         unique_ids.add(uid)
                 name_cache = {}
+                import re
+                _guid_re = re.compile(
+                    r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
+                    re.IGNORECASE,
+                )
                 for uid in unique_ids:
+                    if not _guid_re.match(uid):
+                        # Already a display name (e.g. "Alex via Sales Buddy")
+                        name_cache[uid] = uid
+                        continue
                     try:
                         user_url = f"{CRM_BASE_URL}/systemusers({uid})?$select=fullname"
                         user_resp = _msx_request('GET', user_url)

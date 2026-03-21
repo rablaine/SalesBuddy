@@ -1,6 +1,6 @@
 """Diagnostic logging service for troubleshooting integration issues.
 
-Writes structured JSON Lines to data/diagnostic.jsonl with a rolling
+Writes structured JSON Lines to logs/diagnostic.jsonl with a rolling
 48-hour retention window.  Captures MSX API calls, gateway/AI calls,
 milestone writeback payloads, and 500 errors with stack traces.
 
@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 RETENTION_HOURS = 48
 LOG_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
-    os.path.abspath(__file__)))), 'data')
+    os.path.abspath(__file__)))), 'logs')
 LOG_FILE = os.path.join(LOG_DIR, 'diagnostic.jsonl')
 MAX_PAYLOAD_CHARS = 5000
 _write_lock = threading.Lock()
