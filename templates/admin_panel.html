@@ -627,6 +627,26 @@
                         <span class="text-muted">Loading status...</span>
                     </div>
                     <div id="flushResult" class="small mt-1" style="display: none;"></div>
+
+                    <!-- Diagnostic Log -->
+                    <hr class="my-3">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <h6 class="mb-0"><i class="bi bi-journal-code"></i> Diagnostic Log</h6>
+                        <div>
+                            <button class="btn btn-sm btn-outline-success" onclick="downloadDiagLog()" id="btnDiagDownload">
+                                <i class="bi bi-download"></i> Download
+                            </button>
+                            <button class="btn btn-sm btn-outline-danger ms-1" onclick="clearDiagLog()" id="btnDiagClear">
+                                <i class="bi bi-trash"></i> Clear
+                            </button>
+                        </div>
+                    </div>
+                    <p class="text-muted small mb-2">
+                        Detailed MSX/AI/writeback payloads for the last 48 hours. Download and send to a developer for troubleshooting.
+                    </p>
+                    <div id="diagLogStats" class="small">
+                        <span class="text-muted">Loading...</span>
+                    </div>
                 </div>
 
                     <!-- Event Log -->
@@ -2067,6 +2087,47 @@ function flushTelemetry() {
             setTimeout(() => { resultEl.style.display = 'none'; }, 5000);
         });
 }
+
+// ==============================================================================
+// Diagnostic Log
+// ==============================================================================
+
+function loadDiagLogStats() {
+    fetch('/api/admin/diagnostic-log/stats')
+        .then(r => r.json())
+        .then(data => {
+            const el = document.getElementById('diagLogStats');
+            if (!data.exists) {
+                el.innerHTML = '<span class="text-muted">No diagnostic log yet. Entries are created as MSX/AI calls occur.</span>';
+                return;
+            }
+            el.innerHTML = `<strong>${data.entry_count}</strong> entries, <strong>${data.size_human}</strong>`
+                + (data.oldest ? ` &mdash; from ${new Date(data.oldest).toLocaleString()} to ${new Date(data.newest).toLocaleString()}` : '');
+        })
+        .catch(() => {
+            document.getElementById('diagLogStats').innerHTML = '<span class="text-danger">Failed to load stats</span>';
+        });
+}
+
+function downloadDiagLog() {
+    window.location.href = '/api/admin/diagnostic-log/download';
+}
+
+function clearDiagLog() {
+    if (!confirm('Delete the diagnostic log? This cannot be undone.')) return;
+    const btn = document.getElementById('btnDiagClear');
+    btn.disabled = true;
+    fetch('/api/admin/diagnostic-log/clear', { method: 'POST' })
+        .then(r => r.json())
+        .then(() => {
+            btn.disabled = false;
+            loadDiagLogStats();
+        })
+        .catch(() => { btn.disabled = false; });
+}
+
+// Load on page init
+document.addEventListener('DOMContentLoaded', loadDiagLogStats);
 
 // ==============================================================================
 // Event Log

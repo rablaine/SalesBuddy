@@ -109,9 +109,30 @@ def _upsert_to_msx(
                 f"MSX comment upsert failed for milestone {msx_milestone_id}: "
                 f"{result.get('error')}"
             )
+        # Diagnostic log: capture writeback content and result
+        try:
+            from app.services.diagnostic_log import diag_log
+            diag_log('writeback',
+                     milestone_id=msx_milestone_id,
+                     ref_tag=ref_tag,
+                     content=content,
+                     success=result.get('success'),
+                     error=result.get('error'))
+        except Exception:
+            pass
         return result
     except Exception as e:
         logger.warning(f"MSX comment upsert failed for {msx_milestone_id}: {e}")
+        try:
+            from app.services.diagnostic_log import diag_log
+            diag_log('writeback',
+                     milestone_id=msx_milestone_id,
+                     ref_tag=ref_tag,
+                     content=content,
+                     success=False,
+                     error=str(e))
+        except Exception:
+            pass
         return {"success": False, "error": str(e)}
 
 

@@ -1356,3 +1356,52 @@ def api_fy_archive_detail(label, item_type, item_id):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+
+# ---------------------------------------------------------------------------
+# Diagnostic log endpoints
+# ---------------------------------------------------------------------------
+
+
+@admin_bp.route('/api/admin/diagnostic-log/stats')
+def api_diagnostic_log_stats():
+    """Return stats about the diagnostic log file."""
+    from app.services.diagnostic_log import get_log_stats
+    return jsonify(get_log_stats())
+
+
+@admin_bp.route('/api/admin/diagnostic-log/download')
+def api_diagnostic_log_download():
+    """Download the diagnostic log as a zip file."""
+    from app.services.diagnostic_log import get_log_path
+    import zipfile
+    import io
+
+    log_path = get_log_path()
+    if not log_path:
+        return jsonify({'error': 'No diagnostic log file found'}), 404
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
+        zf.write(log_path, 'diagnostic.jsonl')
+    buf.seek(0)
+
+    from flask import send_file
+    return send_file(
+        buf,
+        mimetype='application/zip',
+        as_attachment=True,
+        download_name='salesbuddy-diagnostic-log.zip',
+    )
+
+
+@admin_bp.route('/api/admin/diagnostic-log/clear', methods=['POST'])
+def api_diagnostic_log_clear():
+    """Delete the diagnostic log file."""
+    from app.services.diagnostic_log import get_log_path
+    import os
+
+    log_path = get_log_path()
+    if log_path:
+        os.remove(log_path)
+    return jsonify({'success': True})
+

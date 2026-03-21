@@ -8,6 +8,7 @@ This module provides functions to call the MSX CRM API for:
 Uses msx_auth for token management.
 """
 
+import json
 import requests
 import logging
 import os
@@ -199,7 +200,24 @@ def _msx_request(
     if response.ok and is_vpn_blocked():
         logger.info("MSX request succeeded — clearing VPN block state")
         clear_vpn_block()
-    
+
+    # Diagnostic log: capture MSX API call details
+    try:
+        from app.services.diagnostic_log import diag_log
+        resp_body = None
+        try:
+            resp_body = response.text[:5000] if response.text else None
+        except Exception:
+            pass
+        diag_log('msx_api',
+                 method=method,
+                 url=url,
+                 req_body=json.dumps(json_data, default=str)[:5000] if json_data else None,
+                 status=response.status_code,
+                 resp_body=resp_body)
+    except Exception:
+        pass
+
     return response
 
 
