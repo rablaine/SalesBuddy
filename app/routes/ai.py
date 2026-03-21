@@ -274,87 +274,9 @@ def api_ai_analyze_call():
         return jsonify({'success': False, 'error': f'AI request failed: {e}'}), 500
 
 
-# NOTE: The engagement summary system prompt lives in infra/gateway/prompts.py
-# and is used server-side by the gateway. No local copy needed.
-
-
-@ai_bp.route('/api/ai/generate-engagement-summary', methods=['POST'])
-def api_ai_generate_engagement_summary():
-    """Generate a structured engagement summary from all call logs for a customer."""
-
-    data = request.get_json()
-    customer_id = data.get('customer_id') if data else None
-    if not customer_id:
-        return jsonify({'success': False, 'error': 'customer_id is required'}), 400
-
-    from app.models import Customer, Note
-    customer = Customer.query.get(customer_id)
-    if not customer:
-        return jsonify({'success': False, 'error': 'Customer not found'}), 404
-
-    notes = (
-        Note.query
-        .filter_by(customer_id=customer_id)
-        .order_by(Note.call_date.asc())
-        .all()
-    )
-    if not notes:
-        return jsonify({'success': False, 'error': 'No notes found for this customer'}), 400
-
-    import re as _re
-    note_payloads = []
-    for cl in notes:
-        date_str = cl.call_date.strftime('%Y-%m-%d')
-        content = _re.sub(r'<[^>]+>', '', cl.content or '')
-        topics = [t.name for t in cl.topics] if cl.topics else []
-        note_payloads.append({"date": date_str, "content": content, "topics": topics})
-
-    overview = ''
-    if customer.account_context:
-        overview = _re.sub(r'<[^>]+>', '', customer.account_context)
-
-    try:
-        result = gateway_call("/v1/engagement-summary", {
-            "customer_name": customer.name,
-            "tpid": customer.tpid or "",
-            "overview": overview,
-            "notes": note_payloads,
-        })
-        summary_text = result.get("summary", "")
-        usage = result.get("usage", {})
-
-        log_entry = AIQueryLog(
-            request_text=f"Engagement summary for {customer.name} ({len(notes)} logs)",
-            response_text=summary_text[:500],
-            success=True,
-            model=usage.get("model", "gateway"),
-            prompt_tokens=usage.get("prompt_tokens"),
-            completion_tokens=usage.get("completion_tokens"),
-            total_tokens=usage.get("total_tokens"),
-        )
-        db.session.add(log_entry)
-        db.session.commit()
-
-        return jsonify({
-            'success': True,
-            'summary': summary_text,
-            'note_count': len(notes)
-        })
-
-    except (GatewayError, Exception) as e:
-        log_entry = AIQueryLog(
-            request_text=f"Engagement summary for {customer.name} ({len(notes)} logs)",
-            response_text=None,
-            success=False,
-            error_message=str(e)[:500]
-        )
-        db.session.add(log_entry)
-        db.session.commit()
-        return jsonify({'success': False, 'error': f'AI request failed: {e}'}), 500
-
-
-# NOTE: The engagement story system prompt lives in infra/gateway/prompts.py
-# and is used server-side by the gateway. No local copy needed.
+# ---------------------------------------------------------------------------
+# Engagement story generation + apply
+# ---------------------------------------------------------------------------
 
 
 @ai_bp.route('/api/ai/generate-engagement-story', methods=['POST'])
@@ -442,7 +364,10 @@ def api_ai_generate_engagement_story():
         'technical_problem': engagement.technical_problem or '',
         'business_impact': engagement.business_impact or '',
         'solution_resources': engagement.solution_resources or '',
-        'estimated_acr': f"${int(engagement.estimated_acr):,}/mo" if engagement.estimated_acr else '',
+        'estimated_acr': (
+            f"${int(engagement.estimated_acr):,}/mo"
+            if engagement.estimated_acr else ''
+        ),
         'target_date': (
             engagement.target_date.strftime('%Y-%m-%d')
             if engagement.target_date else ''
@@ -470,7 +395,9 @@ def api_ai_generate_engagement_story():
             story_data['estimated_acr'] = None
 
         log_entry = AIQueryLog(
-            request_text=f"Story for engagement '{engagement.title}' ({len(notes)} notes)",
+            request_text=(
+                f"Story for engagement '{engagement.title}' ({len(notes)} notes)"
+            ),
             response_text=json.dumps(story_data)[:500],
             success=True,
             model=usage.get("model", "gateway"),
@@ -513,7 +440,6 @@ def api_ai_generate_engagement_story():
                 pass
         db.session.commit()
 
-        # Track engagement story on linked milestones
         if engagement.milestones:
             from app.services.milestone_tracking import track_engagement_on_milestones
             track_engagement_on_milestones(engagement)
@@ -526,7 +452,9 @@ def api_ai_generate_engagement_story():
 
     except (GatewayError, ValueError, KeyError, json.JSONDecodeError) as e:
         log_entry = AIQueryLog(
-            request_text=f"Story for engagement '{engagement.title}' ({len(notes)} notes)",
+            request_text=(
+                f"Story for engagement '{engagement.title}' ({len(notes)} notes)"
+            ),
             response_text=None,
             success=False,
             error_message=str(e)[:500]
@@ -540,7 +468,9 @@ def api_ai_generate_engagement_story():
 
     except Exception as e:
         log_entry = AIQueryLog(
-            request_text=f"Story for engagement '{engagement.title}' ({len(notes)} notes)",
+            request_text=(
+                f"Story for engagement '{engagement.title}' ({len(notes)} notes)"
+            ),
             response_text=None,
             success=False,
             error_message=str(e)[:500]
@@ -603,3 +533,4 @@ def api_ai_apply_engagement_story():
         track_engagement_on_milestones(engagement)
 
     return jsonify({'success': True})
+

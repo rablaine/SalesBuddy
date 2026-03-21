@@ -137,28 +137,6 @@ ANALYZE_CALL_PROMPT = (
 )
 
 # ---------------------------------------------------------------------------
-# Engagement summary  (from app/routes/ai.py)
-# ---------------------------------------------------------------------------
-ENGAGEMENT_SUMMARY_PROMPT = (
-    "You are a Microsoft technical seller's assistant. Analyze the provided notes "
-    "and any existing customer overview for a customer and generate a structured engagement summary. "
-    "Fill in each field based on what you can extract from the notes. If a field "
-    "cannot be determined from the available information, write 'Not identified in notes' "
-    "for that field.\n\n"
-    "Return your response in EXACTLY this format (keep the field labels exactly as shown, "
-    "fill in the values after the colon):\n\n"
-    "Key Individuals & Titles: [names and titles of key people mentioned]\n"
-    "Technical/Business Problem: [the technical or business challenges they face]\n"
-    "Business Process/Strategy: [how the problem impacts their business]\n"
-    "Solution Resources: [Azure services, tools, or approaches being used to address it]\n"
-    "Business Outcome in Estimated $$ACR: [expected monthly Azure revenue increase, e.g. $$500/mo - ACR always means increased Azure consumption, never cost savings]\n"
-    "Future Date/Timeline: [any deadlines, milestones, or target dates mentioned]\n"
-    "Risks/Blockers: [any risks, blockers, or concerns raised]\n\n"
-    "Be concise but specific. Use actual details from the notes, not generic "
-    "statements. If multiple topics or workstreams exist, cover the most significant ones."
-)
-
-# ---------------------------------------------------------------------------
 # Connect export — single / full  (GPT-5.3-chat with evidence scaffolding)
 # ---------------------------------------------------------------------------
 CONNECT_SUMMARY_SYSTEM_PROMPT = (
@@ -365,25 +343,30 @@ ENGAGEMENT_STORY_PROMPT = (
 )
 
 # ---------------------------------------------------------------------------
-# Compose engagement story for MSX writeback
+# Engagement story fields  (from app/routes/ai.py)
 # ---------------------------------------------------------------------------
-ENGAGEMENT_STORY_COMPOSE_PROMPT = (
-    "You are a Microsoft technical seller writing an engagement overview for a CRM "
-    "milestone comment. Using the structured fields provided, write a concise, "
-    "professional narrative in first person from the seller's perspective.\n\n"
+ENGAGEMENT_STORY_PROMPT = (
+    "You are a Microsoft technical seller's assistant. Analyze the provided notes "
+    "for a specific customer engagement and generate structured story fields.\n\n"
+    "Return your response as valid JSON with EXACTLY these keys:\n"
+    "{\n"
+    '  "key_individuals": "names and titles of key people involved",\n'
+    '  "technical_problem": "the technical or business challenges they face",\n'
+    '  "business_impact": "how the problem impacts their business processes/strategy",\n'
+    '  "solution_resources": "Azure services, tools, or approaches being used",\n'
+    '  "target_date": "target completion date in YYYY-MM-DD format, or null if unknown"\n'
+    "}\n\n"
     "Rules:\n"
-    "- Write 4-6 sentences as flowing prose, not bullet points.\n"
-    "- Start with who you are working with (names and roles).\n"
-    "- Describe the technical or business problem and its impact.\n"
-    "- Explain the solution approach and Azure services involved.\n"
-    "- End with the expected business outcome and timeline if available. "
-    "ACR (Azure Consumed Revenue) always represents INCREASED Azure consumption/revenue "
-    "for Microsoft, never cost savings or cost reduction for the customer.\n"
-    "- Use the actual details provided - do not invent facts.\n"
-    "- Preserve exact dollar amounts, dates, and technical terms as given.\n"
-    "- Keep it under 150 words.\n"
-    "- Do not use bullet points, numbered lists, or markdown formatting.\n"
-    "- Do not include headers, labels, or field names - just the narrative.\n"
-    "- Do not include greetings, sign-offs, or meta-commentary.\n"
-    "- Return ONLY the narrative text, nothing else."
+    "- Be concise but specific. Use actual details from the notes.\n"
+    "- If a field cannot be determined, use null for that field.\n"
+    "- For key_individuals, list only CUSTOMER contacts (the people the seller is "
+    "working with at the customer). Exclude the seller themselves (identified by "
+    "'My name' in the context) and any other Microsoft employees.\n"
+    "- Dates in [YYYY-MM-DD] brackets are CALL DATES (when the meeting happened), "
+    "NOT target dates. Do NOT use call dates as the target_date.\n"
+    "- For target_date, only return a date if the customer or seller explicitly mentions "
+    "a future goal date, go-live date, or deadline. If no specific target is mentioned, "
+    "return null.\n"
+    "- Return ONLY the JSON object, no markdown formatting or extra text."
 )
+

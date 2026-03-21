@@ -196,52 +196,6 @@ class TestAnalyzeCallGateway:
                 assert Topic.query.get(t["id"]) is not None
 
 
-class TestEngagementSummaryGateway:
-    """Test /api/ai/generate-engagement-summary through the gateway path."""
-
-    @patch("app.routes.ai.gateway_call")
-    def test_engagement_summary_via_gateway(self, mock_gw_call, app, client):
-        mock_gw_call.return_value = {
-            "success": True,
-            "summary": "Key Individuals: John Doe\nTechnical Problem: Migration",
-            "usage": {"model": "gpt-4o-mini", "prompt_tokens": 200,
-                      "completion_tokens": 100, "total_tokens": 300},
-        }
-        with app.app_context():
-            test_user = User.query.first()
-            user_id = test_user.id
-            customer = Customer(name="TestCo", tpid="12345")
-            db.session.add(customer)
-            db.session.flush()
-            note = Note(
-                customer_id=customer.id,
-                call_date=date(2025, 1, 15),
-                content="Discussed migration to Azure",
-            )
-            db.session.add(note)
-            db.session.commit()
-            customer_id = customer.id
-
-        with client.session_transaction() as sess:
-            sess["_user_id"] = str(user_id)
-
-        resp = client.post(
-            "/api/ai/generate-engagement-summary",
-            json={"customer_id": customer_id},
-        )
-        data = resp.get_json()
-        assert resp.status_code == 200
-        assert data["success"] is True
-        assert "summary" in data
-
-        # Verify gateway was called with structured note data
-        call_args = mock_gw_call.call_args
-        assert call_args[0][0] == "/v1/engagement-summary"
-        payload = call_args[0][1]
-        assert payload["customer_name"] == "TestCo"
-        assert len(payload["notes"]) == 1
-
-
 class TestAdminAITestGateway:
     """Test /api/admin/ai-config/test through the gateway path."""
 

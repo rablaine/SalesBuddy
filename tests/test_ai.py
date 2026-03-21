@@ -241,143 +241,6 @@ class TestAuditLogging:
             assert len(log.response_text) <= 1000
 
 
-# ---------------------------------------------------------------------------
-# Engagement summary tests
-# ---------------------------------------------------------------------------
-
-class TestGenerateEngagementSummary:
-    """Tests for the AI engagement summary generation endpoint."""
-
-    def _create_customer_with_notes(self, app):
-        """Helper to create a customer with notes for testing."""
-        from app.models import Customer, Note, Seller, Territory
-        with app.app_context():
-            territory = Territory(name="Test Territory")
-            seller = Seller(name="Test Seller", alias="tseller", seller_type="Growth")
-            db.session.add_all([territory, seller])
-            db.session.flush()
-            customer = Customer(
-                name="Test AI Customer", tpid=11111,
-                seller_id=seller.id, territory_id=territory.id,
-            )
-            db.session.add(customer)
-            db.session.flush()
-            n1 = Note(
-                customer_id=customer.id,
-                call_date=datetime(2025, 6, 15, 12, 0, 0),
-                content="Discussed migrating their monolith to AKS. Key contact: Jane Smith, CTO.",
-            )
-            n2 = Note(
-                customer_id=customer.id,
-                call_date=datetime(2025, 7, 1, 14, 0, 0),
-                content="Follow-up on AKS migration. Targeting Q3 go-live. Estimated $50K ACR.",
-            )
-            db.session.add_all([n1, n2])
-            db.session.commit()
-            return customer.id
-
-    def test_returns_400_when_no_customer_id(self, app, client):
-        """Should return 400 when customer_id is missing."""
-        resp = client.post('/api/ai/generate-engagement-summary', json={})
-        assert resp.status_code == 400
-        assert 'customer_id' in resp.get_json()['error']
-
-    def test_returns_404_when_customer_not_found(self, app, client):
-        """Should return 404 for nonexistent customer."""
-        resp = client.post(
-            '/api/ai/generate-engagement-summary',
-            json={'customer_id': 999999},
-        )
-        assert resp.status_code == 404
-
-    def test_returns_400_when_no_notes(self, app, client):
-        """Should return 400 when customer has no notes."""
-        from app.models import Customer
-        with app.app_context():
-            customer = Customer(name="Empty Customer", tpid=22222)
-            db.session.add(customer)
-            db.session.commit()
-            cid = customer.id
-        resp = client.post(
-            '/api/ai/generate-engagement-summary',
-            json={'customer_id': cid},
-        )
-        assert resp.status_code == 400
-        assert 'No notes' in resp.get_json()['error']
-
-    @patch('app.routes.ai.gateway_call')
-    def test_success_returns_summary(self, mock_gw, app, client):
-        """Should return AI-generated summary on success."""
-        customer_id = self._create_customer_with_notes(app)
-
-        summary_text = (
-            "Key Individuals & Titles: Jane Smith, CTO\n"
-            "Technical/Business Problem: Monolith architecture\n"
-            "Solution Resources: Azure Kubernetes Service (AKS)\n"
-            "Business Outcome in Estimated $$ACR: $50K ACR\n"
-            "Future Date/Timeline: Q3 go-live target"
-        )
-        mock_gw.return_value = {
-            'success': True,
-            'summary': summary_text,
-            'usage': {},
-        }
-
-        resp = client.post(
-            '/api/ai/generate-engagement-summary',
-            json={'customer_id': customer_id},
-        )
-        assert resp.status_code == 200
-        data = resp.get_json()
-        assert data['success'] is True
-        assert 'Jane Smith' in data['summary']
-        assert data['note_count'] == 2
-
-    @patch('app.routes.ai.gateway_call')
-    def test_logs_success_to_ai_query_log(self, mock_gw, app, client):
-        """Should create an AIQueryLog entry on success."""
-        customer_id = self._create_customer_with_notes(app)
-        mock_gw.return_value = {'success': True, 'summary': 'Summary here', 'usage': {}}
-
-        client.post(
-            '/api/ai/generate-engagement-summary',
-            json={'customer_id': customer_id},
-        )
-
-        with app.app_context():
-            log = AIQueryLog.query.filter(
-                AIQueryLog.request_text.like('%Engagement summary%')
-            ).first()
-            assert log is not None
-            assert log.success is True
-            assert 'Test AI Customer' in log.request_text
-
-    @patch('app.routes.ai.gateway_call')
-    def test_logs_failure_to_ai_query_log(self, mock_gw, app, client):
-        """Should create an AIQueryLog entry on failure."""
-        customer_id = self._create_customer_with_notes(app)
-        from app.gateway_client import GatewayError
-        mock_gw.side_effect = GatewayError("API quota exceeded")
-
-        resp = client.post(
-            '/api/ai/generate-engagement-summary',
-            json={'customer_id': customer_id},
-        )
-        assert resp.status_code == 500
-
-        with app.app_context():
-            log = AIQueryLog.query.filter(
-                AIQueryLog.request_text.like('%Engagement summary%')
-            ).first()
-            assert log is not None
-            assert log.success is False
-            assert 'quota' in log.error_message.lower()
-
-
-# ---------------------------------------------------------------------------
-# Generate button visibility tests
-# ---------------------------------------------------------------------------
-
 class TestGenerateButtonVisibility:
     """Tests that the Generate button appears when linked notes exist."""
 
@@ -459,7 +322,8 @@ class TestEngagementStoryPreviewAndApply:
 
     @patch('app.routes.ai.gateway_call')
     def test_preview_returns_current_and_generated(self, mock_gw, app, client):
-        """Preview mode should return both current and generated values without saving."""
+        """Preview mode should return both current and generated values
+        without saving."""
         eid = self._create_engagement_with_notes(app)
         mock_gw.return_value = {
             'story': {

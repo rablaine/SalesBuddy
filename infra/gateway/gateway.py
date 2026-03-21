@@ -23,9 +23,6 @@ from prompts import (
     MILESTONE_MATCH_PROMPT,
     OPPORTUNITY_MATCH_PROMPT,
     ANALYZE_CALL_PROMPT,
-    ENGAGEMENT_SUMMARY_PROMPT,
-    ENGAGEMENT_STORY_PROMPT,
-    ENGAGEMENT_STORY_COMPOSE_PROMPT,
     MILESTONE_COMMENT_PROMPT,
     CONNECT_SUMMARY_SYSTEM_PROMPT,
     CONNECT_CHUNK_SYSTEM_PROMPT,
@@ -422,65 +419,6 @@ def analyze_call():
 
 
 # ---------------------------------------------------------------------------
-# POST /v1/engagement-summary
-# ---------------------------------------------------------------------------
-@app.route("/v1/engagement-summary", methods=["POST"])
-def engagement_summary():
-    """Generate a structured engagement summary from customer call logs."""
-    try:
-        body = request.get_json(force=True)
-        customer_name = body.get("customer_name", "")
-        tpid = body.get("tpid", "")
-        overview = body.get("overview", "")
-        notes = body.get("notes") or []
-
-        if not notes:
-            return _error("notes list is required")
-
-        # Build call text (mirrors app/routes/ai.py logic)
-        parts = []
-        for n in notes:
-            entry = f"[{n.get('date', '')}]"
-            topics = n.get("topics", [])
-            if topics:
-                entry += f" Topics: {', '.join(topics)}"
-            entry += f"\n{n.get('content', '')}"
-            parts.append(entry)
-        call_text = "\n\n---\n\n".join(parts)
-
-        MAX_CHARS = 30_000
-        if len(call_text) > MAX_CHARS:
-            call_text = (
-                call_text[:MAX_CHARS]
-                + "\n\n[... additional notes truncated ...]"
-            )
-
-        notes_section = (
-            f"\nExisting Customer Notes:\n{overview}\n" if overview else ""
-        )
-        user_message = (
-            f"Customer: {customer_name} (TPID: {tpid})\n"
-            f"Total notes: {len(notes)}\n"
-            f"{notes_section}\n"
-            f"Notes:\n\n{call_text}"
-        )
-
-        result = chat_completion(
-            ENGAGEMENT_SUMMARY_PROMPT, user_message, max_tokens=1000,
-        )
-
-        return jsonify({
-            "success": True,
-            "summary": result["text"],
-            "usage": result["usage"],
-        })
-
-    except Exception as exc:
-        logger.exception("engagement-summary error")
-        return _error(f"Internal error: {exc}", 500)
-
-
-# ---------------------------------------------------------------------------
 # POST /v1/engagement-story
 # ---------------------------------------------------------------------------
 @app.route("/v1/engagement-story", methods=["POST"])
@@ -511,58 +449,6 @@ def engagement_story():
         return _error("AI returned invalid response format", 502)
     except Exception as exc:
         logger.exception("engagement-story error")
-        return _error(f"Internal error: {exc}", 500)
-
-
-# ---------------------------------------------------------------------------
-# POST /v1/compose-engagement-story
-# ---------------------------------------------------------------------------
-@app.route("/v1/compose-engagement-story", methods=["POST"])
-def compose_engagement_story():
-    """Compose a natural-language engagement story from structured fields."""
-    try:
-        body = request.get_json(force=True)
-        fields = body.get("fields") or {}
-        title = (body.get("title") or "").strip()
-        status = (body.get("status") or "").strip()
-
-        if not title:
-            return _error("title is required")
-
-        # Build the user prompt from the structured fields
-        parts = [f"Engagement: {title} [{status}]"]
-        if fields.get("key_individuals"):
-            parts.append(f"Key People: {fields['key_individuals']}")
-        if fields.get("technical_problem"):
-            parts.append(f"Technical Problem: {fields['technical_problem']}")
-        if fields.get("business_impact"):
-            parts.append(f"Business Impact: {fields['business_impact']}")
-        if fields.get("solution_resources"):
-            parts.append(f"Solution: {fields['solution_resources']}")
-        if fields.get("estimated_acr"):
-            acr_val = fields['estimated_acr']
-            try:
-                acr_formatted = f"${int(acr_val):,}/mo"
-            except (ValueError, TypeError):
-                acr_formatted = str(acr_val)
-            parts.append(f"Estimated ACR (monthly Azure revenue increase): {acr_formatted}")
-        if fields.get("target_date"):
-            parts.append(f"Target Date: {fields['target_date']}")
-
-        user_message = "\n".join(parts)
-
-        result = chat_completion(
-            ENGAGEMENT_STORY_COMPOSE_PROMPT, user_message, max_tokens=300,
-        )
-
-        return jsonify({
-            "success": True,
-            "story_text": result["text"].strip(),
-            "usage": result["usage"],
-        })
-
-    except Exception as exc:
-        logger.exception("compose-engagement-story error")
         return _error(f"Internal error: {exc}", 500)
 
 

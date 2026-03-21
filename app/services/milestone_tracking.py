@@ -173,101 +173,6 @@ def _build_note_fallback(topics: str) -> str:
     return "(Note linked — summary pending)"
 
 
-# ── Engagement story template ───────────────────────────────────────────────
-
-def _ai_compose_story(engagement) -> str | None:
-    """Call the AI gateway to compose a natural-language engagement story.
-
-    Returns the composed story text, or None if AI is unavailable.
-    """
-    fields = {}
-    if engagement.key_individuals:
-        fields["key_individuals"] = _strip_html(engagement.key_individuals)
-    if engagement.technical_problem:
-        fields["technical_problem"] = _strip_html(engagement.technical_problem)
-    if engagement.business_impact:
-        fields["business_impact"] = _strip_html(engagement.business_impact)
-    if engagement.solution_resources:
-        fields["solution_resources"] = _strip_html(engagement.solution_resources)
-    if engagement.estimated_acr:
-        fields["estimated_acr"] = f"${int(engagement.estimated_acr):,}/mo"
-    if engagement.target_date:
-        target = engagement.target_date
-        fields["target_date"] = (
-            target.strftime('%b %Y') if isinstance(target, date) else str(target)
-        )
-
-    try:
-        from app.gateway_client import gateway_call
-        print("[milestone-tracking] AI: calling gateway /v1/compose-engagement-story")
-        result = gateway_call("/v1/compose-engagement-story", {
-            "title": engagement.title,
-            "status": engagement.status or "Active",
-            "fields": fields,
-        })
-        story_text = (result.get("story_text") or "").strip()
-        if story_text:
-            print("[milestone-tracking] AI: got composed story")
-            return f"Engagement Overview: {engagement.title} [{engagement.status}]\n\n{story_text}"
-        return None
-    except Exception as e:
-        print(f"[milestone-tracking] AI compose story failed, using template: {e}")
-        return None
-
-
-def _build_engagement_story_template(engagement) -> str:
-    """Build engagement story from structured fields using a fixed template.
-
-    Used as a fallback when AI composition is unavailable.
-    """
-    parts = [f"Engagement Overview: {engagement.title} [{engagement.status}]"]
-
-    if engagement.key_individuals:
-        parts.append(f"I've been working with {_strip_html(engagement.key_individuals)}.")
-
-    if engagement.technical_problem:
-        parts.append(
-            f"They have run into {_strip_html(engagement.technical_problem)}"
-        )
-
-    if engagement.business_impact:
-        parts.append(
-            f"It's impacting {_strip_html(engagement.business_impact)}"
-        )
-
-    if engagement.solution_resources:
-        parts.append(
-            f"We are addressing the opportunity with "
-            f"{_strip_html(engagement.solution_resources)}."
-        )
-
-    acr = engagement.estimated_acr
-    target = engagement.target_date
-    acr_str = f"${int(acr):,}/mo" if acr else None
-    if acr_str and target:
-        target_str = target.strftime('%b %Y') if isinstance(target, date) else str(target)
-        parts.append(f"This will result in {acr_str} by {target_str}.")
-    elif acr_str:
-        parts.append(f"This will result in {acr_str}.")
-    elif target:
-        target_str = target.strftime('%b %Y') if isinstance(target, date) else str(target)
-        parts.append(f"Target date: {target_str}.")
-
-    return "\n\n".join(parts)
-
-
-def _build_engagement_story(engagement) -> str:
-    """Build the engagement story comment, using AI if available.
-
-    Tries AI composition first for a natural-language narrative.
-    Falls back to the fixed template if AI is unavailable.
-    """
-    story = _ai_compose_story(engagement)
-    if story:
-        return story
-    return _build_engagement_story_template(engagement)
-
-
 def _build_engagement_html_table(engagement) -> str:
     """Build an HTML table of engagement fields for MSX writeback.
 
@@ -344,16 +249,6 @@ def _build_engagement_html_table(engagement) -> str:
         f'{table_rows}'
         f'</table>'
     )
-
-
-def _get_writeback_mode() -> str:
-    """Get the current engagement writeback mode from user preferences."""
-    try:
-        from app.models import UserPreference
-        pref = UserPreference.query.first()
-        return pref.engagement_writeback_mode if pref else 'ai_summary'
-    except Exception:
-        return 'ai_summary'
 
 
 def _add_footer(content: str, ref_tag: str) -> str:
@@ -553,13 +448,9 @@ def track_engagement_on_milestones(engagement, background: bool = True) -> list[
         print(f"[milestone-tracking] engagement {engagement.id}: no story fields populated, skipping MSX write")
         return [] if not background else None
 
-    mode = _get_writeback_mode()
-    if mode == 'html_table':
-        story = _build_engagement_html_table(engagement)
-    else:
-        story = _build_engagement_story(engagement)
+    story = _build_engagement_html_table(engagement)
     ref_tag = _ENG_REF.format(id=engagement.id)
-    print(f"[milestone-tracking] engagement {engagement.id}: {len(engagement.milestones)} milestones, ref={ref_tag}, mode={mode}")
+    print(f"[milestone-tracking] engagement {engagement.id}: {len(engagement.milestones)} milestones, ref={ref_tag}")
     content = _add_footer(story, ref_tag)
 
     milestones_data = [

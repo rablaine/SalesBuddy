@@ -981,7 +981,6 @@ class UserPreference(db.Model):
     user_role = db.Column(db.String(10), nullable=True)  # 'se' or 'dss' - null until set during onboarding
     my_seller_id = db.Column(db.Integer, db.ForeignKey('sellers.id'), nullable=True)  # DSS's own Seller record
     my_seller_alias = db.Column(db.String(100), nullable=True)  # DSS's az login alias (persisted for offline use)
-    engagement_writeback_mode = db.Column(db.String(20), default='ai_summary', nullable=False)  # 'ai_summary' or 'html_table'
     created_at = db.Column(db.DateTime, default=utc_now, nullable=False)
     updated_at = db.Column(db.DateTime, default=utc_now, onupdate=utc_now, nullable=False)
     

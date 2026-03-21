@@ -17,9 +17,6 @@ from app.models import db, Customer, Note, Milestone, Engagement, Topic
 from app.services.milestone_tracking import (
     track_note_on_milestones,
     track_engagement_on_milestones,
-    _build_engagement_story,
-    _build_engagement_story_template,
-    _ai_compose_story,
     _add_footer,
     _strip_html,
     _build_note_fallback,
@@ -52,191 +49,6 @@ class TestHelpers:
     def test_build_note_fallback_no_topics(self):
         result = _build_note_fallback("None")
         assert "pending" in result.lower()
-
-
-# ── Engagement story template tests ─────────────────────────────────────────
-
-
-class TestBuildEngagementStory:
-    """Test engagement story comment assembly."""
-
-    @patch('app.services.milestone_tracking._ai_compose_story', return_value=None)
-    def test_full_story_with_all_fields(self, mock_ai, app):
-        """All 6 narrative fields produce a complete story (template fallback)."""
-        with app.app_context():
-            customer = Customer(name='Story Corp', tpid=8000)
-            db.session.add(customer)
-            db.session.flush()
-
-            eng = Engagement(
-                customer_id=customer.id,
-                title='Oracle Migration',
-                status='Active',
-                key_individuals='John Smith (DBA), Sarah Chen (VP)',
-                technical_problem='3 Oracle instances need migration to Azure SQL MI.',
-                business_impact='$2M annual licensing savings plus improved DR.',
-                solution_resources='SQL MI compatibility assessment + migration planning.',
-                estimated_acr=45000,
-                target_date=date(2026, 6, 1),
-            )
-            db.session.add(eng)
-            db.session.flush()
-
-            story = _build_engagement_story(eng)
-
-            assert 'Engagement Overview: Oracle Migration [Active]' in story
-            assert "I've been working with John Smith (DBA), Sarah Chen (VP)" in story
-            assert 'They have run into 3 Oracle instances' in story
-            assert "It's impacting $2M annual licensing" in story
-            assert 'We are addressing the opportunity with SQL MI compatibility' in story
-            assert 'This will result in $45,000/mo by Jun 2026.' in story
-
-    @patch('app.services.milestone_tracking._ai_compose_story', return_value=None)
-    def test_minimal_story_with_title_only(self, mock_ai, app):
-        """Story works with just title and status."""
-        with app.app_context():
-            customer = Customer(name='Min Corp', tpid=8001)
-            db.session.add(customer)
-            db.session.flush()
-
-            eng = Engagement(
-                customer_id=customer.id,
-                title='Discovery Phase',
-                status='Active',
-            )
-            db.session.add(eng)
-            db.session.flush()
-
-            story = _build_engagement_story(eng)
-            assert 'Engagement Overview: Discovery Phase [Active]' in story
-            # Should not crash or include "None"
-            assert 'None' not in story
-
-    @patch('app.services.milestone_tracking._ai_compose_story', return_value=None)
-    def test_story_with_acr_no_date(self, mock_ai, app):
-        """Story includes ACR without date."""
-        with app.app_context():
-            customer = Customer(name='ACR Corp', tpid=8002)
-            db.session.add(customer)
-            db.session.flush()
-
-            eng = Engagement(
-                customer_id=customer.id,
-                title='ACR Test',
-                status='Active',
-                estimated_acr=10000,
-            )
-            db.session.add(eng)
-            db.session.flush()
-
-            story = _build_engagement_story(eng)
-            assert 'This will result in $10,000/mo.' in story
-
-    def test_ai_compose_success_uses_ai_text(self, app):
-        """When AI compose succeeds, _build_engagement_story uses the AI text."""
-        with app.app_context():
-            customer = Customer(name='AI Corp', tpid=8010)
-            db.session.add(customer)
-            db.session.flush()
-
-            eng = Engagement(
-                customer_id=customer.id,
-                title='AI Test',
-                status='Active',
-                key_individuals='Jane Doe (CTO)',
-                technical_problem='Legacy migration needed.',
-            )
-            db.session.add(eng)
-            db.session.flush()
-
-            ai_text = (
-                "Engagement Overview: AI Test [Active]\n\n"
-                "Working with Jane Doe, CTO, on a legacy migration. "
-                "The customer needs to modernize their infrastructure."
-            )
-            with patch(
-                'app.services.milestone_tracking._ai_compose_story',
-                return_value=ai_text,
-            ):
-                story = _build_engagement_story(eng)
-            assert story == ai_text
-
-    def test_ai_compose_failure_falls_back_to_template(self, app):
-        """When AI compose fails, _build_engagement_story uses the template."""
-        with app.app_context():
-            customer = Customer(name='Fallback Corp', tpid=8011)
-            db.session.add(customer)
-            db.session.flush()
-
-            eng = Engagement(
-                customer_id=customer.id,
-                title='Fallback Test',
-                status='Active',
-                key_individuals='Bob (PM)',
-            )
-            db.session.add(eng)
-            db.session.flush()
-
-            with patch(
-                'app.services.milestone_tracking._ai_compose_story',
-                return_value=None,
-            ):
-                story = _build_engagement_story(eng)
-            assert 'Engagement Overview: Fallback Test [Active]' in story
-            assert "I've been working with Bob (PM)" in story
-
-    @patch('app.gateway_client.gateway_call')
-    def test_ai_compose_story_calls_gateway(self, mock_gw, app):
-        """_ai_compose_story calls the correct gateway endpoint."""
-        mock_gw.return_value = {
-            "success": True,
-            "story_text": "A nicely composed story about the engagement.",
-        }
-        with app.app_context():
-            customer = Customer(name='GW Corp', tpid=8012)
-            db.session.add(customer)
-            db.session.flush()
-
-            eng = Engagement(
-                customer_id=customer.id,
-                title='Gateway Test',
-                status='Active',
-                key_individuals='Alice (Director)',
-                technical_problem='Need AKS migration.',
-            )
-            db.session.add(eng)
-            db.session.flush()
-
-            result = _ai_compose_story(eng)
-
-        assert result is not None
-        assert 'Engagement Overview: Gateway Test [Active]' in result
-        assert 'A nicely composed story' in result
-        mock_gw.assert_called_once()
-        call_args = mock_gw.call_args
-        assert call_args[0][0] == '/v1/compose-engagement-story'
-        assert call_args[0][1]['title'] == 'Gateway Test'
-        assert 'Alice (Director)' in call_args[0][1]['fields']['key_individuals']
-
-    @patch('app.gateway_client.gateway_call', side_effect=Exception('timeout'))
-    def test_ai_compose_story_returns_none_on_failure(self, mock_gw, app):
-        """_ai_compose_story returns None when gateway fails."""
-        with app.app_context():
-            customer = Customer(name='Fail Corp', tpid=8013)
-            db.session.add(customer)
-            db.session.flush()
-
-            eng = Engagement(
-                customer_id=customer.id,
-                title='Fail Test',
-                status='Active',
-                technical_problem='Something broke.',
-            )
-            db.session.add(eng)
-            db.session.flush()
-
-            result = _ai_compose_story(eng)
-        assert result is None
 
 
 # ── Upsert logic tests (msx_api.py) ─────────────────────────────────────────
@@ -719,7 +531,8 @@ class TestTrackEngagementOnMilestones:
                 call_args = mock_upsert.call_args
                 assert call_args[0][0] == 'eng-guid-1'
                 content = call_args[0][1]
-                assert 'Engagement Overview: Cloud PoC [Active]' in content
+                assert 'Need to assess cloud readiness' in content
+                assert '<table' in content
                 assert f'· eng-{engagement.id} ·' in content
                 # pin_to_top should be True
                 assert call_args[1]['pin_to_top'] is True
