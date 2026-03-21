@@ -268,10 +268,105 @@ def _build_engagement_story(engagement) -> str:
     return _build_engagement_story_template(engagement)
 
 
+def _build_engagement_html_table(engagement) -> str:
+    """Build an HTML table of engagement fields for MSX writeback.
+
+    Renders on MSX's white background with color-coded label text.
+    """
+    # Label text colors per field
+    label_colors = {
+        'Key Individuals': '#0d6efd',       # blue
+        'Technical Problem': '#b45309',     # amber/brown
+        'Business Impact': '#dc3545',       # red
+        'Solution Resources': '#198754',    # green
+        'Estimated ACR': '#198754',         # green
+        'Target Date': '#6c757d',           # gray
+    }
+
+    rows = []
+
+    def add_row(label: str, value: str,
+                value_style: str = 'color:#212529;') -> None:
+        if value:
+            clean = _strip_html(value)
+            lcolor = label_colors.get(label, '#495057')
+            rows.append(
+                f'<tr>'
+                f'<td style="padding:8px 12px;font-weight:600;color:{lcolor};'
+                f'white-space:nowrap;vertical-align:top;'
+                f'border-bottom:1px solid #dee2e6;">'
+                f'{label}</td>'
+                f'<td colspan="3" style="padding:8px 12px;{value_style}'
+                f'border-bottom:1px solid #dee2e6;">{clean}</td>'
+                f'</tr>'
+            )
+
+    add_row('Key Individuals', engagement.key_individuals)
+    add_row('Technical Problem', engagement.technical_problem)
+    add_row('Business Impact', engagement.business_impact)
+    add_row('Solution Resources', engagement.solution_resources)
+
+    # Combined ACR + Target Date row (side by side)
+    acr_str = f'${int(engagement.estimated_acr):,}/mo' if engagement.estimated_acr else None
+    target_str = None
+    if engagement.target_date:
+        target_str = (engagement.target_date.strftime('%b %d, %Y')
+                      if isinstance(engagement.target_date, date)
+                      else str(engagement.target_date))
+
+    if acr_str or target_str:
+        acr_lcolor = label_colors['Estimated ACR']
+        date_lcolor = label_colors['Target Date']
+        cells = ''
+        if acr_str:
+            cells += (
+                f'<td style="padding:8px 12px;font-weight:600;color:{acr_lcolor};'
+                f'white-space:nowrap;vertical-align:top;">Estimated ACR</td>'
+                f'<td style="padding:8px 12px;color:#198754;font-weight:700;'
+                f'font-size:1.1em;">{acr_str}</td>'
+            )
+        if target_str:
+            cells += (
+                f'<td style="padding:8px 12px;font-weight:600;color:{date_lcolor};'
+                f'white-space:nowrap;vertical-align:top;">Target Date</td>'
+                f'<td style="padding:8px 12px;color:#212529;">{target_str}</td>'
+            )
+        rows.append(f'<tr>{cells}</tr>')
+
+    if not rows:
+        return '<p>No story fields populated.</p>'
+
+    table_rows = '\n'.join(rows)
+    return (
+        f'<div style="font-family:Segoe UI,sans-serif;max-width:600px;">'
+        f'<table style="width:100%;border-collapse:collapse;'
+        f'border:1px solid #dee2e6;">'
+        f'{table_rows}'
+        f'</table>'
+        f'</div>'
+    )
+
+
+def _get_writeback_mode() -> str:
+    """Get the current engagement writeback mode from user preferences."""
+    try:
+        from app.models import UserPreference
+        pref = UserPreference.query.first()
+        return pref.engagement_writeback_mode if pref else 'ai_summary'
+    except Exception:
+        return 'ai_summary'
+
+
 def _add_footer(content: str, ref_tag: str) -> str:
-    """Append a Date Updated line and Sales Buddy ref-tag footer."""
+    """Append a Date Updated line and Sales Buddy ref-tag footer.
+
+    Uses <br> line breaks when content contains HTML tags, otherwise plain
+    newlines for text-only summaries.
+    """
     updated = datetime.now(timezone.utc).strftime('%b %d, %Y')
-    return f"{content}\n\nDate Updated: {updated}\n· {ref_tag} ·"
+    is_html = '<' in content and '>' in content
+    lb = '<br>' if is_html else '\n'
+    return f"{content}{lb}{lb}Date Updated: {updated}{lb}· {ref_tag} ·"
 
 
 # ── Background workers ──────────────────────────────────────────────────────
@@ -459,9 +554,13 @@ def track_engagement_on_milestones(engagement, background: bool = True) -> list[
         print(f"[milestone-tracking] engagement {engagement.id}: no story fields populated, skipping MSX write")
         return [] if not background else None
 
-    story = _build_engagement_story(engagement)
+    mode = _get_writeback_mode()
+    if mode == 'html_table':
+        story = _build_engagement_html_table(engagement)
+    else:
+        story = _build_engagement_story(engagement)
     ref_tag = _ENG_REF.format(id=engagement.id)
-    print(f"[milestone-tracking] engagement {engagement.id}: {len(engagement.milestones)} milestones, ref={ref_tag}")
+    print(f"[milestone-tracking] engagement {engagement.id}: {len(engagement.milestones)} milestones, ref={ref_tag}, mode={mode}")
     content = _add_footer(story, ref_tag)
 
     milestones_data = [

@@ -948,6 +948,25 @@ def update_workiq_connect_impact():
     return jsonify({'success': True, 'workiq_connect_impact': pref.workiq_connect_impact}), 200
 
 
+@main_bp.route('/api/preferences/engagement-writeback-mode', methods=['POST'])
+def update_engagement_writeback_mode():
+    """Update the engagement MSX writeback mode (ai_summary or html_table)."""
+    data = request.get_json()
+    mode = data.get('engagement_writeback_mode', 'ai_summary')
+    if mode not in ('ai_summary', 'html_table'):
+        return jsonify({'success': False, 'error': 'Invalid mode'}), 400
+
+    pref = UserPreference.query.first()
+    if not pref:
+        pref = UserPreference()
+        db.session.add(pref)
+
+    pref.engagement_writeback_mode = mode
+    db.session.commit()
+
+    return jsonify({'success': True, 'engagement_writeback_mode': mode}), 200
+
+
 # =============================================================================
 # User Role & Seller Mode
 # =============================================================================

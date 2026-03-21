@@ -210,6 +210,10 @@ def run_migrations(db):
     # Migration: Convert estimated_acr from string to integer (monthly $ amount)
     _migrate_estimated_acr_to_int(db, inspector)
 
+    # Migration: Add engagement_writeback_mode to user_preferences
+    _add_column_if_not_exists(db, inspector, 'user_preferences',
+                              'engagement_writeback_mode', "VARCHAR(20) NOT NULL DEFAULT 'ai_summary'")
+
     # =========================================================================
     # End migrations
     # =========================================================================

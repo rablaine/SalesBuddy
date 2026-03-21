@@ -78,6 +78,30 @@
             </div>
         </div>
 
+        <!-- MSX Writeback Settings -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-arrow-up-right-square"></i> MSX Writeback</h5>
+            </div>
+            <div class="card-body">
+                <p class="small text-muted mb-3">Choose how engagement stories are written to MSX milestone comments.</p>
+                <div class="form-check mb-2">
+                    <input class="form-check-input" type="radio" name="writebackMode" id="writebackAiSummary" value="ai_summary" {{ 'checked' if not pref or pref.engagement_writeback_mode == 'ai_summary' else '' }}>
+                    <label class="form-check-label" for="writebackAiSummary">
+                        <strong>AI Summary</strong>
+                        <div><small class="text-muted">AI composes a natural-language narrative from engagement fields. Falls back to a text template if AI is unavailable.</small></div>
+                    </label>
+                </div>
+                <div class="form-check">
+                    <input class="form-check-input" type="radio" name="writebackMode" id="writebackHtmlTable" value="html_table" {{ 'checked' if pref and pref.engagement_writeback_mode == 'html_table' else '' }}>
+                    <label class="form-check-label" for="writebackHtmlTable">
+                        <strong>HTML Table</strong>
+                        <div><small class="text-muted">Writes a structured table with labeled fields and color-coded status. Renders well in MSX's white background.</small></div>
+                    </label>
+                </div>
+            </div>
+        </div>
+
         <!-- Note Templates -->
         <div class="card mb-4">
             <div class="card-header">
@@ -186,6 +210,17 @@ document.getElementById('settingsDarkModeSwitch').addEventListener('change', fun
         body: JSON.stringify({ dark_mode: darkMode })
     }).then(() => {
         document.documentElement.setAttribute('data-bs-theme', darkMode ? 'dark' : 'light');
+    });
+});
+
+// MSX Writeback Mode
+document.querySelectorAll('input[name="writebackMode"]').forEach(radio => {
+    radio.addEventListener('change', function() {
+        fetch('/api/preferences/engagement-writeback-mode', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ engagement_writeback_mode: this.value })
+        });
     });
 });
 
