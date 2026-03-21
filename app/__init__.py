@@ -94,6 +94,10 @@ def create_app():
     from app.services.telemetry import init_telemetry
     init_telemetry(app)
 
+    # Initialize diagnostic logging (correlation IDs, error capture, pruning)
+    from app.services.diagnostic_log import init_diagnostic_log
+    init_diagnostic_log(app)
+
     # Drain background milestone tracking notifications into flash
     @app.before_request
     def drain_milestone_notifications():

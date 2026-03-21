@@ -8,6 +8,7 @@ This module provides functions to call the MSX CRM API for:
 Uses msx_auth for token management.
 """
 
+import json
 import requests
 import logging
 import os
@@ -199,7 +200,24 @@ def _msx_request(
     if response.ok and is_vpn_blocked():
         logger.info("MSX request succeeded — clearing VPN block state")
         clear_vpn_block()
-    
+
+    # Diagnostic log: capture MSX API call details
+    try:
+        from app.services.diagnostic_log import diag_log
+        resp_body = None
+        try:
+            resp_body = response.text[:5000] if response.text else None
+        except Exception:
+            pass
+        diag_log('msx_api',
+                 method=method,
+                 url=url,
+                 req_body=json.dumps(json_data, default=str)[:5000] if json_data else None,
+                 status=response.status_code,
+                 resp_body=resp_body)
+    except Exception:
+        pass
+
     return response
 
 
@@ -612,7 +630,16 @@ def get_milestone_details(milestone_id: str) -> Dict[str, Any]:
                     if uid:
                         unique_ids.add(uid)
                 name_cache = {}
+                import re
+                _guid_re = re.compile(
+                    r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
+                    re.IGNORECASE,
+                )
                 for uid in unique_ids:
+                    if not _guid_re.match(uid):
+                        # Already a display name (e.g. "Alex via Sales Buddy")
+                        name_cache[uid] = uid
+                        continue
                     try:
                         user_url = f"{CRM_BASE_URL}/systemusers({uid})?$select=fullname"
                         user_resp = _msx_request('GET', user_url)

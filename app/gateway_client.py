@@ -235,6 +235,18 @@ def gateway_call(
     if resp.status_code == 429:
         raise GatewayError("Rate limit exceeded — try again later", status_code=429)
 
+    # Diagnostic log: capture gateway call details
+    try:
+        from app.services.diagnostic_log import diag_log
+        import json as _dj
+        diag_log('gateway',
+                 endpoint=endpoint,
+                 req_body=_dj.dumps(payload, default=str)[:5000],
+                 status=resp.status_code,
+                 resp_body=resp.text[:5000] if resp.text else None)
+    except Exception:
+        pass
+
     if resp.status_code >= 400:
         try:
             body = resp.json()
