@@ -164,6 +164,19 @@
             background-color: #a02834 !important;
             border-color: #a02834 !important;
         }
+        /* Forecast comment HTML tables: override inline dark-text colors */
+        [data-bs-theme="dark"] #commentsBody table td[style*="color:#212529"],
+        [data-bs-theme="dark"] #commentsCached table td[style*="color:#212529"] {
+            color: #dee2e6 !important;
+        }
+        [data-bs-theme="dark"] #commentsBody table,
+        [data-bs-theme="dark"] #commentsCached table {
+            border-color: #495057 !important;
+        }
+        [data-bs-theme="dark"] #commentsBody table td,
+        [data-bs-theme="dark"] #commentsCached table td {
+            border-bottom-color: #495057 !important;
+        }
         /* Navbar hover dropdown — open on mouseover, no click needed */
         @media (min-width: 768px) {
             .nav-hover-dropdown:hover > .dropdown-menu {

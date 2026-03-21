@@ -47,7 +47,11 @@
                         <strong>{{ c.displayName or c.userId or 'Unknown' }}</strong>
                         <small class="text-muted"><i class="bi bi-clock"></i> <span class="comment-time" datetime="{{ c.modifiedOn or '' }}">{{ c.modifiedOn or '' }}</span></small>
                     </div>
+                    {% if c.comment and '<table' in c.comment %}
+                    <div class="mb-0 comment-text">{{ c.comment|safe }}</div>
+                    {% else %}
                     <p class="mb-0 comment-text" style="white-space:pre-wrap;">{{ c.comment or '' }}</p>
+                    {% endif %}
                 </div>
                 {% endfor %}
             </div>

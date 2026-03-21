@@ -120,7 +120,10 @@ function renderComments(entity) {
                         </div>
                     </div>
                     <div id="comment-body-${i}">
-                        <p class="mb-0" style="white-space:pre-wrap;">${linkifyRefTags(escapeHtml(c.comment || ''))}</p>
+                        ${c.comment && c.comment.includes('<table') ?
+                            `<div class="mb-0">${linkifyRefTags(c.comment)}</div>` :
+                            `<p class="mb-0" style="white-space:pre-wrap;">${linkifyRefTags(escapeHtml(c.comment || ''))}</p>`
+                        }
                     </div>
                 </div>`;
         }
@@ -223,9 +226,11 @@ function postComment(e) {
 
 function startEditComment(idx, modifiedOn, userId) {
     const bodyEl = document.getElementById('comment-body-' + idx);
-    const currentText = bodyEl.querySelector('p').textContent;
+    const isHtml = !!bodyEl.querySelector('table');
+    const currentHtml = bodyEl.innerHTML;
+    const currentText = isHtml ? bodyEl.querySelector('div').innerHTML : bodyEl.querySelector('p').textContent;
     bodyEl.innerHTML = `
-        <textarea class="form-control mb-2" id="editText-${idx}" rows="6">${escapeHtml(currentText)}</textarea>
+        <textarea class="form-control mb-2" id="editText-${idx}" rows="6">${escapeHtml(isHtml ? currentText : currentText)}</textarea>
         <div>
             <button class="btn btn-sm btn-primary me-1" id="saveEdit-${idx}">
                 <i class="bi bi-check"></i> Save
@@ -243,7 +248,7 @@ function startEditComment(idx, modifiedOn, userId) {
         }
     });
     document.getElementById('cancelEdit-' + idx).addEventListener('click', () => {
-        bodyEl.innerHTML = `<p class="mb-0" style="white-space:pre-wrap;">${escapeHtml(currentText)}</p>`;
+        bodyEl.innerHTML = currentHtml;
     });
 }
 
