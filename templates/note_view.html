@@ -98,11 +98,11 @@
                     {% endfor %}
                     <br>
                     <button class="btn btn-sm btn-outline-success mt-1" type="button" data-bs-toggle="collapse" data-bs-target="#noteTaskCreate">
-                        <i class="bi bi-check2-square"></i> Create Task
+                        <i class="bi bi-check2-square"></i> Create Action Item
                     </button>
                     <div class="collapse mt-2" id="noteTaskCreate">
                         <div class="card card-body p-2">
-                            <input type="text" class="form-control form-control-sm mb-1" id="noteTaskTitle" placeholder="Task title..." maxlength="300">
+                            <input type="text" class="form-control form-control-sm mb-1" id="noteTaskTitle" placeholder="Action item title..." maxlength="300">
                             <div class="row g-1 mb-1">
                                 <div class="col">
                                     <select class="form-select form-select-sm" id="noteTaskEngagement">
@@ -115,7 +115,7 @@
                                     <input type="date" class="form-control form-control-sm" id="noteTaskDue">
                                 </div>
                             </div>
-                            <button class="btn btn-sm btn-success" onclick="createTaskFromNote()"><i class="bi bi-plus"></i> Add Task</button>
+                            <button class="btn btn-sm btn-success" onclick="createTaskFromNote()"><i class="bi bi-plus"></i> Add Action Item</button>
                             <div id="noteTaskResult" class="small mt-1" style="display:none;"></div>
                         </div>
                     </div>
@@ -252,7 +252,7 @@ function createTaskFromNote() {
     const due = document.getElementById('noteTaskDue').value;
     const resultEl = document.getElementById('noteTaskResult');
 
-    fetch(`/engagement/${engId}/tasks`, {
+    fetch(`/engagement/${engId}/action-items`, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({title, due_date: due || null, note_id: {{ note.id }}})
@@ -261,12 +261,12 @@ function createTaskFromNote() {
     .then(data => {
         if (data.success) {
             resultEl.className = 'small mt-1 text-success';
-            resultEl.innerHTML = '<i class="bi bi-check-circle"></i> Task created!';
+            resultEl.innerHTML = '<i class=\"bi bi-check-circle\"></i> Action item created!';
             resultEl.style.display = 'block';
             titleEl.value = '';
         } else {
             resultEl.className = 'small mt-1 text-danger';
-            resultEl.textContent = data.error || 'Failed to create task.';
+            resultEl.textContent = data.error || 'Failed to create action item.';
             resultEl.style.display = 'block';
         }
     })

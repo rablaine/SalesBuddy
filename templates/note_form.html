@@ -273,7 +273,7 @@
                                 </select>
                                 {% endif %}
                                 <button type="button" class="btn btn-sm btn-outline-success" id="engTaskToggleLink" style="display: none;" onclick="openEngTaskFlyout()">
-                                    <i class="bi bi-check2-square"></i> Create Task
+                                    <i class="bi bi-check2-square"></i> Create Action Item
                                 </button>
                                 <button type="button" class="btn btn-sm btn-outline-info" id="importMeetingBtn" onclick="openMeetingImport()">
                                     <i class="bi bi-calendar-event"></i> Import from Meeting
@@ -749,10 +749,10 @@
 </div>
 
 {% if not is_general_note %}
-<!-- Engagement Task Creation Flyout -->
+<!-- Engagement Action Item Creation Flyout -->
 <div class="offcanvas offcanvas-end" tabindex="-1" id="engTaskFlyout" aria-labelledby="engTaskFlyoutLabel" data-bs-backdrop="false" data-bs-scroll="true" style="width: 400px;">
     <div class="offcanvas-header py-2 border-bottom">
-        <h6 class="offcanvas-title" id="engTaskFlyoutLabel"><i class="bi bi-check2-square"></i> New Engagement Task</h6>
+        <h6 class="offcanvas-title" id="engTaskFlyoutLabel"><i class="bi bi-check2-square"></i> New Action Item</h6>
         <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Close"></button>
     </div>
     <div class="offcanvas-body">
@@ -782,7 +782,7 @@
             <input type="text" class="form-control" id="engTaskContact" placeholder="Point of contact" maxlength="200">
         </div>
         <button type="button" class="btn btn-success w-100" onclick="createEngTask()">
-            <i class="bi bi-check-circle"></i> Create Task
+            <i class="bi bi-check-circle"></i> Create Action Item
         </button>
         <div id="engTaskResult" class="small mt-2" style="display:none;"></div>
     </div>
@@ -3650,7 +3650,7 @@ function restoreDraft() {
             }
         }
 
-        // Restore engagement task badges
+        // Restore action item badges
         if (draft.engTaskBadges && draft.engTaskBadges.length > 0) {
             var badges = document.getElementById('engTaskBadges');
             draft.engTaskBadges.forEach(function(b) {
@@ -4952,7 +4952,7 @@ function textToHtml(text) {
 }
 
 // =============================================
-// Engagement Task Creation (Flyout)
+// Engagement Action Item Creation (Flyout)
 // =============================================
 var _lastQuillCursorPos = null;
 var _engTaskFlyoutInstance = null;
@@ -5020,7 +5020,7 @@ function createEngTask() {
     var contact = document.getElementById('engTaskContact').value.trim();
     var noteId = {% if note %}{{ note.id }}{% else %}null{% endif %};
 
-    fetch('/engagement/' + engId + '/tasks', {
+    fetch('/engagement/' + engId + '/action-items', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({title: title, due_date: due || null, priority: priority, contact: contact || null, note_id: noteId})

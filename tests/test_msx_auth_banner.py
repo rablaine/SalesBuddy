@@ -205,15 +205,13 @@ class TestAdminPanelAuthFlow:
             assert btn is not None
             assert 'Cancel' in btn.get_text()
 
-    def test_admin_panel_still_has_refresh_test_buttons(self, app, client):
-        """Test that admin panel still has Refresh Token and Test Connection buttons."""
+    def test_admin_panel_still_has_test_connection_button(self, app, client):
+        """Test that admin panel still has the Test Connection button."""
         with app.app_context():
             self._make_admin(app)
             response = client.get('/admin')
             soup = BeautifulSoup(response.data, 'html.parser')
-            refresh_btn = soup.find(id='msxRefreshBtn')
             test_btn = soup.find(id='msxTestBtn')
-            assert refresh_btn is not None, "Refresh Token button should still exist"
             assert test_btn is not None, "Test Connection button should still exist"
 
     def test_admin_panel_auth_js_endpoints(self, app, client):

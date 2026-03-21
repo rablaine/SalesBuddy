@@ -38,6 +38,7 @@ def run_table_renames(db):
         ('call_logs_topics', 'notes_topics'),
         ('call_logs_partners', 'notes_partners'),
         ('call_logs_milestones', 'notes_milestones'),
+        ('engagement_tasks', 'action_items'),
     ]
 
     any_renamed = False

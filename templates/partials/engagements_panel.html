@@ -158,7 +158,7 @@
         }
 
         const stats = [];
-        if (eng.open_task_count > 0) stats.push('<i class="bi bi-check2-square text-warning"></i> ' + eng.open_task_count);
+        if (eng.open_action_item_count > 0) stats.push('<i class="bi bi-check2-square text-warning"></i> ' + eng.open_action_item_count);
         if (eng.linked_note_count > 0) stats.push('<i class="bi bi-journal-text"></i> ' + eng.linked_note_count);
         if (eng.opportunity_count > 0) stats.push('<i class="bi bi-briefcase"></i> ' + eng.opportunity_count);
         if (eng.milestone_count > 0) stats.push('<i class="bi bi-flag"></i> ' + eng.milestone_count);

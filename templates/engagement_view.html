@@ -195,24 +195,24 @@
     </div>
 
     <div class="col-md-7">
-        <!-- Tasks -->
+        <!-- Action Items -->
         <div class="card mb-3">
             <div class="card-header d-flex justify-content-between align-items-center">
-                <h5 class="mb-0"><i class="bi bi-check2-square"></i> Tasks <span class="badge bg-secondary" id="taskCount">{{ engagement.tasks|selectattr('status', 'equalto', 'open')|list|length }}</span></h5>
+                <h5 class="mb-0"><i class="bi bi-check2-square"></i> Action Items <span class="badge bg-secondary" id="taskCount">{{ engagement.action_items|selectattr('status', 'equalto', 'open')|list|length }}</span></h5>
                 <button class="btn btn-sm btn-outline-success" type="button" onclick="openNewTaskModal()">
                     <i class="bi bi-plus-circle"></i> Add
                 </button>
             </div>
-            <!-- Task list -->
+            <!-- Action item list -->
             <div class="card-body p-0" id="taskListBody">
-                {% set open_tasks = engagement.tasks|selectattr('status', 'equalto', 'open')|list %}
-                {% set completed_tasks = engagement.tasks|selectattr('status', 'equalto', 'completed')|list %}
+                {% set open_tasks = engagement.action_items|selectattr('status', 'equalto', 'open')|list %}
+                {% set completed_tasks = engagement.action_items|selectattr('status', 'equalto', 'completed')|list %}
                 <div class="list-group list-group-flush">
                     <div id="sortableTaskList">
                     {% for task in open_tasks %}
-                    <div class="list-group-item d-flex align-items-start gap-2 task-item" data-task-id="{{ task.id }}">
-                        <i class="bi bi-grip-vertical text-muted flex-shrink-0 drag-handle" style="cursor: grab; margin-top: 3px; opacity: 0.4;" title="Drag to reorder"></i>
-                        <input type="checkbox" class="form-check-input mt-1 flex-shrink-0" onchange="toggleTask({{ task.id }})" title="Mark complete">
+                    <div class="list-group-item d-flex align-items-start gap-2 task-item" data-task-id="{{ task.id }}" onclick="viewTask({{ task.id }})" style="cursor: pointer;">
+                        <i class="bi bi-grip-vertical text-muted flex-shrink-0 drag-handle" style="cursor: grab; margin-top: 3px; opacity: 0.4;" title="Drag to reorder" onclick="event.stopPropagation();"></i>
+                        <input type="checkbox" class="form-check-input mt-1 flex-shrink-0" onchange="toggleTask({{ task.id }})" onclick="event.stopPropagation();" title="Mark complete">
                         <div style="min-width: 0; flex: 1;">
                             <div class="d-flex justify-content-between align-items-start">
                                 <div style="min-width: 0; flex: 1;">
@@ -220,7 +220,7 @@
                                     {% if task.priority == 'high' %}<i class="bi bi-exclamation-triangle-fill text-danger ms-1" title="High priority"></i>{% endif %}
                                     {% if task.contact %}<span class="text-muted small ms-1"><i class="bi bi-person"></i> {{ task.contact }}</span>{% endif %}
                                 </div>
-                                <div class="flex-shrink-0 d-flex align-items-center gap-1 ms-2">
+                                <div class="flex-shrink-0 d-flex align-items-center gap-1 ms-2" onclick="event.stopPropagation();">
                                     {% if task.due_date %}
                                     {% set days_until = (task.due_date - today.date()).days %}
                                     <span class="badge {% if days_until < 0 %}bg-danger{% elif days_until <= 3 %}bg-warning text-dark{% else %}bg-secondary{% endif %}" style="font-size:0.7rem;">
@@ -245,11 +245,11 @@
                     <div class="list-group-item d-flex align-items-start gap-2" id="ghostTaskRow" style="opacity: 0.4; cursor: pointer;" onclick="activateGhostRow()">
                         <input type="checkbox" class="form-check-input mt-1 flex-shrink-0" disabled>
                         <div style="min-width: 0; flex: 1;" id="ghostTaskPlaceholder">
-                            <span class="text-muted fst-italic small">Add a task...</span>
+                            <span class="text-muted fst-italic small">Add an action item...</span>
                         </div>
                         <div style="min-width: 0; flex: 1; display: none;" id="ghostTaskInput">
                             <div class="d-flex gap-1">
-                                <input type="text" class="form-control form-control-sm" id="ghostTaskTitle" placeholder="Task title... (Enter to save, Esc to cancel)" maxlength="300">
+                                <input type="text" class="form-control form-control-sm" id="ghostTaskTitle" placeholder="Action item title... (Enter to save, Esc to cancel)" maxlength="300">
                                 <input type="date" class="form-control form-control-sm" id="ghostTaskDue" style="width: 140px;">
                                 <button class="btn btn-sm btn-success flex-shrink-0" onclick="event.stopPropagation(); submitGhostTask();"><i class="bi bi-check"></i></button>
                             </div>
@@ -518,12 +518,14 @@ function applySelectedFields() {
 </script>
 {% endif %}
 
+{% include 'partials/_action_item_detail_modal.html' %}
+
 <!-- Task Edit Modal -->
 <div class="modal fade" id="taskEditModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title"><i class="bi bi-check2-square"></i> Edit Task</h5>
+                <h5 class="modal-title"><i class="bi bi-check2-square"></i> Edit Action Item</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body">
@@ -594,7 +596,7 @@ function quickAddTask() {
 
     const due = document.getElementById('ghostTaskDue').value;
 
-    fetch(`/engagement/${ENGAGEMENT_ID}/tasks`, {
+    fetch(`/engagement/${ENGAGEMENT_ID}/action-items`, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({title, due_date: due || null})
@@ -604,7 +606,7 @@ function quickAddTask() {
         if (data.success) {
             window.location.reload();
         } else {
-            alert(data.error || 'Failed to create task.');
+            alert(data.error || 'Failed to create action item.');
         }
     })
     .catch(err => alert('Error: ' + err.message));
@@ -648,7 +650,7 @@ function openNewTaskModal() {
     document.getElementById('editTaskPriority').value = 'normal';
     document.getElementById('editTaskContact').value = '';
     taskDescQuill.root.innerHTML = '';
-    document.querySelector('#taskEditModal .modal-title').innerHTML = '<i class="bi bi-check2-square"></i> New Task';
+    document.querySelector('#taskEditModal .modal-title').innerHTML = '<i class="bi bi-check2-square"></i> New Action Item';
     new bootstrap.Modal(document.getElementById('taskEditModal')).show();
 }
 
@@ -666,7 +668,7 @@ if (sortableEl) {
         onEnd: function() {
             const ids = Array.from(sortableEl.querySelectorAll('.task-item'))
                 .map(el => parseInt(el.dataset.taskId));
-            fetch(`/engagement/${ENGAGEMENT_ID}/tasks/reorder`, {
+            fetch(`/engagement/${ENGAGEMENT_ID}/action-items/reorder`, {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({task_ids: ids})
@@ -676,7 +678,7 @@ if (sortableEl) {
 }
 
 function toggleTask(taskId) {
-    fetch(`/task/${taskId}/toggle`, {method: 'POST'})
+    fetch(`/action-item/${taskId}/toggle`, {method: 'POST'})
     .then(r => r.json())
     .then(data => {
         if (data.success) {
@@ -686,10 +688,14 @@ function toggleTask(taskId) {
     .catch(err => console.error(err));
 }
 
+function viewTask(taskId) {
+    viewActionItem(taskId, {onEdit: editTask});
+}
+
 function editTask(taskId) {
     initTaskQuill();
     // Fetch current task data
-    fetch(`/task/${taskId}`, {method: 'GET'})
+    fetch(`/action-item/${taskId}`, {method: 'GET'})
     .then(r => {
         if (r.status === 405) {
             // GET not available, use data from DOM attributes instead
@@ -730,7 +736,7 @@ function saveEditedTask() {
     };
 
     // If no taskId, this is a create, not an update
-    const url = taskId ? `/task/${taskId}` : `/engagement/${ENGAGEMENT_ID}/tasks`;
+    const url = taskId ? `/action-item/${taskId}` : `/engagement/${ENGAGEMENT_ID}/action-items`;
     const method = taskId ? 'PUT' : 'POST';
 
     fetch(url, {
@@ -743,15 +749,15 @@ function saveEditedTask() {
         if (data.success) {
             window.location.reload();
         } else {
-            alert(data.error || 'Failed to save task.');
+            alert(data.error || 'Failed to save action item.');
         }
     })
     .catch(err => alert('Error: ' + err.message));
 }
 
 function deleteTask(taskId) {
-    if (!confirm('Delete this task?')) return;
-    fetch(`/task/${taskId}`, {method: 'DELETE'})
+    if (!confirm('Delete this action item?')) return;
+    fetch(`/action-item/${taskId}`, {method: 'DELETE'})
     .then(r => r.json())
     .then(data => {
         if (data.success) {

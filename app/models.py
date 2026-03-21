@@ -615,7 +615,7 @@ class Note(db.Model):
         back_populates='notes',
         lazy='select'
     )
-    tasks = db.relationship('EngagementTask', back_populates='note', lazy='select')
+    action_items = db.relationship('ActionItem', back_populates='note', lazy='select')
     
     @property
     def seller(self):
@@ -679,12 +679,12 @@ class Engagement(db.Model):
         backref=db.backref('engagements', lazy='select'),
         lazy='select'
     )
-    tasks = db.relationship(
-        'EngagementTask',
+    action_items = db.relationship(
+        'ActionItem',
         back_populates='engagement',
         lazy='select',
         cascade='all, delete-orphan',
-        order_by='EngagementTask.sort_order, EngagementTask.created_at'
+        order_by='ActionItem.sort_order, ActionItem.created_at'
     )
 
     @property
@@ -703,21 +703,21 @@ class Engagement(db.Model):
         return len(self.notes)
 
     @property
-    def open_task_count(self) -> int:
-        """Return count of open (not completed) tasks."""
-        return sum(1 for t in self.tasks if t.status == 'open')
+    def open_action_item_count(self) -> int:
+        """Return count of open (not completed) action items."""
+        return sum(1 for t in self.action_items if t.status == 'open')
 
     def __repr__(self) -> str:
         return f'<Engagement {self.id}: {self.title[:50]}>'
 
 
-class EngagementTask(db.Model):
-    """Action item / to-do tracked against an engagement.
+class ActionItem(db.Model):
+    """Action item tracked against an engagement.
 
-    Tasks can optionally link back to the note they were created from.
+    Action items can optionally link back to the note they were created from.
     Description supports rich HTML (Quill editor with image paste).
     """
-    __tablename__ = 'engagement_tasks'
+    __tablename__ = 'action_items'
 
     STATUSES = ['open', 'completed']
     PRIORITIES = ['normal', 'high']
@@ -736,8 +736,8 @@ class EngagementTask(db.Model):
     sort_order = db.Column(db.Integer, nullable=False, default=0)
 
     # Relationships
-    engagement = db.relationship('Engagement', back_populates='tasks')
-    note = db.relationship('Note', back_populates='tasks')
+    engagement = db.relationship('Engagement', back_populates='action_items')
+    note = db.relationship('Note', back_populates='action_items')
 
     @property
     def is_overdue(self) -> bool:
@@ -747,7 +747,7 @@ class EngagementTask(db.Model):
         return self.due_date < date.today()
 
     def __repr__(self) -> str:
-        return f'<EngagementTask {self.id}: {self.title[:50]}>'
+        return f'<ActionItem {self.id}: {self.title[:50]}>'
 
 
 class Opportunity(db.Model):

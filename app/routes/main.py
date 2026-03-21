@@ -13,7 +13,7 @@ import re
 
 from app.models import (db, Note, Customer, Seller, Territory, Topic,
                         UserPreference, NoteTemplate, User, SyncStatus,
-                        Engagement, EngagementTask, Milestone, RevenueAnalysis)
+                        Engagement, ActionItem, Milestone, RevenueAnalysis)
 from app.services.backup import backup_template, delete_template_backup
 from app.services.seller_mode import get_seller_mode_seller_id
 
@@ -112,22 +112,22 @@ def index():
     today = date.today()
     seller_mode_sid = get_seller_mode_seller_id()
 
-    # Open tasks from engagements, ordered by due date
-    open_tasks_q = EngagementTask.query.filter(
-        EngagementTask.status == 'open'
+    # Open action items from engagements, ordered by due date
+    open_tasks_q = ActionItem.query.filter(
+        ActionItem.status == 'open'
     ).options(
-        db.joinedload(EngagementTask.engagement).joinedload(Engagement.customer)
+        db.joinedload(ActionItem.engagement).joinedload(Engagement.customer)
     )
     if seller_mode_sid:
         open_tasks_q = open_tasks_q.join(
-            Engagement, EngagementTask.engagement_id == Engagement.id
+            Engagement, ActionItem.engagement_id == Engagement.id
         ).join(Customer, Engagement.customer_id == Customer.id).filter(
             Customer.seller_id == seller_mode_sid
         )
     open_tasks = open_tasks_q.order_by(
-        EngagementTask.due_date.asc().nullslast(),
-        EngagementTask.priority.desc(),
-        EngagementTask.created_at.desc()
+        ActionItem.due_date.asc().nullslast(),
+        ActionItem.priority.desc(),
+        ActionItem.created_at.desc()
     ).all()
 
     # Milestones due in the next 30 days (active, on my team only)

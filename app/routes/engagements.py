@@ -7,7 +7,7 @@ from datetime import datetime
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify
 
 from app.models import (
-    db, Engagement, EngagementTask, Customer, Note, Opportunity, Milestone, Topic
+    db, Engagement, ActionItem, Customer, Note, Opportunity, Milestone, Topic
 )
 from app.services.milestone_tracking import track_engagement_on_milestones
 from app.services.seller_mode import get_seller_mode_seller_id
@@ -83,7 +83,7 @@ def api_all_engagements():
         subqueryload(Engagement.notes),
         subqueryload(Engagement.opportunities),
         subqueryload(Engagement.milestones),
-        subqueryload(Engagement.tasks),
+        subqueryload(Engagement.action_items),
     )
 
     engagements = query.order_by(Engagement.updated_at.desc()).all()
@@ -107,7 +107,7 @@ def api_all_engagements():
             'linked_note_count': eng.linked_note_count,
             'opportunity_count': len(eng.opportunities),
             'milestone_count': len(eng.milestones),
-            'open_task_count': eng.open_task_count,
+            'open_action_item_count': eng.open_action_item_count,
             'updated_at': eng.updated_at.isoformat() if eng.updated_at else None,
         })
 
@@ -497,12 +497,12 @@ def engagement_create_inline(customer_id: int):
 
 
 # =============================================================================
-# Engagement Task Routes
+# Engagement Action Item Routes
 # =============================================================================
 
-@engagements_bp.route('/engagement/<int:id>/tasks', methods=['POST'])
-def task_create(id: int):
-    """Create a new task on an engagement (JSON API)."""
+@engagements_bp.route('/engagement/<int:id>/action-items', methods=['POST'])
+def action_item_create(id: int):
+    """Create a new action item on an engagement (JSON API)."""
     engagement = Engagement.query.get_or_404(id)
     data = request.get_json(silent=True) or {}
 
@@ -518,38 +518,38 @@ def task_create(id: int):
         except ValueError:
             return jsonify(success=False, error='Invalid date format.'), 400
 
-    # Determine sort_order: place new tasks at the end
-    max_order = db.session.query(db.func.max(EngagementTask.sort_order)).filter_by(
+    # Determine sort_order: place new action items at the end
+    max_order = db.session.query(db.func.max(ActionItem.sort_order)).filter_by(
         engagement_id=id
     ).scalar() or 0
 
-    task = EngagementTask(
+    task = ActionItem(
         engagement_id=id,
         title=title,
         description=(data.get('description') or '').strip() or None,
         due_date=due_date,
         contact=(data.get('contact') or '').strip() or None,
-        priority=data.get('priority', 'normal') if data.get('priority') in EngagementTask.PRIORITIES else 'normal',
+        priority=data.get('priority', 'normal') if data.get('priority') in ActionItem.PRIORITIES else 'normal',
         note_id=data.get('note_id') or None,
         sort_order=max_order + 1,
     )
     db.session.add(task)
     db.session.commit()
 
-    return jsonify(success=True, task=_task_to_dict(task)), 201
+    return jsonify(success=True, task=_action_item_to_dict(task)), 201
 
 
-@engagements_bp.route('/task/<int:id>', methods=['GET'])
-def task_get(id: int):
-    """Get a single task as JSON."""
-    task = EngagementTask.query.get_or_404(id)
-    return jsonify(success=True, task=_task_to_dict(task))
+@engagements_bp.route('/action-item/<int:id>', methods=['GET'])
+def action_item_get(id: int):
+    """Get a single action item as JSON."""
+    task = ActionItem.query.get_or_404(id)
+    return jsonify(success=True, task=_action_item_to_dict(task))
 
 
-@engagements_bp.route('/task/<int:id>', methods=['PUT'])
-def task_update(id: int):
-    """Update an existing task (JSON API)."""
-    task = EngagementTask.query.get_or_404(id)
+@engagements_bp.route('/action-item/<int:id>', methods=['PUT'])
+def action_item_update(id: int):
+    """Update an existing action item (JSON API)."""
+    task = ActionItem.query.get_or_404(id)
     data = request.get_json(silent=True) or {}
 
     if 'title' in data:
@@ -574,17 +574,17 @@ def task_update(id: int):
     if 'contact' in data:
         task.contact = (data['contact'] or '').strip() or None
 
-    if 'priority' in data and data['priority'] in EngagementTask.PRIORITIES:
+    if 'priority' in data and data['priority'] in ActionItem.PRIORITIES:
         task.priority = data['priority']
 
     db.session.commit()
-    return jsonify(success=True, task=_task_to_dict(task))
+    return jsonify(success=True, task=_action_item_to_dict(task))
 
 
-@engagements_bp.route('/task/<int:id>/toggle', methods=['POST'])
-def task_toggle(id: int):
-    """Toggle task between open and completed."""
-    task = EngagementTask.query.get_or_404(id)
+@engagements_bp.route('/action-item/<int:id>/toggle', methods=['POST'])
+def action_item_toggle(id: int):
+    """Toggle action item between open and completed."""
+    task = ActionItem.query.get_or_404(id)
 
     if task.status == 'open':
         task.status = 'completed'
@@ -594,12 +594,12 @@ def task_toggle(id: int):
         task.completed_at = None
 
     db.session.commit()
-    return jsonify(success=True, task=_task_to_dict(task))
+    return jsonify(success=True, task=_action_item_to_dict(task))
 
 
-@engagements_bp.route('/engagement/<int:id>/tasks/reorder', methods=['POST'])
-def task_reorder(id: int):
-    """Persist new sort order for tasks on an engagement."""
+@engagements_bp.route('/engagement/<int:id>/action-items/reorder', methods=['POST'])
+def action_item_reorder(id: int):
+    """Persist new sort order for action items on an engagement."""
     Engagement.query.get_or_404(id)
     data = request.get_json(silent=True) or {}
     task_ids = data.get('task_ids', [])
@@ -607,25 +607,25 @@ def task_reorder(id: int):
         return jsonify(success=False, error='task_ids must be a list.'), 400
 
     for idx, tid in enumerate(task_ids):
-        task = EngagementTask.query.filter_by(id=tid, engagement_id=id).first()
+        task = ActionItem.query.filter_by(id=tid, engagement_id=id).first()
         if task:
             task.sort_order = idx
     db.session.commit()
     return jsonify(success=True)
 
 
-@engagements_bp.route('/task/<int:id>', methods=['DELETE'])
-def task_delete(id: int):
-    """Delete a task."""
-    task = EngagementTask.query.get_or_404(id)
+@engagements_bp.route('/action-item/<int:id>', methods=['DELETE'])
+def action_item_delete(id: int):
+    """Delete an action item."""
+    task = ActionItem.query.get_or_404(id)
     engagement_id = task.engagement_id
     db.session.delete(task)
     db.session.commit()
     return jsonify(success=True, engagement_id=engagement_id)
 
 
-def _task_to_dict(task: EngagementTask) -> dict:
-    """Serialize a task to a dictionary."""
+def _action_item_to_dict(task: ActionItem) -> dict:
+    """Serialize an action item to a dictionary."""
     return {
         'id': task.id,
         'engagement_id': task.engagement_id,
