@@ -500,7 +500,7 @@ def engagement_create_inline(customer_id: int):
 # Engagement Action Item Routes
 # =============================================================================
 
-@engagements_bp.route('/engagement/<int:id>/tasks', methods=['POST'])
+@engagements_bp.route('/engagement/<int:id>/action-items', methods=['POST'])
 def action_item_create(id: int):
     """Create a new action item on an engagement (JSON API)."""
     engagement = Engagement.query.get_or_404(id)
@@ -539,14 +539,14 @@ def action_item_create(id: int):
     return jsonify(success=True, task=_action_item_to_dict(task)), 201
 
 
-@engagements_bp.route('/task/<int:id>', methods=['GET'])
+@engagements_bp.route('/action-item/<int:id>', methods=['GET'])
 def action_item_get(id: int):
     """Get a single action item as JSON."""
     task = ActionItem.query.get_or_404(id)
     return jsonify(success=True, task=_action_item_to_dict(task))
 
 
-@engagements_bp.route('/task/<int:id>', methods=['PUT'])
+@engagements_bp.route('/action-item/<int:id>', methods=['PUT'])
 def action_item_update(id: int):
     """Update an existing action item (JSON API)."""
     task = ActionItem.query.get_or_404(id)
@@ -581,7 +581,7 @@ def action_item_update(id: int):
     return jsonify(success=True, task=_action_item_to_dict(task))
 
 
-@engagements_bp.route('/task/<int:id>/toggle', methods=['POST'])
+@engagements_bp.route('/action-item/<int:id>/toggle', methods=['POST'])
 def action_item_toggle(id: int):
     """Toggle action item between open and completed."""
     task = ActionItem.query.get_or_404(id)
@@ -597,7 +597,7 @@ def action_item_toggle(id: int):
     return jsonify(success=True, task=_action_item_to_dict(task))
 
 
-@engagements_bp.route('/engagement/<int:id>/tasks/reorder', methods=['POST'])
+@engagements_bp.route('/engagement/<int:id>/action-items/reorder', methods=['POST'])
 def action_item_reorder(id: int):
     """Persist new sort order for action items on an engagement."""
     Engagement.query.get_or_404(id)
@@ -614,7 +614,7 @@ def action_item_reorder(id: int):
     return jsonify(success=True)
 
 
-@engagements_bp.route('/task/<int:id>', methods=['DELETE'])
+@engagements_bp.route('/action-item/<int:id>', methods=['DELETE'])
 def action_item_delete(id: int):
     """Delete an action item."""
     task = ActionItem.query.get_or_404(id)

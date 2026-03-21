@@ -1026,7 +1026,7 @@ class TestActionItems:
         """Create a task via JSON API."""
         eid = eng_with_note['engagement_id']
         resp = client.post(
-            f'/engagement/{eid}/tasks',
+            f'/engagement/{eid}/action-items',
             data=json.dumps({'title': 'Follow up on POC', 'priority': 'high'}),
             content_type='application/json',
         )
@@ -1046,7 +1046,7 @@ class TestActionItems:
         """Create a task with a due date."""
         eid = eng_with_note['engagement_id']
         resp = client.post(
-            f'/engagement/{eid}/tasks',
+            f'/engagement/{eid}/action-items',
             data=json.dumps({'title': 'Send proposal', 'due_date': '2026-04-15'}),
             content_type='application/json',
         )
@@ -1059,7 +1059,7 @@ class TestActionItems:
         eid = eng_with_note['engagement_id']
         nid = eng_with_note['note_id']
         resp = client.post(
-            f'/engagement/{eid}/tasks',
+            f'/engagement/{eid}/action-items',
             data=json.dumps({'title': 'From note', 'note_id': nid}),
             content_type='application/json',
         )
@@ -1071,7 +1071,7 @@ class TestActionItems:
         """Task creation without title should fail."""
         eid = eng_with_note['engagement_id']
         resp = client.post(
-            f'/engagement/{eid}/tasks',
+            f'/engagement/{eid}/action-items',
             data=json.dumps({'title': ''}),
             content_type='application/json',
         )
@@ -1087,7 +1087,7 @@ class TestActionItems:
             db.session.commit()
             tid = task.id
 
-        resp = client.get(f'/task/{tid}')
+        resp = client.get(f'/action-item/{tid}')
         assert resp.status_code == 200
         data = resp.get_json()
         assert data['task']['title'] == 'Fetch me'
@@ -1102,7 +1102,7 @@ class TestActionItems:
             tid = task.id
 
         resp = client.put(
-            f'/task/{tid}',
+            f'/action-item/{tid}',
             data=json.dumps({
                 'title': 'New title',
                 'contact': 'Jane Doe',
@@ -1134,14 +1134,14 @@ class TestActionItems:
             tid = task.id
 
         # Toggle to completed
-        resp = client.post(f'/task/{tid}/toggle')
+        resp = client.post(f'/action-item/{tid}/toggle')
         assert resp.status_code == 200
         data = resp.get_json()
         assert data['task']['status'] == 'completed'
         assert data['task']['completed_at'] is not None
 
         # Toggle back to open
-        resp = client.post(f'/task/{tid}/toggle')
+        resp = client.post(f'/action-item/{tid}/toggle')
         data = resp.get_json()
         assert data['task']['status'] == 'open'
         assert data['task']['completed_at'] is None
@@ -1155,7 +1155,7 @@ class TestActionItems:
             db.session.commit()
             tid = task.id
 
-        resp = client.delete(f'/task/{tid}')
+        resp = client.delete(f'/action-item/{tid}')
         assert resp.status_code == 200
         assert resp.get_json()['success'] is True
 
@@ -1250,7 +1250,7 @@ class TestActionItems:
             ids = [t3.id, t1.id, t2.id]  # new order: Third, First, Second
 
         resp = client.post(
-            f'/engagement/{eid}/tasks/reorder',
+            f'/engagement/{eid}/action-items/reorder',
             data=json.dumps({'task_ids': ids}),
             content_type='application/json',
         )

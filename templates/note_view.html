@@ -252,7 +252,7 @@ function createTaskFromNote() {
     const due = document.getElementById('noteTaskDue').value;
     const resultEl = document.getElementById('noteTaskResult');
 
-    fetch(`/engagement/${engId}/tasks`, {
+    fetch(`/engagement/${engId}/action-items`, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({title, due_date: due || null, note_id: {{ note.id }}})
