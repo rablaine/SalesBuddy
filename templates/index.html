@@ -792,7 +792,7 @@
                             if (log.is_general) {
                                 indicators += '<i class="bi bi-sticky text-secondary" title="General note"></i> ';
                             }
-                            if (log.has_milestone) {
+                            if (log.has_milestone && !log.has_task && !log.has_hok) {
                                 indicators += '<i class="bi bi-flag-fill text-success" title="Has milestone"></i> ';
                             }
                             if (log.has_engagement) {
