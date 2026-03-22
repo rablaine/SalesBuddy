@@ -283,7 +283,7 @@
                         <div id="engTaskBadges" class="mb-1 d-flex flex-wrap gap-1"></div>
                         <div id="editor" style="height: 400px;">{{ note.content|safe if note else '' }}</div>
                         <textarea name="content" id="content" style="display:none;"></textarea>
-                        <div class="form-text">Use rich formatting to capture call details, action items, and follow-ups. Press <kbd>Esc</kbd> to exit editor and Tab to next field.</div>
+                        <div class="form-text">Use rich formatting to capture call details, action items, and follow-ups. Press <span class="border rounded px-1" style="font-size:0.75em; opacity:0.7;">Esc</span> to exit editor and Tab to next field.</div>
                     </div>
                     
                     {% if not is_general_note %}
