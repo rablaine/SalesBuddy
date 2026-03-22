@@ -175,7 +175,7 @@
                             {% endif %}
                         </div>
                         <div class="col-md-6" id="engagementSection" {% if not preselect_customer_id and not (note and note.customer_id) %}style="display: none;"{% endif %}>
-                            <label class="form-label">Engagement(s)</label>
+                            <label class="form-label d-flex align-items-center">Engagement(s) <a href="javascript:void(0)" onclick="openEngagementEditFlyout()" class="small text-muted text-decoration-none fw-normal ms-auto" id="engagementDetailsLink" style="display: none;">see details &rsaquo;</a></label>
                             <!-- Hidden select for form submission -->
                             <select class="d-none" id="engagement_ids" name="engagement_ids" multiple>
                                 {% if note and note.customer %}
@@ -1590,12 +1590,16 @@ document.getElementById('noteForm').onsubmit = function(e) {
 
     function updateLabel() {
         const selected = Array.from(hiddenSelect.selectedOptions);
+        const detailsLink = document.getElementById('engagementDetailsLink');
         if (selected.length === 0) {
             btn.innerHTML = '<span class="text-muted">Select...</span>';
+            if (detailsLink) detailsLink.style.display = 'none';
         } else if (selected.length === 1) {
             btn.textContent = selected[0].textContent.trim();
+            if (detailsLink) detailsLink.style.display = '';
         } else {
             btn.textContent = selected.length + ' engagements selected';
+            if (detailsLink) detailsLink.style.display = 'none';
         }
     }
     
@@ -2487,9 +2491,14 @@ function savePartnerFromFlyout() {
     });
 }
 
+// Track flyout mode: null = create, engagement ID = edit
+var _flyoutEditEngagementId = null;
+
 function openEngagementFlyout() {
+    _flyoutEditEngagementId = null;
     const flyout = document.getElementById('engagementFlyout');
     const offcanvas = bootstrap.Offcanvas.getOrCreateInstance(flyout);
+    document.getElementById('engagementFlyoutLabel').innerHTML = '<i class="bi bi-briefcase"></i> New Engagement';
     document.getElementById('flyout_eng_title').value = '';
     document.getElementById('flyout_eng_title').classList.remove('is-invalid');
     document.getElementById('flyout_eng_status').value = 'Active';
@@ -2499,11 +2508,70 @@ function openEngagementFlyout() {
     document.getElementById('flyout_eng_solution_resources').value = '';
     document.getElementById('flyout_eng_estimated_acr').value = '';
     document.getElementById('flyout_eng_target_date').value = '';
+    const saveBtn = document.getElementById('flyout_eng_save');
+    saveBtn.innerHTML = '<i class="bi bi-check-circle"></i> Create Engagement';
+    saveBtn.disabled = false;
     offcanvas.show();
     flyout.addEventListener('shown.bs.offcanvas', function handler() {
         document.getElementById('flyout_eng_title').focus();
         flyout.removeEventListener('shown.bs.offcanvas', handler);
     });
+}
+
+var _engFlyoutInstance = null;
+
+function openEngagementEditFlyout() {
+    const hiddenSelect = document.getElementById('engagement_ids');
+    const selected = Array.from(hiddenSelect.selectedOptions);
+    if (selected.length !== 1) return;
+    const engId = selected[0].value;
+
+    _flyoutEditEngagementId = engId;
+    const flyoutEl = document.getElementById('engagementFlyout');
+
+    if (!_engFlyoutInstance) {
+        _engFlyoutInstance = new bootstrap.Offcanvas(flyoutEl);
+        const detailsLink = document.getElementById('engagementDetailsLink');
+        flyoutEl.addEventListener('shown.bs.offcanvas', function() {
+            detailsLink.innerHTML = 'see details &lsaquo;';
+        });
+        flyoutEl.addEventListener('hidden.bs.offcanvas', function() {
+            detailsLink.innerHTML = 'see details &rsaquo;';
+        });
+    }
+
+    // If already open, just toggle closed
+    if (flyoutEl.classList.contains('show')) {
+        _engFlyoutInstance.toggle();
+        return;
+    }
+
+    document.getElementById('engagementFlyoutLabel').innerHTML = '<i class="bi bi-briefcase"></i> Edit Engagement';
+    document.getElementById('flyout_eng_title').value = '';
+    document.getElementById('flyout_eng_title').classList.remove('is-invalid');
+    const saveBtn = document.getElementById('flyout_eng_save');
+    saveBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Loading...';
+    saveBtn.disabled = true;
+    _engFlyoutInstance.toggle();
+
+    fetch(`/api/engagement/${engId}`)
+        .then(r => r.json())
+        .then(data => {
+            document.getElementById('flyout_eng_title').value = data.title || '';
+            document.getElementById('flyout_eng_status').value = data.status || 'Active';
+            document.getElementById('flyout_eng_key_individuals').value = data.key_individuals || '';
+            document.getElementById('flyout_eng_technical_problem').value = data.technical_problem || '';
+            document.getElementById('flyout_eng_business_impact').value = data.business_impact || '';
+            document.getElementById('flyout_eng_solution_resources').value = data.solution_resources || '';
+            document.getElementById('flyout_eng_estimated_acr').value = data.estimated_acr != null ? data.estimated_acr : '';
+            document.getElementById('flyout_eng_target_date').value = data.target_date || '';
+            saveBtn.innerHTML = '<i class="bi bi-check-circle"></i> Save Changes';
+            saveBtn.disabled = false;
+        })
+        .catch(err => {
+            console.error('Error loading engagement:', err);
+            saveBtn.innerHTML = '<i class="bi bi-exclamation-triangle"></i> Load Failed';
+        });
 }
 
 function saveEngagementFromFlyout() {
@@ -2514,61 +2582,98 @@ function saveEngagementFromFlyout() {
     }
     document.getElementById('flyout_eng_title').classList.remove('is-invalid');
     
-    const customerId = document.getElementById('customer_id').value;
-    if (!customerId) {
-        alert('Please select a customer first.');
-        return;
-    }
-    
     const saveBtn = document.getElementById('flyout_eng_save');
     saveBtn.disabled = true;
-    saveBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Creating...';
-    
-    fetch(`/customer/${customerId}/engagement/create-inline`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            title,
-            status: document.getElementById('flyout_eng_status').value,
-            key_individuals: document.getElementById('flyout_eng_key_individuals').value.trim(),
-            technical_problem: document.getElementById('flyout_eng_technical_problem').value.trim(),
-            business_impact: document.getElementById('flyout_eng_business_impact').value.trim(),
-            solution_resources: document.getElementById('flyout_eng_solution_resources').value.trim(),
-            estimated_acr: document.getElementById('flyout_eng_estimated_acr').value.trim(),
-            target_date: document.getElementById('flyout_eng_target_date').value || null
+
+    const payload = {
+        title,
+        status: document.getElementById('flyout_eng_status').value,
+        key_individuals: document.getElementById('flyout_eng_key_individuals').value.trim(),
+        technical_problem: document.getElementById('flyout_eng_technical_problem').value.trim(),
+        business_impact: document.getElementById('flyout_eng_business_impact').value.trim(),
+        solution_resources: document.getElementById('flyout_eng_solution_resources').value.trim(),
+        estimated_acr: document.getElementById('flyout_eng_estimated_acr').value.trim(),
+        target_date: document.getElementById('flyout_eng_target_date').value || null
+    };
+
+    if (_flyoutEditEngagementId) {
+        // --- Edit mode ---
+        saveBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Saving...';
+        fetch(`/api/engagement/${_flyoutEditEngagementId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
         })
-    })
-    .then(r => r.json())
-    .then(data => {
-        if (data.id) {
-            // Add new option to hidden select and mark it selected
-            const hiddenSelect = document.getElementById('engagement_ids');
-            const opt = document.createElement('option');
-            opt.value = data.id;
-            const status = document.getElementById('flyout_eng_status').value;
-            opt.textContent = `${data.title} (${status})`;
-            opt.selected = true;
-            hiddenSelect.appendChild(opt);
-            
-            // Rebuild dropdown menu and close flyout
-            if (typeof window.rebuildEngagementDropdown === 'function') {
-                window.rebuildEngagementDropdown();
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                // Update the option text in the hidden select
+                const hiddenSelect = document.getElementById('engagement_ids');
+                for (const opt of hiddenSelect.options) {
+                    if (opt.value == _flyoutEditEngagementId) {
+                        opt.textContent = `${data.title} (${data.status})`;
+                        break;
+                    }
+                }
+                if (typeof window.rebuildEngagementDropdown === 'function') {
+                    window.rebuildEngagementDropdown();
+                }
+                bootstrap.Offcanvas.getInstance(document.getElementById('engagementFlyout')).hide();
+            } else {
+                alert(data.error || 'Failed to update engagement.');
             }
-            if (typeof window.onEngagementSelectionChanged === 'function') {
-                window.onEngagementSelectionChanged();
-            }
-            bootstrap.Offcanvas.getInstance(document.getElementById('engagementFlyout')).hide();
-            if (typeof debouncedAutoSave === 'function') debouncedAutoSave();
+        })
+        .catch(err => {
+            console.error('Error updating engagement:', err);
+            alert('Failed to update engagement.');
+        })
+        .finally(() => {
+            saveBtn.disabled = false;
+            saveBtn.innerHTML = '<i class="bi bi-check-circle"></i> Save Changes';
+        });
+    } else {
+        // --- Create mode ---
+        const customerId = document.getElementById('customer_id').value;
+        if (!customerId) {
+            alert('Please select a customer first.');
+            saveBtn.disabled = false;
+            return;
         }
-    })
-    .catch(err => {
-        console.error('Error creating engagement:', err);
-        alert('Failed to create engagement.');
-    })
-    .finally(() => {
-        saveBtn.disabled = false;
-        saveBtn.innerHTML = '<i class="bi bi-check-circle"></i> Create Engagement';
-    });
+        saveBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Creating...';
+        fetch(`/customer/${customerId}/engagement/create-inline`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.id) {
+                const hiddenSelect = document.getElementById('engagement_ids');
+                const opt = document.createElement('option');
+                opt.value = data.id;
+                const status = document.getElementById('flyout_eng_status').value;
+                opt.textContent = `${data.title} (${status})`;
+                opt.selected = true;
+                hiddenSelect.appendChild(opt);
+                if (typeof window.rebuildEngagementDropdown === 'function') {
+                    window.rebuildEngagementDropdown();
+                }
+                if (typeof window.onEngagementSelectionChanged === 'function') {
+                    window.onEngagementSelectionChanged();
+                }
+                bootstrap.Offcanvas.getInstance(document.getElementById('engagementFlyout')).hide();
+                if (typeof debouncedAutoSave === 'function') debouncedAutoSave();
+            }
+        })
+        .catch(err => {
+            console.error('Error creating engagement:', err);
+            alert('Failed to create engagement.');
+        })
+        .finally(() => {
+            saveBtn.disabled = false;
+            saveBtn.innerHTML = '<i class="bi bi-check-circle"></i> Create Engagement';
+        });
+    }
 }
 
 // ===== MILESTONE SEARCH AND SELECTION FUNCTIONALITY =====

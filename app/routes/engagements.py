@@ -496,6 +496,62 @@ def engagement_create_inline(customer_id: int):
     return jsonify(success=True, id=engagement.id, title=engagement.title)
 
 
+@engagements_bp.route('/api/engagement/<int:id>', methods=['GET'])
+def engagement_get_json(id: int):
+    """Return engagement details as JSON (for inline flyout editing)."""
+    eng = Engagement.query.get_or_404(id)
+    return jsonify(
+        id=eng.id,
+        title=eng.title,
+        status=eng.status,
+        key_individuals=eng.key_individuals or '',
+        technical_problem=eng.technical_problem or '',
+        business_impact=eng.business_impact or '',
+        solution_resources=eng.solution_resources or '',
+        estimated_acr=eng.estimated_acr,
+        target_date=eng.target_date.isoformat() if eng.target_date else '',
+    )
+
+
+@engagements_bp.route('/api/engagement/<int:id>', methods=['PUT'])
+def engagement_update_inline(id: int):
+    """Update an engagement inline (JSON API from note form flyout)."""
+    eng = Engagement.query.get_or_404(id)
+    data = request.get_json()
+    if not data:
+        return jsonify(success=False, error='No data provided'), 400
+
+    title = data.get('title', '').strip()
+    if not title:
+        return jsonify(success=False, error='Title is required'), 400
+
+    eng.title = title
+    status = data.get('status', '').strip()
+    if status in ('Active', 'On Hold', 'Won', 'Lost'):
+        eng.status = status
+
+    for field in ('key_individuals', 'technical_problem', 'business_impact',
+                   'solution_resources'):
+        val = data.get(field, '').strip()
+        setattr(eng, field, val or None)
+
+    acr_val = data.get('estimated_acr', '').strip() if data.get('estimated_acr') else ''
+    eng.estimated_acr = int(acr_val) if acr_val else None
+
+    target = data.get('target_date', '').strip() if data.get('target_date') else ''
+    if target:
+        from datetime import date as date_cls
+        try:
+            eng.target_date = date_cls.fromisoformat(target)
+        except ValueError:
+            pass
+    else:
+        eng.target_date = None
+
+    db.session.commit()
+    return jsonify(success=True, id=eng.id, title=eng.title, status=eng.status)
+
+
 # =============================================================================
 # Engagement Action Item Routes
 # =============================================================================
