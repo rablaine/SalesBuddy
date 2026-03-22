@@ -3008,17 +3008,7 @@ function selectMilestone(milestone) {
     }
 
     // Pre-fill task fields from meeting import suggestion (if available)
-    if (typeof pendingTaskSuggestion !== 'undefined' && pendingTaskSuggestion) {
-        var taskSubjectEl = document.getElementById('task_subject');
-        var taskDescEl = document.getElementById('task_description');
-        if (taskSubjectEl && !taskSubjectEl.value && pendingTaskSuggestion.subject) {
-            taskSubjectEl.value = pendingTaskSuggestion.subject;
-        }
-        if (taskDescEl && !taskDescEl.value && pendingTaskSuggestion.description) {
-            taskDescEl.value = pendingTaskSuggestion.description;
-        }
-        pendingTaskSuggestion = null;
-    }
+    applyPendingTaskSuggestion();
 
     // Clear search
     milestoneSearch.value = '';
@@ -4357,6 +4347,22 @@ var selectedMeetingIndex = null;
 var loadedMeetings = [];
 var autoFillAborted = false;
 var pendingTaskSuggestion = null;  // Stores task title/description from meeting import
+
+// Apply pending task suggestion to task fields if milestones are already selected
+function applyPendingTaskSuggestion() {
+    if (typeof pendingTaskSuggestion === 'undefined' || !pendingTaskSuggestion) return;
+    if (!selectedMilestones || selectedMilestones.length === 0) return;
+    var taskSubjectEl = document.getElementById('task_subject');
+    var taskDescEl = document.getElementById('task_description');
+    if (taskSubjectEl && !taskSubjectEl.value && pendingTaskSuggestion.subject) {
+        taskSubjectEl.value = pendingTaskSuggestion.subject;
+    }
+    if (taskDescEl && !taskDescEl.value && pendingTaskSuggestion.description) {
+        taskDescEl.value = pendingTaskSuggestion.description;
+    }
+    pendingTaskSuggestion = null;
+}
+
 var _pendingMeetingImport = null;  // Queued WorkIQ response waiting for typing pause
 var _pendingMeetingSelection = null;  // Queued meeting list waiting for typing pause
 
@@ -4615,6 +4621,7 @@ function proceedWithMeeting(meeting, dateStr) {
                     subject: data.task_subject || '',
                     description: data.task_description || ''
                 };
+                applyPendingTaskSuggestion();
             }
             
             // Tag topics from WorkIQ response (instant, no network call)
@@ -4825,6 +4832,7 @@ function applyMeetingImport(pendingData) {
             subject: data.task_subject || '',
             description: data.task_description || ''
         };
+        applyPendingTaskSuggestion();
     }
     
     // Trigger autosave
