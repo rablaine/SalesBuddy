@@ -1241,50 +1241,66 @@ def _migrate_estimated_acr_to_int(db, inspector):
         ).fetchall()
 
         converted = 0
+        errors = 0
         for row in rows:
-            val = str(row[1]).strip()
-            # Already stored as a real integer (typeof = integer), skip
-            type_check = conn.execute(
-                text("SELECT typeof(estimated_acr) FROM engagements WHERE id = :id"),
-                {"id": row[0]}
-            ).scalar()
-            if type_check == 'integer':
-                continue
-
-            # Try parsing as a plain number first
             try:
-                num = int(float(val))
-            except (ValueError, TypeError):
-                num = None
+                val = str(row[1]).strip()
+                # Already stored as a real integer (typeof = integer), skip
+                type_check = conn.execute(
+                    text("SELECT typeof(estimated_acr) FROM engagements WHERE id = :id"),
+                    {"id": row[0]}
+                ).scalar()
+                if type_check == 'integer':
+                    continue
 
-            # If plain parse failed, try stripping currency formatting
-            if num is None:
-                cleaned = re.sub(r'[$,\s]', '', val)
-                cleaned = re.sub(r'/(mo(nth)?)?$', '', cleaned, flags=re.IGNORECASE)
+                # Try parsing as a plain number first
+                try:
+                    num = int(float(val))
+                except (ValueError, TypeError):
+                    num = None
 
-                # Handle K/k suffix (e.g. 50K -> 50000)
-                k_match = re.match(r'^(\d+(?:\.\d+)?)[kK]$', cleaned)
-                if k_match:
-                    num = int(float(k_match.group(1)) * 1000)
-                else:
-                    try:
-                        num = int(float(cleaned))
-                    except (ValueError, TypeError):
-                        print(f"  WARNING: Could not parse estimated_acr '{val}' "
-                              f"for engagement {row[0]}, setting to NULL")
-                        conn.execute(
-                            text("UPDATE engagements SET estimated_acr = NULL WHERE id = :id"),
-                            {"id": row[0]}
-                        )
-                        converted += 1
-                        continue
+                # If plain parse failed, try stripping currency formatting
+                if num is None:
+                    cleaned = re.sub(r'[$,\s]', '', val)
+                    cleaned = re.sub(r'/(mo(nth)?)?$', '', cleaned, flags=re.IGNORECASE)
 
-            conn.execute(
-                text("UPDATE engagements SET estimated_acr = CAST(:acr AS INTEGER) WHERE id = :id"),
-                {"acr": num, "id": row[0]}
-            )
-            converted += 1
+                    # Handle K/k suffix (e.g. 50K -> 50000)
+                    k_match = re.match(r'^(\d+(?:\.\d+)?)[kK]$', cleaned)
+                    if k_match:
+                        num = int(float(k_match.group(1)) * 1000)
+                    else:
+                        try:
+                            num = int(float(cleaned))
+                        except (ValueError, TypeError):
+                            print(f"  WARNING: Could not parse estimated_acr '{val}' "
+                                  f"for engagement {row[0]}, setting to NULL")
+                            conn.execute(
+                                text("UPDATE engagements SET estimated_acr = NULL WHERE id = :id"),
+                                {"id": row[0]}
+                            )
+                            converted += 1
+                            continue
 
-        if converted:
+                conn.execute(
+                    text("UPDATE engagements SET estimated_acr = CAST(:acr AS INTEGER) WHERE id = :id"),
+                    {"acr": num, "id": row[0]}
+                )
+                converted += 1
+            except Exception as e:
+                print(f"  WARNING: Failed to convert estimated_acr for engagement {row[0]} "
+                      f"(value={row[1]!r}): {e}")
+                try:
+                    conn.execute(
+                        text("UPDATE engagements SET estimated_acr = NULL WHERE id = :id"),
+                        {"id": row[0]}
+                    )
+                except Exception:
+                    pass
+                errors += 1
+
+        if converted or errors:
             conn.commit()
-            print(f"  Converted {converted} estimated_acr values from string to integer")
+            if converted:
+                print(f"  Converted {converted} estimated_acr values from string to integer")
+            if errors:
+                print(f"  WARNING: {errors} values could not be converted (set to NULL)")

@@ -142,13 +142,19 @@ db = sys.argv[1]
 conn = sqlite3.connect(f'file:{db}?mode=ro', uri=True)
 c = conn.cursor()
 stats = {}
-tables = {'call_logs': 'Call Logs', 'customers': 'Customers', 'sellers': 'Sellers',
-          'customer_revenue_data': 'Revenue Records', 'milestones': 'Milestones',
-          'opportunities': 'Opportunities'}
+tables = {'customers': 'Customers', 'sellers': 'Sellers',
+          'notes': 'Notes', 'milestones': 'Milestones'}
 for table, label in tables.items():
     try:
         c.execute(f'SELECT COUNT(*) FROM {table}')
         stats[label] = c.fetchone()[0]
+    except:
+        pass
+# Fallback: old backups still have call_logs (renamed to notes)
+if 'Notes' not in stats:
+    try:
+        c.execute('SELECT COUNT(*) FROM call_logs')
+        stats['Notes'] = c.fetchone()[0]
     except:
         pass
 conn.close()

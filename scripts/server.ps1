@@ -281,8 +281,20 @@ function Install-Dependencies {
 # Run database migrations
 function Run-Migrations {
     Write-Host "  Running migrations..." -ForegroundColor Yellow
-    & (Join-Path $RepoRoot 'venv\Scripts\python.exe') -c "from app import create_app, db; from app.migrations import run_migrations; app = create_app(); app.app_context().push(); run_migrations(db)"
-    return $LASTEXITCODE -eq 0
+    $pythonExe = Join-Path $RepoRoot 'venv\Scripts\python.exe'
+    $migrationOutput = & $pythonExe -c "from app import create_app, db; from app.migrations import run_migrations; app = create_app(); app.app_context().push(); run_migrations(db)" 2>&1
+    $exitCode = $LASTEXITCODE
+    if ($migrationOutput) {
+        $migrationOutput | ForEach-Object { Write-Host "  $_" }
+    }
+    if ($exitCode -ne 0) {
+        Write-Host ""
+        Write-Host "  Migration error details above. Common causes:" -ForegroundColor Yellow
+        Write-Host "    - Database locked by another process (close other Sales Buddy instances)" -ForegroundColor Gray
+        Write-Host "    - Python version incompatibility (check package support for your Python version)" -ForegroundColor Gray
+        Write-Host "    - Corrupted database (restore from backup: data\salesbuddy.db.bak)" -ForegroundColor Gray
+    }
+    return $exitCode -eq 0
 }
 
 # ==============================================================================
