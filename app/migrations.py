@@ -1226,45 +1226,58 @@ def _cleanup_total_revenue_rows(db, existing_tables):
 
 
 def _migrate_estimated_acr_to_int(db, inspector):
-    """Convert estimated_acr column from string to integer (monthly $ amount).
+    """Convert estimated_acr column from VARCHAR to INTEGER (monthly $ amount).
 
     Parses values like '$500/mo', '$50K', '$50k/month', '500' into integers.
-    Idempotent: skips rows that are already integer-like or NULL.
+    Idempotent: skips if column is already INTEGER type.
+
+    SQLite can't ALTER COLUMN, so we: rename old -> add new INTEGER -> copy
+    parsed values -> drop old.
     """
     if not _table_exists(inspector, 'engagements'):
         return
 
+    # Check if column already has INTEGER affinity
+    columns = {c['name']: c for c in inspector.get_columns('engagements')}
+    col = columns.get('estimated_acr')
+    if not col:
+        return
+
+    col_type = str(col['type']).upper()
+    if 'INT' in col_type:
+        return  # Already migrated
+
     import re
+    print("  Migrating estimated_acr from VARCHAR to INTEGER...")
     with db.engine.connect() as conn:
+        # Step 1: Rename old column
+        conn.execute(text("ALTER TABLE engagements RENAME COLUMN estimated_acr TO _estimated_acr_old"))
+
+        # Step 2: Add new INTEGER column
+        conn.execute(text("ALTER TABLE engagements ADD COLUMN estimated_acr INTEGER"))
+
+        # Step 3: Copy and convert values row by row
         rows = conn.execute(
-            text("SELECT id, estimated_acr FROM engagements WHERE estimated_acr IS NOT NULL")
+            text("SELECT id, _estimated_acr_old FROM engagements WHERE _estimated_acr_old IS NOT NULL")
         ).fetchall()
 
         converted = 0
-        errors = 0
         for row in rows:
             try:
                 val = str(row[1]).strip()
-                # Already stored as a real integer (typeof = integer), skip
-                type_check = conn.execute(
-                    text("SELECT typeof(estimated_acr) FROM engagements WHERE id = :id"),
-                    {"id": row[0]}
-                ).scalar()
-                if type_check == 'integer':
-                    continue
+                num = None
 
                 # Try parsing as a plain number first
                 try:
                     num = int(float(val))
                 except (ValueError, TypeError):
-                    num = None
+                    pass
 
                 # If plain parse failed, try stripping currency formatting
                 if num is None:
                     cleaned = re.sub(r'[$,\s]', '', val)
                     cleaned = re.sub(r'/(mo(nth)?)?$', '', cleaned, flags=re.IGNORECASE)
 
-                    # Handle K/k suffix (e.g. 50K -> 50000)
                     k_match = re.match(r'^(\d+(?:\.\d+)?)[kK]$', cleaned)
                     if k_match:
                         num = int(float(k_match.group(1)) * 1000)
@@ -1274,33 +1287,20 @@ def _migrate_estimated_acr_to_int(db, inspector):
                         except (ValueError, TypeError):
                             print(f"  WARNING: Could not parse estimated_acr '{val}' "
                                   f"for engagement {row[0]}, setting to NULL")
-                            conn.execute(
-                                text("UPDATE engagements SET estimated_acr = NULL WHERE id = :id"),
-                                {"id": row[0]}
-                            )
-                            converted += 1
                             continue
 
                 conn.execute(
-                    text("UPDATE engagements SET estimated_acr = CAST(:acr AS INTEGER) WHERE id = :id"),
+                    text("UPDATE engagements SET estimated_acr = :acr WHERE id = :id"),
                     {"acr": num, "id": row[0]}
                 )
                 converted += 1
             except Exception as e:
                 print(f"  WARNING: Failed to convert estimated_acr for engagement {row[0]} "
                       f"(value={row[1]!r}): {e}")
-                try:
-                    conn.execute(
-                        text("UPDATE engagements SET estimated_acr = NULL WHERE id = :id"),
-                        {"id": row[0]}
-                    )
-                except Exception:
-                    pass
-                errors += 1
 
-        if converted or errors:
-            conn.commit()
-            if converted:
-                print(f"  Converted {converted} estimated_acr values from string to integer")
-            if errors:
-                print(f"  WARNING: {errors} values could not be converted (set to NULL)")
+        # Step 4: Drop old column
+        conn.execute(text("ALTER TABLE engagements DROP COLUMN _estimated_acr_old"))
+        conn.commit()
+
+        if converted:
+            print(f"  Converted {converted} estimated_acr values to integer")
