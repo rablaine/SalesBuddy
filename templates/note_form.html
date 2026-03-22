@@ -134,9 +134,11 @@
                     </div>
                     {% else %}
                     <div class="row mb-3">
-                        <div class="col-md-7">
+                        <div class="col-md-6">
                             <label for="customer_id" class="form-label">Customer *</label>
-                            <select class="form-select" id="customer_id" name="customer_id" required {% if not note and preselect_customer_id %}disabled{% endif %}>
+                            <select class="form-select" id="customer_id" name="customer_id" required
+                                    style="display:none;"
+                                    {% if not note and preselect_customer_id %}disabled{% endif %}>
                                 <option value="">-- Select customer --</option>
                                 {% for customer in customers %}
                                     <option value="{{ customer.id }}"
@@ -148,6 +150,20 @@
                             {% if not note and preselect_customer_id %}
                                 <input type="hidden" name="customer_id" value="{{ preselect_customer_id }}">
                             {% endif %}
+                            <!-- Customer indicator (shown when a customer is selected) -->
+                            <div id="customerIndicator"
+                                 {% if not note and not preselect_customer_id %}style="display:none;"{% endif %}
+                                 class="d-flex align-items-center gap-2">
+                                <button type="button" class="btn btn-outline-secondary d-flex align-items-center gap-2 text-start w-100" onclick="openCustomerInfoFlyout()" id="customerIndicatorBtn">
+                                    <i class="bi bi-building"></i>
+                                    <span id="customerIndicatorName">
+                                        {% if note and note.customer %}{{ note.customer.nickname or note.customer.name }}
+                                        {% elif preselect_customer %}{{ preselect_customer.nickname or preselect_customer.name }}
+                                        {% endif %}
+                                    </span>
+                                    <i class="bi bi-chevron-right ms-auto" style="font-size:0.7rem;"></i>
+                                </button>
+                            </div>
                             {% if not seller_mode %}
                             {% if note and note.customer and note.customer.seller %}
                                 <div class="form-text">Seller: <strong>{{ note.customer.seller.name }}</strong></div>
@@ -156,7 +172,7 @@
                             {% endif %}
                             {% endif %}
                         </div>
-                        <div class="col-md-5" id="engagementSection" {% if not preselect_customer_id and not (note and note.customer_id) %}style="display: none;"{% endif %}>
+                        <div class="col-md-6" id="engagementSection" {% if not preselect_customer_id and not (note and note.customer_id) %}style="display: none;"{% endif %}>
                             <label class="form-label">Engagement(s)</label>
                             <!-- Hidden select for form submission -->
                             <select class="d-none" id="engagement_ids" name="engagement_ids" multiple>
@@ -869,6 +885,74 @@
 </div>
 {% endif %}
 
+{% if not is_general_note %}
+<!-- Customer Info Flyout -->
+<div class="offcanvas offcanvas-end" tabindex="-1" id="customerInfoFlyout" aria-labelledby="customerInfoFlyoutLabel" data-bs-backdrop="false" data-bs-scroll="true" style="width: 400px;">
+    <div class="offcanvas-header py-2 border-bottom">
+        <h6 class="offcanvas-title" id="customerInfoFlyoutLabel"><i class="bi bi-building"></i> Customer Info</h6>
+        <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Close"></button>
+    </div>
+    <div class="offcanvas-body">
+        <div id="custInfoLoading" class="text-center py-4">
+            <div class="spinner-border spinner-border-sm text-primary"></div>
+            <span class="ms-2 text-muted">Loading...</span>
+        </div>
+        <div id="custInfoContent" style="display:none;">
+            <!-- Name / Nickname -->
+            <div class="mb-3">
+                <div class="d-flex align-items-center gap-2 mb-1">
+                    <span id="custInfoFavicon"></span>
+                    <h5 class="mb-0" id="custInfoName"></h5>
+                </div>
+                <div class="d-flex align-items-center gap-1" id="custInfoNicknameRow">
+                    <span class="text-muted small">Nickname:</span>
+                    <span id="custInfoNickname" class="small"></span>
+                    <button type="button" class="btn btn-sm p-0 ms-1 text-muted" onclick="editCustNickname()" title="Edit nickname" id="custInfoNicknameEditBtn"><i class="bi bi-pencil" style="font-size:0.7rem;"></i></button>
+                </div>
+                <div id="custInfoNicknameEditRow" style="display:none;" class="d-flex align-items-center gap-1 mt-1">
+                    <input type="text" class="form-control form-control-sm" id="custInfoNicknameInput" style="max-width:200px;" placeholder="Nickname">
+                    <button type="button" class="btn btn-sm btn-primary py-0 px-2" onclick="saveCustNickname()"><i class="bi bi-check"></i></button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2" onclick="cancelCustNickname()"><i class="bi bi-x"></i></button>
+                </div>
+            </div>
+            <!-- TPID -->
+            <div class="mb-2">
+                <div class="text-muted small">TPID</div>
+                <div id="custInfoTpid"></div>
+            </div>
+            <!-- Territory -->
+            <div class="mb-2">
+                <div class="text-muted small">Territory</div>
+                <div id="custInfoTerritory"></div>
+            </div>
+            <!-- DAE -->
+            <div class="mb-2" id="custInfoDaeSection" style="display:none;">
+                <div class="text-muted small">DAE (Account Owner)</div>
+                <div id="custInfoDae"></div>
+            </div>
+            <!-- Verticals -->
+            <div class="mb-2" id="custInfoVerticalsSection" style="display:none;">
+                <div class="text-muted small">Verticals</div>
+                <div id="custInfoVerticals"></div>
+            </div>
+            <hr>
+            <!-- Opportunities -->
+            <div id="custInfoOppsSection">
+                <h6 class="mb-2"><i class="bi bi-briefcase"></i> Opportunities</h6>
+                <div id="custInfoOpps"></div>
+                <div id="custInfoNoOpps" class="text-muted small" style="display:none;">No opportunities found.</div>
+            </div>
+            <!-- View full page link -->
+            <div class="mt-3 text-center">
+                <a id="custInfoViewLink" href="#" class="btn btn-sm btn-outline-primary">
+                    <i class="bi bi-box-arrow-up-right"></i> Open Customer Page
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
 <!-- Flyout stacking: multiple flyouts shift left so they don't overlap -->
 <style>
     .offcanvas.flyout-shifted {
@@ -879,27 +963,29 @@
         transform: translateX(-798px) !important;
         z-index: 1043 !important;
     }
+    .offcanvas.flyout-shifted-3 {
+        transform: translateX(-1197px) !important;
+        z-index: 1042 !important;
+    }
 </style>
 <script>
 (function() {
-    const ids = ['partnerFlyout', 'engagementFlyout', 'contactsFlyout'];
+    const ids = ['partnerFlyout', 'engagementFlyout', 'contactsFlyout', 'customerInfoFlyout', 'engTaskFlyout'];
     const flyouts = ids.map(id => document.getElementById(id)).filter(Boolean);
     if (flyouts.length < 2) return;
 
-    // Track open order (most recent at end)
     let openOrder = [];
 
     function adjustStack() {
         const open = flyouts.filter(f => f.classList.contains('show'));
-        // Clear all shift classes
-        flyouts.forEach(f => { f.classList.remove('flyout-shifted', 'flyout-shifted-2'); });
+        flyouts.forEach(f => { f.classList.remove('flyout-shifted', 'flyout-shifted-2', 'flyout-shifted-3'); });
         if (open.length <= 1) return;
-        // The most recently opened stays in place; others shift left by their position
         const sorted = open.sort((a, b) => openOrder.indexOf(a) - openOrder.indexOf(b));
         for (let i = 0; i < sorted.length - 1; i++) {
             const shift = sorted.length - 1 - i;
             if (shift === 1) sorted[i].classList.add('flyout-shifted');
-            else if (shift >= 2) sorted[i].classList.add('flyout-shifted-2');
+            else if (shift === 2) sorted[i].classList.add('flyout-shifted-2');
+            else if (shift >= 3) sorted[i].classList.add('flyout-shifted-3');
         }
     }
 
@@ -1168,6 +1254,197 @@ function flyoutDeleteContact(id) {
 
 function escHtmlNote(s) { var d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
 function escAttrNote(s) { return s.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/'/g,'&#39;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+// ---- Customer Info Flyout ----
+var _custInfoFlyoutInstance = null;
+var _custInfoCache = {};
+
+function openCustomerInfoFlyout() {
+    var custId = getSelectedCustomerId();
+    if (!custId) return;
+    if (!_custInfoFlyoutInstance) {
+        _custInfoFlyoutInstance = new bootstrap.Offcanvas(document.getElementById('customerInfoFlyout'));
+    }
+    _custInfoFlyoutInstance.show();
+    loadCustomerInfo(custId);
+}
+
+function loadCustomerInfo(custId) {
+    var content = document.getElementById('custInfoContent');
+    var loading = document.getElementById('custInfoLoading');
+    if (_custInfoCache[custId]) {
+        renderCustomerInfo(_custInfoCache[custId]);
+        return;
+    }
+    content.style.display = 'none';
+    loading.style.display = 'block';
+    fetch('/api/customer/' + custId + '/info')
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            _custInfoCache[custId] = data;
+            renderCustomerInfo(data);
+        })
+        .catch(function() {
+            loading.innerHTML = '<span class="text-danger">Failed to load customer info.</span>';
+        });
+}
+
+function renderCustomerInfo(data) {
+    document.getElementById('custInfoLoading').style.display = 'none';
+    var content = document.getElementById('custInfoContent');
+    content.style.display = '';
+
+    // Name + favicon
+    document.getElementById('custInfoName').textContent = data.name;
+    var favSpan = document.getElementById('custInfoFavicon');
+    favSpan.innerHTML = '';
+    // Check if the select has favicon data
+    var sel = document.getElementById('customer_id');
+    var opt = sel ? sel.querySelector('option[value="' + data.id + '"]') : null;
+    // We won't have favicon in API yet, just show building icon
+    favSpan.innerHTML = '<i class="bi bi-building" style="font-size:1.2rem;"></i>';
+
+    // Nickname
+    var nicknameSpan = document.getElementById('custInfoNickname');
+    nicknameSpan.textContent = data.nickname || '(none)';
+    nicknameSpan.className = data.nickname ? 'small' : 'small text-muted fst-italic';
+    document.getElementById('custInfoNicknameRow').style.display = '';
+    document.getElementById('custInfoNicknameEditRow').style.display = 'none';
+
+    // TPID
+    var tpidDiv = document.getElementById('custInfoTpid');
+    if (data.tpid_url) {
+        tpidDiv.innerHTML = '<a href="' + escAttrNote(data.tpid_url) + '" target="_blank">' + escHtmlNote(String(data.tpid)) + ' <i class="bi bi-box-arrow-up-right" style="font-size:0.7rem;"></i></a>';
+    } else {
+        tpidDiv.textContent = data.tpid || '--';
+    }
+
+    // Territory
+    document.getElementById('custInfoTerritory').innerHTML = data.territory
+        ? '<span class="badge bg-info text-dark"><i class="bi bi-geo-alt"></i> ' + escHtmlNote(data.territory) + '</span>'
+        : '<span class="text-muted">Unassigned</span>';
+
+    // DAE
+    var daeSection = document.getElementById('custInfoDaeSection');
+    if (data.dae_name || data.dae_alias) {
+        daeSection.style.display = '';
+        var daeHtml = '';
+        if (data.dae_alias) {
+            daeHtml = '<a href="mailto:' + escAttrNote(data.dae_alias) + '@microsoft.com" class="text-decoration-none"><i class="bi bi-person-badge"></i> ' + escHtmlNote(data.dae_name || data.dae_alias) + '</a>';
+        } else {
+            daeHtml = '<i class="bi bi-person-badge"></i> ' + escHtmlNote(data.dae_name);
+        }
+        document.getElementById('custInfoDae').innerHTML = daeHtml;
+    } else {
+        daeSection.style.display = 'none';
+    }
+
+    // Verticals
+    var vertSection = document.getElementById('custInfoVerticalsSection');
+    if (data.verticals && data.verticals.length) {
+        vertSection.style.display = '';
+        document.getElementById('custInfoVerticals').innerHTML = data.verticals.map(function(v) {
+            return '<span class="badge bg-primary me-1">' + escHtmlNote(v) + '</span>';
+        }).join('');
+    } else {
+        vertSection.style.display = 'none';
+    }
+
+    // Opportunities
+    var oppsDiv = document.getElementById('custInfoOpps');
+    var noOpps = document.getElementById('custInfoNoOpps');
+    oppsDiv.innerHTML = '';
+    if (data.opportunities && data.opportunities.length) {
+        noOpps.style.display = 'none';
+        data.opportunities.sort(function(a, b) { return a.name.localeCompare(b.name); });
+        data.opportunities.forEach(function(opp) {
+            var card = document.createElement('div');
+            card.className = 'rounded p-2 mb-2';
+            card.style.cssText = 'background: var(--bs-tertiary-bg); border: 1px solid var(--bs-border-color);';
+            var html = '<a href="/opportunity/' + opp.id + '" class="fw-bold text-decoration-none d-block' + (opp.milestones.length ? ' mb-1' : '') + '" target="_blank">' +
+                '<i class="bi bi-briefcase"></i> ' + escHtmlNote(opp.name) + '</a>';
+            opp.milestones.forEach(function(ms) {
+                var statusIcon = 'flag text-secondary';
+                if (ms.msx_status === 'On Track') statusIcon = 'check-circle text-success';
+                else if (ms.msx_status === 'At Risk') statusIcon = 'exclamation-triangle text-warning';
+                else if (ms.msx_status === 'Blocked') statusIcon = 'x-circle text-danger';
+                else if (ms.msx_status === 'Completed') statusIcon = 'check2-circle text-info';
+                html += '<div class="d-flex align-items-start gap-2" style="padding-left:0.25rem;">';
+                html += '<i class="bi bi-' + statusIcon + '" style="margin-top:2px;" title="' + escAttrNote(ms.msx_status || 'Unknown') + '"></i>';
+                html += '<div style="min-width:0; flex:1;">';
+                html += '<a href="/milestone/' + ms.id + '" class="text-decoration-none small text-truncate d-block" target="_blank">' + escHtmlNote(ms.display_text) + '</a>';
+                if (ms.workload) html += '<div class="text-muted text-truncate" style="font-size:0.7em;">' + escHtmlNote(ms.workload) + '</div>';
+                html += '</div>';
+                html += '<div class="text-end flex-shrink-0">';
+                if (ms.monthly_usage) html += '<span class="small text-muted">$' + Number(ms.monthly_usage).toLocaleString() + '/mo</span>';
+                if (ms.due_date) {
+                    var dd = new Date(ms.due_date + 'T00:00:00');
+                    var daysUntil = Math.ceil((dd - new Date()) / 86400000);
+                    var dateClass = 'text-muted';
+                    var extra = '';
+                    if (ms.msx_status === 'Completed') { dateClass = 'text-success'; }
+                    else if (daysUntil < 0) { dateClass = 'text-danger'; extra = ' <span class="fw-semibold">(overdue)</span>'; }
+                    else if (daysUntil <= 30) { dateClass = 'text-warning'; extra = ' <span class="fw-semibold">(' + daysUntil + 'd)</span>'; }
+                    else if (daysUntil <= 90) { dateClass = 'text-success'; }
+                    html += '<div style="font-size:0.7em;" class="' + dateClass + '"><i class="bi bi-calendar"></i> ' + dd.toLocaleDateString('en-US', {month:'short', day:'numeric', year:'numeric'}) + extra + '</div>';
+                }
+                html += '</div></div>';
+            });
+            card.innerHTML = html;
+            oppsDiv.appendChild(card);
+        });
+    } else {
+        noOpps.style.display = '';
+    }
+
+    // View link
+    document.getElementById('custInfoViewLink').href = '/customer/' + data.id;
+}
+
+function editCustNickname() {
+    document.getElementById('custInfoNicknameRow').style.display = 'none';
+    document.getElementById('custInfoNicknameEditRow').style.display = '';
+    var current = document.getElementById('custInfoNickname').textContent.trim();
+    var input = document.getElementById('custInfoNicknameInput');
+    input.value = (current === '(none)') ? '' : current;
+    input.focus();
+    input.select();
+}
+
+function cancelCustNickname() {
+    document.getElementById('custInfoNicknameEditRow').style.display = 'none';
+    document.getElementById('custInfoNicknameRow').style.display = '';
+}
+
+if (document.getElementById('custInfoNicknameInput')) {
+    document.getElementById('custInfoNicknameInput').addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); saveCustNickname(); }
+        if (e.key === 'Escape') { e.preventDefault(); cancelCustNickname(); }
+    });
+}
+
+function saveCustNickname() {
+    var custId = getSelectedCustomerId();
+    if (!custId) return;
+    var nickname = document.getElementById('custInfoNicknameInput').value.trim();
+    fetch('/api/customer/' + custId + '/nickname', {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({nickname: nickname})
+    }).then(function(r) { return r.json(); })
+    .then(function(data) {
+        // Update the flyout display
+        var span = document.getElementById('custInfoNickname');
+        span.textContent = data.nickname || '(none)';
+        span.className = data.nickname ? 'small' : 'small text-muted fst-italic';
+        cancelCustNickname();
+        // Update the indicator button text
+        var indicator = document.getElementById('customerIndicatorName');
+        if (indicator) indicator.textContent = data.nickname || document.getElementById('custInfoName').textContent;
+        // Invalidate cache
+        delete _custInfoCache[custId];
+    });
+}
 
 // Sync editor content to hidden textarea on form submit
 document.getElementById('noteForm').onsubmit = function(e) {

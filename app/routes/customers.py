@@ -483,3 +483,56 @@ def api_customer_contact_delete(contact_id):
     db.session.delete(contact)
     db.session.commit()
     return jsonify({'success': True}), 200
+
+
+@customers_bp.route('/api/customer/<int:customer_id>/info')
+def api_customer_info(customer_id):
+    """Return customer details for the note-form customer flyout."""
+    customer = Customer.query.options(
+        db.joinedload(Customer.territory),
+        db.joinedload(Customer.seller),
+        db.subqueryload(Customer.verticals),
+    ).filter_by(id=customer_id).first_or_404()
+
+    opps = []
+    for opp in customer.opportunities.all():
+        milestones = []
+        for ms in opp.milestones.all():
+            milestones.append({
+                'id': ms.id,
+                'display_text': ms.display_text,
+                'msx_status': ms.msx_status,
+                'workload': ms.workload,
+                'monthly_usage': ms.monthly_usage,
+                'due_date': ms.due_date.isoformat() if ms.due_date else None,
+            })
+        opps.append({
+            'id': opp.id,
+            'name': opp.name,
+            'milestones': milestones,
+        })
+
+    return jsonify({
+        'id': customer.id,
+        'name': customer.name,
+        'nickname': customer.nickname,
+        'tpid': customer.tpid,
+        'tpid_url': customer.tpid_url,
+        'territory': customer.territory.name if customer.territory else None,
+        'territory_id': customer.territory_id,
+        'seller_name': customer.seller.name if customer.seller else None,
+        'dae_name': customer.dae_name,
+        'dae_alias': customer.dae_alias,
+        'verticals': [v.name for v in sorted(customer.verticals, key=lambda v: v.name)],
+        'opportunities': opps,
+    }), 200
+
+
+@customers_bp.route('/api/customer/<int:customer_id>/nickname', methods=['PUT'])
+def api_customer_nickname(customer_id):
+    """Update a customer's nickname."""
+    customer = Customer.query.filter_by(id=customer_id).first_or_404()
+    data = request.get_json()
+    customer.nickname = (data.get('nickname') or '').strip() or None
+    db.session.commit()
+    return jsonify({'nickname': customer.nickname}), 200
