@@ -2947,6 +2947,8 @@ milestoneSearch.addEventListener('input', function() {
     
     // Filter milestones - search in name, number, opportunity name, and workload
     currentMilestoneMatches = allMilestones.filter(milestone => {
+        // Exclude already-selected milestones
+        if (selectedMilestones.some(m => m.id === milestone.id)) return false;
         const name = (milestone.name || '').toLowerCase();
         const number = (milestone.number || '').toLowerCase();
         const oppName = (milestone.opportunity_name || '').toLowerCase();
@@ -2981,7 +2983,9 @@ function sortMilestones(milestones) {
 }
 
 function showAllMilestones() {
-    currentMilestoneMatches = sortMilestones(allMilestones.slice());
+    currentMilestoneMatches = sortMilestones(
+        allMilestones.filter(m => !selectedMilestones.some(s => s.id === m.id))
+    );
     selectedMilestoneIndex = 0;
     renderMilestoneDropdown();
     milestoneDropdown.style.display = 'block';
