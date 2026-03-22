@@ -2711,10 +2711,13 @@ function selectMilestone(milestone) {
     // Show task creation section
     taskCreationSection.style.display = 'block';
 
-    // Default due date to today if not already set
+    // Default due date to the day after the call date
     const dueDateInput = document.getElementById('task_due_date');
     if (dueDateInput && !dueDateInput.value) {
-        dueDateInput.value = new Date().toISOString().split('T')[0];
+        const callDateInput = document.getElementById('call_date');
+        const base = callDateInput && callDateInput.value ? new Date(callDateInput.value + 'T00:00:00') : new Date();
+        base.setDate(base.getDate() + 1);
+        dueDateInput.value = base.toISOString().split('T')[0];
     }
 
     // Pre-fill task fields from meeting import suggestion (if available)
