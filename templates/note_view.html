@@ -34,7 +34,7 @@
                 
                 <p><strong>Customer:</strong><br>
                     {% if note.customer %}
-                        <a href="{{ url_for('customers.customer_view', id=note.customer.id) }}">{{ customer_favicon(note.customer) }} {{ note.customer.name }}</a>
+                        <a href="{{ url_for('customers.customer_view', id=note.customer.id) }}">{{ customer_favicon(note.customer) }} {{ note.customer.nickname or note.customer.name }}</a>
                         {% if note.customer.tpid_url %}
                             (<a href="{{ note.customer.tpid_url }}" target="_blank">{{ note.customer.tpid }}</a>)
                         {% else %}
