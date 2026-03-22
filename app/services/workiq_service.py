@@ -679,6 +679,12 @@ def _parse_summary_response(response: str) -> Dict[str, Any]:
         'engagement_signals': {},
         'raw_response': response
     }
+
+    # Strip markdown links from the entire response up front so no section
+    # has to do it individually.
+    response = re.sub(r'\s*\[\d+\]\([^\)]+\)', '', response)       # [1](url)
+    response = re.sub(r'\s*\[\d+\]', '', response)                 # [1]
+    response = re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', response)  # [text](url) -> text
     
     # Extract ENGAGEMENT_DATA block before other parsing.
     # Matches "ENGAGEMENT_DATA:" followed by labeled lines (Key Individuals, etc.).
@@ -729,16 +735,7 @@ def _parse_summary_response(response: str) -> Dict[str, Any]:
             for line in impact_lines
             if line.strip() and re.sub(r'^\s*[-*]\s*', '', line).strip()
         ]
-        # Strip citation-style markdown links and plain citation references
-        cleaned_items = []
-        for item in raw_items:
-            item = re.sub(r'\s*\[\d+\]\([^\)]+\)', '', item)
-            item = re.sub(r'\s*\[\d+\]', '', item)
-            item = re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', item)
-            item = item.strip()
-            if item:
-                cleaned_items.append(item)
-        result['connect_impact'] = cleaned_items
+        result['connect_impact'] = [item for item in raw_items if item]
     
     # Remove CONNECT_IMPACT block from response before further parsing
     response = re.sub(
@@ -762,6 +759,7 @@ def _parse_summary_response(response: str) -> Dict[str, Any]:
         result['task_subject'] = task_title_match.group(1).strip().strip('"\'*')
     if task_desc_match:
         result['task_description'] = task_desc_match.group(1).strip().strip('"\'*')
+
     
     # Remove TASK_TITLE/TASK_DESCRIPTION lines from response before further parsing
     # so they don't pollute the summary text
@@ -777,15 +775,8 @@ def _parse_summary_response(response: str) -> Dict[str, Any]:
         # First, strip conversational AI preamble and follow-up offers
         cleaned_response = _clean_ai_preamble(cleaned_response)
         
-        # Remove citation-style markdown links [1](url), [2](url) entirely
-        clean_response = re.sub(r'\s*\[\d+\]\([^\)]+\)', '', cleaned_response)
-        # Remove plain citation references [1], [2] that have no URL
-        clean_response = re.sub(r'\s*\[\d+\]', '', clean_response)
-        # Remove remaining markdown links [text](url) but keep the text
-        clean_response = re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', clean_response)
-        
         # Remove heading markers
-        clean_response = re.sub(r'^#{1,6}\s*', '', clean_response, flags=re.MULTILINE)
+        clean_response = re.sub(r'^#{1,6}\s*', '', cleaned_response, flags=re.MULTILINE)
         
         # The whole response is the summary  
         result['summary'] = clean_response.strip()
