@@ -202,7 +202,10 @@ def notes_calendar_api():
     
     # Get first and last day of the month
     first_day = date(year, month, 1)
-    last_day = date(year, month, cal.monthrange(year, month)[1])
+    if month == 12:
+        next_month_first = date(year + 1, 1, 1)
+    else:
+        next_month_first = date(year, month + 1, 1)
     
     # Query call logs for this month with customer data and relationships
     seller_mode_sid = get_seller_mode_seller_id()
@@ -212,7 +215,7 @@ def notes_calendar_api():
         db.joinedload(Note.topics),
     ).filter(
         Note.call_date >= first_day,
-        Note.call_date <= last_day
+        Note.call_date < next_month_first
     )
     if seller_mode_sid:
         cal_query = cal_query.join(Customer, Note.customer_id == Customer.id).filter(
