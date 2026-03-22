@@ -71,6 +71,10 @@ _PREAMBLE_PATTERNS = [
     re.compile(r"^I\s+(?:don'?t|do\s+not)\s+have\s+access\b.+?(?:\n|$)", re.IGNORECASE | re.MULTILINE),
     # "Note:" or "Important:" disclaimers at start
     re.compile(r'^(?:Note|Important|Disclaimer|Caveat)\s*:.+?(?:\n|$)', re.IGNORECASE | re.MULTILINE),
+    # "I need to retrieve/search/pull/find" planning narration
+    re.compile(r"^I\s+need\s+to\s+(?:retrieve|search|pull|find|fetch|look)\b.+?(?:\n|$)", re.IGNORECASE | re.MULTILINE),
+    # "I'm going to search/pull/look" planning narration
+    re.compile(r"^I'?m\s+going\s+to\b.+?(?:\n|$)", re.IGNORECASE | re.MULTILINE),
 ]
 
 _FOOTER_PATTERNS = [
@@ -82,6 +86,22 @@ _FOOTER_PATTERNS = [
     re.compile(r"I\s+can\s+also\s*:.+", re.IGNORECASE | re.DOTALL),
     # "Would you like me to" offers and everything after
     re.compile(r"Would\s+you\s+like\s+me\s+to\b.+", re.IGNORECASE | re.DOTALL),
+    # "I'll proceed with pulling/searching" planning narration
+    re.compile(r"I'?ll\s+proceed\b.+", re.IGNORECASE | re.DOTALL),
+]
+
+# Phrases that indicate the AI is narrating what it plans to do rather than
+# returning actual meeting content. If the response contains multiple of
+# these, the entire response is rejected as meta-commentary.
+_PLANNING_PHRASES = [
+    re.compile(r"I\s+need\s+to\s+retrieve", re.IGNORECASE),
+    re.compile(r"I'?m\s+going\s+to\s+search", re.IGNORECASE),
+    re.compile(r"I'?ll\s+(?:proceed|return\s+a\s+clean)", re.IGNORECASE),
+    re.compile(r"pulling\s+the\s+meeting\s+data", re.IGNORECASE),
+    re.compile(r"so\s+the\s+summary.*(?:accurate|not\s+inferred)", re.IGNORECASE),
+    re.compile(r"Once\s+I\s+have\s+that", re.IGNORECASE),
+    re.compile(r"search\s+your\s+(?:Meetings|Microsoft\s+365)", re.IGNORECASE),
+    re.compile(r"ground\s+the\s+summary\s+in", re.IGNORECASE),
 ]
 
 
@@ -625,6 +645,24 @@ def get_meeting_summary(meeting_title: str, date_str: str = None,
         for suffix in [_TASK_PROMPT_SUFFIX, _CONNECT_IMPACT_SUFFIX]:
             response = response.replace(suffix, '')
         response = response.strip()
+
+        # Detect AI "planning mode" responses where the model narrates what
+        # it intends to do instead of returning actual summary content.
+        # If 2+ planning phrases match, the response is meta-commentary.
+        planning_hits = sum(1 for p in _PLANNING_PHRASES if p.search(response))
+        if planning_hits >= 2:
+            logger.warning(f"AI returned planning narration instead of summary "
+                           f"for: {meeting_title} ({planning_hits} planning phrases)")
+            return {
+                'summary': '',
+                'topics': [],
+                'action_items': [],
+                'task_subject': '',
+                'task_description': '',
+                'connect_impact': [],
+                'engagement_signals': {},
+                'retry_suggested': True
+            }
 
         if not response:
             return {
