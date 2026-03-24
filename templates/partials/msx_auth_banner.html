@@ -1,9 +1,9 @@
 {#
     MSX Auth Check Banner
     Include this partial on any page with MSX integration.
-    On page load, checks if the MSX token is valid. If not, shows a
-    dismissible warning banner with a "Sign In to Azure" button that
-    launches the browser-based az login flow.
+    Does NOT auto-check on page load. Instead, exposes:
+      - window.checkMsxAuth()         — run auth check (call when an MSX action fails)
+      - window.showMsxAuthBanner(id)  — show a specific banner state by element ID
 
     Usage:  {% include 'partials/msx_auth_banner.html' %}
 #}
@@ -243,7 +243,8 @@
     document.getElementById('msxBannerRetryBtn').addEventListener('click', startMsxLogin);
     document.getElementById('msxBannerCancelBtn').addEventListener('click', cancelMsxLogin);
 
-    // Check auth on page load
-    checkMsxAuth();
+    // Expose checkMsxAuth so page-specific JS can trigger it on MSX action failure
+    window.checkMsxAuth = checkMsxAuth;
+    window.showMsxAuthBanner = showBannerState;
 })();
 </script>

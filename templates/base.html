@@ -2726,21 +2726,24 @@
     });
     </script>
 
-    {% block extra_js %}{% endblock %}
-
-    <!-- Global VPN Block Detection -->
+    <!-- Global VPN Block Detection (must be before extra_js so the fetch interceptor is active for page-specific scripts) -->
     <script>
     (function() {
         const banner = document.getElementById('vpnBlockedBanner');
         if (!banner) return;
         const retryBtn = document.getElementById('vpnRetryBtn');
         const retryStatus = document.getElementById('vpnRetryStatus');
-        let _vpnBlockedState = false;
+        const VPN_KEY = 'salesbuddy_vpn_blocked';
+        let _vpnBlockedState = sessionStorage.getItem(VPN_KEY) === '1';
+
+        // Restore banner on page load if it was shown before navigation
+        if (_vpnBlockedState) banner.classList.remove('d-none');
 
         // Show the VPN banner
         window.showVpnBanner = function() {
             banner.classList.remove('d-none');
             _vpnBlockedState = true;
+            sessionStorage.setItem(VPN_KEY, '1');
         };
 
         // Hide the VPN banner
@@ -2748,6 +2751,7 @@
             banner.classList.add('d-none');
             retryStatus.textContent = '';
             _vpnBlockedState = false;
+            sessionStorage.removeItem(VPN_KEY);
         };
 
         // Check VPN block state. No-arg: returns in-memory state. With arg: checks response text.
@@ -2814,6 +2818,9 @@
                         const json = await clone.json();
                         if (json && json.vpn_blocked) {
                             window.showVpnBanner();
+                        } else if (_vpnBlockedState && json && json.success !== false) {
+                            // A successful MSX call clears the VPN blocked state
+                            window.hideVpnBanner();
                         }
                     } catch (e) { /* not JSON or parse error — ignore */ }
                 }
@@ -2821,12 +2828,12 @@
             return response;
         };
 
-        // Check server-side VPN state on page load (in case it was set before this page loaded)
-        fetch('/api/msx/vpn-status').then(r => r.json()).then(data => {
-            if (data.blocked) window.showVpnBanner();
-        }).catch(() => {});
+        // VPN block state is now set reactively by the fetch interceptor above
+        // when an actual MSX API call fails, not proactively on page load.
     })();
     </script>
+
+    {% block extra_js %}{% endblock %}
 
     <!-- Guided Product Tour (triggered once after first wizard dismissal) -->
     <script defer>

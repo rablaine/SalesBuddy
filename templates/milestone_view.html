@@ -437,22 +437,6 @@ function renderError(errorMsg, vpnBlocked) {
 {% endif %}
 
 // ── Milestone Team join/leave ───────────────────────────────────────
-fetch('/api/msx/vpn-status').then(r => r.json()).then(data => {
-    if (data.blocked) {
-        const joinBtn = document.getElementById('joinMilestoneTeamBtn');
-        if (joinBtn) {
-            joinBtn.disabled = true;
-            joinBtn.classList.replace('btn-outline-primary', 'btn-outline-secondary');
-            joinBtn.title = 'VPN required -- connect to corpnet first';
-        }
-        const leaveBtn = document.getElementById('leaveMilestoneTeamBtn');
-        if (leaveBtn) {
-            leaveBtn.disabled = true;
-            leaveBtn.classList.replace('btn-outline-danger', 'btn-outline-secondary');
-            leaveBtn.title = 'VPN required -- connect to corpnet first';
-        }
-    }
-}).catch(() => {});
 
 async function joinMilestoneTeam(milestoneId) {
     const btn = document.getElementById('joinMilestoneTeamBtn');

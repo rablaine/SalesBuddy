@@ -242,17 +242,6 @@ function renderDetails(opp) {
 
     el.innerHTML = html;
 
-    // Check VPN status for deal team button
-    fetch('/api/msx/vpn-status').then(r => r.json()).then(data => {
-        if (data.blocked) {
-            const btn = document.getElementById('joinDealTeamBtn');
-            if (btn) {
-                btn.disabled = true;
-                btn.classList.replace('btn-outline-primary', 'btn-outline-secondary');
-                btn.title = 'VPN required — connect to corpnet first';
-            }
-        }
-    }).catch(() => {});
 }
 
 // ── Render error state ──────────────────────────────────────────────
