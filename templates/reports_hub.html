@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Reports - Sales Buddy{% endblock %}
+
+{% block content %}
+<div class="container-fluid mt-4">
+    <h2><i class="bi bi-clipboard-data"></i> Reports</h2>
+    <p class="text-muted mb-4">Goal-oriented views to help you get more from your data.</p>
+
+    {% for group in report_groups %}
+    <h5 class="mt-4 mb-3"><i class="bi {{ group.icon }}"></i> {{ group.title }}</h5>
+    <div class="row mb-3">
+        {% for report in group.reports %}
+        <div class="col-md-4 mb-3">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h6 class="card-title">
+                        <i class="bi {{ report.icon }} text-primary"></i> {{ report.name }}
+                    </h6>
+                    <p class="card-text text-muted small">{{ report.description }}</p>
+                </div>
+                <div class="card-footer bg-transparent">
+                    <a href="{{ report.url }}" class="btn btn-sm btn-outline-primary">
+                        <i class="bi bi-arrow-right"></i> View Report
+                    </a>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% endfor %}
+</div>
+{% endblock %}

@@ -769,7 +769,7 @@ def get_milestones_by_account(
             f"&$select=msp_engagementmilestoneid,msp_name,msp_milestonestatus,"
             f"msp_milestonenumber,_msp_opportunityid_value,msp_monthlyuse,"
             f"_msp_workloadlkid_value,msp_milestonedate,msp_bacvrate,"
-            f"msp_commitmentrecommendation"
+            f"msp_commitmentrecommendation,msp_committedon,msp_completedon"
             f"&$orderby=msp_name"
         )
         
@@ -822,6 +822,8 @@ def get_milestones_by_account(
                     "due_date": due_date_str,
                     "dollar_value": dollar_value,
                     "url": build_milestone_url(milestone_id),
+                    "committed_on": raw.get("msp_committedon"),
+                    "completed_on": raw.get("msp_completedon"),
                 })
             
             # Sort by status (active first), then by name
@@ -2402,6 +2404,60 @@ def query_next_page(next_link: str) -> Dict[str, Any]:
             }
     except Exception as e:
         logger.exception("Error following nextLink")
+        return {"success": False, "error": str(e)}
+
+
+def get_milestone_audit_history(milestone_guid: str) -> Dict[str, Any]:
+    """Fetch audit history for a milestone from Dynamics 365.
+
+    Queries the ``audits`` entity filtered by the milestone's GUID.
+    Returns change records that include old/new values for tracked fields
+    like milestone status and customer commitment.
+
+    Args:
+        milestone_guid: The ``msx_milestone_id`` (Dynamics GUID) of the milestone.
+
+    Returns:
+        Dict with ``success``, ``records`` list, and ``error`` on failure.
+        Each record has ``createdon``, ``_objectid_value``, and
+        field change details in embedded changedata XML or JSON.
+    """
+    try:
+        url = (
+            f"{CRM_BASE_URL}/audits"
+            f"?$filter=_objectid_value eq {milestone_guid}"
+            f"&$select=createdon,_objectid_value,changedata,action,operation"
+            f"&$orderby=createdon desc"
+            f"&$top=100"
+        )
+        logger.info(f"Fetching audit history for milestone {milestone_guid}")
+        response = _msx_request('GET', url)
+
+        if response.status_code == 200:
+            data = response.json()
+            records = data.get("value", [])
+            return {"success": True, "count": len(records), "records": records}
+        elif response.status_code == 403:
+            if is_vpn_blocked():
+                return {
+                    "success": False,
+                    "error": "IP address blocked - connect to VPN and retry.",
+                    "vpn_blocked": True,
+                }
+            return {"success": False, "error": f"Forbidden (403): {response.text[:200]}"}
+        elif response.status_code == 404:
+            return {"success": False, "error": "Audit entity not accessible (404)."}
+        else:
+            return {
+                "success": False,
+                "error": f"HTTP {response.status_code}: {response.text[:300]}",
+            }
+    except requests.exceptions.Timeout:
+        return {"success": False, "error": "Request timed out."}
+    except requests.exceptions.ConnectionError as e:
+        return {"success": False, "error": f"Connection error: {str(e)[:100]}"}
+    except Exception as e:
+        logger.exception(f"Error fetching audit for milestone {milestone_guid}")
         return {"success": False, "error": str(e)}
 
 

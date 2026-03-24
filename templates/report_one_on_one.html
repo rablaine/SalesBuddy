@@ -1,0 +1,411 @@
+{% extends "base.html" %}
+{% block title %}1:1 Manager / SE Report - Sales Buddy{% endblock %}
+
+{% block content %}
+<style>
+    .collapse-chevron { transition: transform 0.2s; }
+    [aria-expanded="true"] .collapse-chevron { transform: rotate(90deg); }
+</style>
+<div class="container-fluid mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <div>
+            <h2><i class="bi bi-chat-left-text"></i> 1:1 Manager / SE Report</h2>
+            <p class="text-muted mb-0">Meeting prep view showing active engagements and recent activity.</p>
+        </div>
+        <a href="{{ url_for('reports.reports_hub') }}" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-arrow-left"></i> All Reports
+        </a>
+    </div>
+
+    <!-- Stats summary -->
+    <div class="row mb-4">
+        <div class="col-md-2">
+            <div class="card text-center">
+                <div class="card-body py-2">
+                    <h3 class="mb-0">{{ stats.recent_customer_count }}</h3>
+                    <small class="text-muted">Customers (2w)</small>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-2">
+            <div class="card text-center">
+                <div class="card-body py-2">
+                    <h3 class="mb-0">{{ stats.recent_engagement_count }}</h3>
+                    <small class="text-muted">Engagements (2w)</small>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-2">
+            <div class="card text-center">
+                <div class="card-body py-2">
+                    <h3 class="mb-0">{{ stats.recent_note_count }}</h3>
+                    <small class="text-muted">Notes (2w)</small>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-2">
+            <div class="card text-center border-primary">
+                <div class="card-body py-2">
+                    <h3 class="mb-0 text-primary">{{ stats.open_engagement_count }}</h3>
+                    <small class="text-muted">Open Engagements</small>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-2">
+            <div class="card text-center">
+                <div class="card-body py-2">
+                    <h3 class="mb-0">{{ stats.open_customer_count }}</h3>
+                    <small class="text-muted">Active Customers</small>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Highlights row: Milestone Wins, Needs Attention, Topic Trends -->
+    <div class="row mb-4">
+        <!-- Milestone Wins -->
+        <div class="col-md-6">
+            <div class="card h-100">
+                <div class="card-header py-2 d-flex justify-content-between align-items-center">
+                    <h6 class="mb-0"><i class="bi bi-trophy text-success"></i> Wins &amp; Commitments</h6>
+                </div>
+                <div class="card-body p-0">
+                    {% if milestone_wins %}
+                    <div class="table-responsive">
+                        <table class="table table-sm table-hover mb-0" style="font-size: 0.82em;">
+                            <thead>
+                                <tr class="text-muted" style="font-size: 0.85em;">
+                                    <th class="ps-3">Milestone</th>
+                                    <th>Seller</th>
+                                    <th class="text-end">Est. ACR</th>
+                                    <th class="text-end pe-3">Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for ms in milestone_wins %}
+                                <tr>
+                                    <td class="ps-3">
+                                        <small class="text-muted">{{ ms.customer.name if ms.customer else '' }}</small>
+                                        <br><a href="{{ url_for('milestones.milestone_view', id=ms.id) }}" class="text-decoration-none">{{ ms.display_text[:45] }}{% if ms.display_text|length > 45 %}...{% endif %}</a>
+                                        {% if ms.workload %}<br><small class="text-muted">{{ ms.workload }}</small>{% endif %}
+                                    </td>
+                                    <td><small>{{ ms.customer.seller.name if ms.customer and ms.customer.seller else '' }}</small></td>
+                                    <td class="text-end">
+                                        {% if ms.monthly_usage %}
+                                        <small>${{ '{:,.0f}'.format(ms.monthly_usage) }}/mo</small>
+                                        {% endif %}
+                                    </td>
+                                    <td class="text-end pe-3">
+                                        {% if ms.completed_at %}
+                                        <span class="badge bg-success d-block mb-1" style="font-size: 0.8em;">Completed {{ ms.completed_at.strftime('%b %d') }}</span>
+                                        {% endif %}
+                                        {% if ms.committed_at %}
+                                        <span class="badge bg-primary d-block" style="font-size: 0.8em;">Committed {{ ms.committed_at.strftime('%b %d') }}</span>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% else %}
+                    <div class="p-3 text-center">
+                        <small class="text-muted">No milestones completed or committed in the last 2 weeks.</small>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <!-- Needs Attention: Overdue + Upcoming -->
+        <div class="col-md-3">
+            <div class="card h-100">
+                <div class="card-header py-2">
+                    <h6 class="mb-0"><i class="bi bi-exclamation-triangle text-warning"></i> Needs Attention</h6>
+                </div>
+                <div class="card-body p-0">
+                    {% if overdue_milestones or upcoming_milestones %}
+                    <ul class="list-group list-group-flush">
+                        {% for ms in overdue_milestones %}
+                        <li class="list-group-item px-3 py-2">
+                            <div class="d-flex justify-content-between align-items-start">
+                                <a href="{{ url_for('milestones.milestone_view', id=ms.id) }}" class="text-decoration-none" style="font-size: 0.85em;">{{ ms.display_text[:45] }}{% if ms.display_text|length > 45 %}...{% endif %}</a>
+                                <span class="badge bg-danger ms-2" style="font-size: 0.65em;">Overdue</span>
+                            </div>
+                            <div>
+                                <small class="text-muted">{{ ms.customer.name if ms.customer else '' }}</small>
+                                <small class="text-danger ms-1"><i class="bi bi-calendar-x"></i> {{ ms.due_date.strftime('%b %d') }}</small>
+                                {% if ms.msx_status == 'At Risk' %}<span class="badge bg-warning text-dark ms-1" style="font-size: 0.6em;">At Risk</span>
+                                {% elif ms.msx_status == 'Blocked' %}<span class="badge bg-danger ms-1" style="font-size: 0.6em;">Blocked</span>{% endif %}
+                            </div>
+                        </li>
+                        {% endfor %}
+                        {% for ms in upcoming_milestones %}
+                        <li class="list-group-item px-3 py-2">
+                            <div class="d-flex justify-content-between align-items-start">
+                                <a href="{{ url_for('milestones.milestone_view', id=ms.id) }}" class="text-decoration-none" style="font-size: 0.85em;">{{ ms.display_text[:45] }}{% if ms.display_text|length > 45 %}...{% endif %}</a>
+                                <span class="badge bg-info ms-2" style="font-size: 0.65em;">{{ ms.due_date.strftime('%b %d') }}</span>
+                            </div>
+                            <div>
+                                <small class="text-muted">{{ ms.customer.name if ms.customer else '' }}</small>
+                                {% if ms.msx_status == 'At Risk' %}<span class="badge bg-warning text-dark ms-1" style="font-size: 0.6em;">At Risk</span>
+                                {% elif ms.msx_status == 'Blocked' %}<span class="badge bg-danger ms-1" style="font-size: 0.6em;">Blocked</span>{% endif %}
+                                {% if ms.owner_name %}<small class="text-muted ms-1"><i class="bi bi-person"></i> {{ ms.owner_name }}</small>{% endif %}
+                            </div>
+                        </li>
+                        {% endfor %}
+                    </ul>
+                    {% else %}
+                    <div class="p-3 text-center">
+                        <small class="text-muted">No overdue or upcoming milestones on your team.</small>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <!-- Topic Trends -->
+        <div class="col-md-3">
+            <div class="card h-100">
+                <div class="card-header py-2">
+                    <h6 class="mb-0"><i class="bi bi-graph-up text-info"></i> Topics (2w)</h6>
+                </div>
+                <div class="card-body p-0">
+                    {% if top_topics %}
+                    <ul class="list-group list-group-flush">
+                        {% for topic in top_topics %}
+                        <li class="list-group-item px-3 py-1 d-flex justify-content-between align-items-center">
+                            <span style="font-size: 0.85em;"><i class="bi bi-tag text-warning"></i> {{ topic.name }}</span>
+                            <span>
+                                <span class="badge bg-secondary" style="font-size: 0.65em;">{{ topic.note_count }} note{{ 's' if topic.note_count != 1 }}</span>
+                                <span class="badge bg-outline-secondary border" style="font-size: 0.65em;">{{ topic.customer_count }} cust</span>
+                            </span>
+                        </li>
+                        {% endfor %}
+                    </ul>
+                    {% else %}
+                    <div class="p-3 text-center">
+                        <small class="text-muted">No topics tagged on recent notes.</small>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Tab navigation -->
+    <ul class="nav nav-tabs mb-3" role="tablist">
+        <li class="nav-item" role="presentation">
+            <button class="nav-link active" id="recent-tab" data-bs-toggle="tab" data-bs-target="#recent" type="button" role="tab">
+                <i class="bi bi-clock-history"></i> Last 2 Weeks
+                <span class="badge bg-primary ms-1">{{ recent_customers|length }}</span>
+            </button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="alltime-tab" data-bs-toggle="tab" data-bs-target="#alltime" type="button" role="tab">
+                <i class="bi bi-list-check"></i> All Open Engagements
+                <span class="badge bg-secondary ms-1">{{ all_customers|length }}</span>
+            </button>
+        </li>
+    </ul>
+
+    <div class="tab-content">
+        <!-- Recent Activity Tab -->
+        <div class="tab-pane fade show active" id="recent" role="tabpanel">
+            {% if recent_customers %}
+            <div class="row">
+            {% for cdata in recent_customers %}
+            <div class="col-md-6 mb-3">
+                <div class="card h-100">
+                    <div class="card-header py-2 d-flex justify-content-between align-items-center">
+                        <h6 class="mb-0">
+                            <a href="{{ url_for('customers.customer_view', id=cdata.customer.id) }}" class="text-decoration-none">
+                                {{ cdata.customer.name }}
+                            </a>
+                        </h6>
+                        {% if cdata.customer.territory %}
+                        <a href="{{ url_for('territories.territory_view', id=cdata.customer.territory.id) }}" class="badge bg-info text-dark text-decoration-none">
+                            <i class="bi bi-geo-alt"></i> {{ cdata.customer.territory.name }}
+                        </a>
+                        {% endif %}
+                    </div>
+                    <div class="card-body p-0">
+                        {% if cdata.engagements %}
+                        <ul class="list-group list-group-flush">
+                            {% for eng in cdata.engagements %}
+                            <li class="list-group-item px-3 py-2">
+                                <div class="d-flex justify-content-between align-items-start">
+                                    <div>
+                                        <a href="{{ url_for('engagements.engagement_view', id=eng.id) }}" class="text-decoration-none fw-semibold">{{ eng.title }}</a>
+                                        <span class="badge ms-1 {% if eng.status == 'Active' %}bg-success{% elif eng.status == 'On Hold' %}bg-warning text-dark{% elif eng.status == 'Won' %}bg-info{% else %}bg-secondary{% endif %}" style="font-size: 0.65em;">{{ eng.status }}</span>
+                                    </div>
+                                    <small class="text-muted text-nowrap ms-2">{% if eng.last_note_date %}{{ eng.last_note_date.strftime('%b %d') }}{% else %}-{% endif %}</small>
+                                </div>
+                                <div class="d-flex gap-3 mt-1">
+                                    {% if eng.estimated_acr %}<small class="text-muted">${{ '{:,.0f}'.format(eng.estimated_acr) }}/mo</small>{% endif %}
+                                    {% if eng.target_date %}<small class="text-muted"><i class="bi bi-calendar-event"></i> {{ eng.target_date.strftime('%b %d') }}</small>{% endif %}
+                                    <small class="text-muted"><i class="bi bi-journal-text"></i> {{ eng.linked_note_count }}</small>
+                                    {% if eng.open_action_item_count > 0 %}<small class="text-warning"><i class="bi bi-exclamation-circle"></i> {{ eng.open_action_item_count }} action{{ 's' if eng.open_action_item_count != 1 }}</small>{% endif %}
+                                </div>
+                                {% if eng.milestones %}
+                                <div class="mt-1">
+                                    {% for ms in eng.milestones %}
+                                    <a href="{{ url_for('milestones.milestone_view', id=ms.id) }}" class="badge bg-light text-dark text-decoration-none me-1" style="font-size: 0.7em;" title="{{ ms.display_text }}">
+                                        {% if ms.msx_status == 'On Track' %}<i class="bi bi-check-circle text-success"></i>
+                                        {% elif ms.msx_status == 'At Risk' %}<i class="bi bi-exclamation-triangle text-warning"></i>
+                                        {% elif ms.msx_status == 'Blocked' %}<i class="bi bi-x-circle text-danger"></i>
+                                        {% endif %}
+                                        {{ ms.display_text[:30] }}{% if ms.display_text|length > 30 %}...{% endif %}
+                                    </a>
+                                    {% endfor %}
+                                </div>
+                                {% endif %}
+                            </li>
+                            {% endfor %}
+                        </ul>
+                        {% endif %}
+
+                        {% if cdata.notes %}
+                        <div class="px-3 py-2 {% if cdata.engagements %}border-top{% endif %}">
+                            <a class="text-muted text-decoration-none d-flex align-items-center" data-bs-toggle="collapse" href="#notes-{{ cdata.customer.id }}" role="button" aria-expanded="false" aria-controls="notes-{{ cdata.customer.id }}">
+                                <i class="bi bi-chevron-right me-1 collapse-chevron"></i>
+                                <small class="fw-semibold"><i class="bi bi-journal-text"></i> Notes <span class="badge bg-secondary">{{ cdata.notes|length }}</span></small>
+                            </a>
+                        </div>
+                        <div class="collapse" id="notes-{{ cdata.customer.id }}">
+                            <ul class="list-group list-group-flush">
+                                {% for note in cdata.notes[:5] %}
+                                <li class="list-group-item px-3 py-1">
+                                    <div class="d-flex justify-content-between">
+                                        <a href="{{ url_for('notes.note_view', id=note.id) }}" class="text-decoration-none">
+                                            <small>{{ note.call_date.strftime('%b %d') if note.call_date else 'No date' }}</small>
+                                        </a>
+                                        <div>
+                                            {% for topic in note.topics[:2] %}
+                                            <span class="badge bg-warning text-dark" style="font-size: 0.65em;"><i class="bi bi-tag"></i> {{ topic.name }}</span>
+                                            {% endfor %}
+                                        </div>
+                                    </div>
+                                    <small class="text-muted">{{ note.content|striptags|truncate(80) }}</small>
+                                </li>
+                                {% endfor %}
+                                {% if cdata.notes|length > 5 %}
+                                <li class="list-group-item px-3 py-1 text-center">
+                                    <small class="text-muted">+ {{ cdata.notes|length - 5 }} more</small>
+                                </li>
+                                {% endif %}
+                            </ul>
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+            </div>
+            {% else %}
+            <div class="alert alert-info">
+                <i class="bi bi-info-circle"></i> No engagements or notes with call dates in the last 2 weeks.
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- All Open Engagements Tab -->
+        <div class="tab-pane fade" id="alltime" role="tabpanel">
+            {% if all_customers %}
+            <div class="row">
+            {% for cdata in all_customers %}
+            <div class="col-md-6 mb-3">
+                <div class="card h-100">
+                    <div class="card-header py-2 d-flex justify-content-between align-items-center">
+                        <h6 class="mb-0">
+                            <a href="{{ url_for('customers.customer_view', id=cdata.customer.id) }}" class="text-decoration-none">
+                                {{ cdata.customer.name }}
+                            </a>
+                            <small class="text-muted ms-1">({{ cdata.engagements|length }})</small>
+                        </h6>
+                        {% if cdata.customer.territory %}
+                        <a href="{{ url_for('territories.territory_view', id=cdata.customer.territory.id) }}" class="badge bg-info text-dark text-decoration-none">
+                            <i class="bi bi-geo-alt"></i> {{ cdata.customer.territory.name }}
+                        </a>
+                        {% endif %}
+                    </div>
+                    <div class="card-body p-0">
+                        <ul class="list-group list-group-flush">
+                            {% for eng in cdata.engagements %}
+                            <li class="list-group-item px-3 py-2">
+                                <div class="d-flex justify-content-between align-items-start">
+                                    <a href="{{ url_for('engagements.engagement_view', id=eng.id) }}" class="text-decoration-none fw-semibold">{{ eng.title }}</a>
+                                    <small class="text-muted text-nowrap ms-2">{% if eng.last_note_date %}{{ eng.last_note_date.strftime('%b %d') }}{% else %}-{% endif %}</small>
+                                </div>
+                                <div class="d-flex gap-3 mt-1">
+                                    {% if eng.estimated_acr %}<small class="text-muted">${{ '{:,.0f}'.format(eng.estimated_acr) }}/mo</small>{% endif %}
+                                    {% if eng.target_date %}<small class="text-muted"><i class="bi bi-calendar-event"></i> {{ eng.target_date.strftime('%b %d') }}</small>{% endif %}
+                                    <small class="text-muted"><i class="bi bi-journal-text"></i> {{ eng.linked_note_count }}</small>
+                                    {% if eng.open_action_item_count > 0 %}<small class="text-warning"><i class="bi bi-exclamation-circle"></i> {{ eng.open_action_item_count }}</small>{% endif %}
+                                    <div class="progress flex-grow-1 mt-1" style="height: 4px;" title="Story {{ eng.story_completeness }}%">
+                                        <div class="progress-bar {% if eng.story_completeness >= 80 %}bg-success{% elif eng.story_completeness >= 50 %}bg-warning{% else %}bg-danger{% endif %}"
+                                             style="width: {{ eng.story_completeness }}%"></div>
+                                    </div>
+                                </div>
+                                {% if eng.milestones %}
+                                <div class="mt-1">
+                                    {% for ms in eng.milestones %}
+                                    <a href="{{ url_for('milestones.milestone_view', id=ms.id) }}" class="badge bg-light text-dark text-decoration-none me-1" style="font-size: 0.7em;" title="{{ ms.display_text }}">
+                                        {% if ms.msx_status == 'On Track' %}<i class="bi bi-check-circle text-success"></i>
+                                        {% elif ms.msx_status == 'At Risk' %}<i class="bi bi-exclamation-triangle text-warning"></i>
+                                        {% elif ms.msx_status == 'Blocked' %}<i class="bi bi-x-circle text-danger"></i>
+                                        {% elif ms.msx_status == 'Completed' %}<i class="bi bi-check-circle-fill text-info"></i>
+                                        {% endif %}
+                                        {{ ms.display_text[:25] }}{% if ms.display_text|length > 25 %}...{% endif %}
+                                    </a>
+                                    {% endfor %}
+                                </div>
+                                {% endif %}
+                            </li>
+                            {% endfor %}
+                        </ul>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+            </div>
+            {% else %}
+            <div class="alert alert-info">
+                <i class="bi bi-info-circle"></i> No open engagements found.
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<script>
+function syncMilestoneDates() {
+    const btn = document.getElementById('syncDatesBtn');
+    const icon = document.getElementById('syncDatesIcon');
+    btn.disabled = true;
+    icon.classList.add('spin');
+
+    fetch('/api/reports/sync-milestone-dates', { method: 'POST' })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                // Reload page to show updated dates
+                window.location.reload();
+            } else {
+                alert('Sync failed: ' + (data.error || 'Unknown error'));
+                btn.disabled = false;
+                icon.classList.remove('spin');
+            }
+        })
+        .catch(err => {
+            alert('Sync failed: ' + err.message);
+            btn.disabled = false;
+            icon.classList.remove('spin');
+        });
+}
+</script>
+<style>
+    .spin { animation: spin 1s linear infinite; }
+    @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+</style>
+{% endblock %}

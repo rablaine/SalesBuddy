@@ -849,6 +849,8 @@ def _update_milestone_from_msx(
     milestone.url = msx_data.get("url") or milestone.url
     milestone.customer_id = customer_id
     milestone.last_synced_at = now
+    milestone.committed_at = _parse_msx_date(msx_data.get("committed_on"))
+    milestone.completed_at = _parse_msx_date(msx_data.get("completed_on"))
 
 
 def _create_milestone_from_msx(
@@ -873,6 +875,8 @@ def _create_milestone_from_msx(
         dollar_value=msx_data.get("dollar_value"),
         last_synced_at=now,
         customer_id=customer_id,
+        committed_at=_parse_msx_date(msx_data.get("committed_on")),
+        completed_at=_parse_msx_date(msx_data.get("completed_on")),
     )
 
 

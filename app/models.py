@@ -707,6 +707,14 @@ class Engagement(db.Model):
         """Return count of open (not completed) action items."""
         return sum(1 for t in self.action_items if t.status == 'open')
 
+    @property
+    def last_note_date(self) -> Optional[datetime]:
+        """Most recent call_date from linked notes, or None."""
+        if not self.notes:
+            return None
+        dates = [n.call_date for n in self.notes if n.call_date]
+        return max(dates) if dates else None
+
     def __repr__(self) -> str:
         return f'<Engagement {self.id}: {self.title[:50]}>'
 
@@ -825,6 +833,8 @@ class Milestone(db.Model):
     on_my_team = db.Column(db.Boolean, default=False, nullable=False, server_default='0')  # Am I on the milestone access team?
     cached_comments_json = db.Column(db.Text, nullable=True)  # MSX forecast comments cached as JSON
     details_fetched_at = db.Column(db.DateTime, nullable=True)  # When MSX details were last fetched
+    committed_at = db.Column(db.DateTime, nullable=True)  # When commitment changed to Committed (detected by sync)
+    completed_at = db.Column(db.DateTime, nullable=True)  # When status changed to Completed (detected by sync)
     
     # Relationships
     customer_id = db.Column(db.Integer, db.ForeignKey('customers.id'), nullable=True)
