@@ -143,11 +143,13 @@
             <div class="card-body p-0 flex-grow-1" style="overflow-y: auto; min-height: 0;">
                 <div class="list-group list-group-flush">
                     {% for ms in milestones %}
-                    <a href="{{ url_for('milestones.milestone_view', id=ms.id) }}" class="list-group-item list-group-item-action p-2">
+                    <a href="#" data-milestone-id="{{ ms.id }}" data-milestone-title="{{ ms.title }}"
+                       data-milestone-status="{{ ms.status }}" data-milestone-url="{{ ms.url or '' }}"
+                       class="list-group-item list-group-item-action p-2 milestone-detail-link">
                         <div class="d-flex justify-content-between align-items-start">
                             <div class="text-truncate me-2" style="min-width: 0;">
                                 <div class="fw-semibold text-truncate" style="font-size: 0.85rem;">{{ ms.title }}</div>
-                                <div class="text-muted text-truncate" style="font-size: 0.75rem;">{{ ms.customer_name }}</div>
+                                <div class="text-muted text-truncate" style="font-size: 0.75rem;">{{ ms.customer.name if ms.customer else '' }}</div>
                             </div>
                             <div class="text-end flex-shrink-0">
                                 <span class="badge {% if ms.status == 'On Track' %}bg-success{% elif ms.status == 'At Risk' %}bg-warning text-dark{% else %}bg-danger{% endif %}" style="font-size: 0.65rem;">{{ ms.status }}</span>
@@ -322,6 +324,36 @@
         </div>
     </div>
 </div>
+
+<!-- Milestone Detail Modal (individual milestone view) -->
+<div class="modal fade" id="milestoneDetailModal" tabindex="-1" aria-labelledby="milestoneDetailModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-scrollable" style="max-width: min(1200px, calc(100vw - 3rem)); width: calc(100vw - 3rem);">
+        <div class="modal-content" style="max-height: 90vh;">
+            <div class="modal-header py-2">
+                <div class="d-flex align-items-center gap-2 flex-grow-1" style="min-width: 0;">
+                    <h5 class="modal-title mb-0 text-truncate" style="min-width: 0;"><i class="bi bi-flag"></i> <span id="milestoneDetailTitle">Loading...</span></h5>
+                    <span id="milestoneDetailBadge"></span>
+                </div>
+                <div class="d-flex gap-2 flex-shrink-0 ms-2">
+                    <a href="#" id="milestoneDetailMsxLink" target="_blank" class="btn btn-outline-success btn-sm text-nowrap" style="display:none;">
+                        <i class="bi bi-box-arrow-up-right"></i> Open in MSX
+                    </a>
+                    <a href="#" id="milestoneDetailFullLink" class="btn btn-outline-secondary btn-sm text-nowrap">
+                        <i class="bi bi-arrows-fullscreen"></i> Full Page
+                    </a>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+            </div>
+            <div class="modal-body p-3" id="milestoneDetailBody">
+                <div class="text-center py-5">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
 {% endif %}
 
 {% if revenue_alerts %}
@@ -374,6 +406,72 @@ document.getElementById('revenueModal').addEventListener('hidden.bs.modal', func
         if (e.target.closest('#alertDetailModal .review-action-btn')) {
             detailDirty = true;
         }
+    });
+})();
+</script>
+{% endif %}
+
+{% if milestones %}
+<script>
+// Milestone Detail Modal - loads partial via fetch, activates its scripts
+(function() {
+    let msModal = null;
+    const msTitleEl = document.getElementById('milestoneDetailTitle');
+    const msBodyEl = document.getElementById('milestoneDetailBody');
+
+    document.querySelectorAll('.milestone-detail-link').forEach(link => {
+        link.addEventListener('click', async function(e) {
+            e.preventDefault();
+            const msId = this.dataset.milestoneId;
+            const msTitle = this.dataset.milestoneTitle;
+            const msStatus = this.dataset.milestoneStatus;
+            const msUrl = this.dataset.milestoneUrl;
+
+            if (!msModal) {
+                msModal = new bootstrap.Modal(document.getElementById('milestoneDetailModal'));
+            }
+            msTitleEl.textContent = msTitle;
+
+            // Status badge
+            const badgeEl = document.getElementById('milestoneDetailBadge');
+            if (msStatus) {
+                const cls = {'On Track':'bg-success','At Risk':'bg-warning text-dark','Blocked':'bg-danger','Completed':'bg-info'}[msStatus] || 'bg-secondary';
+                badgeEl.innerHTML = '<span class="badge ' + cls + '">' + msStatus + '</span>';
+            } else {
+                badgeEl.innerHTML = '';
+            }
+
+            // Action links
+            const msxLink = document.getElementById('milestoneDetailMsxLink');
+            if (msUrl) {
+                msxLink.href = msUrl;
+                msxLink.style.display = '';
+            } else {
+                msxLink.style.display = 'none';
+            }
+            document.getElementById('milestoneDetailFullLink').href = '/milestone/' + msId;
+
+            msBodyEl.innerHTML = '<div class="text-center py-5"><div class="spinner-border text-primary" role="status"><span class="visually-hidden">Loading...</span></div></div>';
+            msModal.show();
+
+            try {
+                const resp = await fetch('/api/milestone/' + msId + '/detail');
+                if (!resp.ok) throw new Error('Failed to load');
+                msBodyEl.innerHTML = await resp.text();
+                // Activate <script> tags (innerHTML doesn't auto-execute them)
+                msBodyEl.querySelectorAll('script').forEach(oldScript => {
+                    const newScript = document.createElement('script');
+                    if (oldScript.src) {
+                        newScript.src = oldScript.src;
+                    } else {
+                        newScript.textContent = oldScript.textContent;
+                    }
+                    oldScript.replaceWith(newScript);
+                });
+            } catch (err) {
+                msBodyEl.innerHTML = '<div class="text-danger p-3"><i class="bi bi-exclamation-triangle"></i> Failed to load milestone details.</div>';
+            }
+        });
     });
 })();
 </script>
