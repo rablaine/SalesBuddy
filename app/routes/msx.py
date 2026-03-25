@@ -1583,21 +1583,21 @@ def import_stream():
                             yield _sse({"message": evt['message']})
                             continue
                         team_done += 1
-                        pct = 9 + int((team_done / max(team_total, 1)) * 39)
+                        pct = 9 + int((team_done / max(team_total, 1)) * 51)
                         if team_done % 3 == 0 or team_done == 1:
                             yield _sse({
                                 "message": f"Querying teams batch {team_done}/{team_total}...",
-                                "progress": min(pct, 48),
+                                "progress": min(pct, 60),
                             })
                 for evt in _drain(progress_q):
                     if evt.get('retry'):
                         yield _sse({"message": evt['message']})
                         continue
                     team_done += 1
-                    pct = 9 + int((team_done / max(team_total, 1)) * 39)
+                    pct = 9 + int((team_done / max(team_total, 1)) * 51)
                     yield _sse({
                         "message": f"Querying teams batch {team_done}/{team_total}...",
-                        "progress": min(pct, 48),
+                        "progress": min(pct, 60),
                     })
                 for f in futures:
                     r = f.result()
@@ -1609,7 +1609,7 @@ def import_stream():
             # Phase 4b: Parallel CSAM queries (3 workers)
             # ----------------------------------------------------------
             phase = "querying CSAMs"
-            yield _sse({"message": "Querying CSAMs...", "progress": 48})
+            yield _sse({"message": "Querying CSAMs...", "progress": 60})
 
             csam_chunks = _split_chunks(all_ids, _PARALLEL_WORKERS)
             csam_total = sum(
@@ -1636,7 +1636,7 @@ def import_stream():
                     if csam_done > 0 and csam_done % 3 == 0:
                         yield _sse({
                             "message": f"Querying CSAMs batch {csam_done}/{csam_total}...",
-                            "progress": 48 + round((csam_done / max(csam_total, 1)) * 4),
+                            "progress": 60 + round((csam_done / max(csam_total, 1)) * 10),
                         })
                 for evt in _drain(progress_q):
                     if evt.get('retry'):
@@ -1650,14 +1650,14 @@ def import_stream():
 
             yield _sse({
                 "message": f"Found {len(csams_seen)} CSAMs",
-                "progress": 52,
+                "progress": 70,
             })
 
             # ----------------------------------------------------------
             # Phase 4c: Parallel DSS queries (3 workers)
             # ----------------------------------------------------------
             phase = "querying DSSs"
-            yield _sse({"message": "Querying DSSs...", "progress": 52})
+            yield _sse({"message": "Querying DSSs...", "progress": 70})
 
             dss_chunks = _split_chunks(all_ids, _PARALLEL_WORKERS)
             dss_batch_total = sum(
@@ -1684,7 +1684,7 @@ def import_stream():
                     if dss_done > 0 and dss_done % 3 == 0:
                         yield _sse({
                             "message": f"Querying DSSs batch {dss_done}...",
-                            "progress": 52 + round((dss_done / max(dss_batch_total, 1)) * 7),
+                            "progress": 70 + round((dss_done / max(dss_batch_total, 1)) * 18),
                         })
                 for evt in _drain(progress_q):
                     if evt.get('retry'):
@@ -1751,14 +1751,92 @@ def import_stream():
                     f"{len(dss_seen)} DSSs for "
                     f"{accounts_with_sellers}/{len(accounts_data)} accounts"
                 ),
-                "progress": 59,
+                "progress": 88,
             })
 
             # ----------------------------------------------------------
-            # Phase 5: Database writes (sequential, same as original)
+            # Phase 4d: Parallel alias resolution for all people
+            # ----------------------------------------------------------
+            phase = "resolving aliases"
+
+            # Collect all unique user_ids from every source
+            all_user_ids: set = set()
+            for info in sellers_seen.values():
+                if info.get("user_id"):
+                    all_user_ids.add(info["user_id"])
+            for team in pod_teams.values():
+                for se_list in team.values():
+                    for se_info in se_list:
+                        if se_info.get("user_id"):
+                            all_user_ids.add(se_info["user_id"])
+            for info in dss_seen.values():
+                if info.get("user_id"):
+                    all_user_ids.add(info["user_id"])
+            for info in csams_seen.values():
+                if info.get("user_id"):
+                    all_user_ids.add(info["user_id"])
+            for ad in accounts_data:
+                if ad.get("owner_id"):
+                    all_user_ids.add(ad["owner_id"])
+
+            alias_total = len(all_user_ids)
+            alias_cache: dict = {}  # user_id -> {alias, fullname} or None
+            alias_done = 0
+
+            if alias_total > 0:
+                yield _sse({
+                    "message": f"Resolving aliases (0/{alias_total})...",
+                    "progress": 88,
+                })
+
+                alias_q: queue.Queue = queue.Queue()
+                alias_list = list(all_user_ids)
+                alias_workers = min(_PARALLEL_WORKERS, alias_total)
+                alias_chunk_size = math.ceil(alias_total / alias_workers)
+                alias_chunks = [
+                    alias_list[i:i + alias_chunk_size]
+                    for i in range(0, alias_total, alias_chunk_size)
+                ]
+
+                def _resolve_aliases(ids, q):
+                    for uid in ids:
+                        info = get_user_info(uid)
+                        q.put((uid, info))
+
+                with ThreadPoolExecutor(max_workers=alias_workers) as pool:
+                    for chunk in alias_chunks:
+                        pool.submit(_resolve_aliases, chunk, alias_q)
+
+                    while alias_done < alias_total:
+                        try:
+                            uid, info = alias_q.get(timeout=60)
+                            alias_cache[uid] = info
+                            alias_done += 1
+                            if alias_done % 5 == 0 or alias_done == alias_total:
+                                yield _sse({
+                                    "message": (
+                                        f"Resolving aliases "
+                                        f"({alias_done}/{alias_total})..."
+                                    ),
+                                    "progress": 88 + round(
+                                        (alias_done / alias_total) * 2
+                                    ),
+                                })
+                        except queue.Empty:
+                            break
+
+            def _cached_alias(user_id):
+                """Look up alias from pre-resolved cache."""
+                if not user_id:
+                    return None
+                info = alias_cache.get(user_id)
+                return info["alias"] if info else None
+
+            # ----------------------------------------------------------
+            # Phase 5: Database writes (sequential)
             # ----------------------------------------------------------
             phase = "creating database records"
-            yield _sse({"message": "Creating PODs...", "progress": 59})
+            yield _sse({"message": "Creating PODs...", "progress": 90})
 
             pods_map = {}
             pods_created = 0
@@ -1782,11 +1860,11 @@ def import_stream():
 
             yield _sse({
                 "message": f"Created {pods_created} new PODs (rebuilding associations)",
-                "progress": 59,
+                "progress": 90,
             })
 
             # Territories
-            yield _sse({"message": "Creating territories...", "progress": 59})
+            yield _sse({"message": "Creating territories...", "progress": 90})
             territories_map = {}
             territories_created = 0
             for terr_name, terr_info in territories_seen.items():
@@ -1808,11 +1886,11 @@ def import_stream():
 
             yield _sse({
                 "message": f"Created {territories_created} new territories",
-                "progress": 59,
+                "progress": 90,
             })
 
             # Sellers
-            yield _sse({"message": "Creating sellers...", "progress": 59})
+            yield _sse({"message": "Creating sellers...", "progress": 91})
             sellers_map = {}
             sellers_created = 0
             sellers_updated = 0
@@ -1830,7 +1908,7 @@ def import_stream():
                         seller_changed = True
                     systemuser_id = seller_info.get("user_id")
                     if systemuser_id and not existing.alias:
-                        new_alias = get_user_alias(systemuser_id)
+                        new_alias = _cached_alias(systemuser_id)
                         if new_alias:
                             existing.alias = new_alias
                             seller_changed = True
@@ -1839,7 +1917,7 @@ def import_stream():
                 else:
                     seller_type = seller_info.get("type", "Growth")
                     systemuser_id = seller_info.get("user_id")
-                    alias = get_user_alias(systemuser_id) if systemuser_id else None
+                    alias = _cached_alias(systemuser_id)
                     seller = Seller(
                         name=seller_name, seller_type=seller_type,
                         alias=alias,
@@ -1850,7 +1928,7 @@ def import_stream():
                 if seller_idx % 5 == 0 or seller_idx == sellers_total:
                     yield _sse({
                         "message": f"Creating sellers ({seller_idx}/{sellers_total})...",
-                        "progress": 59 + round((seller_idx / max(sellers_total, 1)) * 7),
+                        "progress": 91 + round((seller_idx / max(sellers_total, 1)) * 1),
                     })
             db.session.flush()
 
@@ -1867,11 +1945,11 @@ def import_stream():
 
             yield _sse({
                 "message": f"Created {sellers_created} new sellers, updated {sellers_updated}",
-                "progress": 66,
+                "progress": 92,
             })
 
             # Solution Engineers
-            yield _sse({"message": "Creating solution engineers...", "progress": 66})
+            yield _sse({"message": "Creating solution engineers...", "progress": 92})
             se_items_total = sum(
                 len(se_list)
                 for team in pod_teams.values()
@@ -1903,7 +1981,7 @@ def import_stream():
                                 se_map[se_key] = existing
                             else:
                                 systemuser_id = se_info.get("user_id")
-                                alias = get_user_alias(systemuser_id) if systemuser_id else None
+                                alias = _cached_alias(systemuser_id)
                                 se = SolutionEngineer(
                                     name=se_info["name"], alias=alias,
                                     specialty=specialty,
@@ -1917,13 +1995,13 @@ def import_stream():
                         if se_items_done % 5 == 0 or se_items_done == se_items_total:
                             yield _sse({
                                 "message": f"Creating SEs ({se_items_done}/{se_items_total})...",
-                                "progress": 66 + round((se_items_done / max(se_items_total, 1)) * 7),
+                                "progress": 92 + round((se_items_done / max(se_items_total, 1)) * 1),
                             })
             db.session.flush()
 
             yield _sse({
                 "message": f"Created {ses_created} new solution engineers",
-                "progress": 73,
+                "progress": 93,
             })
 
             # Digital Solution Specialists (DSSs)
@@ -1934,7 +2012,7 @@ def import_stream():
 
             yield _sse({
                 "message": f"Syncing digital solution specialists (0/{dss_total})...",
-                "progress": 73,
+                "progress": 93,
             })
 
             # Build account_id → territory_name for DSS territory linking
@@ -1954,12 +2032,12 @@ def import_stream():
                     dss_map[dss_key] = existing
                     # Backfill alias if missing
                     if not existing.alias and dss_info.get("user_id"):
-                        alias = get_user_alias(dss_info["user_id"])
+                        alias = _cached_alias(dss_info["user_id"])
                         if alias:
                             existing.alias = alias
                 else:
                     systemuser_id = dss_info.get("user_id")
-                    alias = get_user_alias(systemuser_id) if systemuser_id else None
+                    alias = _cached_alias(systemuser_id)
                     se = SolutionEngineer(
                         name=dss_name, alias=alias, specialty=specialty,
                     )
@@ -1969,7 +2047,7 @@ def import_stream():
                 if dss_idx % 5 == 0 or dss_idx == dss_total:
                     yield _sse({
                         "message": f"Syncing DSSs ({dss_idx}/{dss_total})...",
-                        "progress": 73 + round((dss_idx / max(dss_total, 1)) * 7),
+                        "progress": 93 + round((dss_idx / max(dss_total, 1)) * 1),
                     })
             db.session.flush()
 
@@ -1988,7 +2066,7 @@ def import_stream():
 
             yield _sse({
                 "message": f"Created {dss_created} new DSSs, linked to territories",
-                "progress": 80,
+                "progress": 94,
             })
 
             # CSAMs
@@ -1998,7 +2076,7 @@ def import_stream():
 
             yield _sse({
                 "message": f"Syncing CSAMs (0/{csam_total})...",
-                "progress": 80,
+                "progress": 94,
             })
 
             for csam_idx, (csam_name, csam_info) in enumerate(csams_seen.items(), 1):
@@ -2007,12 +2085,12 @@ def import_stream():
                     csam_map[csam_name] = existing
                     # Backfill alias if missing
                     if not existing.alias and csam_info.get("user_id"):
-                        alias = get_user_alias(csam_info["user_id"])
+                        alias = _cached_alias(csam_info["user_id"])
                         if alias:
                             existing.alias = alias
                 else:
                     systemuser_id = csam_info.get("user_id")
-                    alias = get_user_alias(systemuser_id) if systemuser_id else None
+                    alias = _cached_alias(systemuser_id)
                     csam = CustomerCSAM(name=csam_name, alias=alias)
                     db.session.add(csam)
                     csam_map[csam_name] = csam
@@ -2020,38 +2098,20 @@ def import_stream():
                 if csam_idx % 5 == 0 or csam_idx == csam_total:
                     yield _sse({
                         "message": f"Syncing CSAMs ({csam_idx}/{csam_total})...",
-                        "progress": 80 + round((csam_idx / max(csam_total, 1)) * 17),
+                        "progress": 94 + round((csam_idx / max(csam_total, 1)) * 1),
                     })
             db.session.flush()
 
             yield _sse({
                 "message": f"Created {csams_created} new CSAMs",
-                "progress": 97,
+                "progress": 95,
             })
 
-            # Resolve DAE aliases for accounts that have an owner_id.
-            # We batch-collect unique owner IDs first to avoid duplicate lookups.
-            owner_ids = {
-                ad["owner_id"] for ad in accounts_data if ad.get("owner_id")
-            }
-            owner_alias_cache: dict = {}  # systemuser_id -> {alias, fullname}
-            dae_total = len(owner_ids)
-
-            yield _sse({
-                "message": f"Resolving account owner aliases (0/{dae_total})...",
-                "progress": 97,
-            })
-
-            for dae_idx, oid in enumerate(owner_ids, 1):
-                owner_alias_cache[oid] = get_user_info(oid)
-                if dae_idx % 5 == 0 or dae_idx == dae_total:
-                    yield _sse({
-                        "message": f"Resolving account owner aliases ({dae_idx}/{dae_total})...",
-                        "progress": 97 + round((dae_idx / max(dae_total, 1)) * 2),
-                    })
+            # DAE aliases already resolved in alias_cache (Phase 4d)
+            owner_alias_cache = alias_cache
 
             # Verticals
-            yield _sse({"message": "Creating verticals...", "progress": 99})
+            yield _sse({"message": "Creating verticals...", "progress": 96})
             verticals_map = {}
             verticals_created = 0
             for vn in verticals_seen:
@@ -2068,12 +2128,12 @@ def import_stream():
 
             yield _sse({
                 "message": f"Created {verticals_created} new verticals",
-                "progress": 99,
+                "progress": 97,
             })
 
             # Customers
             SyncStatus.mark_started('accounts')
-            yield _sse({"message": "Syncing customers...", "progress": 99})
+            yield _sse({"message": "Syncing customers...", "progress": 97})
             customers_created = 0
             customers_skipped = 0
             customers_updated = 0
