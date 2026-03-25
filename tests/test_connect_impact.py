@@ -247,7 +247,11 @@ class TestConnectImpactSuffix:
         """Response dict should always include connect_impact key."""
         from app.services.workiq_service import get_meeting_summary
         mock_query.return_value = (
-            "Summary of meeting.\n\n"
+            "SUMMARY:\n"
+            "The team discussed the customer migration to Azure including "
+            "compute workloads and storage optimization strategies for the "
+            "upcoming quarter with a focus on cost reduction and performance "
+            "improvements across all regions.\n\n"
             "CONNECT_IMPACT:\n"
             "- Customer increased Azure usage by 200%\n"
         )
@@ -418,7 +422,11 @@ class TestMeetingSummaryAPIImpact:
     def test_summary_api_passes_extract_impact(self, mock_query, client, app):
         """API should pass extract_impact=true to get_meeting_summary."""
         mock_query.return_value = (
-            "Summary of meeting.\n\n"
+            "SUMMARY:\n"
+            "The team discussed the customer migration to Azure including "
+            "compute workloads and storage optimization strategies for the "
+            "upcoming quarter with a focus on cost reduction and performance "
+            "improvements across all regions.\n\n"
             "CONNECT_IMPACT:\n"
             "- Customer saved $100K\n"
         )
@@ -448,7 +456,11 @@ class TestMeetingSummaryAPIImpact:
     def test_summary_api_impact_with_custom_prompt(self, mock_query, client, app):
         """Impact extraction should work alongside custom prompts."""
         mock_query.return_value = (
-            "Custom summary.\n\n"
+            "SUMMARY:\n"
+            "The team discussed the customer migration to Azure including "
+            "compute workloads and storage optimization strategies for the "
+            "upcoming quarter with a focus on cost reduction and performance "
+            "improvements across all regions.\n\n"
             "TASK_TITLE: Follow up\n"
             "TASK_DESCRIPTION: Review.\n\n"
             "CONNECT_IMPACT:\n"

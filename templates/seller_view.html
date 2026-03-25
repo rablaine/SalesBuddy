@@ -143,11 +143,12 @@
             <div class="card-body p-0 flex-grow-1" style="overflow-y: auto; min-height: 0;">
                 <div class="list-group list-group-flush">
                     {% for ms in milestones %}
-                    <a href="{{ url_for('milestones.milestone_view', id=ms.id) }}" class="list-group-item list-group-item-action p-2">
+                    <div onclick="openStandaloneMilestoneDetail(event, {{ ms.id }}, '{{ ms.title|replace("'", "\\'") }}', '{{ ms.status }}', '{{ ms.url or '' }}')"
+                       class="list-group-item list-group-item-action p-2" style="cursor: pointer;">
                         <div class="d-flex justify-content-between align-items-start">
                             <div class="text-truncate me-2" style="min-width: 0;">
                                 <div class="fw-semibold text-truncate" style="font-size: 0.85rem;">{{ ms.title }}</div>
-                                <div class="text-muted text-truncate" style="font-size: 0.75rem;">{{ ms.customer_name }}</div>
+                                <div class="text-muted text-truncate" style="font-size: 0.75rem;">{{ ms.customer.name if ms.customer else '' }}</div>
                             </div>
                             <div class="text-end flex-shrink-0">
                                 <span class="badge {% if ms.status == 'On Track' %}bg-success{% elif ms.status == 'At Risk' %}bg-warning text-dark{% else %}bg-danger{% endif %}" style="font-size: 0.65rem;">{{ ms.status }}</span>
@@ -166,7 +167,7 @@
                         {% elif ms.workload %}
                         <div class="small text-muted mt-1" style="font-size: 0.75rem;">{{ ms.workload }}</div>
                         {% endif %}
-                    </a>
+                    </div>
                     {% endfor %}
                 </div>
             </div>
@@ -197,8 +198,8 @@
             <div class="card-body p-0 flex-grow-1" style="overflow-y: auto; min-height: 0;">
                 <div class="list-group list-group-flush">
                 {% for alert in revenue_alerts %}
-                    <div class="list-group-item p-2" style="border-left: 3px solid {% if alert.review_status == 'actioned' %}var(--bs-success){% elif alert.review_status == 'reviewed' %}var(--bs-info){% elif alert.review_status == 'dismissed' %}var(--bs-secondary){% else %}transparent{% endif %};">
-                        <div class="d-flex justify-content-between align-items-start">
+                    <div onclick="openAlertDetail(event, {{ alert.id }}, '{{ alert.customer_name|replace("'", "\\'") }}', '{{ alert.bucket|replace("'", "\\'") }}')"
+                       class="list-group-item list-group-item-action p-2" style="cursor: pointer; border-left: 3px solid {% if alert.review_status == 'actioned' %}var(--bs-success){% elif alert.review_status == 'reviewed' %}var(--bs-info){% elif alert.review_status == 'dismissed' %}var(--bs-secondary){% else %}transparent{% endif %};{% if alert.review_status in ('actioned', 'dismissed', 'reviewed') %} opacity: 0.5;{% endif %}">                        <div class="d-flex justify-content-between align-items-start">
                             <div class="text-truncate me-2" style="min-width: 0;">
                                 <div class="fw-semibold text-truncate" style="font-size: 0.85rem;">
                                     {% if alert.review_status == 'reviewed' %}<i class="bi bi-eye text-info" title="Reviewed"></i>
@@ -232,7 +233,7 @@
                         </div>
                         {% endif %}
                     </div>
-                {% endfor %}
+                    {% endfor %}
                 </div>
             </div>
         </div>
@@ -274,6 +275,7 @@
                 {% set alerts = revenue_alerts %}
                 {% set summary = revenue_summary %}
 
+                {% set alert_clickable = true %}
                 {% include 'partials/revenue_alerts_content.html' %}
             </div>
         </div>
@@ -281,7 +283,99 @@
 </div>
 {% endif %}
 
+{% if revenue_alerts %}
+<!-- Alert Detail Modal -->
+<div class="modal fade" id="alertDetailModal" tabindex="-1" aria-labelledby="alertDetailModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-scrollable" style="max-width: min(1100px, calc(100vw - 3rem)); width: calc(100vw - 3rem);">
+        <div class="modal-content" style="max-height: 90vh;">
+            <div class="modal-header py-2">
+                <h5 class="modal-title" id="alertDetailModalLabel"><i class="bi bi-exclamation-triangle"></i> <span id="alertDetailTitle">Loading...</span></h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body p-3" id="alertDetailBody">
+                <div class="text-center py-5">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
 {% if milestones %}
+<!-- Standalone Milestone Detail Modal (for compact card rows, outside any other modal) -->
+<div class="modal fade" id="standaloneMilestoneDetailModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-scrollable" style="max-width: min(1100px, calc(100vw - 3rem)); width: calc(100vw - 3rem);">
+        <div class="modal-content" style="max-height: 90vh;">
+            <div class="modal-header py-2">
+                <div class="d-flex align-items-center gap-2">
+                    <h5 class="modal-title mb-0"><i class="bi bi-flag"></i> <span id="standaloneMsTitle">Loading...</span></h5>
+                    <span id="standaloneMsBadge"></span>
+                </div>
+                <div class="d-flex align-items-center gap-2">
+                    <a id="standaloneMsMsxLink" href="#" target="_blank" class="btn btn-sm btn-outline-primary" style="display:none"><i class="bi bi-box-arrow-up-right"></i> MSX</a>
+                    <a id="standaloneMsFullLink" href="#" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrows-fullscreen"></i> Full Page</a>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+            </div>
+            <div class="modal-body p-3" id="standaloneMsBody">
+                <div class="text-center py-5">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+<script>
+(function() {
+    let msModal = null;
+    const titleEl = document.getElementById('standaloneMsTitle');
+    const bodyEl = document.getElementById('standaloneMsBody');
+    const badgeEl = document.getElementById('standaloneMsBadge');
+    const msxLink = document.getElementById('standaloneMsMsxLink');
+    const fullLink = document.getElementById('standaloneMsFullLink');
+
+    function showMsDetail(msId, msTitle, msStatus, msUrl) {
+        if (!msModal) {
+            msModal = new bootstrap.Modal(document.getElementById('standaloneMilestoneDetailModal'));
+        }
+        titleEl.textContent = msTitle;
+        if (msStatus) {
+            const cls = {'On Track':'bg-success','At Risk':'bg-warning text-dark','Blocked':'bg-danger','Completed':'bg-info'}[msStatus] || 'bg-secondary';
+            badgeEl.innerHTML = '<span class="badge ' + cls + '">' + msStatus + '</span>';
+        } else {
+            badgeEl.innerHTML = '';
+        }
+        if (msUrl) { msxLink.href = msUrl; msxLink.style.display = ''; } else { msxLink.style.display = 'none'; }
+        fullLink.href = '/milestone/' + msId;
+        bodyEl.innerHTML = '<div class="text-center py-5"><div class="spinner-border text-primary" role="status"><span class="visually-hidden">Loading...</span></div></div>';
+        msModal.show();
+        fetch('/api/milestone/' + msId + '/detail')
+            .then(function(r) { if (!r.ok) throw new Error(); return r.text(); })
+            .then(function(html) {
+                bodyEl.innerHTML = html;
+                bodyEl.querySelectorAll('script').forEach(function(old) {
+                    var s = document.createElement('script');
+                    if (old.src) { s.src = old.src; } else { s.textContent = '(function(){' + old.textContent + '})();'; }
+                    old.replaceWith(s);
+                });
+            })
+            .catch(function() { bodyEl.innerHTML = '<div class="text-danger p-3"><i class="bi bi-exclamation-triangle"></i> Failed to load milestone details.</div>'; });
+    }
+    window._showMsDetail = showMsDetail;
+
+    // For compact card rows (no parent modal)
+    window.openStandaloneMilestoneDetail = function(event, msId, msTitle, msStatus, msUrl) {
+        if (event.target.closest('a, button')) return;
+        showMsDetail(msId, msTitle, msStatus, msUrl);
+    };
+})();
+</script>
+
 <!-- Milestones Modal -->
 <div class="modal fade" id="milestonesModal" tabindex="-1" aria-labelledby="milestonesModalLabel" aria-hidden="true">
     <div class="modal-dialog modal-dialog-scrollable" style="max-width: min(1320px, calc(100vw - 3rem)); width: calc(100vw - 3rem);">
@@ -300,18 +394,105 @@
         </div>
     </div>
 </div>
+
+<!-- Override openMilestoneDetail AFTER tracker partial defines it -->
+<script>
+(function() {
+    window.openMilestoneDetail = function(event, msId, msTitle, msStatus, msUrl) {
+        if (event.target.closest('a, button')) return;
+        var parentModalEl = document.getElementById('milestonesModal');
+        var parentModal = bootstrap.Modal.getInstance(parentModalEl);
+        if (parentModal) {
+            var onceHidden = function() {
+                parentModalEl.removeEventListener('hidden.bs.modal', onceHidden);
+                window._showMsDetail(msId, msTitle, msStatus, msUrl);
+                var detailEl = document.getElementById('standaloneMilestoneDetailModal');
+                var onceDetailHidden = function() {
+                    detailEl.removeEventListener('hidden.bs.modal', onceDetailHidden);
+                    parentModal.show();
+                };
+                detailEl.addEventListener('hidden.bs.modal', onceDetailHidden);
+            };
+            parentModalEl.addEventListener('hidden.bs.modal', onceHidden);
+            parentModal.hide();
+        } else {
+            window._showMsDetail(msId, msTitle, msStatus, msUrl);
+        }
+    };
+})();
+</script>
+
 {% endif %}
 
 {% if revenue_alerts %}
 {% include 'partials/review_action.html' %}
 <script>
-// Refresh page when revenue modal closes (to sync compact list with any status changes)
-document.getElementById('revenueModal').addEventListener('hidden.bs.modal', function() {
-    location.reload();
-});
+// Modal chain: revenue modal → alert detail modal → back to revenue modal
+(function() {
+    let detailModal = null;
+    let detailDirty = false;
+    let returningToParent = false;
+    const titleEl = document.getElementById('alertDetailTitle');
+    const bodyEl = document.getElementById('alertDetailBody');
+
+    function showAlertDetail(alertId, customerName, bucket) {
+        if (!detailModal) {
+            detailModal = new bootstrap.Modal(document.getElementById('alertDetailModal'));
+        }
+        detailDirty = false;
+        titleEl.textContent = customerName + ' - ' + bucket;
+        bodyEl.innerHTML = '<div class="text-center py-5"><div class="spinner-border text-primary" role="status"><span class="visually-hidden">Loading...</span></div></div>';
+        detailModal.show();
+        fetch('/api/revenue/analysis/' + alertId + '/detail')
+            .then(function(resp) {
+                if (!resp.ok) throw new Error('Failed to load');
+                return resp.text();
+            })
+            .then(function(html) { bodyEl.innerHTML = html; })
+            .catch(function() { bodyEl.innerHTML = '<div class="text-danger p-3"><i class="bi bi-exclamation-triangle"></i> Failed to load alert details.</div>'; });
+    }
+
+    window.openAlertDetail = function(event, alertId, customerName, bucket) {
+        if (event.target.closest('a, button')) return;
+        var parentModalEl = document.getElementById('revenueModal');
+        var parentModal = parentModalEl ? bootstrap.Modal.getInstance(parentModalEl) : null;
+        if (parentModal && parentModalEl.classList.contains('show')) {
+            var onceHidden = function() {
+                parentModalEl.removeEventListener('hidden.bs.modal', onceHidden);
+                showAlertDetail(alertId, customerName, bucket);
+                var detailEl = document.getElementById('alertDetailModal');
+                var onceDetailHidden = function() {
+                    detailEl.removeEventListener('hidden.bs.modal', onceDetailHidden);
+                    returningToParent = true;
+                    parentModal.show();
+                };
+                detailEl.addEventListener('hidden.bs.modal', onceDetailHidden);
+            };
+            parentModalEl.addEventListener('hidden.bs.modal', onceHidden);
+            parentModal.hide();
+        } else {
+            showAlertDetail(alertId, customerName, bucket);
+        }
+    };
+
+    // Refresh page when alert detail closes with changes (only if not returning to parent)
+    document.getElementById('alertDetailModal').addEventListener('hidden.bs.modal', function() {
+        if (detailDirty && !returningToParent) location.reload();
+        returningToParent = false;
+    });
+
+    // Refresh page when revenue modal closes (to sync compact list with any status changes)
+    document.getElementById('revenueModal').addEventListener('hidden.bs.modal', function() {
+        if (detailDirty) location.reload();
+    });
+
+    document.addEventListener('click', function(e) {
+        if (e.target.closest('#alertDetailModal .review-action-btn')) {
+            detailDirty = true;
+        }
+    });
+})();
 </script>
 {% endif %}
 
 {% endblock %}
-
-

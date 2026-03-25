@@ -765,6 +765,69 @@ def api_get_analysis(analysis_id: int):
     })
 
 
+@revenue_bp.route('/api/revenue/analysis/<int:analysis_id>/detail')
+def api_get_analysis_detail(analysis_id: int):
+    """Return rendered HTML fragment with analysis card + SL4 product table."""
+    analysis = RevenueAnalysis.query.get_or_404(analysis_id)
+
+    if not analysis.customer_id:
+        return '<div class="text-muted p-3">No matched customer for this alert.</div>'
+
+    # Build bucket product data (same logic as revenue_customer_view)
+    history = get_customer_revenue_history(
+        bucket=analysis.bucket, customer_id=analysis.customer_id
+    )
+    products = get_products_for_bucket(
+        bucket=analysis.bucket, customer_id=analysis.customer_id
+    )
+
+    product_history = {}
+    for p in products:
+        p_history = get_product_revenue_history(
+            bucket=analysis.bucket, product=p['product'],
+            customer_id=analysis.customer_id,
+        )
+        if p_history:
+            product_history[p['product']] = p_history
+
+    # Collect months and pick 7 most recent
+    all_months: dict[str, object] = {}
+    for ph in product_history.values():
+        for rd in ph:
+            all_months[rd.fiscal_month] = rd.month_date
+    for rd in history:
+        all_months[rd.fiscal_month] = rd.month_date
+
+    sorted_months = sorted(all_months.items(), key=lambda x: x[1])
+    recent_months = [m[0] for m in sorted_months[-7:]]
+
+    product_summary = []
+    for p in products:
+        p_hist = product_history.get(p['product'], [])
+        month_revenues = {rd.fiscal_month: rd.revenue for rd in p_hist}
+        product_summary.append({
+            'product': p['product'],
+            'total_revenue': p['total_revenue'],
+            'month_revenues': month_revenues,
+        })
+
+    bucket_month_revenues = {rd.fiscal_month: rd.revenue for rd in history}
+    bucket_total = sum(rd.revenue for rd in history)
+
+    bucket_data = {
+        'recent_months': recent_months,
+        'product_summary': product_summary,
+        'bucket_month_revenues': bucket_month_revenues,
+        'bucket_total': bucket_total,
+    }
+
+    return render_template(
+        'partials/revenue_alert_detail.html',
+        a=analysis,
+        bucket_data=bucket_data,
+    )
+
+
 @revenue_bp.route('/api/revenue/stats')
 def api_revenue_stats():
     """Get overall revenue analysis stats."""

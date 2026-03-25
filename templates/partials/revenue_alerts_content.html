@@ -2,6 +2,7 @@
 {# Usage: {% include 'partials/revenue_alerts_content.html' with context %} #}
 {# Required context: alerts (list of alert dicts) #}
 {# Optional context: summary (dict with count, total_at_risk, total_opportunity) #}
+{# Optional context: alert_clickable (bool) - enables onclick to open detail modal #}
 {% from 'partials/review_action.html' import review_badge, action_buttons, previous_review_hint %}
 
 {# Summary cards (shown when summary is provided) #}
@@ -54,7 +55,8 @@
         </thead>
         <tbody>
             {% for a in alerts %}
-            <tr data-analysis-id="{{ a.id }}" {% if a.review_status not in ('new', 'to_be_reviewed') %}style="opacity: 0.6;"{% endif %}>
+            <tr data-analysis-id="{{ a.id }}" style="{% if alert_clickable %}cursor: pointer;{% endif %}{% if a.review_status not in ('new', 'to_be_reviewed') %} opacity: 0.6;{% endif %}"
+                {% if alert_clickable %}onclick="openAlertDetail(event, {{ a.id }}, '{{ a.customer_name|replace("'", "\\'") }}', '{{ a.bucket|replace("'", "\\'") }}')"{% endif %}>
                 <td>
                     <span class="badge {% if a.priority_score >= 80 %}bg-danger{% elif a.priority_score >= 60 %}bg-warning text-dark{% elif a.priority_score >= 40 %}bg-info{% else %}bg-secondary{% endif %}">
                         {{ a.priority_score }}

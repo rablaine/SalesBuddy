@@ -1,0 +1,624 @@
+{# Milestone View Content Partial - the ENTIRE milestone page extracted. #}
+{# Context: milestone, tasks, cached_comments, owner_link #}
+{# Guard: show_edit_delete (default True) - set False in modal to hide Edit/Delete/header #}
+{% if show_edit_delete is not defined %}{% set show_edit_delete = True %}{% endif %}
+{% from 'partials/customer_favicon.html' import customer_favicon %}
+
+{% if show_edit_delete %}
+{% include 'partials/msx_auth_banner.html' %}
+{% endif %}
+
+{% if show_edit_delete %}
+<div class="d-flex justify-content-between align-items-center mb-4 gap-3">
+    <div style="min-width: 0; flex: 1; display: flex; align-items: baseline; gap: 0.5rem;">
+        <h1 class="mb-0" style="white-space: nowrap; flex-shrink: 0;">
+            <i class="bi bi-flag"></i>
+        </h1>
+        <h1 class="mb-0 text-truncate" style="min-width: 0;" title="{{ milestone.title or 'Untitled Milestone' }}">
+            {{ milestone.title or 'Untitled Milestone' }}
+        </h1>
+        {% if milestone.msx_status %}
+        <span class="badge fs-6 {% if milestone.msx_status == 'On Track' %}bg-success{% elif milestone.msx_status == 'At Risk' %}bg-warning text-dark{% elif milestone.msx_status == 'Blocked' %}bg-danger{% elif milestone.msx_status == 'Completed' %}bg-info{% else %}bg-secondary{% endif %}" id="statusBadgeTop">{{ milestone.msx_status }}</span>
+        {% endif %}
+    </div>
+    <div class="flex-shrink-0 d-flex gap-2">
+        <a href="{{ milestone.url }}" target="_blank" class="btn btn-outline-success text-nowrap">
+            <i class="bi bi-box-arrow-up-right"></i> Open in MSX
+        </a>
+        <a href="{{ url_for('milestones.milestone_edit', id=milestone.id) }}" class="btn btn-outline-primary text-nowrap">
+            <i class="bi bi-pencil"></i> Edit
+        </a>
+        <form method="POST" action="{{ url_for('milestones.milestone_delete', id=milestone.id) }}"
+              class="d-inline" onsubmit="return confirm('Are you sure you want to delete this milestone?');">
+            <button type="submit" class="btn btn-outline-danger text-nowrap">
+                <i class="bi bi-trash"></i> Delete
+            </button>
+        </form>
+    </div>
+</div>
+{% endif %}
+
+<div class="row">
+    <!-- Left column: Navigation, Details, Notes, Tasks -->
+    <div class="col-md-4">
+        <!-- Navigation Card -->
+        <div class="card mb-3">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-signpost-split"></i> Navigation</h5>
+            </div>
+            <div class="card-body">
+                {% if milestone.customer %}
+                <p class="mb-2">
+                    {{ customer_favicon(milestone.customer) }} <strong>Customer:</strong>
+                    <a href="{{ url_for('customers.customer_view', id=milestone.customer.id) }}">{{ milestone.customer.get_display_name() }}</a>
+                </p>
+                {% endif %}
+                {% if milestone.opportunity %}
+                <p class="mb-2">
+                    <i class="bi bi-briefcase text-muted"></i> <strong>Opportunity:</strong>
+                    <a href="{{ url_for('opportunities.opportunity_view', id=milestone.opportunity.id) }}">{{ milestone.opportunity.name[:50] }}{% if milestone.opportunity.name|length > 50 %}...{% endif %}</a>
+                </p>
+                {% endif %}
+                {% if milestone.engagements %}
+                {% for eng in milestone.engagements %}
+                <p class="mb-2">
+                    <i class="bi bi-lightning-charge"></i> <strong>Engagement:</strong>
+                    <a href="{{ url_for('engagements.engagement_view', id=eng.id) }}">{{ eng.title[:50] }}{% if eng.title|length > 50 %}...{% endif %}</a>
+                </p>
+                {% endfor %}
+                {% endif %}
+                {% if not milestone.customer and not milestone.opportunity and not milestone.engagements %}
+                <p class="text-muted mb-0">Not linked to a customer or opportunity.</p>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Details Card -->
+        <div class="card mb-3">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-info-circle"></i> Details</h5>
+            </div>
+            <div id="detailsBody">
+                <!-- Cached details shown immediately -->
+                <div id="detailsCached">
+                    <ul class="list-group list-group-flush">
+                        {% if milestone.owner_name %}
+                        <li class="list-group-item d-flex justify-content-between" id="ownerRow">
+                            <span class="text-muted">Owner</span>
+                            <span id="ownerValue">{% if owner_link %}<a href="{{ owner_link.url }}"><i class="bi bi-person"></i> {{ milestone.owner_name }}</a>{% else %}{{ milestone.owner_name }}{% endif %}</span>
+                        </li>
+                        {% else %}
+                        <li class="list-group-item d-flex justify-content-between" id="ownerRow" style="display:none !important;">
+                            <span class="text-muted">Owner</span>
+                            <span id="ownerValue"></span>
+                        </li>
+                        {% endif %}
+                        {% if milestone.customer_commitment %}
+                        <li class="list-group-item d-flex justify-content-between" id="commitmentRow">
+                            <span class="text-muted">Commitment</span>
+                            <span id="commitmentValue">{{ milestone.customer_commitment }}</span>
+                        </li>
+                        {% else %}
+                        <li class="list-group-item d-flex justify-content-between" id="commitmentRow" style="display:none !important;">
+                            <span class="text-muted">Commitment</span>
+                            <span id="commitmentValue"></span>
+                        </li>
+                        {% endif %}
+                        {% if milestone.milestone_number %}
+                        <li class="list-group-item d-flex justify-content-between">
+                            <span class="text-muted">Number</span>
+                            <span>{{ milestone.milestone_number }}</span>
+                        </li>
+                        {% endif %}
+                        {% if milestone.workload %}
+                        <li class="list-group-item d-flex justify-content-between">
+                            <span class="text-muted flex-shrink-0 me-2">Workload</span>
+                            <span class="text-end">{{ milestone.workload }}</span>
+                        </li>
+                        {% endif %}
+                        {% if milestone.dollar_value %}
+                        <li class="list-group-item d-flex justify-content-between">
+                            <span class="text-muted">Value</span>
+                            <span>${{ "{:,.0f}".format(milestone.dollar_value) }}</span>
+                        </li>
+                        {% endif %}
+                        {% if milestone.monthly_usage %}
+                        <li class="list-group-item d-flex justify-content-between">
+                            <span class="text-muted">Monthly Usage</span>
+                            <span>${{ "{:,.0f}".format(milestone.monthly_usage) }}</span>
+                        </li>
+                        {% endif %}
+                        {% if milestone.due_date %}
+                        <li class="list-group-item d-flex justify-content-between">
+                            <span class="text-muted">Due Date</span>
+                            <span>{{ milestone.due_date.strftime('%b %d, %Y') }}</span>
+                        </li>
+                        {% endif %}
+                        {% if milestone.msx_milestone_id %}
+                        <li class="list-group-item d-flex justify-content-between align-items-center" id="milestoneTeamRow">
+                            <span class="text-muted">Milestone Team</span>
+                            {% if milestone.on_my_team %}
+                            <span>
+                                <span class="badge bg-success me-1"><i class="bi bi-people-fill"></i> On Team</span>
+                                <button class="btn btn-outline-danger btn-sm" id="leaveMilestoneTeamBtn" onclick="leaveMilestoneTeam({{ milestone.id }})">
+                                    <i class="bi bi-person-dash"></i> Leave
+                                </button>
+                            </span>
+                            {% else %}
+                            <button class="btn btn-outline-primary btn-sm" id="joinMilestoneTeamBtn" onclick="joinMilestoneTeam({{ milestone.id }})">
+                                <i class="bi bi-person-plus"></i> Join Team
+                            </button>
+                            {% endif %}
+                        </li>
+                        {% endif %}
+                        <li class="list-group-item d-flex justify-content-between">
+                            <span class="text-muted">Created</span>
+                            <span>{{ milestone.created_at.strftime('%b %d, %Y') }}</span>
+                        </li>
+                        <li class="list-group-item d-flex justify-content-between">
+                            <span class="text-muted">Last Updated</span>
+                            <span>{{ milestone.updated_at.strftime('%b %d, %Y') }}</span>
+                        </li>
+                    </ul>
+                </div>
+                <!-- Spinner while refreshing -->
+                {% if milestone.msx_milestone_id %}
+                <div id="detailsSpinner" class="text-center py-2">
+                    <div class="spinner-border spinner-border-sm" role="status"></div>
+                    <small class="text-muted ms-1">{% if milestone.details_fetched_at %}Refreshing from MSX...{% else %}Loading details from MSX...{% endif %}</small>
+                </div>
+                {% endif %}
+                <div id="detailsMsx" style="display:none;"></div>
+                <div id="detailsError" style="display:none;"></div>
+            </div>
+        </div>
+
+        <!-- Associated Notes Card -->
+        <div class="card mb-3">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-journal-text"></i> Associated Notes</h5>
+                <span class="badge bg-secondary">{{ milestone.notes|length }}</span>
+            </div>
+            {% if milestone.notes %}
+            <div class="list-group list-group-flush">
+                {% for note in milestone.notes|sort(attribute='call_date', reverse=True) %}
+                <a href="{{ url_for('notes.note_view', id=note.id) }}"
+                   class="list-group-item list-group-item-action">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div>
+                            <div class="fw-bold">
+                                {{ customer_favicon(note.customer) }} {{ note.customer.name }}
+                            </div>
+                            <small class="text-muted">{{ note.call_date.strftime('%b %d, %Y') }}{% if note.call_date.hour != 0 or note.call_date.minute != 0 %} {{ note.call_date.strftime('%I:%M %p') }}{% endif %}</small>
+                        </div>
+                        <div>
+                            {% for topic in note.topics[:3] %}
+                            <span class="badge bg-warning text-dark"><i class="bi bi-tag"></i> {{ topic.name }}</span>
+                            {% endfor %}
+                            {% if note.topics|length > 3 %}
+                            <span class="badge bg-secondary">+{{ note.topics|length - 3 }}</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                </a>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="card-body text-muted">
+                No notes associated with this milestone yet.
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- Tasks Card (condensed) -->
+        <div class="card mb-3">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-check2-square"></i> Tasks</h5>
+                <div class="d-flex align-items-center gap-2">
+                    <span class="badge bg-secondary">{{ tasks|length }}</span>
+                    {% if milestone.msx_milestone_id %}
+                    <button type="button" class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#newTaskModal">
+                        <i class="bi bi-plus-circle"></i>
+                    </button>
+                    {% endif %}
+                </div>
+            </div>
+            {% if tasks %}
+            <div class="list-group list-group-flush">
+                {% for task in tasks %}
+                <div class="list-group-item py-2">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div style="min-width: 0;">
+                            <div class="fw-bold text-truncate" title="{{ task.subject }}">
+                                {{ task.subject }}
+                                {% if task.is_hok %}
+                                <span class="badge bg-warning text-dark" title="Hands-on-Keyboard">HoK</span>
+                                {% endif %}
+                            </div>
+                            <small class="text-muted">
+                                {{ task.task_category_name or 'Unknown' }}
+                                {% if task.due_date %}
+                                 - {{ task.due_date.strftime('%b %d') }}
+                                {% endif %}
+                            </small>
+                        </div>
+                        {% if task.note %}
+                        <a href="{{ url_for('notes.note_view', id=task.note.id) }}" class="btn btn-outline-info btn-sm flex-shrink-0 ms-2" title="Linked Note">
+                            <i class="bi bi-journal-text"></i> Linked Note
+                        </a>
+                        {% endif %}
+                        {% if task.msx_task_url %}
+                        <a href="{{ task.msx_task_url }}" target="_blank" class="btn btn-outline-success btn-sm flex-shrink-0 ms-2" title="Open in MSX">
+                            <i class="bi bi-box-arrow-up-right"></i>
+                        </a>
+                        {% endif %}
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="card-body text-muted py-2">
+                {% if milestone.msx_milestone_id %}
+                No tasks created yet.
+                {% else %}
+                Tasks cannot be created without an MSX milestone ID.
+                {% endif %}
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Right column: MSX Forecast Comments (lazy-loaded) -->
+    <div class="col-md-8">
+        {% set comment_form_action = url_for('milestones.milestone_add_comment', id=milestone.id) %}
+        {% set entity_label = "milestone" %}
+        {% set show_comments = milestone.msx_milestone_id is not none %}
+        {% include '_forecast_comments.html' %}
+    </div>
+</div>
+
+{% if milestone.msx_milestone_id %}
+<!-- New Task Modal -->
+<div class="modal fade" id="newTaskModal" tabindex="-1" aria-labelledby="newTaskModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title" id="newTaskModalLabel">
+                    <i class="bi bi-plus-circle me-1"></i> Create Task on Milestone
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div id="task_error" class="alert alert-danger" style="display: none;"></div>
+                <div id="task_form_fields">
+                    <div class="mb-3">
+                        <label for="modal_task_subject" class="form-label">Task Title <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="modal_task_subject"
+                               placeholder="Brief task description...">
+                    </div>
+                    <div class="row mb-3">
+                        <div class="col-md-8">
+                            <label for="modal_task_category" class="form-label">Category <span class="text-danger">*</span></label>
+                            <select class="form-select" id="modal_task_category">
+                                <option value="">-- Select task category --</option>
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label for="modal_task_due_date" class="form-label">
+                                <i class="bi bi-calendar-event me-1"></i>Due Date
+                            </label>
+                            <input type="date" class="form-control" id="modal_task_due_date">
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="modal_task_description" class="form-label">Description (optional)</label>
+                        <textarea class="form-control" id="modal_task_description"
+                                  rows="2" placeholder="Additional details..."></textarea>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="create_task_btn" onclick="createTask()">
+                    <i class="bi bi-cloud-upload me-1"></i> Create Task in MSX
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<script>
+const MS_ID = {{ milestone.id }};
+const HAS_MSX_ID = {{ 'true' if milestone.msx_milestone_id else 'false' }};
+const COMMENT_ENTITY_ID = MS_ID;
+const COMMENT_API_PREFIX = '/api/milestone';
+const COMMENT_ENTITY_LABEL = 'milestone';
+
+function escapeHtml(str) {
+    if (!str) return '';
+    const d = document.createElement('div');
+    d.textContent = str;
+    return d.innerHTML;
+}
+
+{% include '_forecast_comments_js.html' %}
+
+function formatCurrency(val) {
+    if (val == null) return '';
+    return '$' + Number(val).toLocaleString('en-US', { maximumFractionDigits: 0 });
+}
+
+// ── Lazy-load MSX details + comments ────────────────────────────────
+{% if milestone.msx_milestone_id %}
+function fetchMsxDetails(retriesLeft) {
+    fetch(`/api/milestone/${MS_ID}/msx-details`)
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                renderDetails(data.milestone);
+                renderComments(data.milestone);
+            } else if (retriesLeft > 0) {
+                setTimeout(() => fetchMsxDetails(retriesLeft - 1), 1500);
+            } else {
+                renderError(data.error, data.vpn_blocked);
+            }
+        })
+        .catch(err => {
+            if (retriesLeft > 0) {
+                setTimeout(() => fetchMsxDetails(retriesLeft - 1), 1500);
+            } else {
+                renderError('Network error: ' + err.message, false);
+            }
+        });
+}
+// Immediate invocation (not DOMContentLoaded) so it works when injected into a modal too
+fetchMsxDetails(1);
+
+function renderDetails(ms) {
+    const spinner = document.getElementById('detailsSpinner');
+    if (spinner) spinner.style.display = 'none';
+
+    // Update the status badge at top of page
+    const badge = document.getElementById('statusBadgeTop');
+    if (badge && ms.msx_status) {
+        badge.textContent = ms.msx_status;
+        badge.className = 'badge fs-6 ' + ({
+            'On Track': 'bg-success', 'At Risk': 'bg-warning text-dark',
+            'Blocked': 'bg-danger', 'Completed': 'bg-info'
+        }[ms.msx_status] || 'bg-secondary');
+    }
+    // Update owner (preserve existing link if present)
+    const ownerRow = document.getElementById('ownerRow');
+    const ownerVal = document.getElementById('ownerValue');
+    if (ownerRow && ownerVal && ms.owner_name) {
+        const existingLink = ownerVal.querySelector('a');
+        if (existingLink) {
+            existingLink.childNodes[existingLink.childNodes.length - 1].textContent = ' ' + ms.owner_name;
+        } else {
+            ownerVal.textContent = ms.owner_name;
+        }
+        ownerRow.style.display = '';
+        ownerRow.classList.add('d-flex');
+    }
+    // Update customer commitment
+    const commitRow = document.getElementById('commitmentRow');
+    const commitVal = document.getElementById('commitmentValue');
+    if (commitRow && commitVal && ms.customer_commitment) {
+        commitVal.textContent = ms.customer_commitment;
+        commitRow.style.display = '';
+        commitRow.classList.add('d-flex');
+    }
+    // Cached details stay visible - DB is updated server-side by the API call
+}
+
+function renderError(errorMsg, vpnBlocked) {
+    if (vpnBlocked && window.showVpnBanner) window.showVpnBanner();
+
+    const spinner = document.getElementById('detailsSpinner');
+    if (spinner) spinner.style.display = 'none';
+
+    const cached = document.getElementById('detailsCached');
+    const hasCachedData = cached && cached.innerHTML.trim().length > 0;
+    if (!hasCachedData) {
+        const errEl = document.getElementById('detailsError');
+        errEl.style.display = '';
+        if (vpnBlocked) {
+            errEl.innerHTML = `<div class="alert alert-secondary mb-0 mx-3 my-2">
+                <i class="bi bi-shield-lock"></i> <strong>VPN Required</strong><br>
+                <small>Connect to VPN to load milestone details.</small>
+            </div>`;
+        } else {
+            errEl.innerHTML = `<div class="alert alert-warning mb-0 mx-3 my-2">
+                <i class="bi bi-exclamation-triangle"></i> ${escapeHtml(errorMsg)}
+            </div>`;
+        }
+    }
+
+    renderCommentsError(errorMsg, vpnBlocked);
+}
+{% endif %}
+
+// ── Milestone Team join/leave ───────────────────────────────────────
+
+async function joinMilestoneTeam(milestoneId) {
+    const btn = document.getElementById('joinMilestoneTeamBtn');
+    if (!btn) return;
+    if (window.isVpnBlocked && window.isVpnBlocked()) {
+        window.showVpnBanner();
+        return;
+    }
+    const originalHtml = btn.innerHTML;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+    btn.disabled = true;
+    try {
+        const resp = await fetch('/api/msx/join-milestone-team', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ milestone_id: milestoneId })
+        });
+        const data = await resp.json();
+        if (data.success) {
+            const wrapper = document.createElement('span');
+            const badge = document.createElement('span');
+            badge.className = 'badge bg-success me-1';
+            badge.innerHTML = '<i class="bi bi-people-fill"></i> On Team';
+            const leaveBtn = document.createElement('button');
+            leaveBtn.className = 'btn btn-outline-danger btn-sm';
+            leaveBtn.id = 'leaveMilestoneTeamBtn';
+            leaveBtn.innerHTML = '<i class="bi bi-person-dash"></i> Leave';
+            leaveBtn.onclick = () => leaveMilestoneTeam(milestoneId);
+            wrapper.appendChild(badge);
+            wrapper.appendChild(leaveBtn);
+            btn.replaceWith(wrapper);
+        } else {
+            btn.innerHTML = originalHtml;
+            btn.disabled = false;
+            alert('Failed to join team: ' + (data.error || 'Unknown error'));
+        }
+    } catch (err) {
+        btn.innerHTML = originalHtml;
+        btn.disabled = false;
+        alert('Failed to join team: ' + err.message);
+    }
+}
+
+async function leaveMilestoneTeam(milestoneId) {
+    const btn = document.getElementById('leaveMilestoneTeamBtn');
+    if (!btn) return;
+    if (window.isVpnBlocked && window.isVpnBlocked()) {
+        window.showVpnBanner();
+        return;
+    }
+    if (!confirm('Leave this milestone team? You can rejoin later.')) return;
+    const originalHtml = btn.innerHTML;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+    btn.disabled = true;
+    try {
+        const resp = await fetch('/api/msx/leave-milestone-team', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ milestone_id: milestoneId })
+        });
+        const data = await resp.json();
+        if (data.success) {
+            const joinBtn = document.createElement('button');
+            joinBtn.className = 'btn btn-outline-primary btn-sm';
+            joinBtn.id = 'joinMilestoneTeamBtn';
+            joinBtn.innerHTML = '<i class="bi bi-person-plus"></i> Join Team';
+            joinBtn.onclick = () => joinMilestoneTeam(milestoneId);
+            btn.parentElement.replaceWith(joinBtn);
+        } else {
+            btn.innerHTML = originalHtml;
+            btn.disabled = false;
+            alert('Failed to leave team: ' + (data.error || 'Unknown error'));
+        }
+    } catch (err) {
+        btn.innerHTML = originalHtml;
+        btn.disabled = false;
+        alert('Failed to leave team: ' + err.message);
+    }
+}
+
+{% if milestone.msx_milestone_id %}
+// ── Task creation ───────────────────────────────────────────────────
+let taskCategories = [];
+
+function getTomorrowDate() {
+    const d = new Date();
+    d.setDate(d.getDate() + 1);
+    return d.toISOString().split('T')[0];
+}
+
+// Immediate invocation (not DOMContentLoaded) so it works when injected into a modal too
+(function() {
+    const dueDateEl = document.getElementById('modal_task_due_date');
+    if (dueDateEl) dueDateEl.value = getTomorrowDate();
+    fetch('/api/msx/task-categories')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success && data.categories) {
+                taskCategories = data.categories;
+                populateTaskCategories();
+            }
+        })
+        .catch(error => console.error('Failed to load task categories:', error));
+})();
+
+function populateTaskCategories() {
+    const select = document.getElementById('modal_task_category');
+    select.innerHTML = '<option value="">-- Select task category --</option>';
+    taskCategories.forEach(cat => {
+        const option = document.createElement('option');
+        option.value = cat.value;
+        option.textContent = cat.label;
+        if (cat.is_hok) {
+            option.style.fontWeight = 'bold';
+            option.textContent = '\u2605 ' + cat.label;
+        }
+        select.appendChild(option);
+    });
+}
+
+function showTaskError(msg) {
+    const el = document.getElementById('task_error');
+    el.textContent = msg;
+    el.style.display = 'block';
+}
+
+function hideTaskError() {
+    document.getElementById('task_error').style.display = 'none';
+}
+
+function createTask() {
+    const subject = document.getElementById('modal_task_subject').value.trim();
+    const category = document.getElementById('modal_task_category').value;
+    const description = document.getElementById('modal_task_description').value.trim();
+    const dueDate = document.getElementById('modal_task_due_date').value;
+
+    if (!subject) { showTaskError('Task title is required'); return; }
+    if (!category) { showTaskError('Task category is required'); return; }
+
+    const btn = document.getElementById('create_task_btn');
+    const originalText = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Creating...';
+    hideTaskError();
+
+    fetch('{{ url_for("milestones.milestone_create_task", id=milestone.id) }}', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            subject: subject,
+            task_category: parseInt(category),
+            duration_minutes: 60,
+            description: description || null,
+            due_date: dueDate ? dueDate + 'T23:59:59Z' : null
+        })
+    })
+    .then(response => response.json())
+    .then(result => {
+        btn.disabled = false;
+        btn.innerHTML = originalText;
+        if (result.success) {
+            window.location.reload();
+        } else {
+            showTaskError(result.error || 'Failed to create task');
+        }
+    })
+    .catch(error => {
+        btn.disabled = false;
+        btn.innerHTML = originalText;
+        showTaskError('Network error: ' + error.message);
+    });
+}
+
+document.getElementById('newTaskModal').addEventListener('hidden.bs.modal', function() {
+    document.getElementById('modal_task_subject').value = '';
+    document.getElementById('modal_task_category').value = '';
+    document.getElementById('modal_task_description').value = '';
+    document.getElementById('modal_task_due_date').value = getTomorrowDate();
+    hideTaskError();
+});
+{% endif %}
+</script>
