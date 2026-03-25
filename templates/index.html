@@ -63,7 +63,8 @@
                 {% if upcoming_milestones %}
                 <div class="list-group list-group-flush">
                     {% for ms in upcoming_milestones %}
-                    <a href="{{ url_for('milestones.milestone_view', id=ms.id) }}" class="list-group-item list-group-item-action py-2 px-3">
+                    <div onclick="openHomeMilestoneDetail(event, {{ ms.id }}, '{{ (ms.title or ms.opportunity_name or '')|replace("'", "\\'") }}', '{{ ms.msx_status }}', '{{ ms.url or '' }}')"
+                         class="list-group-item list-group-item-action py-2 px-3" style="cursor: pointer;">
                         <div class="d-flex justify-content-between align-items-start">
                             <div class="me-2" style="min-width: 0;">
                                 <div class="fw-semibold text-truncate">
@@ -87,7 +88,7 @@
                                 </div>
                             </div>
                         </div>
-                    </a>
+                    </div>
                     {% endfor %}
                 </div>
                 {% else %}
@@ -124,7 +125,8 @@
                 {% elif revenue_alerts %}
                 <div class="list-group list-group-flush">
                     {% for alert in revenue_alerts %}
-                    <a href="{{ url_for('revenue.revenue_customer_view', customer_id=alert.customer_id) if alert.customer_id else url_for('revenue.revenue_dashboard') }}" class="list-group-item list-group-item-action py-2 px-3">
+                    <div onclick="openHomeAlertDetail(event, {{ alert.id }}, '{{ alert.customer_name|replace("'", "\\'") }}', '{{ alert.bucket|replace("'", "\\'") }}')"
+                         class="list-group-item list-group-item-action py-2 px-3" style="cursor: pointer;">
                         <div class="d-flex justify-content-between align-items-start">
                             <div class="me-2" style="min-width: 0;">
                                 <div class="fw-semibold text-truncate">{{ alert.customer_name }}</div>
@@ -143,7 +145,7 @@
                                 {% endif %}
                             </div>
                         </div>
-                    </a>
+                    </div>
                     {% endfor %}
                 </div>
                 {% else %}
@@ -772,8 +774,11 @@
                         entriesContainer.style.overflowY = 'auto';
                         
                         noteEntries.forEach(log => {
-                            const entry = document.createElement('a');
-                            entry.href = `/note/${log.id}`;
+                            const entry = document.createElement('div');
+                            entry.style.cursor = 'pointer';
+                            entry.addEventListener('click', function(e) {
+                                openHomeNoteDetail(log.id, log.customer_name);
+                            });
                             
                             if (log.is_general) {
                                 // General note: distinct muted style with sticky-note icon
@@ -977,9 +982,11 @@
                         container.className = 'calendar-entries';
 
                         msForDay.forEach(ms => {
-                            const entry = document.createElement('a');
-                            entry.href = ms.url || '#';
-                            if (ms.url) entry.target = '_blank';
+                            const entry = document.createElement('div');
+                            entry.style.cursor = 'pointer';
+                            entry.addEventListener('click', function(e) {
+                                openHomeMilestoneDetail(e, ms.id, ms.title || '', ms.status || '', ms.url || '');
+                            });
                             const statusClass = ms.status === 'On Track' ? 'ms-status-ontrack'
                                 : ms.status === 'At Risk' ? 'ms-status-atrisk' : 'ms-status-blocked';
                             const colorIdx = customerColorMap[ms.customer_id] || 1;
@@ -1040,6 +1047,179 @@
 </script>
 
 {% include 'partials/_action_item_detail_modal.html' %}
+
+{% if upcoming_milestones %}
+<!-- Milestone Detail Modal -->
+<div class="modal fade" id="homeMilestoneDetailModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-scrollable" style="max-width: min(1100px, calc(100vw - 3rem)); width: calc(100vw - 3rem);">
+        <div class="modal-content" style="max-height: 90vh;">
+            <div class="modal-header py-2">
+                <div class="d-flex align-items-center gap-2">
+                    <h5 class="modal-title mb-0"><i class="bi bi-flag"></i> <span id="homeMsTitle">Loading...</span></h5>
+                    <span id="homeMsBadge"></span>
+                </div>
+                <div class="d-flex align-items-center gap-2">
+                    <a id="homeMsMsxLink" href="#" target="_blank" class="btn btn-sm btn-outline-primary" style="display:none"><i class="bi bi-box-arrow-up-right"></i> MSX</a>
+                    <a id="homeMsFullLink" href="#" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrows-fullscreen"></i> Full Page</a>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+            </div>
+            <div class="modal-body p-3" id="homeMsBody">
+                <div class="text-center py-5">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+<script>
+(function() {
+    let msModal = null;
+    const titleEl = document.getElementById('homeMsTitle');
+    const bodyEl = document.getElementById('homeMsBody');
+    const badgeEl = document.getElementById('homeMsBadge');
+    const msxLink = document.getElementById('homeMsMsxLink');
+    const fullLink = document.getElementById('homeMsFullLink');
+
+    window.openHomeMilestoneDetail = function(event, msId, msTitle, msStatus, msUrl) {
+        if (event.target.closest('a, button')) return;
+        if (!msModal) {
+            msModal = new bootstrap.Modal(document.getElementById('homeMilestoneDetailModal'));
+        }
+        titleEl.textContent = msTitle;
+        if (msStatus) {
+            const cls = {'On Track':'bg-success','At Risk':'bg-warning text-dark','Blocked':'bg-danger','Completed':'bg-info'}[msStatus] || 'bg-secondary';
+            badgeEl.innerHTML = '<span class="badge ' + cls + '">' + msStatus + '</span>';
+        } else {
+            badgeEl.innerHTML = '';
+        }
+        if (msUrl) { msxLink.href = msUrl; msxLink.style.display = ''; } else { msxLink.style.display = 'none'; }
+        fullLink.href = '/milestone/' + msId;
+        bodyEl.innerHTML = '<div class="text-center py-5"><div class="spinner-border text-primary" role="status"><span class="visually-hidden">Loading...</span></div></div>';
+        msModal.show();
+        fetch('/api/milestone/' + msId + '/detail')
+            .then(function(r) { if (!r.ok) throw new Error(); return r.text(); })
+            .then(function(html) {
+                bodyEl.innerHTML = html;
+                bodyEl.querySelectorAll('script').forEach(function(old) {
+                    var s = document.createElement('script');
+                    if (old.src) { s.src = old.src; } else { s.textContent = '(function(){' + old.textContent + '})();'; }
+                    old.replaceWith(s);
+                });
+            })
+            .catch(function() { bodyEl.innerHTML = '<div class="text-danger p-3"><i class="bi bi-exclamation-triangle"></i> Failed to load milestone details.</div>'; });
+    };
+})();
+</script>
+{% endif %}
+
+{% if revenue_alerts %}
+<!-- Alert Detail Modal -->
+<div class="modal fade" id="homeAlertDetailModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-scrollable" style="max-width: min(1100px, calc(100vw - 3rem)); width: calc(100vw - 3rem);">
+        <div class="modal-content" style="max-height: 90vh;">
+            <div class="modal-header py-2">
+                <h5 class="modal-title"><i class="bi bi-exclamation-triangle"></i> <span id="homeAlertTitle">Loading...</span></h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body p-3" id="homeAlertBody">
+                <div class="text-center py-5">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% include 'partials/review_action.html' %}
+<script>
+(function() {
+    let alertModal = null;
+    let alertDirty = false;
+    const titleEl = document.getElementById('homeAlertTitle');
+    const bodyEl = document.getElementById('homeAlertBody');
+
+    window.openHomeAlertDetail = function(event, alertId, customerName, bucket) {
+        if (event.target.closest('a, button')) return;
+        if (!alertModal) {
+            alertModal = new bootstrap.Modal(document.getElementById('homeAlertDetailModal'));
+        }
+        alertDirty = false;
+        titleEl.textContent = customerName + ' - ' + bucket;
+        bodyEl.innerHTML = '<div class="text-center py-5"><div class="spinner-border text-primary" role="status"><span class="visually-hidden">Loading...</span></div></div>';
+        alertModal.show();
+        fetch('/api/revenue/analysis/' + alertId + '/detail')
+            .then(function(r) { if (!r.ok) throw new Error(); return r.text(); })
+            .then(function(html) { bodyEl.innerHTML = html; })
+            .catch(function() { bodyEl.innerHTML = '<div class="text-danger p-3"><i class="bi bi-exclamation-triangle"></i> Failed to load alert details.</div>'; });
+    };
+
+    document.getElementById('homeAlertDetailModal').addEventListener('hidden.bs.modal', function() {
+        if (alertDirty) location.reload();
+    });
+
+    document.addEventListener('click', function(e) {
+        if (e.target.closest('#homeAlertDetailModal .review-action-btn')) {
+            alertDirty = true;
+        }
+    });
+})();
+</script>
+{% endif %}
+
+<!-- Note Detail Modal -->
+<div class="modal fade" id="homeNoteDetailModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-scrollable" style="max-width: min(1100px, calc(100vw - 3rem)); width: calc(100vw - 3rem);">
+        <div class="modal-content" style="max-height: 90vh;">
+            <div class="modal-header py-2">
+                <h5 class="modal-title"><i class="bi bi-journal-text"></i> <span id="homeNoteTitle">Loading...</span></h5>
+                <div class="d-flex align-items-center gap-2">
+                    <a id="homeNoteFullLink" href="#" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrows-fullscreen"></i> Full Page</a>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+            </div>
+            <div class="modal-body p-3" id="homeNoteBody">
+                <div class="text-center py-5">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+<script>
+(function() {
+    let noteModal = null;
+    const titleEl = document.getElementById('homeNoteTitle');
+    const bodyEl = document.getElementById('homeNoteBody');
+    const fullLink = document.getElementById('homeNoteFullLink');
+
+    window.openHomeNoteDetail = function(noteId, customerName) {
+        if (!noteModal) {
+            noteModal = new bootstrap.Modal(document.getElementById('homeNoteDetailModal'));
+        }
+        titleEl.textContent = customerName || 'Note';
+        fullLink.href = '/note/' + noteId;
+        bodyEl.innerHTML = '<div class="text-center py-5"><div class="spinner-border text-primary" role="status"><span class="visually-hidden">Loading...</span></div></div>';
+        noteModal.show();
+        fetch('/api/note/' + noteId + '/detail')
+            .then(function(r) { if (!r.ok) throw new Error(); return r.text(); })
+            .then(function(html) {
+                bodyEl.innerHTML = html;
+                bodyEl.querySelectorAll('script').forEach(function(old) {
+                    var s = document.createElement('script');
+                    if (old.src) { s.src = old.src; } else { s.textContent = '(function(){' + old.textContent + '})();'; }
+                    old.replaceWith(s);
+                });
+            })
+            .catch(function() { bodyEl.innerHTML = '<div class="text-danger p-3"><i class="bi bi-exclamation-triangle"></i> Failed to load note details.</div>'; });
+    };
+})();
+</script>
 
 {% endblock %}
 

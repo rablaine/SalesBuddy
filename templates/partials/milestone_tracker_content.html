@@ -147,7 +147,7 @@
         <tbody>
             {% for ms in milestones %}
             <tr class="milestone-row" style="cursor: pointer;"
-                onclick="window.location.href='{{ url_for('milestones.milestone_view', id=ms.id) }}';"
+                onclick="openMilestoneDetail(event, {{ ms.id }}, '{{ ms.title|replace("'", "\\'") }}', '{{ ms.msx_status or '' }}', '{{ ms.url or '' }}');"
                 data-seller-id="{{ ms.seller.id if ms.seller else '' }}"
                 data-status="{{ ms.status }}"
                 data-area="{{ ms.workload_area }}"
@@ -546,5 +546,98 @@
     restoreFilters();
     applyFilters();
     updateSortIndicators();
+})();
+</script>
+
+<!-- Milestone Detail Modal -->
+<div class="modal fade" id="milestoneDetailModal" tabindex="-1" aria-labelledby="milestoneDetailModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-scrollable" style="max-width: min(1200px, calc(100vw - 3rem)); width: calc(100vw - 3rem);">
+        <div class="modal-content" style="max-height: 90vh;">
+            <div class="modal-header py-2">
+                <div class="d-flex align-items-center gap-2 flex-grow-1" style="min-width: 0;">
+                    <h5 class="modal-title mb-0 text-truncate" style="min-width: 0;"><i class="bi bi-flag"></i> <span id="milestoneDetailTitle">Loading...</span></h5>
+                    <span id="milestoneDetailBadge"></span>
+                </div>
+                <div class="d-flex gap-2 flex-shrink-0 ms-2">
+                    <a href="#" id="milestoneDetailMsxLink" target="_blank" class="btn btn-outline-success btn-sm text-nowrap" style="display:none;">
+                        <i class="bi bi-box-arrow-up-right"></i> Open in MSX
+                    </a>
+                    <a href="#" id="milestoneDetailFullLink" class="btn btn-outline-secondary btn-sm text-nowrap">
+                        <i class="bi bi-arrows-fullscreen"></i> Full Page
+                    </a>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+            </div>
+            <div class="modal-body p-3" id="milestoneDetailBody">
+                <div class="text-center py-5">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// Milestone Detail Modal - click row to open, fetch partial, activate scripts
+(function() {
+    let msModal = null;
+    const msTitleEl = document.getElementById('milestoneDetailTitle');
+    const msBodyEl = document.getElementById('milestoneDetailBody');
+
+    window.openMilestoneDetail = function(event, msId, msTitle, msStatus, msUrl) {
+        // Don't open modal when clicking links/buttons inside the row
+        if (event.target.closest('a, button')) return;
+
+        if (!msModal) {
+            msModal = new bootstrap.Modal(document.getElementById('milestoneDetailModal'));
+        }
+        msTitleEl.textContent = msTitle;
+
+        // Status badge
+        const badgeEl = document.getElementById('milestoneDetailBadge');
+        if (msStatus) {
+            const cls = {'On Track':'bg-success','At Risk':'bg-warning text-dark','Blocked':'bg-danger','Completed':'bg-info'}[msStatus] || 'bg-secondary';
+            badgeEl.innerHTML = '<span class="badge ' + cls + '">' + msStatus + '</span>';
+        } else {
+            badgeEl.innerHTML = '';
+        }
+
+        // Action links
+        const msxLink = document.getElementById('milestoneDetailMsxLink');
+        if (msUrl) {
+            msxLink.href = msUrl;
+            msxLink.style.display = '';
+        } else {
+            msxLink.style.display = 'none';
+        }
+        document.getElementById('milestoneDetailFullLink').href = '/milestone/' + msId;
+
+        msBodyEl.innerHTML = '<div class="text-center py-5"><div class="spinner-border text-primary" role="status"><span class="visually-hidden">Loading...</span></div></div>';
+        msModal.show();
+
+        fetch('/api/milestone/' + msId + '/detail')
+            .then(function(resp) {
+                if (!resp.ok) throw new Error('Failed to load');
+                return resp.text();
+            })
+            .then(function(html) {
+                msBodyEl.innerHTML = html;
+                // Activate <script> tags (innerHTML doesn't auto-execute them)
+                msBodyEl.querySelectorAll('script').forEach(function(oldScript) {
+                    var newScript = document.createElement('script');
+                    if (oldScript.src) {
+                        newScript.src = oldScript.src;
+                    } else {
+                        newScript.textContent = '(function(){' + oldScript.textContent + '})();';
+                    }
+                    oldScript.replaceWith(newScript);
+                });
+            })
+            .catch(function() {
+                msBodyEl.innerHTML = '<div class="text-danger p-3"><i class="bi bi-exclamation-triangle"></i> Failed to load milestone details.</div>';
+            });
+    };
 })();
 </script>

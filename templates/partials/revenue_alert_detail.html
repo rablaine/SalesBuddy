@@ -1,0 +1,173 @@
+{# Revenue Alert Detail Partial - rendered as HTML fragment for modal injection #}
+{# Context: a (RevenueAnalysis), bucket_data (dict with recent_months, product_summary, etc.) #}
+{% from 'partials/review_action.html' import review_badge, action_buttons, previous_review_hint %}
+
+<!-- Analysis Card (full width) -->
+<div class="card mb-3 {% if a.category == 'CHURN_RISK' %}border-danger{% elif a.category == 'EXPANSION_OPPORTUNITY' %}border-success{% elif a.category == 'RECENT_DIP' %}border-warning{% endif %}">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h6 class="mb-0">{{ a.bucket }}</h6>
+        {% if a.category == 'CHURN_RISK' %}
+        <span class="badge bg-danger">{{ a.category }}</span>
+        {% elif a.category == 'RECENT_DIP' %}
+        <span class="badge bg-warning text-dark">{{ a.category }}</span>
+        {% elif a.category == 'EXPANSION_OPPORTUNITY' %}
+        <span class="badge bg-success">{{ a.category }}</span>
+        {% elif a.category == 'VOLATILE' %}
+        <span class="badge bg-secondary">{{ a.category }}</span>
+        {% elif a.category == 'HEALTHY' %}
+        <span class="badge bg-light text-dark">{{ a.category }}</span>
+        {% elif a.category == 'NEW_CUSTOMER' %}
+        <span class="badge bg-info">{{ a.category }}</span>
+        {% else %}
+        <span class="badge bg-info">{{ a.category }}</span>
+        {% endif %}
+    </div>
+    <div class="card-body">
+        <div class="row">
+            <div class="col-6">
+                <div class="d-flex gap-3">
+                    <div>
+                        <small class="text-muted">Avg Revenue</small>
+                        <h5>${{ '{:,.0f}'.format(a.avg_revenue) }}</h5>
+                    </div>
+                    <div>
+                        <small class="text-muted">Latest</small>
+                        <h5>${{ '{:,.0f}'.format(a.latest_revenue) }}</h5>
+                    </div>
+                    <div>
+                        <small class="text-muted">Trend</small>
+                        <h5 class="{% if a.trend_slope < -3 %}text-danger{% elif a.trend_slope > 3 %}text-success{% endif %}">
+                            {{ '{:+.1f}'.format(a.trend_slope) }}%/mo
+                        </h5>
+                    </div>
+                    <div>
+                        <small class="text-muted">Priority</small>
+                        <h5>
+                            <span class="badge {% if a.priority_score >= 80 %}bg-danger{% elif a.priority_score >= 60 %}bg-warning text-dark{% elif a.priority_score >= 40 %}bg-info{% else %}bg-secondary{% endif %}">
+                                {{ a.priority_score }}
+                            </span>
+                        </h5>
+                    </div>
+                </div>
+            </div>
+            <div class="col-6 border-start d-flex flex-column justify-content-center">
+                {% if a.recommended_action != 'NO ACTION' %}
+                <strong>{{ a.recommended_action }}</strong>
+                <small class="text-muted">{{ a.engagement_rationale }}</small>
+                {% if a.dollars_at_risk > 0 %}
+                <small class="text-danger mt-1"><i class="bi bi-exclamation-triangle"></i> ${{ '{:,.0f}'.format(a.dollars_at_risk) }}/mo at risk</small>
+                {% elif a.dollars_opportunity > 0 %}
+                <small class="text-success mt-1"><i class="bi bi-graph-up-arrow"></i> ${{ '{:,.0f}'.format(a.dollars_opportunity) }}/mo opportunity</small>
+                {% endif %}
+                {% else %}
+                {% if a.dollars_at_risk > 0 %}
+                <span class="text-danger"><i class="bi bi-exclamation-triangle"></i> ${{ '{:,.0f}'.format(a.dollars_at_risk) }}/mo at risk</span>
+                {% elif a.dollars_opportunity > 0 %}
+                <span class="text-success"><i class="bi bi-graph-up-arrow"></i> ${{ '{:,.0f}'.format(a.dollars_opportunity) }}/mo opportunity</span>
+                {% endif %}
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    <div class="card-footer">
+        <div class="d-flex justify-content-between align-items-center">
+            <span data-review-id="{{ a.id }}">{{ review_badge(a) }}</span>
+            <div class="d-flex align-items-center gap-2">
+                {{ action_buttons(a) }}
+                <small class="text-muted">{{ a.analyzed_at.strftime('%b %d, %Y') }} ({{ a.months_analyzed }} months)</small>
+            </div>
+        </div>
+        {{ previous_review_hint(a) }}
+    </div>
+</div>
+
+<!-- SL4 Product Breakdown Table -->
+{% set recent_months = bucket_data.get('recent_months', []) %}
+{% set product_summary = bucket_data.get('product_summary', []) %}
+{% set bucket_month_revenues = bucket_data.get('bucket_month_revenues', {}) %}
+{% set bucket_total = bucket_data.get('bucket_total', 0) %}
+
+{% if product_summary %}
+<div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h5 class="mb-0"><i class="bi bi-graph-up"></i> {{ a.bucket }}</h5>
+        {% if a.customer_id %}
+        <a href="{{ url_for('revenue.revenue_customer_view', customer_id=a.customer_id) }}" class="btn btn-sm btn-outline-primary">
+            <i class="bi bi-box-arrow-up-right"></i> Full Revenue Page
+        </a>
+        {% endif %}
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover table-sm mb-0">
+                <thead>
+                    <tr>
+                        <th class="ps-3">Product</th>
+                        {% for month in recent_months %}
+                        <th class="text-end">{{ month }}</th>
+                        {% endfor %}
+                        <th class="text-end pe-3"><strong>Total</strong></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <!-- Bucket Total Row -->
+                    <tr class="fw-bold border-bottom border-2">
+                        <td class="ps-3">{{ a.bucket }} Total</td>
+                        {% for month in recent_months %}
+                        <td class="text-end">
+                            {% set current_rev = bucket_month_revenues.get(month, 0) %}
+                            {% set prev_month = recent_months[loop.index0 - 1] if loop.index0 > 0 else None %}
+                            {% set prev_rev = bucket_month_revenues.get(prev_month, 0) if prev_month else 0 %}
+                            {% if current_rev %}
+                                {% if prev_rev > 0 %}
+                                    {% set change = ((current_rev - prev_rev) / prev_rev * 100) %}
+                                    <span class="{% if change < -10 %}text-danger{% elif change > 10 %}text-success{% endif %}">
+                                        ${{ '{:,.0f}'.format(current_rev) }}
+                                    </span>
+                                {% else %}
+                                    ${{ '{:,.0f}'.format(current_rev) }}
+                                {% endif %}
+                            {% else %}
+                            <span class="text-muted">-</span>
+                            {% endif %}
+                        </td>
+                        {% endfor %}
+                        <td class="text-end pe-3">${{ '{:,.0f}'.format(bucket_total) }}</td>
+                    </tr>
+
+                    <!-- Product Rows -->
+                    {% for p in product_summary %}
+                    <tr>
+                        <td class="ps-3">
+                            <a href="{{ url_for('revenue.revenue_product_view', product=p.product) }}" class="text-decoration-none">
+                                {{ p.product }}
+                            </a>
+                        </td>
+                        {% for month in recent_months %}
+                        <td class="text-end">
+                            {% set current_rev = p.month_revenues.get(month, 0) %}
+                            {% set prev_month = recent_months[loop.index0 - 1] if loop.index0 > 0 else None %}
+                            {% set prev_rev = p.month_revenues.get(prev_month, 0) if prev_month else 0 %}
+                            {% if current_rev %}
+                                {% if prev_rev > 0 %}
+                                    {% set change = ((current_rev - prev_rev) / prev_rev * 100) %}
+                                    <span class="{% if change < -10 %}text-danger{% elif change > 10 %}text-success{% endif %}">
+                                        ${{ '{:,.0f}'.format(current_rev) }}
+                                    </span>
+                                {% else %}
+                                    ${{ '{:,.0f}'.format(current_rev) }}
+                                {% endif %}
+                            {% else %}
+                            <span class="text-muted">-</span>
+                            {% endif %}
+                        </td>
+                        {% endfor %}
+                        <td class="text-end pe-3">${{ '{:,.0f}'.format(p.total_revenue) }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endif %}

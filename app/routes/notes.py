@@ -503,6 +503,18 @@ def note_view(id):
     return render_template('note_view.html', note=note, back_url=back_url)
 
 
+@notes_bp.route('/api/note/<int:id>/detail')
+def note_detail_fragment(id):
+    """Return rendered HTML fragment of note view for modal embedding."""
+    note = Note.query.filter_by(id=id).first_or_404()
+    return render_template(
+        'partials/note_view_content.html',
+        note=note,
+        back_url='',
+        show_edit_delete=False,
+    )
+
+
 @notes_bp.route('/note/<int:id>/edit', methods=['GET', 'POST'])
 def note_edit(id):
     """Edit call log (FR010)."""

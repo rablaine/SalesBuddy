@@ -91,7 +91,11 @@ def seller_view(id):
     
     # Get revenue analysis for this seller's customers
     from app.services.revenue_analysis import get_seller_alerts
-    revenue_alerts = get_seller_alerts(seller.name)
+    _addressed = ('actioned', 'dismissed', 'reviewed')
+    revenue_alerts = sorted(
+        get_seller_alerts(seller.name),
+        key=lambda a: (a.review_status in _addressed, -(a.priority_score or 0)),
+    )
     
     # Calculate revenue summary totals
     revenue_summary = {

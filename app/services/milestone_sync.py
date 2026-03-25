@@ -1202,12 +1202,13 @@ def get_milestone_tracker_data_for_seller(seller_id: int) -> Dict[str, Any]:
             "quarters": [],
         }
     
-    # Query active milestones for this seller's customers
+    # Query active milestones for this seller's customers (only ones we're on the team for)
     milestones = (
         Milestone.query
         .filter(
             Milestone.customer_id.in_(customer_ids),
-            Milestone.msx_status.in_(ACTIVE_STATUSES)
+            Milestone.msx_status.in_(ACTIVE_STATUSES),
+            Milestone.on_my_team == True,
         )
         .options(
             db.joinedload(Milestone.customer).joinedload(Customer.seller),

@@ -368,7 +368,10 @@ def api_partner_create():
     # Optional fields from flyout
     website = data.get('website', '').strip()
     if website:
-        partner.website = website
+        partner.website = _extract_domain(website)
+        favicon_b64 = fetch_favicon_for_domain(partner.website)
+        if favicon_b64:
+            partner.favicon_b64 = favicon_b64
     overview = data.get('overview', '').strip()
     if overview:
         partner.overview = overview

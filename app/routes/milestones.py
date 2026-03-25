@@ -95,6 +95,43 @@ def milestone_view(id):
     )
 
 
+@bp.route('/api/milestone/<int:id>/detail')
+def milestone_detail_fragment(id):
+    """Return rendered HTML fragment of milestone view for modal embedding."""
+    milestone = Milestone.query.get_or_404(id)
+    tasks = MsxTask.query.filter_by(milestone_id=milestone.id).order_by(
+        MsxTask.created_at.desc()
+    ).all()
+    cached_comments = None
+    if milestone.cached_comments_json:
+        try:
+            cached_comments = json.loads(milestone.cached_comments_json)
+        except (json.JSONDecodeError, TypeError):
+            cached_comments = None
+    owner_link = None
+    if milestone.owner_name:
+        seller = Seller.query.filter(
+            db.func.lower(Seller.name) == milestone.owner_name.lower()
+        ).first()
+        if seller:
+            owner_link = {'url': url_for('sellers.seller_view', id=seller.id), 'type': 'seller'}
+        else:
+            se = SolutionEngineer.query.filter(
+                db.func.lower(SolutionEngineer.name) == milestone.owner_name.lower()
+            ).first()
+            if se:
+                owner_link = {'url': url_for('solution_engineers.solution_engineer_view', id=se.id), 'type': 'se'}
+
+    return render_template(
+        'partials/milestone_view_content.html',
+        milestone=milestone,
+        tasks=tasks,
+        cached_comments=cached_comments,
+        owner_link=owner_link,
+        show_edit_delete=False,
+    )
+
+
 @bp.route('/milestone/<int:id>/tasks', methods=['POST'])
 def milestone_create_task(id):
     """

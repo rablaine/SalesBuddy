@@ -159,6 +159,7 @@
                     {% if analyses %}
                     {% set alerts = analyses %}
                     {% set show_seller = not seller_mode %}
+                    {% set alert_clickable = true %}
                     {% include 'partials/revenue_alerts_content.html' %}
                     {% else %}
                     <div class="text-center py-5">
@@ -177,4 +178,66 @@
 </div>
 
 {% include 'partials/review_action.html' %}
+
+<!-- Alert Detail Modal -->
+<div class="modal fade" id="alertDetailModal" tabindex="-1" aria-labelledby="alertDetailModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-scrollable" style="max-width: min(1100px, calc(100vw - 3rem)); width: calc(100vw - 3rem);">
+        <div class="modal-content" style="max-height: 90vh;">
+            <div class="modal-header py-2">
+                <h5 class="modal-title" id="alertDetailModalLabel"><i class="bi bi-exclamation-triangle"></i> <span id="alertDetailTitle">Loading...</span></h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body p-3" id="alertDetailBody">
+                <div class="text-center py-5">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+(function() {
+    let detailModal = null;
+    let detailDirty = false;
+    const titleEl = document.getElementById('alertDetailTitle');
+    const bodyEl = document.getElementById('alertDetailBody');
+
+    window.openAlertDetail = function(event, alertId, customerName, bucket) {
+        if (event.target.closest('a, button')) return;
+
+        if (!detailModal) {
+            detailModal = new bootstrap.Modal(document.getElementById('alertDetailModal'));
+        }
+        detailDirty = false;
+        titleEl.textContent = customerName + ' - ' + bucket;
+        bodyEl.innerHTML = '<div class="text-center py-5"><div class="spinner-border text-primary" role="status"><span class="visually-hidden">Loading...</span></div></div>';
+        detailModal.show();
+
+        fetch('/api/revenue/analysis/' + alertId + '/detail')
+            .then(function(resp) {
+                if (!resp.ok) throw new Error('Failed to load');
+                return resp.text();
+            })
+            .then(function(html) {
+                bodyEl.innerHTML = html;
+            })
+            .catch(function() {
+                bodyEl.innerHTML = '<div class="text-danger p-3"><i class="bi bi-exclamation-triangle"></i> Failed to load alert details.</div>';
+            });
+    };
+
+    document.getElementById('alertDetailModal').addEventListener('hidden.bs.modal', function() {
+        if (detailDirty) location.reload();
+    });
+
+    document.addEventListener('click', function(e) {
+        if (e.target.closest('#alertDetailModal .review-action-btn')) {
+            detailDirty = true;
+        }
+    });
+})();
+</script>
 {% endblock %}

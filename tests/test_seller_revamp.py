@@ -22,6 +22,7 @@ class TestSellerViewRevamp:
                 due_date=datetime.now(timezone.utc) + timedelta(days=14),
                 monthly_usage=5000.0,
                 workload='Infra: Kubernetes',
+                on_my_team=True,
             )
             db.session.add(ms)
             db.session.commit()
@@ -52,6 +53,7 @@ class TestSellerViewRevamp:
                 msx_status='At Risk',
                 customer_id=customer.id,
                 monthly_usage=1000.0,
+                on_my_team=True,
             )
             db.session.add(ms)
             db.session.commit()
@@ -77,6 +79,7 @@ class TestSellerViewRevamp:
                 customer_id=customer.id,
                 monthly_usage=100.0,
                 due_date=today + timedelta(days=30),
+                on_my_team=True,
             )
             ms_sooner = Milestone(
                 title='Sooner milestone',
@@ -85,6 +88,7 @@ class TestSellerViewRevamp:
                 customer_id=customer.id,
                 monthly_usage=50000.0,
                 due_date=today + timedelta(days=5),
+                on_my_team=True,
             )
             ms_no_date = Milestone(
                 title='No date milestone',
@@ -92,6 +96,7 @@ class TestSellerViewRevamp:
                 msx_status='On Track',
                 customer_id=customer.id,
                 monthly_usage=25000.0,
+                on_my_team=True,
             )
             db.session.add_all([ms_later, ms_sooner, ms_no_date])
             db.session.commit()
