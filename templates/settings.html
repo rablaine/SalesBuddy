@@ -94,6 +94,29 @@
             </div>
         </div>
 
+        <!-- Dashboard -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-house"></i> Dashboard</h5>
+            </div>
+            <div class="card-body">
+                <div class="form-check form-switch mb-3">
+                    <input class="form-check-input" type="checkbox" id="copilotActionsSwitch" {{ 'checked' if pref and pref.copilot_actions_enabled else '' }}>
+                    <label class="form-check-label" for="copilotActionsSwitch">
+                        Copilot daily action items
+                    </label>
+                    <div><small class="text-muted">Show AI-generated action items from your emails, chats, and meetings. Refreshes daily at 6 AM or on app start.</small></div>
+                </div>
+                <div class="form-check form-switch">
+                    <input class="form-check-input" type="checkbox" id="staleMilestonesSwitch" {{ 'checked' if pref and pref.show_stale_milestones else '' }}>
+                    <label class="form-check-label" for="staleMilestonesSwitch">
+                        Stale milestones in Action Items
+                    </label>
+                    <div><small class="text-muted">Show milestones with no recent comments in the Action Items card on the dashboard.</small></div>
+                </div>
+            </div>
+        </div>
+
         <!-- Note Templates -->
         <div class="card mb-4">
             <div class="card-header">
@@ -220,6 +243,22 @@ document.getElementById('msxAutoWritebackSwitch').addEventListener('change', fun
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ msx_auto_writeback: this.checked })
+    });
+});
+
+// Dashboard Toggles
+document.getElementById('copilotActionsSwitch').addEventListener('change', function() {
+    fetch('/api/preferences/dashboard-toggle', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ copilot_actions_enabled: this.checked })
+    });
+});
+document.getElementById('staleMilestonesSwitch').addEventListener('change', function() {
+    fetch('/api/preferences/dashboard-toggle', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ show_stale_milestones: this.checked })
     });
 });
 

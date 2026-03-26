@@ -217,11 +217,18 @@ def index():
     seller_mode_sid = get_seller_mode_seller_id()
 
     # Open action items from engagements, ordered by due date
+    pref = UserPreference.query.first()
+    copilot_enabled = pref.copilot_actions_enabled if pref else True
+    stale_enabled = pref.show_stale_milestones if pref else True
+
     open_tasks_q = ActionItem.query.filter(
         ActionItem.status == 'open'
     ).options(
         db.joinedload(ActionItem.engagement).joinedload(Engagement.customer)
     )
+    # Exclude copilot items if disabled
+    if not copilot_enabled:
+        open_tasks_q = open_tasks_q.filter(ActionItem.source != 'copilot')
     if seller_mode_sid:
         # In seller mode, show engagement tasks for this seller + all copilot tasks
         open_tasks_q = open_tasks_q.filter(
@@ -272,9 +279,12 @@ def index():
     has_milestones = Milestone.query.first() is not None
 
     # Stale milestones: on my team, active (not blocked), no recent comments
-    stale_milestones = _find_stale_milestones(
-        seller_mode_sid=seller_mode_sid, stale_days=14
-    )
+    if stale_enabled:
+        stale_milestones = _find_stale_milestones(
+            seller_mode_sid=seller_mode_sid, stale_days=14
+        )
+    else:
+        stale_milestones = []
 
     engagement_q = Engagement.query.filter(
         Engagement.status.in_(['Active', 'On Hold'])
@@ -1085,6 +1095,29 @@ def update_msx_auto_writeback():
     db.session.commit()
 
     return jsonify({'success': True, 'msx_auto_writeback': pref.msx_auto_writeback}), 200
+
+
+@main_bp.route('/api/preferences/dashboard-toggle', methods=['POST'])
+def update_dashboard_toggle():
+    """Toggle dashboard display preferences."""
+    data = request.get_json()
+
+    pref = UserPreference.query.first()
+    if not pref:
+        pref = UserPreference()
+        db.session.add(pref)
+
+    if 'copilot_actions_enabled' in data:
+        pref.copilot_actions_enabled = bool(data['copilot_actions_enabled'])
+    if 'show_stale_milestones' in data:
+        pref.show_stale_milestones = bool(data['show_stale_milestones'])
+
+    db.session.commit()
+    return jsonify({
+        'success': True,
+        'copilot_actions_enabled': pref.copilot_actions_enabled,
+        'show_stale_milestones': pref.show_stale_milestones,
+    }), 200
 
 
 # =============================================================================

@@ -997,6 +997,8 @@ class UserPreference(db.Model):
     my_seller_id = db.Column(db.Integer, db.ForeignKey('sellers.id'), nullable=True)  # DSS's own Seller record
     my_seller_alias = db.Column(db.String(100), nullable=True)  # DSS's az login alias (persisted for offline use)
     msx_auto_writeback = db.Column(db.Boolean, default=False, nullable=False, server_default='0')  # Auto-sync note summaries and engagement stories to MSX milestones
+    copilot_actions_enabled = db.Column(db.Boolean, default=True, nullable=False, server_default='1')  # Show Copilot daily action items on dashboard
+    show_stale_milestones = db.Column(db.Boolean, default=True, nullable=False, server_default='1')  # Show stale milestones in Action Items card
     last_copilot_sync = db.Column(db.DateTime, nullable=True)  # Last time Copilot daily action items were synced
     created_at = db.Column(db.DateTime, default=utc_now, nullable=False)
     updated_at = db.Column(db.DateTime, default=utc_now, onupdate=utc_now, nullable=False)

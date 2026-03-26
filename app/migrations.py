@@ -236,6 +236,12 @@ def run_migrations(db):
     # Migration: Make action_items.engagement_id nullable (for copilot/project items)
     _make_column_nullable(db, inspector, 'action_items', 'engagement_id')
 
+    # Migration: Add dashboard toggle preferences
+    _add_column_if_not_exists(db, inspector, 'user_preferences',
+                              'copilot_actions_enabled', "BOOLEAN NOT NULL DEFAULT 1")
+    _add_column_if_not_exists(db, inspector, 'user_preferences',
+                              'show_stale_milestones', "BOOLEAN NOT NULL DEFAULT 1")
+
     # =========================================================================
     # End migrations
     # =========================================================================

@@ -206,6 +206,10 @@ def start_copilot_sync_background(app) -> None:
         app: Flask app instance.
     """
     with app.app_context():
+        pref = UserPreference.query.first()
+        if pref and not pref.copilot_actions_enabled:
+            logger.debug("Copilot action items disabled in settings")
+            return
         if not should_sync():
             logger.debug("Copilot action items sync not needed")
             return
@@ -241,6 +245,10 @@ def start_daily_scheduler(app) -> None:
 
                 if now.hour >= SYNC_HOUR and last_sync_date != today:
                     with app.app_context():
+                        pref = UserPreference.query.first()
+                        if pref and not pref.copilot_actions_enabled:
+                            last_sync_date = today
+                            continue
                         if should_sync():
                             logger.info("Daily scheduler triggering Copilot sync")
                             sync_copilot_action_items(app=app)
