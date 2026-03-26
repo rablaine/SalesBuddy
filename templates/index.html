@@ -112,7 +112,7 @@
                             <div class="me-2" style="min-width: 0;">
                                 <div class="fw-semibold text-truncate">
                                     {{ ms.title or ms.opportunity_name or 'Milestone #' ~ ms.id }}
-                                    {% if ms.monthly_usage %}<small class="text-success fw-normal">${{ '{:,.0f}'.format(ms.monthly_usage) }}/mo</small>{% endif %}
+                                    {% if ms.msx_status != 'On Track' and ms.monthly_usage %}<small class="text-success fw-normal">${{ '{:,.0f}'.format(ms.monthly_usage) }}/mo</small>{% endif %}
                                 </div>
                                 <div class="text-muted small text-truncate">
                                     {% if ms.customer %}{{ ms.customer.name }}{% endif %}
@@ -126,9 +126,15 @@
                                 </span>
                                 {% endif %}
                                 <div>
-                                    <span class="badge {% if ms.msx_status == 'On Track' %}bg-success{% elif ms.msx_status == 'At Risk' %}bg-warning text-dark{% elif ms.msx_status == 'Blocked' %}bg-danger{% else %}bg-secondary{% endif %}" style="font-size: 0.65rem;">
+                                    {% if ms.msx_status == 'On Track' and ms.monthly_usage %}
+                                    <span class="badge bg-success" style="font-size: 0.65rem;">${{ '{:,.0f}'.format(ms.monthly_usage) }}/mo</span>
+                                    {% elif ms.msx_status == 'On Track' %}
+                                    <span class="badge bg-success" style="font-size: 0.65rem;">On Track</span>
+                                    {% else %}
+                                    <span class="badge {% if ms.msx_status == 'At Risk' %}bg-warning text-dark{% elif ms.msx_status == 'Blocked' %}bg-danger{% else %}bg-secondary{% endif %}" style="font-size: 0.65rem;">
                                         {{ ms.msx_status }}
                                     </span>
+                                    {% endif %}
                                 </div>
                             </div>
                         </div>
