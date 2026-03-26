@@ -147,18 +147,18 @@ def report_one_on_one():
     )
 
     # --- Milestone highlights (on_my_team only) ---
-    # Recently completed or committed milestones (last 2 weeks)
-    # Uses committed_at/completed_at dates set by sync change detection
-    milestone_wins = (
+    # Recently committed milestones (last 2 weeks)
+    # Uses committed_at date set by sync change detection
+    milestone_commitments = (
         Milestone.query
         .filter(
             Milestone.on_my_team == True,  # noqa: E712
-            or_(
-                Milestone.completed_at >= two_weeks_ago,
-                Milestone.committed_at >= two_weeks_ago,
-            ),
+            Milestone.committed_at >= two_weeks_ago,
         )
-        .order_by(desc(func.coalesce(Milestone.completed_at, Milestone.committed_at)))
+        .options(
+            db.joinedload(Milestone.customer).joinedload(Customer.seller),
+        )
+        .order_by(desc(Milestone.committed_at))
         .all()
     )
 
@@ -258,14 +258,14 @@ def report_one_on_one():
     )[:10]
 
     # Stats
-    wins_acr = sum(m.monthly_usage or 0 for m in milestone_wins)
+    commitments_acr = sum(m.monthly_usage or 0 for m in milestone_commitments)
     stats = {
         'recent_engagement_count': len(recent_engagements),
         'recent_note_count': len(recent_notes),
         'recent_customer_count': len(recent_customers),
         'open_engagement_count': len(open_engagements),
         'open_customer_count': len(all_customers),
-        'wins_acr': wins_acr,
+        'commitments_acr': commitments_acr,
     }
 
     return render_template(
@@ -274,7 +274,7 @@ def report_one_on_one():
         all_customers=all_sorted,
         stats=stats,
         cutoff_date=two_weeks_ago,
-        milestone_wins=milestone_wins,
+        milestone_commitments=milestone_commitments,
         quarter_milestones=quarter_milestones,
         quarter_start=quarter_start,
         quarter_end=quarter_end,

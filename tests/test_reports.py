@@ -182,28 +182,10 @@ class TestOneOnOneReport:
 
 
 class TestMilestoneHighlights:
-    """Tests for milestone wins and needs-attention sections."""
+    """Tests for milestone commitments and quarter milestones sections."""
 
-    def test_completed_milestone_shows_in_wins(self, client, app, sample_data):
-        """Recently completed milestone on my team appears in Wins section."""
-        with app.app_context():
-            ms = Milestone(
-                url='https://example.com/ms1',
-                title='Completed Migration',
-                msx_status='Completed',
-                on_my_team=True,
-                completed_at=datetime.now(timezone.utc) - timedelta(days=3),
-                customer_id=sample_data['customer1_id'],
-            )
-            db.session.add(ms)
-            db.session.commit()
-
-            resp = client.get('/reports/one-on-one')
-            assert b'Completed Migration' in resp.data
-            assert b'Wins' in resp.data
-
-    def test_committed_milestone_shows_in_wins(self, client, app, sample_data):
-        """Recently committed milestone on my team appears in Wins section."""
+    def test_committed_milestone_shows(self, client, app, sample_data):
+        """Recently committed milestone on my team appears in Commitments section."""
         with app.app_context():
             ms = Milestone(
                 url='https://example.com/ms2',
@@ -219,15 +201,16 @@ class TestMilestoneHighlights:
 
             resp = client.get('/reports/one-on-one')
             assert b'Committed Deployment' in resp.data
+            assert b'Commitments' in resp.data
 
     def test_milestone_not_on_team_hidden(self, client, app, sample_data):
-        """Milestone not on my team should not appear in highlights."""
+        """Milestone not on my team should not appear in commitments."""
         with app.app_context():
             ms = Milestone(
                 url='https://example.com/ms3',
                 title='Someone Elses Milestone',
-                msx_status='Completed',
-                completed_at=datetime.now(timezone.utc) - timedelta(days=1),
+                msx_status='On Track',
+                committed_at=datetime.now(timezone.utc) - timedelta(days=1),
                 on_my_team=False,
                 customer_id=sample_data['customer1_id'],
             )
@@ -238,7 +221,7 @@ class TestMilestoneHighlights:
             assert b'Someone Elses Milestone' not in resp.data
 
     def test_old_committed_milestone_hidden(self, client, app, sample_data):
-        """Milestone committed more than 2 weeks ago should not appear in Wins."""
+        """Milestone committed more than 2 weeks ago should not appear."""
         with app.app_context():
             ms = Milestone(
                 url='https://example.com/ms-old',
@@ -255,13 +238,13 @@ class TestMilestoneHighlights:
             resp = client.get('/reports/one-on-one')
             assert b'Ancient Commitment' not in resp.data
 
-    def test_no_date_milestone_hidden_from_wins(self, client, app, sample_data):
-        """Milestone with no committed_at/completed_at should not appear in Wins."""
+    def test_no_date_milestone_hidden(self, client, app, sample_data):
+        """Milestone with no committed_at should not appear in Commitments."""
         with app.app_context():
             ms = Milestone(
                 url='https://example.com/ms-nodate',
                 title='No Date Milestone',
-                msx_status='Completed',
+                msx_status='On Track',
                 on_my_team=True,
                 customer_id=sample_data['customer1_id'],
             )
@@ -319,7 +302,7 @@ class TestMilestoneHighlights:
         """No milestones should show empty state messages."""
         with app.app_context():
             resp = client.get('/reports/one-on-one')
-            assert b'No milestones completed or committed in the last 2 weeks' in resp.data
+            assert b'No milestones committed in the last 2 weeks' in resp.data
             assert b'No milestones due this quarter' in resp.data
 
 
