@@ -69,6 +69,17 @@
 - Use docstrings for all functions, classes, and modules
 - **Never use em dashes** (the long dash character). Use a regular hyphen (-), a comma, or rewrite the sentence instead. Do not fake an em dash with two hyphens (--) either.
 
+### DateTime Conventions
+**CRITICAL - Follow these rules for all datetime handling:**
+
+- **Use `datetime.now(timezone.utc)` for all server-side timestamps** (created_at, updated_at, completed_at, reviewed_at, synced_at, etc.). Never use `datetime.now()` or `datetime.utcnow()` for these fields.
+- **Use `date.today()` for date-only comparisons** (fiscal quarter boundaries, overdue checks, FY season detection). This is intentionally local and correct for date-only logic.
+- **`call_date` is the ONE exception** - it stores naive local time from user input. This is by design. Do NOT change it to UTC. When converting `call_date` to UTC for MSX API calls, use `cd.astimezone()` then `.astimezone(timezone.utc)` as done in `milestone_tracking.py`.
+- **The `utc_now()` helper in `models.py`** returns `datetime.now(timezone.utc)`. Use it for model column defaults.
+- **SQLite stores datetimes as text strings** ("YYYY-MM-DD HH:MM:SS"). No timezone info is preserved. When comparing with SQLAlchemy filters, use `datetime` objects (not `date`) to avoid string comparison issues (e.g., "2026-03-31 00:00:00" > "2026-03-31").
+- **Never mock the `datetime` class at module level** in tests - it breaks all datetime usage in the route. Instead, mock `date.today()` for date checks or extract the time-dependent logic into a helper function.
+- **Template rendering**: Naive datetimes are passed to Jinja2 strftime as-is. Client-side JS (`local-datetime` class) handles UTC-to-local conversion for display.
+
 ### Naming Conventions
 - **Files:** snake_case (e.g., `customer_routes.py`, `note_model.py`)
 - **Variables:** snake_case (e.g., `customer_name`, `note_content`)

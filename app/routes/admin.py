@@ -68,8 +68,8 @@ def admin_panel():
         'favicon_sync_status': favicon_sync,
     }
     
-    # FY season: promote the FY card Jul 1 – Aug 31, unless already transitioned
-    now = datetime.now()
+    # FY season: promote the FY card Jul 1 - Aug 31, unless already transitioned
+    now = datetime.now(timezone.utc)
     fy_season = (7 <= now.month <= 8)
     pref = UserPreference.query.first()
     # If they've already completed this year's transition, don't promote

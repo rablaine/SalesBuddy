@@ -127,7 +127,7 @@ def get_fiscal_year_labels() -> dict:
     Returns:
         Dict with current_fy and next_fy (e.g. {"current_fy": "FY26", "next_fy": "FY27"}).
     """
-    now = datetime.now()
+    now = datetime.now(timezone.utc)
     # Oct–Dec: we're solidly in the new FY. Jan–Sep: still the prior FY for naming.
     current_fy = now.year + 1 if now.month >= 10 else now.year
     return {

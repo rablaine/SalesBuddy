@@ -3,7 +3,7 @@ Engagement routes for Sales Buddy.
 Handles CRUD operations for customer engagement threads.
 """
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify
 
 from app.models import (
@@ -644,7 +644,7 @@ def action_item_toggle(id: int):
 
     if task.status == 'open':
         task.status = 'completed'
-        task.completed_at = datetime.now()
+        task.completed_at = datetime.now(timezone.utc)
     else:
         task.status = 'open'
         task.completed_at = None

@@ -1285,10 +1285,10 @@ def inject_preferences():
     fy_transition_label = pref.fy_transition_label if pref else None
     fy_sync_complete = pref.fy_sync_complete if pref else False
 
-    # FY changeover reminder: show banner Jul 1 – Aug 31 if not yet completed
+    # FY changeover reminder: show banner Jul 1 - Aug 31 if not yet completed
     fy_changeover_reminder = False
-    now = datetime.today()
-    if now.month in (7, 8) and not fy_transition_active:
+    _today_for_fy = date.today()
+    if _today_for_fy.month in (7, 8) and not fy_transition_active:
         from app.services.fy_cutover import get_fiscal_year_labels
         next_fy = get_fiscal_year_labels()["next_fy"]
         fy_last_completed = pref.fy_last_completed if pref else None

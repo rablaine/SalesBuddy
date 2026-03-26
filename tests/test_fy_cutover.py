@@ -2,7 +2,7 @@
 
 import json
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timezone, date
 from pathlib import Path
 from unittest.mock import patch
 
@@ -298,10 +298,11 @@ class TestFYTransitionBanner:
 
     def test_changeover_reminder_banner_in_july(self, client, app):
         """Banner should remind user to start FY transition in July."""
-        with patch('app.routes.main.datetime') as mock_dt:
-            mock_dt.today.return_value = datetime(2026, 7, 15)
+        with patch('app.routes.main.date') as mock_date:
+            mock_date.today.return_value = date(2026, 7, 15)
+            mock_date.side_effect = lambda *a, **k: date(*a, **k)
             with patch('app.services.fy_cutover.datetime') as mock_fy_dt:
-                mock_fy_dt.now.return_value = datetime(2026, 7, 15)
+                mock_fy_dt.now.return_value = datetime(2026, 7, 15, tzinfo=timezone.utc)
                 resp = client.get('/')
         assert b'time to transition to FY27' in resp.data
         assert b'Get started in the Admin Panel' in resp.data
@@ -314,17 +315,19 @@ class TestFYTransitionBanner:
             pref.fy_last_completed = 'FY27'
             db.session.commit()
 
-        with patch('app.routes.main.datetime') as mock_dt:
-            mock_dt.today.return_value = datetime(2026, 7, 15)
+        with patch('app.routes.main.date') as mock_date:
+            mock_date.today.return_value = date(2026, 7, 15)
+            mock_date.side_effect = lambda *a, **k: date(*a, **k)
             with patch('app.services.fy_cutover.datetime') as mock_fy_dt:
-                mock_fy_dt.now.return_value = datetime(2026, 7, 15)
+                mock_fy_dt.now.return_value = datetime(2026, 7, 15, tzinfo=timezone.utc)
                 resp = client.get('/')
         assert b'time to transition' not in resp.data
 
     def test_changeover_reminder_hidden_outside_window(self, client):
         """Banner should NOT appear outside Jul-Aug."""
-        with patch('app.routes.main.datetime') as mock_dt:
-            mock_dt.today.return_value = datetime(2026, 9, 1)
+        with patch('app.routes.main.date') as mock_date:
+            mock_date.today.return_value = date(2026, 9, 1)
+            mock_date.side_effect = lambda *a, **k: date(*a, **k)
             resp = client.get('/')
         assert b'time to transition' not in resp.data
 
@@ -334,8 +337,9 @@ class TestFYTransitionBanner:
             from app.services.fy_cutover import enter_transition_mode
             enter_transition_mode('FY27')
 
-        with patch('app.routes.main.datetime') as mock_dt:
-            mock_dt.today.return_value = datetime(2026, 7, 15)
+        with patch('app.routes.main.date') as mock_date:
+            mock_date.today.return_value = date(2026, 7, 15)
+            mock_date.side_effect = lambda *a, **k: date(*a, **k)
             resp = client.get('/')
         assert b'time to transition' not in resp.data
 
