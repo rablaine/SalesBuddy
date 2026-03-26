@@ -552,11 +552,10 @@ def track_engagement_on_milestones(engagement, background: bool = True) -> list[
         print(f"[milestone-tracking] engagement {engagement.id}: no story fields populated, skipping MSX write")
         return [] if not background else None
 
-    story_plain = _build_engagement_plain_text(engagement)
-    story_html = _build_engagement_html_table(engagement)
-    # Combine plain text + HTML table so MSX's plain text view is readable
-    # while the HTML view renders the styled table
-    story = f"{story_plain}\n\n{story_html}" if story_plain else story_html
+    # Plain text only - MSX renders comments twice (tag-stripped plain text
+    # AND HTML) so HTML tables look garbled in the plain text view. Sending
+    # only plain text keeps both views clean.
+    story = _build_engagement_plain_text(engagement)
     ref_tag = _ENG_REF.format(id=engagement.id)
     print(f"[milestone-tracking] engagement {engagement.id}: {len(engagement.milestones)} milestones, ref={ref_tag}")
     content = _add_footer(story, ref_tag)
