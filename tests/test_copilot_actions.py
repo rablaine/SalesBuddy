@@ -12,17 +12,20 @@ SAMPLE_WORKIQ_RESPONSE = """[
   {
     "title": "Provide cost comparison for Vantage PostgreSQL scaling",
     "description": "This is blocking decision-making on whether the customer can safely run at higher capacity. Build a cost comparison for PostgreSQL Flexible Server.",
-    "source_url": "https://teams.microsoft.com/l/message/19:abc@thread.v2/123"
+    "source_url": "https://teams.microsoft.com/l/message/19:abc@thread.v2/123",
+    "last_activity_date": "2026-03-26"
   },
   {
     "title": "Follow up on LogixHealth TCO deliverables",
     "description": "This account has multiple live threads and upcoming final delivery meeting. Ensure the assessment deck is accessible to all parties.",
-    "source_url": "https://outlook.office365.com/owa/?ItemID=AAMk123"
+    "source_url": "https://outlook.office365.com/owa/?ItemID=AAMk123",
+    "last_activity_date": "2026-03-25"
   },
   {
     "title": "Progress Q3 pipeline hygiene actions",
     "description": "Manager-directed priority tied to your scorecard. Verify API usage and follow up on uncommitted milestones.",
-    "source_url": "https://teams.microsoft.com/l/meeting/details?eventId=AAMk456"
+    "source_url": "https://teams.microsoft.com/l/meeting/details?eventId=AAMk456",
+    "last_activity_date": "2026-03-24"
   }
 ]"""
 
@@ -270,7 +273,7 @@ class TestDashboardCopilotItems:
         assert b'bi-stars' in resp.data  # Copilot icon
 
     def test_copilot_items_labeled(self, client, app):
-        """Copilot items should show 'Copilot suggestion' subtitle."""
+        """Copilot items should show 'Copilot Suggestions' section header."""
         with app.app_context():
             from app.models import ActionItem, db
             item = ActionItem(
@@ -282,4 +285,4 @@ class TestDashboardCopilotItems:
             db.session.commit()
 
         resp = client.get('/')
-        assert b'Copilot suggestion' in resp.data
+        assert b'Copilot Suggestions' in resp.data

@@ -12,17 +12,20 @@ Lifecycle:
 import logging
 import re
 import threading
-from datetime import datetime, date, time, timezone
+from datetime import datetime, date, time, timedelta, timezone
 
 from app.models import db, ActionItem, UserPreference
 
 logger = logging.getLogger(__name__)
 
-COPILOT_PROMPT = (
-    "Look through all my emails, chats, and meetings, "
-    "and let me know the top three things I need to get done. "
+_COPILOT_PROMPT_BASE = (
+    "Look through all my emails, chats, and meetings from the last 7 days, "
+    "and let me know the top three things I still need to get done. "
+    "Only include items that are still unresolved or have not been responded to yet. "
+    "{exclusions}"
     "Return ONLY a JSON array with objects containing: "
-    '"title", "description", "source_url" (a Teams or Outlook link if available). '
+    '"title", "description", "source_url" (a Teams or Outlook link if available), '
+    '"last_activity_date" (YYYY-MM-DD of the most recent email/chat/meeting about this). '
     "No markdown, no explanation, just the JSON array."
 )
 
@@ -31,6 +34,32 @@ SYNC_HOUR = 6
 
 # Prevent concurrent syncs (startup + scheduler race)
 _sync_lock = threading.Lock()
+
+
+def _build_prompt() -> str:
+    """Build the Copilot prompt, excluding recently completed items.
+
+    Queries ActionItems completed in the last 7 days with source='copilot'
+    and appends them as exclusions to the prompt.
+    """
+    exclusions = ""
+    try:
+        cutoff = datetime.now(timezone.utc) - timedelta(days=7)
+        completed = ActionItem.query.filter(
+            ActionItem.source == 'copilot',
+            ActionItem.status == 'completed',
+            ActionItem.completed_at >= cutoff,
+        ).all()
+        if completed:
+            titles = [f'"{item.title}"' for item in completed]
+            exclusions = (
+                "Do NOT include these items because I already completed them: "
+                + ", ".join(titles) + ". "
+            )
+    except Exception:
+        logger.debug("Could not query completed items for exclusion", exc_info=True)
+
+    return _COPILOT_PROMPT_BASE.format(exclusions=exclusions)
 
 
 def parse_action_items(response: str) -> list[dict]:
@@ -110,8 +139,12 @@ def sync_copilot_action_items(app=None) -> dict:
     def _do_sync():
         logger.info("Starting Copilot action items sync")
         try:
-            # Query WorkIQ (this takes ~60 seconds)
-            response = query_workiq(COPILOT_PROMPT, timeout=120)
+            # Build prompt with exclusions from recently completed items
+            prompt = _build_prompt()
+            logger.info("Copilot prompt: %s", prompt[:200])
+
+            # Query WorkIQ (this takes ~30-60 seconds)
+            response = query_workiq(prompt, timeout=120)
             if not response or not response.strip():
                 logger.warning("WorkIQ returned empty response for Copilot action items")
                 return {"success": False, "error": "Empty response from WorkIQ"}
@@ -123,9 +156,16 @@ def sync_copilot_action_items(app=None) -> dict:
                                "First 500 chars: %s", response[:500])
                 return {"success": False, "error": "No action items parsed"}
 
-            # Delete existing copilot action items
-            deleted = ActionItem.query.filter_by(source='copilot').delete()
-            logger.info("Deleted %d old copilot action items", deleted)
+            # Delete open copilot items (keep completed ones for exclusion list)
+            deleted = ActionItem.query.filter_by(source='copilot', status='open').delete()
+            # Also clean up completed copilot items older than 7 days
+            cutoff = datetime.now(timezone.utc) - timedelta(days=7)
+            stale_completed = ActionItem.query.filter(
+                ActionItem.source == 'copilot',
+                ActionItem.status == 'completed',
+                ActionItem.completed_at < cutoff,
+            ).delete()
+            logger.info("Deleted %d open + %d stale completed copilot items", deleted, stale_completed)
 
             # Create new ones
             for item in parsed:
