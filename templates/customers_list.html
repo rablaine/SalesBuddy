@@ -83,9 +83,12 @@
                 <i class="bi bi-journal-text"></i> By Notes
             </button>
         </div>
-        <a href="{{ url_for('customers.customer_create') }}" class="btn btn-sm btn-primary">
-            <i class="bi bi-plus-circle"></i> New Customer
+        <a href="{{ url_for('customers.customer_create') }}" class="btn btn-sm btn-outline-secondary" title="Manual entry">
+            <i class="bi bi-plus-circle"></i> Manual
         </a>
+        <button type="button" class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#tpidImportModal">
+            <i class="bi bi-cloud-download"></i> Import by TPID
+        </button>
     </div>
 </div>
 
@@ -240,6 +243,60 @@
         </div>
     {% endif %}
 {% endif %}
+
+<!-- TPID Import Modal -->
+<div class="modal fade" id="tpidImportModal" tabindex="-1" aria-labelledby="tpidImportLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="tpidImportLabel"><i class="bi bi-cloud-download"></i> Import Customer by TPID</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div id="tpidStep1">
+                    <label for="tpidInput" class="form-label fw-semibold">Top Parent ID (TPID)</label>
+                    <div class="input-group">
+                        <input type="text" class="form-control" id="tpidInput" placeholder="e.g. 12345678" inputmode="numeric" pattern="[0-9]*">
+                        <button class="btn btn-primary" type="button" id="tpidLookupBtn">
+                            <i class="bi bi-search"></i> Look Up
+                        </button>
+                    </div>
+                    <div class="form-text">Enter the TPID from MSX to pull in account details automatically.</div>
+                    <div id="tpidError" class="text-danger mt-2 d-none"></div>
+                </div>
+                <div id="tpidStep2" class="d-none">
+                    <div class="card">
+                        <div class="card-body">
+                            <h6 class="card-title mb-3" id="previewName"></h6>
+                            <div class="row g-2 small">
+                                <div class="col-6"><span class="text-muted">TPID:</span> <span id="previewTpid"></span></div>
+                                <div class="col-6"><span class="text-muted">Website:</span> <span id="previewWebsite"></span></div>
+                                <div class="col-6"><span class="text-muted">Territory:</span> <span id="previewTerritory"></span></div>
+                                <div class="col-6"><span class="text-muted">Seller:</span> <span id="previewSeller"></span></div>
+                                <div class="col-12"><span class="text-muted">Vertical:</span> <span id="previewVertical"></span></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div id="tpidImportError" class="text-danger mt-2 d-none"></div>
+                </div>
+                <div id="tpidStep3" class="d-none text-center py-3">
+                    <i class="bi bi-check-circle-fill text-success" style="font-size: 2.5rem;"></i>
+                    <p class="mt-2 mb-0 fw-semibold" id="importSuccessMsg"></p>
+                    <p class="small text-muted" id="importSuccessDetails"></p>
+                </div>
+            </div>
+            <div class="modal-footer" id="tpidModalFooter">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-success d-none" id="tpidImportBtn">
+                    <i class="bi bi-download"></i> Import Customer
+                </button>
+                <a href="#" class="btn btn-primary d-none" id="tpidViewBtn">
+                    <i class="bi bi-eye"></i> View Customer
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block extra_js %}
@@ -440,6 +497,130 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 });
+
+// ---------------------------------------------------------------------------
+// TPID Import Modal
+// ---------------------------------------------------------------------------
+(function() {
+    const modal = document.getElementById('tpidImportModal');
+    const input = document.getElementById('tpidInput');
+    const lookupBtn = document.getElementById('tpidLookupBtn');
+    const importBtn = document.getElementById('tpidImportBtn');
+    const viewBtn = document.getElementById('tpidViewBtn');
+    const errorEl = document.getElementById('tpidError');
+    const importErrorEl = document.getElementById('tpidImportError');
+    const step1 = document.getElementById('tpidStep1');
+    const step2 = document.getElementById('tpidStep2');
+    const step3 = document.getElementById('tpidStep3');
+
+    let pendingAccount = null;
+
+    function resetModal() {
+        step1.classList.remove('d-none');
+        step2.classList.add('d-none');
+        step3.classList.add('d-none');
+        importBtn.classList.add('d-none');
+        viewBtn.classList.add('d-none');
+        errorEl.classList.add('d-none');
+        importErrorEl.classList.add('d-none');
+        input.value = '';
+        input.disabled = false;
+        lookupBtn.disabled = false;
+        pendingAccount = null;
+    }
+
+    modal.addEventListener('show.bs.modal', resetModal);
+
+    input.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') { e.preventDefault(); lookupBtn.click(); }
+    });
+
+    lookupBtn.addEventListener('click', async function() {
+        const tpid = input.value.trim();
+        if (!tpid) { return; }
+        errorEl.classList.add('d-none');
+        lookupBtn.disabled = true;
+        lookupBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Looking up...';
+
+        try {
+            const resp = await fetch('/api/customer/tpid-lookup', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({tpid: tpid}),
+            });
+            const data = await resp.json();
+
+            if (!data.success) {
+                errorEl.textContent = data.error || 'Lookup failed.';
+                errorEl.classList.remove('d-none');
+                if (data.existing_id) {
+                    errorEl.innerHTML += ' <a href="/customer/' + data.existing_id + '">View customer</a>';
+                }
+                return;
+            }
+
+            pendingAccount = data.account;
+            document.getElementById('previewName').textContent = data.account.name || '-';
+            document.getElementById('previewTpid').textContent = data.account.tpid || '-';
+            document.getElementById('previewWebsite').textContent = data.account.website || '-';
+            document.getElementById('previewTerritory').textContent = data.account.territory_name || '-';
+            document.getElementById('previewSeller').textContent = data.account.seller_name || '-';
+            document.getElementById('previewVertical').textContent = data.account.vertical || data.account.vertical_category || '-';
+            step1.classList.add('d-none');
+            step2.classList.remove('d-none');
+            importBtn.classList.remove('d-none');
+        } catch (err) {
+            errorEl.textContent = 'Network error: ' + err.message;
+            errorEl.classList.remove('d-none');
+        } finally {
+            lookupBtn.disabled = false;
+            lookupBtn.innerHTML = '<i class="bi bi-search"></i> Look Up';
+        }
+    });
+
+    importBtn.addEventListener('click', async function() {
+        if (!pendingAccount) return;
+        importBtn.disabled = true;
+        importBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Importing...';
+        importErrorEl.classList.add('d-none');
+
+        try {
+            const resp = await fetch('/api/customer/tpid-import', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({account: pendingAccount}),
+            });
+            const data = await resp.json();
+
+            if (!data.success) {
+                importErrorEl.textContent = data.error || 'Import failed.';
+                importErrorEl.classList.remove('d-none');
+                if (data.existing_id) {
+                    importErrorEl.innerHTML += ' <a href="/customer/' + data.existing_id + '">View customer</a>';
+                }
+                importBtn.disabled = false;
+                importBtn.innerHTML = '<i class="bi bi-download"></i> Import Customer';
+                return;
+            }
+
+            step2.classList.add('d-none');
+            step3.classList.remove('d-none');
+            importBtn.classList.add('d-none');
+            document.getElementById('importSuccessMsg').textContent = data.customer_name + ' imported!';
+            let details = [];
+            if (data.territory_name) details.push('Territory: ' + data.territory_name);
+            if (data.seller_name) details.push('Seller: ' + data.seller_name);
+            document.getElementById('importSuccessDetails').textContent = details.join(' | ');
+            viewBtn.href = '/customer/' + data.customer_id;
+            viewBtn.classList.remove('d-none');
+        } catch (err) {
+            importErrorEl.textContent = 'Network error: ' + err.message;
+            importErrorEl.classList.remove('d-none');
+            importBtn.disabled = false;
+            importBtn.innerHTML = '<i class="bi bi-download"></i> Import Customer';
+        }
+    });
+})();
 </script>
 {% endblock %}
 

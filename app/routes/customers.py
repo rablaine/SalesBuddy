@@ -2,12 +2,18 @@
 Customer routes for Sales Buddy.
 Handles customer listing, creation, viewing, editing, and TPID workflow.
 """
+import logging
+from urllib.parse import urlparse
+
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, g
 from sqlalchemy import func, or_
 
-from app.models import db, Customer, CustomerCSAM, CustomerContact, Seller, Territory, Note, UserPreference
+from app.models import (db, Customer, CustomerCSAM, CustomerContact, Seller,
+                        Territory, Note, UserPreference)
 from app.services.backup import backup_customer as _backup_customer
 from app.services.seller_mode import get_seller_mode_seller_id
+
+logger = logging.getLogger(__name__)
 
 # Create blueprint
 customers_bp = Blueprint('customers', __name__)
@@ -548,3 +554,230 @@ def api_customer_nickname(customer_id):
     customer.nickname = (data.get('nickname') or '').strip() or None
     db.session.commit()
     return jsonify({'nickname': customer.nickname}), 200
+
+
+# ---------------------------------------------------------------------------
+# TPID Import - look up account in MSX and create customer
+# ---------------------------------------------------------------------------
+
+def _extract_domain(url_or_domain: str) -> str:
+    """Extract a clean domain from a URL or bare domain string."""
+    if not url_or_domain:
+        return ""
+    raw = url_or_domain.strip()
+    if not raw.startswith(("http://", "https://")):
+        raw = "http://" + raw
+    try:
+        parsed = urlparse(raw)
+        host = parsed.hostname or ""
+    except Exception:
+        return ""
+    if host.startswith("www."):
+        host = host[4:]
+    if "." not in host:
+        return ""
+    return host.lower()
+
+
+@customers_bp.route('/api/customer/tpid-lookup', methods=['POST'])
+def api_tpid_lookup():
+    """Look up a TPID in MSX and return the top-level account with details.
+
+    POST JSON: { "tpid": "12345" }
+    Returns account info including territory, seller, and website.
+    """
+    from app.services.msx_api import (
+        lookup_account_by_tpid, get_account_details, build_account_url,
+        batch_query_account_teams,
+    )
+
+    data = request.get_json(silent=True) or {}
+    tpid = str(data.get('tpid', '')).strip()
+    if not tpid:
+        return jsonify({"success": False, "error": "TPID is required."}), 400
+
+    try:
+        int(tpid)
+    except ValueError:
+        return jsonify({"success": False, "error": "TPID must be a number."}), 400
+
+    # Check if already in DB
+    existing = Customer.query.filter_by(tpid=int(tpid)).first()
+    if existing:
+        return jsonify({
+            "success": False,
+            "error": f"Customer '{existing.name}' already exists with TPID {tpid}.",
+            "existing_id": existing.id,
+        }), 409
+
+    # Look up in MSX
+    lookup = lookup_account_by_tpid(tpid)
+    if not lookup.get("success"):
+        return jsonify({"success": False, "error": lookup.get("error", "Lookup failed.")}), 502
+
+    accounts = lookup.get("accounts", [])
+    if not accounts:
+        return jsonify({"success": False, "error": f"No accounts found for TPID {tpid}."}), 404
+
+    # Find the top-level parent account
+    top_accounts = [
+        a for a in accounts
+        if a.get("parenting_level") and "top" in str(a["parenting_level"]).lower()
+    ]
+    if not top_accounts:
+        # Fall back to first account if none are marked "Top"
+        top_account = accounts[0]
+    else:
+        top_account = top_accounts[0]
+
+    account_id = top_account.get("accountid")
+    if not account_id:
+        return jsonify({"success": False, "error": "Account has no ID."}), 502
+
+    # Get full details (territory, seller, verticals)
+    details = get_account_details(account_id)
+    if not details.get("success"):
+        return jsonify({
+            "success": False,
+            "error": details.get("error", "Failed to get account details."),
+        }), 502
+
+    acct_info = details.get("account") or {}
+    terr_info = details.get("territory")
+
+    # Query account team for the real seller (not territory owner)
+    seller_name = None
+    seller_type = None
+    teams = batch_query_account_teams([account_id])
+    if teams.get("success"):
+        seller_info = teams.get("account_sellers", {}).get(account_id)
+        if seller_info:
+            seller_name = seller_info.get("name")
+            seller_type = seller_info.get("type")
+
+    # Fetch website from the full accounts list (top-level preferred)
+    website = ""
+    for a in accounts:
+        ws = a.get("websiteurl") or ""
+        if ws:
+            pl = a.get("parenting_level", "")
+            if "top" in str(pl).lower():
+                website = ws
+                break
+            if not website:
+                website = ws
+
+    return jsonify({
+        "success": True,
+        "account": {
+            "name": top_account.get("name"),
+            "tpid": tpid,
+            "account_id": account_id,
+            "url": build_account_url(account_id),
+            "website": _extract_domain(website),
+            "territory_name": terr_info.get("name") if terr_info else None,
+            "seller_name": seller_name,
+            "seller_type": seller_type,
+            "vertical": acct_info.get("vertical"),
+            "vertical_category": acct_info.get("vertical_category"),
+        },
+    })
+
+
+@customers_bp.route('/api/customer/tpid-import', methods=['POST'])
+def api_tpid_import():
+    """Import a customer by TPID from MSX into the local database.
+
+    POST JSON: result from tpid-lookup's account object.
+    Creates territory, seller, and customer as needed.
+    Fetches favicon for the customer's website.
+    """
+    from app.routes.admin import fetch_favicon_for_domain
+
+    data = request.get_json(silent=True) or {}
+    account = data.get('account')
+    if not account:
+        return jsonify({"success": False, "error": "No account data provided."}), 400
+
+    tpid_str = str(account.get('tpid', '')).strip()
+    name = (account.get('name') or '').strip()
+    if not tpid_str or not name:
+        return jsonify({"success": False, "error": "TPID and name are required."}), 400
+
+    try:
+        tpid = int(tpid_str)
+    except ValueError:
+        return jsonify({"success": False, "error": "TPID must be a number."}), 400
+
+    # Double-check not already in DB
+    existing = Customer.query.filter_by(tpid=tpid).first()
+    if existing:
+        return jsonify({
+            "success": False,
+            "error": f"Customer '{existing.name}' already exists.",
+            "existing_id": existing.id,
+        }), 409
+
+    try:
+        # --- Create territory if needed ---
+        territory = None
+        territory_name = (account.get('territory_name') or '').strip()
+        if territory_name:
+            territory = Territory.query.filter_by(name=territory_name).first()
+            if not territory:
+                territory = Territory(name=territory_name)
+                db.session.add(territory)
+                db.session.flush()
+                logger.info("Created territory: %s", territory_name)
+
+        # --- Create seller if needed ---
+        seller = None
+        seller_name = (account.get('seller_name') or '').strip()
+        if seller_name:
+            seller = Seller.query.filter_by(name=seller_name).first()
+            if not seller:
+                seller = Seller(
+                    name=seller_name,
+                    seller_type=account.get('seller_type') or 'Growth',
+                )
+                db.session.add(seller)
+                db.session.flush()
+                logger.info("Created seller: %s", seller_name)
+            # Link seller to territory (M2M)
+            if territory and territory not in seller.territories:
+                seller.territories.append(territory)
+
+        # --- Create customer ---
+        website = (account.get('website') or '').strip()
+        customer = Customer(
+            name=name,
+            tpid=tpid,
+            tpid_url=account.get('url'),
+            website=website or None,
+            territory=territory,
+            seller=seller,
+        )
+        db.session.add(customer)
+        db.session.flush()
+
+        # --- Fetch favicon ---
+        if website:
+            favicon = fetch_favicon_for_domain(website)
+            if favicon:
+                customer.favicon_b64 = favicon
+
+        db.session.commit()
+        logger.info("Imported customer '%s' (TPID %s) via TPID lookup", name, tpid)
+
+        return jsonify({
+            "success": True,
+            "customer_id": customer.id,
+            "customer_name": customer.name,
+            "territory_name": territory.name if territory else None,
+            "seller_name": seller.name if seller else None,
+        })
+
+    except Exception as e:
+        db.session.rollback()
+        logger.exception("Error importing customer by TPID %s", tpid_str)
+        return jsonify({"success": False, "error": str(e)}), 500

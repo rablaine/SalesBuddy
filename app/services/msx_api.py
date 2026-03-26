@@ -327,7 +327,7 @@ def lookup_account_by_tpid(tpid: str, customer_name: Optional[str] = None) -> Di
         url = (
             f"{CRM_BASE_URL}/accounts"
             f"?$filter=msp_mstopparentid eq '{tpid_clean}'"
-            f"&$select=accountid,name,msp_mstopparentid,msp_parentinglevelcode"
+            f"&$select=accountid,name,msp_mstopparentid,msp_parentinglevelcode,websiteurl"
         )
         
         response = _msx_request('GET', url)
@@ -352,6 +352,7 @@ def lookup_account_by_tpid(tpid: str, customer_name: Optional[str] = None) -> Di
                         raw.get("msp_parentinglevelcode", "Unknown")
                     ),
                     "url": build_account_url(raw.get("accountid")),
+                    "websiteurl": raw.get("websiteurl"),
                 }
                 accounts.append(account)
                 
