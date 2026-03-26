@@ -2740,6 +2740,7 @@ const taskCategorySelect = document.getElementById('task_category');
 
 // Initialize selectedMilestones from server-rendered cards (edit mode)
 (function initExistingMilestones() {
+    if (!selectedMilestoneContainer) return;
     selectedMilestoneContainer.querySelectorAll('[data-msx-milestone-id]').forEach(card => {
         const msxId = card.dataset.msxMilestoneId;
         if (msxId) {
@@ -5121,7 +5122,7 @@ function openMeetingImport() {
     var dateStr = document.getElementById('call_date').value;
     var customerName = '';
     var customerSelect = document.getElementById('customer_id');
-    if (customerSelect.selectedIndex > 0) {
+    if (customerSelect && customerSelect.selectedIndex > 0) {
         customerName = customerSelect.options[customerSelect.selectedIndex].text;
         customerName = customerName.replace(/\s*\([^)]*\)\s*$/, '').trim();
     }
