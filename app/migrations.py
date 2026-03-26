@@ -257,7 +257,11 @@ def _add_column_if_not_exists(db, inspector, table: str, column: str, column_def
     Example:
         _add_column_if_not_exists(db, inspector, 'customers', 'priority', 'INTEGER DEFAULT 0')
     """
-    columns = [c['name'] for c in inspector.get_columns(table)]
+    try:
+        columns = [c['name'] for c in inspector.get_columns(table)]
+    except Exception:
+        # Table doesn't exist yet - db.create_all() will handle it
+        return
     if column not in columns:
         with db.engine.connect() as conn:
             conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {column_def}"))
@@ -278,7 +282,10 @@ def _make_column_nullable(db, inspector, table: str, column: str):
         table: Table name
         column: Column name to make nullable
     """
-    columns = inspector.get_columns(table)
+    try:
+        columns = inspector.get_columns(table)
+    except Exception:
+        return
     col_info = next((c for c in columns if c['name'] == column), None)
     if not col_info:
         return
