@@ -241,6 +241,8 @@ def run_migrations(db):
                               'copilot_actions_enabled', "BOOLEAN NOT NULL DEFAULT 1")
     _add_column_if_not_exists(db, inspector, 'user_preferences',
                               'show_stale_milestones', "BOOLEAN NOT NULL DEFAULT 1")
+    _add_column_if_not_exists(db, inspector, 'user_preferences',
+                              'show_hygiene_tasks', "BOOLEAN NOT NULL DEFAULT 1")
 
     # =========================================================================
     # End migrations

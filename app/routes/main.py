@@ -220,6 +220,7 @@ def index():
     pref = UserPreference.query.first()
     copilot_enabled = pref.copilot_actions_enabled if pref else True
     stale_enabled = pref.show_stale_milestones if pref else True
+    hygiene_enabled = pref.show_hygiene_tasks if pref else True
 
     open_tasks_q = ActionItem.query.filter(
         ActionItem.status == 'open'
@@ -286,6 +287,66 @@ def index():
     else:
         stale_milestones = []
 
+    # Hygiene tasks: engagements without milestones, milestones without ACR
+    hygiene_tasks = []
+    if hygiene_enabled:
+        # Active engagements with no linked milestones
+        eng_no_ms_q = Engagement.query.filter(
+            Engagement.status == 'Active',
+            ~Engagement.milestones.any(),
+        ).options(
+            db.joinedload(Engagement.customer),
+        )
+        if seller_mode_sid:
+            eng_no_ms_q = eng_no_ms_q.join(
+                Customer, Engagement.customer_id == Customer.id
+            ).filter(Customer.seller_id == seller_mode_sid)
+        for eng in eng_no_ms_q.limit(10).all():
+            hygiene_tasks.append({
+                'type': 'engagement_no_milestone',
+                'title': eng.title,
+                'subtitle': eng.customer.name if eng.customer else '',
+                'url': f'/engagement/{eng.id}',
+                'icon': 'bi-link-45deg',
+            })
+
+        # On-team active milestones with no monthly_usage (current FQ)
+        from datetime import time as _time
+        _today = date.today()
+        _fy_month = (_today.month - 7) % 12
+        _fq_start = (_fy_month // 3) * 3
+        _q_start_month = ((_fq_start + 7 - 1) % 12) + 1
+        _q_start_dt = datetime.combine(date(_today.year, _q_start_month, 1), _time.min)
+        _end_month = _q_start_month + 3
+        _end_year = _today.year
+        if _end_month > 12:
+            _end_month -= 12
+            _end_year += 1
+        _q_end_dt = datetime.combine(
+            date(_end_year, _end_month, 1) - timedelta(days=1), _time(23, 59, 59)
+        )
+        ms_no_acr_q = Milestone.query.filter(
+            Milestone.on_my_team == True,
+            Milestone.msx_status.in_(['On Track', 'At Risk']),
+            Milestone.due_date >= _q_start_dt,
+            Milestone.due_date <= _q_end_dt,
+            db.or_(Milestone.monthly_usage == None, Milestone.monthly_usage == 0),
+        ).options(
+            db.joinedload(Milestone.customer),
+        )
+        if seller_mode_sid:
+            ms_no_acr_q = ms_no_acr_q.join(
+                Customer, Milestone.customer_id == Customer.id
+            ).filter(Customer.seller_id == seller_mode_sid)
+        for ms in ms_no_acr_q.limit(10).all():
+            hygiene_tasks.append({
+                'type': 'milestone_no_acr',
+                'title': ms.display_text,
+                'subtitle': ms.customer.name if ms.customer else '',
+                'url': f'/milestone/{ms.id}',
+                'icon': 'bi-currency-dollar',
+            })
+
     engagement_q = Engagement.query.filter(
         Engagement.status.in_(['Active', 'On Hold'])
     )
@@ -300,6 +361,7 @@ def index():
         open_tasks=open_tasks,
         upcoming_milestones=upcoming_milestones,
         stale_milestones=stale_milestones,
+        hygiene_tasks=hygiene_tasks,
         revenue_alerts=revenue_alerts,
         has_milestones=has_milestones,
         has_engagements=engagement_count > 0,
@@ -1111,12 +1173,15 @@ def update_dashboard_toggle():
         pref.copilot_actions_enabled = bool(data['copilot_actions_enabled'])
     if 'show_stale_milestones' in data:
         pref.show_stale_milestones = bool(data['show_stale_milestones'])
+    if 'show_hygiene_tasks' in data:
+        pref.show_hygiene_tasks = bool(data['show_hygiene_tasks'])
 
     db.session.commit()
     return jsonify({
         'success': True,
         'copilot_actions_enabled': pref.copilot_actions_enabled,
         'show_stale_milestones': pref.show_stale_milestones,
+        'show_hygiene_tasks': pref.show_hygiene_tasks,
     }), 200
 
 

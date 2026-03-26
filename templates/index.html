@@ -16,7 +16,7 @@
         <div class="card h-100">
             <div class="card-header d-flex justify-content-between align-items-center">
                 <h5 class="mb-0"><i class="bi bi-check2-square"></i> Action Items</h5>
-                {% if open_tasks or stale_milestones %}<span class="badge bg-primary">{{ (open_tasks|length) + (stale_milestones|length) }}</span>{% endif %}
+                {% if open_tasks or stale_milestones or hygiene_tasks %}<span class="badge bg-primary">{{ (open_tasks|length) + (stale_milestones|length) + (hygiene_tasks|length) }}</span>{% endif %}
             </div>
             <div class="card-body p-0" style="max-height: 360px; overflow-y: auto;">
                 {% if open_tasks %}
@@ -84,7 +84,29 @@
                     {% endfor %}
                 </div>
                 {% endif %}
-                {% if not open_tasks and not stale_milestones %}
+                {% if hygiene_tasks %}
+                {% if open_tasks or stale_milestones %}<hr class="my-0">{% endif %}
+                <div class="list-group list-group-flush">
+                    <div class="list-group-item bg-light bg-opacity-10 py-1 px-3" title="Data quality issues that need attention">
+                        <small class="fw-semibold text-muted"><i class="bi bi-wrench"></i> Hygiene</small>
+                    </div>
+                    {% for ht in hygiene_tasks %}
+                    <a href="{{ ht.url }}" class="list-group-item list-group-item-action py-2 px-3">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <div class="me-2" style="min-width: 0;">
+                                <div class="fw-semibold text-truncate">
+                                    <i class="bi {{ ht.icon }} text-muted me-1"></i>{{ ht.title }}
+                                </div>
+                                <div class="text-muted small text-truncate">
+                                    {{ ht.subtitle }}{% if ht.type == 'engagement_no_milestone' %} - no milestone linked{% elif ht.type == 'milestone_no_acr' %} - no ACR set{% endif %}
+                                </div>
+                            </div>
+                        </div>
+                    </a>
+                    {% endfor %}
+                </div>
+                {% endif %}
+                {% if not open_tasks and not stale_milestones and not hygiene_tasks %}
                 <div class="text-center text-muted py-4">
                     <i class="bi bi-check-circle" style="font-size: 2rem;"></i>
                     <p class="mb-0 mt-2">No open action items yet.</p>

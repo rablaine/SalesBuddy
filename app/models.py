@@ -999,6 +999,7 @@ class UserPreference(db.Model):
     msx_auto_writeback = db.Column(db.Boolean, default=False, nullable=False, server_default='0')  # Auto-sync note summaries and engagement stories to MSX milestones
     copilot_actions_enabled = db.Column(db.Boolean, default=True, nullable=False, server_default='1')  # Show Copilot daily action items on dashboard
     show_stale_milestones = db.Column(db.Boolean, default=True, nullable=False, server_default='1')  # Show stale milestones in Action Items card
+    show_hygiene_tasks = db.Column(db.Boolean, default=True, nullable=False, server_default='1')  # Show data hygiene tasks in Action Items card
     last_copilot_sync = db.Column(db.DateTime, nullable=True)  # Last time Copilot daily action items were synced
     created_at = db.Column(db.DateTime, default=utc_now, nullable=False)
     updated_at = db.Column(db.DateTime, default=utc_now, onupdate=utc_now, nullable=False)

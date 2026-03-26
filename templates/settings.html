@@ -119,6 +119,13 @@
                     </label>
                     <div><small class="text-muted">Show milestones with no recent comments in the Action Items card on the dashboard.</small></div>
                 </div>
+                <div class="form-check form-switch">
+                    <input class="form-check-input" type="checkbox" id="hygieneTasksSwitch" {{ 'checked' if pref and pref.show_hygiene_tasks else '' }}>
+                    <label class="form-check-label" for="hygieneTasksSwitch">
+                        Hygiene tasks
+                    </label>
+                    <div><small class="text-muted">Surface data quality issues like active engagements without milestones or milestones without estimated ACR.</small></div>
+                </div>
             </div>
         </div>
 
@@ -289,6 +296,13 @@ document.getElementById('staleMilestonesSwitch').addEventListener('change', func
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ show_stale_milestones: this.checked })
+    });
+});
+document.getElementById('hygieneTasksSwitch').addEventListener('change', function() {
+    fetch('/api/preferences/dashboard-toggle', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ show_hygiene_tasks: this.checked })
     });
 });
 
