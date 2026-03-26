@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone, date
 from flask import Blueprint, render_template, url_for, jsonify
 from app.models import (
     db, Customer, Engagement, Note, Milestone, Seller, SolutionEngineer,
-    Topic, notes_engagements, notes_milestones,
+    Topic, RevenueAnalysis, notes_engagements, notes_milestones,
 )
 from sqlalchemy import func, desc, or_
 
@@ -257,6 +257,17 @@ def report_one_on_one():
         reverse=True,
     )[:10]
 
+    # --- Revenue alerts reviewed in last 2 weeks ---
+    reviewed_alerts = (
+        RevenueAnalysis.query
+        .filter(
+            RevenueAnalysis.review_status.in_(['reviewed', 'actioned']),
+            RevenueAnalysis.reviewed_at >= two_weeks_ago,
+        )
+        .order_by(desc(RevenueAnalysis.reviewed_at))
+        .all()
+    )
+
     # Stats
     commitments_acr = sum(m.monthly_usage or 0 for m in milestone_commitments)
     stats = {
@@ -279,6 +290,7 @@ def report_one_on_one():
         quarter_start=quarter_start,
         quarter_end=quarter_end,
         today=today,
+        reviewed_alerts=reviewed_alerts,
         top_topics=top_topics,
         fy_month_labels=fy_month_labels,
     )

@@ -121,6 +121,58 @@
                     {% endif %}
                 </div>
             </div>
+            <!-- Revenue Alerts Reviewed -->
+            <div class="card">
+                <div class="card-header py-2 d-flex justify-content-between align-items-center">
+                    <h6 class="mb-0"><i class="bi bi-currency-dollar text-success"></i> Revenue Alerts Reviewed</h6>
+                    <span class="badge bg-secondary">{{ reviewed_alerts|length }}</span>
+                </div>
+                <div class="card-body p-0">
+                    {% if reviewed_alerts %}
+                    <div class="table-responsive">
+                        <table class="table table-sm table-hover mb-0" style="font-size: 0.82em; --bs-table-bg: transparent;">
+                            <thead>
+                                <tr class="text-muted" style="font-size: 0.85em;">
+                                    <th class="ps-3">Customer</th>
+                                    <th>Category</th>
+                                    <th class="text-end">Impact</th>
+                                    <th class="text-end pe-3">Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for alert in reviewed_alerts %}
+                                <tr>
+                                    <td class="ps-3">
+                                        <small>{{ alert.customer_name }}</small>
+                                        {% if alert.bucket %}<br><small class="text-muted">{{ alert.bucket }}</small>{% endif %}
+                                    </td>
+                                    <td><small>{{ alert.category|replace('_', ' ')|title }}</small></td>
+                                    <td class="text-end">
+                                        {% if alert.dollars_at_risk %}
+                                        <small class="text-danger">${{ '{:,.0f}'.format(alert.dollars_at_risk) }}</small>
+                                        {% elif alert.dollars_opportunity %}
+                                        <small class="text-success">${{ '{:,.0f}'.format(alert.dollars_opportunity) }}</small>
+                                        {% endif %}
+                                    </td>
+                                    <td class="text-end pe-3">
+                                        {% if alert.review_status == 'actioned' %}
+                                        <span class="badge bg-success" style="font-size: 0.8em;"><i class="bi bi-check-circle"></i> Actioned</span>
+                                        {% else %}
+                                        <span class="badge bg-info" style="font-size: 0.8em;"><i class="bi bi-eye"></i> Reviewed</span>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% else %}
+                    <div class="p-3 text-center">
+                        <small class="text-muted">No revenue alerts reviewed in the last 2 weeks.</small>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
             {% if wins_count <= attention_count %}
             <!-- Topics (under Wins - fewer rows) -->
             <div class="card">
