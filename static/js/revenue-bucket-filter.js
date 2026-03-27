@@ -72,29 +72,37 @@ var RevenueBucketFilter = (function() {
         btn.type = 'button';
         btn.setAttribute('data-bs-toggle', 'popover');
         btn.setAttribute('data-bs-placement', 'bottom');
-        btn.setAttribute('data-bs-html', 'true');
         btn.setAttribute('data-bs-trigger', 'click');
         btn.innerHTML = '<i class="bi bi-funnel"></i> Buckets <span id="bucketFilterCount" class="badge bg-info ms-1 d-none"></span>';
-
-        var content = '<div style="max-height:300px;overflow-y:auto;min-width:200px;">';
-        content += '<div class="mb-2"><button class="btn btn-sm btn-link p-0 me-2" onclick="RevenueBucketFilter.selectAll()">All</button>';
-        content += '<button class="btn btn-sm btn-link p-0" onclick="RevenueBucketFilter.selectNone()">None</button></div>';
-        allBuckets.forEach(function(b) {
-            var checked = selectedBuckets.has(b) ? ' checked' : '';
-            content += '<div class="form-check">';
-            content += '<input class="form-check-input bucket-check" type="checkbox" value="' + b + '" id="bf_' + b.replace(/\s/g, '_') + '"' + checked + ' onchange="RevenueBucketFilter.toggle(\'' + b.replace(/'/g, "\\'") + '\')">';
-            content += '<label class="form-check-label small" for="bf_' + b.replace(/\s/g, '_') + '">' + b + '</label>';
-            content += '</div>';
-        });
-        content += '</div>';
-
-        btn.setAttribute('data-bs-content', content);
         container.appendChild(btn);
+
+        function buildContent() {
+            var c = '<div style="max-height:300px;overflow-y:auto;min-width:200px;">';
+            c += '<div class="mb-2"><button class="btn btn-sm btn-link p-0 me-2" onclick="RevenueBucketFilter.selectAll()">All</button>';
+            c += '<button class="btn btn-sm btn-link p-0" onclick="RevenueBucketFilter.selectNone()">None</button></div>';
+            allBuckets.forEach(function(b) {
+                var checked = selectedBuckets.has(b) ? ' checked' : '';
+                c += '<div class="form-check">';
+                c += '<input class="form-check-input bucket-check" type="checkbox" value="' + b + '" id="bf_' + b.replace(/\s/g, '_') + '"' + checked + ' onchange="RevenueBucketFilter.toggle(\'' + b.replace(/'/g, "\\'") + '\')">';
+                c += '<label class="form-check-label small" for="bf_' + b.replace(/\s/g, '_') + '">' + b + '</label>';
+                c += '</div>';
+            });
+            c += '</div>';
+            return c;
+        }
 
         // Defer popover init until Bootstrap is available
         function initPopover() {
             if (typeof bootstrap !== 'undefined' && bootstrap.Popover) {
-                new bootstrap.Popover(btn, { sanitize: false });
+                var pop = new bootstrap.Popover(btn, {
+                    sanitize: false,
+                    html: true,
+                    content: buildContent
+                });
+                // Rebuild content each time the popover opens
+                btn.addEventListener('show.bs.popover', function() {
+                    pop._config.content = buildContent;
+                });
             } else {
                 setTimeout(initPopover, 50);
             }
