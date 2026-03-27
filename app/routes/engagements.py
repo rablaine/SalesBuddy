@@ -49,7 +49,8 @@ def engagements_hub():
     # Internal projects
     from app.models import Project
     active_projects = Project.query.filter(
-        Project.status.in_(['Active', 'On Hold'])
+        Project.status.in_(['Active', 'On Hold']),
+        Project.project_type != 'copilot_saved',
     ).order_by(Project.updated_at.desc()).all()
 
     return render_template(
@@ -652,10 +653,35 @@ def action_item_toggle(id: int):
     if task.status == 'open':
         task.status = 'completed'
         task.completed_at = datetime.now(timezone.utc)
+        # Move completed copilot tasks to the copilot_saved project
+        if task.source == 'copilot' and not task.project_id:
+            from app.services.copilot_actions import get_copilot_project
+            copilot_proj = get_copilot_project()
+            task.project_id = copilot_proj.id
+            task.source = 'project'
     else:
         task.status = 'open'
         task.completed_at = None
 
+    db.session.commit()
+    return jsonify(success=True, task=_action_item_to_dict(task))
+
+
+@engagements_bp.route('/action-item/<int:id>/save', methods=['POST'])
+def action_item_save(id: int):
+    """Save a copilot task so it persists through daily sync.
+
+    Moves the task from source='copilot' to source='project' and
+    links it to the built-in copilot_saved project.
+    """
+    task = ActionItem.query.get_or_404(id)
+    if task.source != 'copilot':
+        return jsonify(success=False, error='Only copilot tasks can be saved'), 400
+
+    from app.services.copilot_actions import get_copilot_project
+    copilot_proj = get_copilot_project()
+    task.project_id = copilot_proj.id
+    task.source = 'project'
     db.session.commit()
     return jsonify(success=True, task=_action_item_to_dict(task))
 
