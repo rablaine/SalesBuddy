@@ -4347,8 +4347,8 @@ function restoreDraft() {
             });
         }
 
-        // Restore task form data
-        if (draft.task) {
+        // Restore task form data (customer notes only - elements don't exist on general notes)
+        if (draft.task && document.getElementById('task_subject')) {
             document.getElementById('task_subject').value = draft.task.subject || '';
             document.getElementById('task_category').value = draft.task.category || '';
             document.getElementById('task_description').value = draft.task.description || '';
@@ -5888,9 +5888,12 @@ function createEngTask() {
     });
 }
 
-document.getElementById('engTaskTitle').addEventListener('keydown', function(e) {
-    if (e.key === 'Enter') { e.preventDefault(); createEngTask(); }
-});
+var _engTaskTitleEl = document.getElementById('engTaskTitle');
+if (_engTaskTitleEl) {
+    _engTaskTitleEl.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') { e.preventDefault(); createEngTask(); }
+    });
+}
 
 // Hook into engagement selection changes
 var _origOnEngChange = window.onEngagementSelectionChanged;
