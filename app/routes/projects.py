@@ -38,12 +38,30 @@ def project_create():
                 pass
 
         db.session.add(project)
+        db.session.flush()
+
+        # Attach selected notes
+        note_ids = request.form.getlist('note_ids')
+        if note_ids:
+            notes = Note.query.filter(Note.id.in_([int(nid) for nid in note_ids])).all()
+            project.notes.extend(notes)
+
         db.session.commit()
         flash(f'Project "{title}" created!', 'success')
         return redirect(url_for('projects.project_view', id=project.id))
 
+    # Get unattached general notes (no customer, not linked to any project)
+    unattached_notes = (
+        Note.query
+        .filter(Note.customer_id.is_(None))
+        .filter(~Note.projects.any())
+        .order_by(Note.call_date.desc())
+        .all()
+    )
+
     return render_template('project_form.html', project=None,
-                         project_types=Project.BUILT_IN_TYPES)
+                         project_types=Project.BUILT_IN_TYPES,
+                         unattached_notes=unattached_notes)
 
 
 @projects_bp.route('/project/<int:id>')
@@ -72,12 +90,39 @@ def project_edit(id):
         else:
             project.due_date = None
 
+        # Update attached notes
+        note_ids = request.form.getlist('note_ids')
+        current_note_ids = {n.id for n in project.notes}
+        selected_ids = {int(nid) for nid in note_ids} if note_ids else set()
+        # Add newly selected
+        to_add = selected_ids - current_note_ids
+        if to_add:
+            new_notes = Note.query.filter(Note.id.in_(to_add)).all()
+            project.notes.extend(new_notes)
+        # Remove deselected
+        to_remove = current_note_ids - selected_ids
+        if to_remove:
+            project.notes = [n for n in project.notes if n.id not in to_remove]
+
         db.session.commit()
         flash('Project updated.', 'success')
         return redirect(url_for('projects.project_view', id=project.id))
 
+    # Get unattached general notes + notes already on this project
+    unattached_notes = (
+        Note.query
+        .filter(Note.customer_id.is_(None))
+        .filter(db.or_(
+            ~Note.projects.any(),
+            Note.projects.any(Project.id == project.id),
+        ))
+        .order_by(Note.call_date.desc())
+        .all()
+    )
+
     return render_template('project_form.html', project=project,
-                         project_types=Project.BUILT_IN_TYPES)
+                         project_types=Project.BUILT_IN_TYPES,
+                         unattached_notes=unattached_notes)
 
 
 @projects_bp.route('/project/<int:id>/delete', methods=['POST'])
