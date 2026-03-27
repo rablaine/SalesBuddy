@@ -1872,6 +1872,9 @@ document.getElementById('noteForm').onsubmit = function(e) {
         });
     };
 
+    // Expose rebuild for draft restore
+    window.rebuildProjectDropdown = function() { buildMenu(); updateLabel(); };
+
     buildMenu();
     updateLabel();
 })();
@@ -4093,13 +4096,18 @@ let draftRestored = false;
 
 // Get customer-specific draft key
 function getDraftKey() {
-    const customerId = document.getElementById('customer_id').value;
-    return customerId ? `${DRAFT_KEY_PREFIX}${customerId}` : null;
+    const customerEl = document.getElementById('customer_id');
+    const customerId = customerEl ? customerEl.value : null;
+    if (customerId) return `${DRAFT_KEY_PREFIX}${customerId}`;
+    // General notes use a fixed draft key
+    const isGeneral = !customerEl || !customerId;
+    return isGeneral ? `${DRAFT_KEY_PREFIX}general` : null;
 }
 
 // Get customer name from select dropdown
 function getCustomerName() {
     const customerSelect = document.getElementById('customer_id');
+    if (!customerSelect) return '';
     const selectedOption = customerSelect.options[customerSelect.selectedIndex];
     return selectedOption ? selectedOption.textContent.trim() : '';
 }
@@ -4149,8 +4157,9 @@ function saveDraft() {
     } : {};
     
     const draftData = {
-        customer_id: document.getElementById('customer_id').value,
+        customer_id: document.getElementById('customer_id')?.value || '',
         customer_name: getCustomerName(),
+        project_id: document.getElementById('project_id')?.value || '',
         call_date: document.getElementById('call_date').value,
         call_time: document.getElementById('call_time').value,
         content: quill.root.innerHTML,
@@ -4181,7 +4190,7 @@ function saveDraft() {
     tempDiv.innerHTML = draftData.content;
     const textContent = (tempDiv.textContent || tempDiv.innerText || '').trim();
     
-    if (textContent.length > 0 || draftData.topics.length > 0 || draftData.pendingTopics.length > 0 || draftData.partners.length > 0 || milestoneData.length > 0) {
+    if (textContent.length > 0 || draftData.topics.length > 0 || draftData.pendingTopics.length > 0 || draftData.partners.length > 0 || milestoneData.length > 0 || draftData.project_id) {
         try {
             localStorage.setItem(draftKey, JSON.stringify(draftData));
             console.log('Draft auto-saved');
@@ -4299,6 +4308,15 @@ function restoreDraft() {
                 // Show engagement section if hidden
                 var engSection = document.getElementById('engagementSection');
                 if (engSection) engSection.style.display = '';
+            }
+        }
+
+        // Restore project selection (general notes)
+        if (draft.project_id) {
+            var projSelect = document.getElementById('project_id');
+            if (projSelect) {
+                projSelect.value = draft.project_id;
+                if (typeof window.rebuildProjectDropdown === 'function') window.rebuildProjectDropdown();
             }
         }
 
