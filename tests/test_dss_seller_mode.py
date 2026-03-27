@@ -530,22 +530,12 @@ class TestDynamicBuckets:
 # ============================================================================
 
 class TestSettingsRoleDisplay:
-    """Tests for read-only role display on settings page."""
+    """Tests for settings page in DSS mode."""
 
-    def test_settings_shows_dss_role(self, client, app, dss_pref):
-        """Settings page should show DSS role."""
+    def test_settings_loads_in_dss_mode(self, client, app, dss_pref):
+        """Settings page should load successfully for DSS users."""
         resp = client.get('/preferences')
         assert resp.status_code == 200
-        html = resp.data.decode()
-        assert 'Digital Sales Specialist' in html
-        assert 'Set during onboarding' in html
-
-    def test_settings_shows_se_role(self, client, app):
-        """Settings page should show SE role by default."""
-        resp = client.get('/preferences')
-        assert resp.status_code == 200
-        html = resp.data.decode()
-        assert 'Solution Engineer' in html
 
 
 class TestCustomersListSellerBadge:

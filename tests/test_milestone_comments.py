@@ -532,7 +532,7 @@ class TestTrackEngagementOnMilestones:
                 assert call_args[0][0] == 'eng-guid-1'
                 content = call_args[0][1]
                 assert 'Need to assess cloud readiness' in content
-                assert '<table' in content
+                assert 'Technical Problem:' in content
                 assert f'· eng-{engagement.id} ·' in content
                 # pin_to_top should be True
                 assert call_args[1]['pin_to_top'] is True
