@@ -99,6 +99,12 @@ var RevenueBucketFilter = (function() {
                     html: true,
                     content: buildContent
                 });
+                // Close on outside click
+                document.addEventListener('click', function(e) {
+                    if (!btn.contains(e.target) && !document.querySelector('.popover')?.contains(e.target)) {
+                        pop.hide();
+                    }
+                });
                 // Rebuild content each time the popover opens
                 btn.addEventListener('show.bs.popover', function() {
                     pop._config.content = buildContent;
