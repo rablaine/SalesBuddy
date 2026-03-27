@@ -77,15 +77,15 @@
                 <td><small>{{ a.bucket }}</small></td>
                 <td class="text-nowrap">
                     {% if a.category == 'CHURN_RISK' %}
-                    <span class="badge bg-danger">CHURN_RISK</span>
+                    <span class="badge bg-danger">Declining</span>
                     {% elif a.category == 'RECENT_DIP' %}
-                    <span class="badge bg-warning text-dark">RECENT_DIP</span>
+                    <span class="badge bg-warning text-dark">Recent Dip</span>
                     {% elif a.category == 'EXPANSION_OPPORTUNITY' %}
                     <span class="badge bg-success">EXPANSION</span>
                     {% elif a.category == 'VOLATILE' %}
-                    <span class="badge bg-secondary">VOLATILE</span>
+                    <span class="badge bg-secondary">Volatile</span>
                     {% elif a.category == 'NEW_CUSTOMER' %}
-                    <span class="badge bg-info">NEW_CUSTOMER</span>
+                    <span class="badge bg-info">New Customer</span>
                     {% else %}
                     <span class="badge bg-light text-dark">{{ a.category }}</span>
                     {% endif %}

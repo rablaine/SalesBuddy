@@ -228,7 +228,7 @@
                             </div>
                             <div class="text-end flex-shrink-0">
                                 <span class="badge {% if alert.category == 'CHURN_RISK' %}bg-danger{% elif alert.category == 'RECENT_DIP' %}bg-warning text-dark{% elif alert.category == 'EXPANSION_OPPORTUNITY' %}bg-success{% else %}bg-info{% endif %}">
-                                    {{ alert.category|replace('_', ' ')|title }}
+                                    {% if alert.category == 'CHURN_RISK' %}Declining{% else %}{{ alert.category|replace('_', ' ')|title }}{% endif %}
                                 </span>
                                 {% if alert.dollars_at_risk %}
                                 <div class="text-danger small fw-semibold">${{ '{:,.0f}'.format(alert.dollars_at_risk) }}</div>

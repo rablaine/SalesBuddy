@@ -86,7 +86,7 @@
         <div class="col-md-3">
             <div class="card bg-danger text-white">
                 <div class="card-body">
-                    <h6 class="card-title"><i class="bi bi-exclamation-triangle"></i> Churn Risk</h6>
+                    <h6 class="card-title"><i class="bi bi-exclamation-triangle"></i> Declining</h6>
                     <h3>{{ category_counts.get('CHURN_RISK', {}).get('count', 0) }}</h3>
                     <small>${{ '{:,.0f}'.format(category_counts.get('CHURN_RISK', {}).get('total_at_risk', 0)) }}/mo at risk</small>
                 </div>
