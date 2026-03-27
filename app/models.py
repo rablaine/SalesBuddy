@@ -1631,3 +1631,27 @@ class DailyFeatureStats(db.Model):
 
     def __repr__(self) -> str:
         return f'<DailyFeatureStats {self.date} {self.category} {self.endpoint} ({self.event_count})>'
+
+
+class HygieneNote(db.Model):
+    """Free-text reason note for hygiene report items.
+
+    Tracks why an engagement has no milestones or a milestone has no
+    engagement. Stored in a separate table to avoid muddying existing models.
+    """
+    __tablename__ = 'hygiene_notes'
+    ENTITY_TYPES = ['engagement', 'milestone']
+
+    id = db.Column(db.Integer, primary_key=True)
+    entity_type = db.Column(db.String(20), nullable=False)  # 'engagement' or 'milestone'
+    entity_id = db.Column(db.Integer, nullable=False)  # FK to engagement.id or milestone.id
+    note = db.Column(db.Text, nullable=False, default='')
+    created_at = db.Column(db.DateTime, default=utc_now)
+    updated_at = db.Column(db.DateTime, default=utc_now, onupdate=utc_now)
+
+    __table_args__ = (
+        db.UniqueConstraint('entity_type', 'entity_id', name='uq_hygiene_note_entity'),
+    )
+
+    def __repr__(self) -> str:
+        return f'<HygieneNote {self.entity_type}:{self.entity_id}>'

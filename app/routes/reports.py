@@ -4,7 +4,8 @@ from datetime import datetime, timedelta, timezone, date
 from flask import Blueprint, render_template, url_for, jsonify, request
 from app.models import (
     db, Customer, Engagement, Note, Milestone, Seller, SolutionEngineer,
-    Topic, RevenueAnalysis, notes_engagements, notes_milestones, notes_topics,
+    Topic, RevenueAnalysis, HygieneNote,
+    notes_engagements, notes_milestones, notes_topics,
 )
 from sqlalchemy import func, desc, or_
 
@@ -62,6 +63,23 @@ def reports_hub():
                     ),
                     'icon': 'bi-tag',
                     'url': url_for('reports.report_workload'),
+                },
+            ],
+        },
+        {
+            'title': 'Data Hygiene',
+            'icon': 'bi-clipboard-check',
+            'reports': [
+                {
+                    'id': 'hygiene-report',
+                    'name': 'Engagement / Milestone Hygiene',
+                    'description': (
+                        'Engagements without milestones and milestones without '
+                        'engagements. Add notes explaining why so you can report '
+                        'on gaps quickly.'
+                    ),
+                    'icon': 'bi-link-45deg',
+                    'url': url_for('reports.report_hygiene'),
                 },
             ],
         },
@@ -457,3 +475,121 @@ def sync_milestone_dates():
     except Exception as e:
         logger.exception("Milestone audit date sync failed")
         return jsonify({"success": False, "error": str(e)}), 500
+
+
+# =========================================================================
+# Hygiene Report
+# =========================================================================
+
+@bp.route('/reports/hygiene')
+def report_hygiene():
+    """Engagement/Milestone hygiene report.
+
+    Shows engagements without milestones and milestones without
+    engagements so gaps can be identified and annotated quickly.
+    """
+    from app.services.seller_mode import get_seller_mode_seller_id
+    seller_mode_sid = get_seller_mode_seller_id()
+
+    # --- Engagements without milestones ---
+    eng_q = (
+        Engagement.query
+        .filter(
+            Engagement.status == 'Active',
+            ~Engagement.milestones.any(),
+        )
+        .options(db.joinedload(Engagement.customer))
+        .order_by(Engagement.title)
+    )
+    if seller_mode_sid:
+        eng_q = eng_q.join(
+            Customer, Engagement.customer_id == Customer.id
+        ).filter(Customer.seller_id == seller_mode_sid)
+    engagements_no_ms = eng_q.all()
+
+    # --- Milestones without engagements (on my team, active statuses) ---
+    ms_q = (
+        Milestone.query
+        .filter(
+            Milestone.on_my_team == True,
+            Milestone.msx_status.in_(['On Track', 'At Risk', 'Blocked']),
+            ~Milestone.engagements.any(),
+        )
+        .options(db.joinedload(Milestone.customer))
+        .order_by(Milestone.title)
+    )
+    if seller_mode_sid:
+        ms_q = ms_q.join(
+            Customer, Milestone.customer_id == Customer.id
+        ).filter(Customer.seller_id == seller_mode_sid)
+    milestones_no_eng = ms_q.all()
+
+    # Load hygiene notes for all displayed items
+    eng_ids = [e.id for e in engagements_no_ms]
+    ms_ids = [m.id for m in milestones_no_eng]
+
+    eng_notes = {}
+    if eng_ids:
+        for hn in HygieneNote.query.filter(
+            HygieneNote.entity_type == 'engagement',
+            HygieneNote.entity_id.in_(eng_ids),
+        ).all():
+            eng_notes[hn.entity_id] = hn.note
+
+    ms_notes = {}
+    if ms_ids:
+        for hn in HygieneNote.query.filter(
+            HygieneNote.entity_type == 'milestone',
+            HygieneNote.entity_id.in_(ms_ids),
+        ).all():
+            ms_notes[hn.entity_id] = hn.note
+
+    return render_template(
+        'report_hygiene.html',
+        engagements_no_ms=engagements_no_ms,
+        milestones_no_eng=milestones_no_eng,
+        eng_notes=eng_notes,
+        ms_notes=ms_notes,
+    )
+
+
+@bp.route('/api/hygiene-note', methods=['POST'])
+def save_hygiene_note():
+    """Save or update a hygiene note for an engagement or milestone."""
+    data = request.get_json(silent=True) or {}
+    entity_type = (data.get('entity_type') or '').strip()
+    entity_id = data.get('entity_id')
+    note_text = (data.get('note') or '').strip()
+
+    if entity_type not in HygieneNote.ENTITY_TYPES:
+        return jsonify(success=False, error='Invalid entity_type'), 400
+    if not entity_id:
+        return jsonify(success=False, error='entity_id is required'), 400
+
+    try:
+        entity_id = int(entity_id)
+    except (ValueError, TypeError):
+        return jsonify(success=False, error='Invalid entity_id'), 400
+
+    hn = HygieneNote.query.filter_by(
+        entity_type=entity_type, entity_id=entity_id
+    ).first()
+
+    if note_text:
+        if hn:
+            hn.note = note_text
+            hn.updated_at = datetime.now(timezone.utc)
+        else:
+            hn = HygieneNote(
+                entity_type=entity_type,
+                entity_id=entity_id,
+                note=note_text,
+            )
+            db.session.add(hn)
+    else:
+        # Empty note - delete the record if it exists
+        if hn:
+            db.session.delete(hn)
+
+    db.session.commit()
+    return jsonify(success=True)

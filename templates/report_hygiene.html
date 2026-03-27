@@ -1,0 +1,272 @@
+{% extends "base.html" %}
+{% block title %}Engagement / Milestone Hygiene - Sales Buddy{% endblock %}
+
+{% block content %}
+<style>
+    .hygiene-note-input {
+        border: 1px dashed var(--bs-border-color);
+        background: transparent;
+        transition: border-color 0.2s;
+    }
+    .hygiene-note-input:focus {
+        border-style: solid;
+        background: var(--bs-body-bg);
+    }
+    .hygiene-note-input.saved {
+        border-color: var(--bs-success);
+    }
+    .save-indicator {
+        opacity: 0;
+        transition: opacity 0.3s;
+        font-size: 0.75rem;
+    }
+    .save-indicator.show {
+        opacity: 1;
+    }
+</style>
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <div>
+        <h2><i class="bi bi-clipboard-check"></i> Engagement / Milestone Hygiene</h2>
+        <p class="text-muted mb-0">Identify and annotate gaps between engagements and milestones.</p>
+    </div>
+    <a href="{{ url_for('reports.reports_hub') }}" class="btn btn-outline-secondary btn-sm">
+        <i class="bi bi-arrow-left"></i> All Reports
+    </a>
+</div>
+
+<!-- Stats summary -->
+<div class="row mb-4">
+    <div class="col-md-3">
+        <div class="card text-center">
+            <div class="card-body py-2">
+                <h3 class="mb-0">{{ engagements_no_ms|length }}</h3>
+                <small class="text-muted">Engagements w/o Milestones</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-center">
+            <div class="card-body py-2">
+                <h3 class="mb-0">{{ milestones_no_eng|length }}</h3>
+                <small class="text-muted">Milestones w/o Engagements</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-center">
+            <div class="card-body py-2">
+                <h3 class="mb-0">{{ eng_notes|length }}</h3>
+                <small class="text-muted">Engagements Annotated</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-center">
+            <div class="card-body py-2">
+                <h3 class="mb-0">{{ ms_notes|length }}</h3>
+                <small class="text-muted">Milestones Annotated</small>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Engagements without Milestones -->
+<div class="card mb-4">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h5 class="mb-0"><i class="bi bi-briefcase me-1"></i> Active Engagements without Milestones</h5>
+        <span class="badge bg-warning text-dark">{{ engagements_no_ms|length }}</span>
+    </div>
+    {% if engagements_no_ms %}
+    <div class="table-responsive">
+        <table class="table table-hover mb-0 align-middle">
+            <thead>
+                <tr>
+                    <th style="width: 25%;">Engagement</th>
+                    <th style="width: 20%;">Customer</th>
+                    <th style="width: 10%;">ACR</th>
+                    <th style="width: 10%;">Story</th>
+                    <th style="width: 35%;">Reason / Notes</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for eng in engagements_no_ms %}
+                <tr>
+                    <td>
+                        <a href="{{ url_for('engagements.engagement_view', id=eng.id) }}">{{ eng.title }}</a>
+                    </td>
+                    <td>
+                        {% if eng.customer %}
+                        <a href="{{ url_for('customers.customer_view', id=eng.customer_id) }}" class="text-decoration-none">{{ eng.customer.nickname or eng.customer.name }}</a>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if eng.estimated_acr %}
+                        <span class="text-success">${{ '{:,.0f}'.format(eng.estimated_acr) }}</span>
+                        {% else %}
+                        <span class="text-muted">-</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        <div class="progress" style="height: 6px; width: 60px;" title="{{ eng.story_completeness }}% complete">
+                            <div class="progress-bar {% if eng.story_completeness >= 75 %}bg-success{% elif eng.story_completeness >= 50 %}bg-warning{% else %}bg-danger{% endif %}"
+                                 style="width: {{ eng.story_completeness }}%;"></div>
+                        </div>
+                    </td>
+                    <td>
+                        <div class="d-flex align-items-center gap-1">
+                            <input type="text" class="form-control form-control-sm hygiene-note-input"
+                                   data-entity-type="engagement" data-entity-id="{{ eng.id }}"
+                                   value="{{ eng_notes.get(eng.id, '') }}"
+                                   placeholder="Why no milestone?"
+                                   maxlength="500">
+                            <span class="save-indicator text-success"><i class="bi bi-check"></i></span>
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="card-body text-center text-muted py-4">
+        <i class="bi bi-check-circle fs-3"></i>
+        <p class="mt-2 mb-0">All active engagements have milestones linked.</p>
+    </div>
+    {% endif %}
+</div>
+
+<!-- Milestones without Engagements -->
+<div class="card mb-4">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h5 class="mb-0"><i class="bi bi-flag me-1"></i> On-Team Milestones without Engagements</h5>
+        <span class="badge bg-warning text-dark">{{ milestones_no_eng|length }}</span>
+    </div>
+    {% if milestones_no_eng %}
+    <div class="table-responsive">
+        <table class="table table-hover mb-0 align-middle">
+            <thead>
+                <tr>
+                    <th style="width: 25%;">Milestone</th>
+                    <th style="width: 15%;">Customer</th>
+                    <th style="width: 10%;">Status</th>
+                    <th style="width: 10%;">ACR</th>
+                    <th style="width: 5%;">Due</th>
+                    <th style="width: 35%;">Reason / Notes</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for ms in milestones_no_eng %}
+                <tr>
+                    <td>
+                        <a href="{{ url_for('milestones.milestone_view', id=ms.id) }}">{{ ms.title }}</a>
+                        {% if ms.workload %}
+                        <br><small class="text-muted">{{ ms.workload }}</small>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if ms.customer %}
+                        <a href="{{ url_for('customers.customer_view', id=ms.customer_id) }}" class="text-decoration-none">{{ ms.customer.nickname or ms.customer.name }}</a>
+                        {% endif %}
+                    </td>
+                    <td>
+                        <span class="badge {% if ms.msx_status == 'On Track' %}bg-success{% elif ms.msx_status == 'At Risk' %}bg-warning text-dark{% elif ms.msx_status == 'Blocked' %}bg-danger{% else %}bg-secondary{% endif %}">
+                            {{ ms.msx_status }}
+                        </span>
+                    </td>
+                    <td>
+                        {% if ms.monthly_usage %}
+                        <span class="text-success">${{ '{:,.0f}'.format(ms.monthly_usage) }}</span>
+                        {% else %}
+                        <span class="text-muted">-</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if ms.due_date %}
+                        <small>{{ ms.due_date.strftime('%b %d') }}</small>
+                        {% endif %}
+                    </td>
+                    <td>
+                        <div class="d-flex align-items-center gap-1">
+                            <input type="text" class="form-control form-control-sm hygiene-note-input"
+                                   data-entity-type="milestone" data-entity-id="{{ ms.id }}"
+                                   value="{{ ms_notes.get(ms.id, '') }}"
+                                   placeholder="Why no engagement?"
+                                   maxlength="500">
+                            <span class="save-indicator text-success"><i class="bi bi-check"></i></span>
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="card-body text-center text-muted py-4">
+        <i class="bi bi-check-circle fs-3"></i>
+        <p class="mt-2 mb-0">All on-team milestones have engagements linked.</p>
+    </div>
+    {% endif %}
+</div>
+
+<script>
+// Auto-save hygiene notes on blur (debounced)
+(function() {
+    var saveTimers = {};
+
+    document.querySelectorAll('.hygiene-note-input').forEach(function(input) {
+        var lastSaved = input.value;
+
+        input.addEventListener('blur', function() {
+            if (this.value.trim() === lastSaved) return;
+            saveNote(this);
+        });
+
+        input.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                this.blur();
+            }
+        });
+
+        // Debounced save while typing (2s)
+        input.addEventListener('input', function() {
+            var el = this;
+            var key = el.dataset.entityType + ':' + el.dataset.entityId;
+            clearTimeout(saveTimers[key]);
+            saveTimers[key] = setTimeout(function() {
+                if (el.value.trim() !== lastSaved) saveNote(el);
+            }, 2000);
+        });
+
+        function saveNote(el) {
+            var indicator = el.parentElement.querySelector('.save-indicator');
+            fetch('/api/hygiene-note', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    entity_type: el.dataset.entityType,
+                    entity_id: parseInt(el.dataset.entityId),
+                    note: el.value.trim(),
+                }),
+            })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.success) {
+                    lastSaved = el.value.trim();
+                    el.classList.add('saved');
+                    indicator.classList.add('show');
+                    setTimeout(function() {
+                        el.classList.remove('saved');
+                        indicator.classList.remove('show');
+                    }, 1500);
+                }
+            })
+            .catch(function(err) {
+                console.error('Failed to save hygiene note:', err);
+            });
+        }
+    });
+})();
+</script>
+{% endblock %}
