@@ -170,12 +170,14 @@ def init_telemetry(app: Flask) -> None:
         # local DB failure doesn't prevent central shipping.
         try:
             from app.services.telemetry_shipper import queue_event
+            app_mode = request.cookies.get('sb_app_mode', 'unknown')
             queue_event(
                 category=category,
                 method=request.method,
                 status_code=response.status_code,
                 response_time_ms=elapsed_ms,
                 is_api=is_api,
+                app_mode=app_mode,
             )
         except Exception:
             pass  # Central telemetry must never break the request

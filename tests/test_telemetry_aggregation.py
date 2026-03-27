@@ -567,6 +567,53 @@ class TestQueueEvent:
             assert env['data']['baseData']['measurements']['is_error'] == 1.0
         self._reset_buffer()
 
+    def test_queue_event_includes_app_mode_standalone(self):
+        """Should include app_mode=standalone when passed."""
+        self._reset_buffer()
+        import app.services.telemetry_shipper as ts
+        from app.services.telemetry_shipper import queue_event
+
+        queue_event(
+            category='Call Logs', method='GET',
+            status_code=200, response_time_ms=10.0, is_api=False,
+            app_mode='standalone',
+        )
+        with ts._buffer_lock:
+            env = ts._buffer[0]
+            assert env['data']['baseData']['properties']['app_mode'] == 'standalone'
+        self._reset_buffer()
+
+    def test_queue_event_includes_app_mode_browser(self):
+        """Should include app_mode=browser when passed."""
+        self._reset_buffer()
+        import app.services.telemetry_shipper as ts
+        from app.services.telemetry_shipper import queue_event
+
+        queue_event(
+            category='Revenue', method='GET',
+            status_code=200, response_time_ms=5.0, is_api=False,
+            app_mode='browser',
+        )
+        with ts._buffer_lock:
+            env = ts._buffer[0]
+            assert env['data']['baseData']['properties']['app_mode'] == 'browser'
+        self._reset_buffer()
+
+    def test_queue_event_app_mode_defaults_to_unknown(self):
+        """Should default app_mode to 'unknown' when not provided."""
+        self._reset_buffer()
+        import app.services.telemetry_shipper as ts
+        from app.services.telemetry_shipper import queue_event
+
+        queue_event(
+            category='Admin', method='GET',
+            status_code=200, response_time_ms=10.0, is_api=False,
+        )
+        with ts._buffer_lock:
+            env = ts._buffer[0]
+            assert env['data']['baseData']['properties']['app_mode'] == 'unknown'
+        self._reset_buffer()
+
 
 class TestFlushBuffer:
     """Tests for flush_buffer() with mocked HTTP."""

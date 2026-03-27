@@ -1182,12 +1182,15 @@
     <script src="{{ url_for('static', filename='js/page-help.js') }}" defer></script>
     <script>document.addEventListener('DOMContentLoaded', () => Share.init());</script>
 
-    <!-- PWA: strip redundant app name from title and hide navbar brand -->
+    <!-- PWA: strip redundant app name from title, hide navbar brand, set telemetry cookie -->
     <script>
     if (window.matchMedia('(display-mode: standalone)').matches) {
         document.title = document.title.replace(/ - Sales Buddy$/, '');
         var brand = document.querySelector('.navbar-brand');
         if (brand) brand.style.display = 'none';
+        document.cookie = 'sb_app_mode=standalone;path=/;SameSite=Strict';
+    } else if (!document.cookie.includes('sb_app_mode=')) {
+        document.cookie = 'sb_app_mode=browser;path=/;SameSite=Strict';
     }
     </script>
 

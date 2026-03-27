@@ -234,6 +234,23 @@ class TestTelemetryCapture:
             assert event.response_time_ms is not None
             assert event.response_time_ms >= 0
 
+    def test_pwa_cookie_passed_to_shipper(self, client, app):
+        """The sb_app_mode cookie should be forwarded to the telemetry shipper."""
+        with patch('app.services.telemetry_shipper.queue_event') as mock_queue:
+            client.set_cookie('sb_app_mode', 'standalone')
+            client.get('/customers')
+            assert mock_queue.called
+            _, kwargs = mock_queue.call_args
+            assert kwargs.get('app_mode') == 'standalone'
+
+    def test_pwa_cookie_defaults_to_unknown(self, client, app):
+        """Without the cookie, app_mode should default to 'unknown'."""
+        with patch('app.services.telemetry_shipper.queue_event') as mock_queue:
+            client.get('/customers')
+            assert mock_queue.called
+            _, kwargs = mock_queue.call_args
+            assert kwargs.get('app_mode') == 'unknown'
+
 
 # =============================================================================
 # Telemetry Stats API Tests
