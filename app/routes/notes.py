@@ -439,10 +439,21 @@ def note_create():
     preselect_project_id = request.args.get('project_id', type=int)
 
     # Active projects for the project selector (general notes)
+    # Exclude copilot_saved - that's an internal backend construct.
     from app.models import Project
     active_projects = Project.query.filter(
-        Project.status.in_(['Active', 'On Hold'])
+        Project.status.in_(['Active', 'On Hold']),
+        Project.project_type != 'copilot_saved',
     ).order_by(Project.title).all()
+
+    # Unattached general notes for project flyout
+    unattached_notes = (
+        Note.query
+        .filter(Note.customer_id.is_(None))
+        .filter(~Note.projects.any())
+        .order_by(Note.call_date.desc())
+        .all()
+    )
     
     # Capture referrer for redirect after creation
     referrer = request.referrer or ''
@@ -499,6 +510,8 @@ def note_create():
                          preselect_milestone_id=preselect_milestone_id,
                          preselect_project_id=preselect_project_id,
                          active_projects=active_projects,
+                         project_types=Project.BUILT_IN_TYPES,
+                         unattached_notes=unattached_notes,
                          previous_calls=previous_calls,
                          referrer=referrer,
                          today=today,
@@ -680,8 +693,18 @@ def note_edit(id):
     
     from app.models import Project
     active_projects = Project.query.filter(
-        Project.status.in_(['Active', 'On Hold'])
+        Project.status.in_(['Active', 'On Hold']),
+        Project.project_type != 'copilot_saved',
     ).order_by(Project.title).all()
+
+    # Unattached general notes for project flyout
+    unattached_notes = (
+        Note.query
+        .filter(Note.customer_id.is_(None))
+        .filter(~Note.projects.any())
+        .order_by(Note.call_date.desc())
+        .all()
+    )
 
     return render_template('note_form.html',
                          note=note,
@@ -694,6 +717,8 @@ def note_edit(id):
                          preselect_topic_id=None,
                          preselect_project_id=None,
                          active_projects=active_projects,
+                         project_types=Project.BUILT_IN_TYPES,
+                         unattached_notes=unattached_notes,
                          workiq_prompt=user_prompt,
                          default_workiq_prompt=DEFAULT_SUMMARY_PROMPT,
                          workiq_connect_impact=connect_impact_enabled,

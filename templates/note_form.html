@@ -133,22 +133,36 @@
                     
                     <!-- Customer + Engagement side by side -->
                     {% if is_general_note %}
-                    <div class="mb-3">
-                        <div class="alert alert-secondary py-2 mb-2">
-                            <i class="bi bi-journal-text me-1"></i> This is a <strong>general note</strong> not associated with a specific customer.
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label">Customer *</label>
+                            <div class="alert alert-secondary py-2 mb-0">
+                                <i class="bi bi-journal-text me-1"></i> This is a <strong>general note</strong> not associated with a specific customer.
+                            </div>
                         </div>
-                        {% if active_projects %}
-                        <label for="project_id" class="form-label"><i class="bi bi-folder"></i> Project (optional)</label>
-                        <select class="form-select" id="project_id" name="project_id">
-                            <option value="">-- No project --</option>
-                            {% for p in active_projects %}
-                            <option value="{{ p.id }}"
-                                {% if (preselect_project_id and preselect_project_id == p.id) or (note and p in note.projects) %}selected{% endif %}>
-                                {{ p.title }} ({{ p.project_type|replace('_', ' ')|title }})
-                            </option>
-                            {% endfor %}
-                        </select>
-                        {% endif %}
+                        <div class="col-md-6">
+                            <label class="form-label d-flex align-items-center"><i class="bi bi-folder me-1"></i> Project (optional) <a href="javascript:void(0)" onclick="openProjectEditFlyout()" class="small text-muted text-decoration-none fw-normal ms-auto" id="projectDetailsLink" style="display: none;">see details &rsaquo;</a></label>
+                            <select class="form-select" id="project_id" name="project_id">
+                                <option value="">-- No project --</option>
+                                {% for p in active_projects %}
+                                <option value="{{ p.id }}"
+                                    {% if (preselect_project_id and preselect_project_id == p.id) or (note and p in note.projects) %}selected{% endif %}>
+                                    {{ p.title }} ({{ p.project_type|replace('_', ' ')|title }})
+                                </option>
+                                {% endfor %}
+                            </select>
+                            <!-- Compact dropdown trigger (mirrors engagement dropdown) -->
+                            <div class="dropdown" id="projectDropdown">
+                                <button class="form-select text-start text-truncate" type="button"
+                                        id="projectDropdownBtn" data-bs-toggle="dropdown" data-bs-auto-close="true"
+                                        aria-expanded="false" style="cursor: pointer;">
+                                    <span class="text-muted">-- No project --</span>
+                                </button>
+                                <ul class="dropdown-menu w-100 shadow-sm py-1" id="projectDropdownMenu"
+                                    style="max-height: 240px; overflow-y: auto;">
+                                </ul>
+                            </div>
+                        </div>
                     </div>
                     {% else %}
                     <div class="row mb-3">
@@ -813,6 +827,24 @@
     </div>
 </div>
 
+{% if is_general_note %}
+<!-- Project Creation/Edit Flyout (general notes only) -->
+<div class="offcanvas offcanvas-end" tabindex="-1" id="projectFlyout" aria-labelledby="projectFlyoutLabel" data-bs-backdrop="false" data-bs-scroll="true" style="width: 400px;">
+    <div class="offcanvas-header py-2 border-bottom">
+        <h6 class="offcanvas-title" id="projectFlyoutLabel"><i class="bi bi-folder"></i> New Project</h6>
+        <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Close"></button>
+    </div>
+    <div class="offcanvas-body">
+        {% with flyout_mode=True, project=None, project_types=project_types, unattached_notes=unattached_notes %}
+        {% include 'partials/_project_form_fields.html' %}
+        {% endwith %}
+        <button type="button" class="btn btn-primary w-100" id="flyout_project_save" onclick="saveProjectFromFlyout()">
+            <i class="bi bi-check-circle"></i> Create Project
+        </button>
+    </div>
+</div>
+{% endif %}
+
 {% if not is_general_note %}
 <!-- Engagement Action Item Creation Flyout -->
 <div class="offcanvas offcanvas-end" tabindex="-1" id="engTaskFlyout" aria-labelledby="engTaskFlyoutLabel" data-bs-backdrop="false" data-bs-scroll="true" style="width: 400px;">
@@ -1028,7 +1060,7 @@
 </style>
 <script>
 (function() {
-    const ids = ['partnerFlyout', 'engagementFlyout', 'contactsFlyout', 'customerInfoFlyout', 'engTaskFlyout'];
+    const ids = ['partnerFlyout', 'engagementFlyout', 'contactsFlyout', 'customerInfoFlyout', 'engTaskFlyout', 'projectFlyout'];
     const flyouts = ids.map(id => document.getElementById(id)).filter(Boolean);
     if (flyouts.length < 2) return;
 
@@ -1699,6 +1731,248 @@ document.getElementById('noteForm').onsubmit = function(e) {
 
     // Expose rebuild for external use
     window.rebuildEngagementDropdown = function() { buildMenu(); updateLabel(); };
+})();
+
+// --- Project dropdown (general notes) ---
+(function() {
+    const hiddenSelect = document.getElementById('project_id');
+    if (!hiddenSelect) return;
+    const dropdown = document.getElementById('projectDropdown');
+    if (!dropdown) return;
+
+    // Hide the native select, show the custom dropdown
+    hiddenSelect.style.display = 'none';
+
+    const btn = document.getElementById('projectDropdownBtn');
+    const menu = document.getElementById('projectDropdownMenu');
+
+    function buildMenu() {
+        menu.innerHTML = '';
+
+        // "+Create New Project" pinned at top
+        const createLi = document.createElement('li');
+        createLi.innerHTML = `
+            <button type="button" class="dropdown-item text-success fw-semibold py-1"
+                    onclick="createProjectInline()">
+                <i class="bi bi-plus-circle"></i> Create New Project
+            </button>`;
+        menu.appendChild(createLi);
+
+        // Collect real options (skip the empty "-- No project --" placeholder)
+        const realOptions = Array.from(hiddenSelect.options).filter(o => o.value);
+        if (realOptions.length === 0) {
+            const emptyLi = document.createElement('li');
+            emptyLi.innerHTML = '<span class="dropdown-item text-muted small py-1">No active projects</span>';
+            menu.appendChild(emptyLi);
+            return;
+        }
+
+        const divLi = document.createElement('li');
+        divLi.innerHTML = '<hr class="dropdown-divider my-1">';
+        menu.appendChild(divLi);
+
+        for (const opt of realOptions) {
+            const li = document.createElement('li');
+            const isSelected = opt.selected;
+            li.innerHTML = `
+                <button type="button" class="dropdown-item py-1 ${isSelected ? 'active' : ''}"
+                        data-value="${opt.value}">
+                    <i class="bi bi-folder me-1"></i> ${opt.textContent.trim()}
+                </button>`;
+            li.querySelector('button').addEventListener('click', function() {
+                hiddenSelect.value = this.dataset.value;
+                updateLabel();
+                buildMenu();
+                try { if (typeof debouncedAutoSave === 'function') debouncedAutoSave(); } catch(e) {}
+            });
+            menu.appendChild(li);
+        }
+    }
+
+    function updateLabel() {
+        const selected = hiddenSelect.selectedOptions[0];
+        const detailsLink = document.getElementById('projectDetailsLink');
+        if (!selected || !selected.value) {
+            btn.innerHTML = '<span class="text-muted">Select...</span>';
+            if (detailsLink) detailsLink.style.display = 'none';
+        } else {
+            btn.innerHTML = '<i class="bi bi-folder me-1"></i> ' + selected.textContent.trim();
+            if (detailsLink) detailsLink.style.display = '';
+        }
+    }
+
+    // Track flyout mode: null = create, project ID = edit
+    var _flyoutEditProjectId = null;
+    var _projFlyoutInstance = null;
+
+    window.createProjectInline = function() {
+        _flyoutEditProjectId = null;
+        const flyout = document.getElementById('projectFlyout');
+        const offcanvas = bootstrap.Offcanvas.getOrCreateInstance(flyout);
+        document.getElementById('projectFlyoutLabel').innerHTML = '<i class="bi bi-folder"></i> New Project';
+        document.getElementById('flyout_project_title').value = '';
+        document.getElementById('flyout_project_title').classList.remove('is-invalid');
+        document.getElementById('flyout_project_description').value = '';
+        document.getElementById('flyout_project_type').value = 'general';
+        document.getElementById('flyout_project_due_date').value = '';
+        document.getElementById('flyout_project_status').value = 'Active';
+        document.getElementById('flyout_project_status_group').style.display = 'none';
+        const saveBtn = document.getElementById('flyout_project_save');
+        saveBtn.innerHTML = '<i class="bi bi-check-circle"></i> Create Project';
+        saveBtn.disabled = false;
+        offcanvas.show();
+        flyout.addEventListener('shown.bs.offcanvas', function handler() {
+            document.getElementById('flyout_project_title').focus();
+            flyout.removeEventListener('shown.bs.offcanvas', handler);
+        });
+    };
+
+    window.openProjectEditFlyout = function() {
+        const projectId = hiddenSelect.value;
+        if (!projectId) return;
+
+        _flyoutEditProjectId = projectId;
+        const flyoutEl = document.getElementById('projectFlyout');
+        const detailsLink = document.getElementById('projectDetailsLink');
+
+        if (!_projFlyoutInstance) {
+            _projFlyoutInstance = new bootstrap.Offcanvas(flyoutEl);
+            flyoutEl.addEventListener('shown.bs.offcanvas', function() {
+                if (detailsLink) detailsLink.innerHTML = 'see details &lsaquo;';
+            });
+            flyoutEl.addEventListener('hidden.bs.offcanvas', function() {
+                if (detailsLink) detailsLink.innerHTML = 'see details &rsaquo;';
+            });
+        }
+
+        // If already open, just toggle closed
+        if (flyoutEl.classList.contains('show')) {
+            _projFlyoutInstance.toggle();
+            return;
+        }
+
+        document.getElementById('projectFlyoutLabel').innerHTML = '<i class="bi bi-folder"></i> Edit Project';
+        document.getElementById('flyout_project_title').value = '';
+        document.getElementById('flyout_project_title').classList.remove('is-invalid');
+        document.getElementById('flyout_project_status_group').style.display = '';
+        const saveBtn = document.getElementById('flyout_project_save');
+        saveBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Loading...';
+        saveBtn.disabled = true;
+        _projFlyoutInstance.toggle();
+
+        fetch('/api/project/' + projectId)
+            .then(r => r.json())
+            .then(data => {
+                document.getElementById('flyout_project_title').value = data.title || '';
+                document.getElementById('flyout_project_description').value = data.description || '';
+                document.getElementById('flyout_project_type').value = data.project_type || 'general';
+                document.getElementById('flyout_project_due_date').value = data.due_date || '';
+                document.getElementById('flyout_project_status').value = data.status || 'Active';
+                saveBtn.innerHTML = '<i class="bi bi-check-circle"></i> Save Changes';
+                saveBtn.disabled = false;
+            })
+            .catch(err => {
+                console.error('Error loading project:', err);
+                saveBtn.innerHTML = '<i class="bi bi-exclamation-triangle"></i> Load Failed';
+            });
+    };
+
+    window.saveProjectFromFlyout = function() {
+        const title = document.getElementById('flyout_project_title').value.trim();
+        if (!title) {
+            document.getElementById('flyout_project_title').classList.add('is-invalid');
+            document.getElementById('flyout_project_title').focus();
+            return;
+        }
+        document.getElementById('flyout_project_title').classList.remove('is-invalid');
+
+        const saveBtn = document.getElementById('flyout_project_save');
+        saveBtn.disabled = true;
+
+        const payload = {
+            title: title,
+            project_type: document.getElementById('flyout_project_type').value,
+            description: document.getElementById('flyout_project_description').value.trim(),
+            due_date: document.getElementById('flyout_project_due_date').value,
+            status: document.getElementById('flyout_project_status').value,
+        };
+
+        if (_flyoutEditProjectId) {
+            // --- Edit mode ---
+            saveBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Saving...';
+            fetch('/api/project/' + _flyoutEditProjectId, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (!data.success) {
+                    alert(data.error || 'Failed to save project');
+                    saveBtn.disabled = false;
+                    saveBtn.innerHTML = '<i class="bi bi-check-circle"></i> Save Changes';
+                    return;
+                }
+                // Update the option text in the hidden select
+                for (const opt of hiddenSelect.options) {
+                    if (opt.value == _flyoutEditProjectId) {
+                        opt.textContent = data.title + ' (' + data.project_type.replace('_', ' ').replace(/\b\w/g, c => c.toUpperCase()) + ')';
+                        break;
+                    }
+                }
+                buildMenu();
+                updateLabel();
+                bootstrap.Offcanvas.getInstance(document.getElementById('projectFlyout')).hide();
+            })
+            .catch(err => {
+                console.error('Error saving project:', err);
+                alert('Failed to save project');
+                saveBtn.disabled = false;
+                saveBtn.innerHTML = '<i class="bi bi-check-circle"></i> Save Changes';
+            });
+        } else {
+            // --- Create mode ---
+            saveBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Creating...';
+            fetch('/api/project/create-inline', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            })
+            .then(r => {
+                if (!r.ok) throw new Error('HTTP ' + r.status);
+                return r.json();
+            })
+            .then(data => {
+                if (!data.success) {
+                    alert(data.error || 'Failed to create project');
+                    saveBtn.disabled = false;
+                    saveBtn.innerHTML = '<i class="bi bi-check-circle"></i> Create Project';
+                    return;
+                }
+                const opt = document.createElement('option');
+                opt.value = data.id;
+                opt.textContent = data.title + ' (' + data.project_type.replace('_', ' ').replace(/\b\w/g, c => c.toUpperCase()) + ')';
+                hiddenSelect.appendChild(opt);
+                hiddenSelect.value = data.id;
+                buildMenu();
+                updateLabel();
+                try { if (typeof debouncedAutoSave === 'function') debouncedAutoSave(); } catch(e) {}
+                bootstrap.Offcanvas.getInstance(document.getElementById('projectFlyout')).hide();
+            })
+            .catch(err => {
+                console.error('Error creating project:', err);
+                alert('Failed to create project: ' + err.message);
+                saveBtn.disabled = false;
+                saveBtn.innerHTML = '<i class="bi bi-check-circle"></i> Create Project';
+            });
+        }
+    };
+
+    // Expose rebuild for draft restore
+    window.rebuildProjectDropdown = function() { buildMenu(); updateLabel(); };
+
+    buildMenu();
+    updateLabel();
 })();
 
 // --- Engagement milestone auto-suggest ---
@@ -2762,6 +3036,9 @@ const milestoneHelpText = document.getElementById('milestone_help_text');
 const taskCreationSection = document.getElementById('task_creation_section');
 const taskCategorySelect = document.getElementById('task_category');
 
+// Guard: milestone/task UI only exists on customer notes
+const _hasMilestoneUI = !!milestoneSearch;
+
 // Initialize selectedMilestones from server-rendered cards (edit mode)
 (function initExistingMilestones() {
     if (!selectedMilestoneContainer) return;
@@ -2785,6 +3062,7 @@ const taskCategorySelect = document.getElementById('task_category');
 })();
 
 // Load task categories on page load
+if (_hasMilestoneUI) {
 fetch('/api/msx/task-categories')
     .then(response => response.json())
     .then(data => {
@@ -2794,6 +3072,7 @@ fetch('/api/msx/task-categories')
         }
     })
     .catch(error => console.error('Failed to load task categories:', error));
+}
 
 function populateTaskCategories() {
     taskCategorySelect.innerHTML = '<option value="">-- Select task category --</option>';
@@ -2995,7 +3274,9 @@ async function inlineSaveTPID() {
 window._preselectMilestoneId = {{ preselect_milestone_id|default('null', true)|tojson }};
 
 // Listen for customer changes
-document.getElementById('customer_id').addEventListener('change', function() {
+var _milestoneCustomerEl = document.getElementById('customer_id');
+if (_milestoneCustomerEl) {
+_milestoneCustomerEl.addEventListener('change', function() {
     loadMilestonesForCustomer(this.value);
     // Clear selected milestone when customer changes
     removeMilestone();
@@ -3003,13 +3284,15 @@ document.getElementById('customer_id').addEventListener('change', function() {
     var contactsBtn = document.getElementById('contactsFlyoutBtn');
     if (contactsBtn) contactsBtn.style.display = this.value ? '' : 'none';
 });
+}
 
 // Load milestones on page load if customer is already selected
-const initialCustomerId = document.getElementById('customer_id').value;
+const initialCustomerId = _milestoneCustomerEl ? _milestoneCustomerEl.value : null;
 if (initialCustomerId) {
     loadMilestonesForCustomer(initialCustomerId);
 }
 
+if (_hasMilestoneUI) {
 milestoneSearch.addEventListener('input', function() {
     const searchTerm = this.value.toLowerCase().trim();
     
@@ -3101,6 +3384,7 @@ milestoneSearch.addEventListener('keydown', function(e) {
         selectedMilestoneIndex = -1;
     }
 });
+} // end if (_hasMilestoneUI)
 
 function getStatusBadgeClass(status) {
     switch (status) {
@@ -3170,6 +3454,7 @@ function handleMilestoneHover(index) {
 
 // Hide milestone dropdown when clicking outside
 document.addEventListener('click', function(e) {
+    if (!milestoneSearch || !milestoneDropdown) return;
     if (!milestoneSearch.contains(e.target) && !milestoneDropdown.contains(e.target)) {
         milestoneDropdown.style.display = 'none';
         currentMilestoneMatches = [];
@@ -3651,15 +3936,19 @@ function loadOpportunitiesForCustomer(customerId) {
 }
 
 // Hook into customer dropdown change to load opportunities
-document.getElementById('customer_id').addEventListener('change', function() {
+var _custDropdown = document.getElementById('customer_id');
+if (_custDropdown) {
+_custDropdown.addEventListener('change', function() {
     loadOpportunitiesForCustomer(this.value);
     // Show/hide contacts button
     var contactsBtn = document.getElementById('contactsFlyoutBtn');
     if (contactsBtn) contactsBtn.style.display = this.value ? '' : 'none';
 });
+}
 // Load on page load if customer already selected
 (function() {
-    const cid = document.getElementById('customer_id').value;
+    const el = document.getElementById('customer_id');
+    const cid = el ? el.value : null;
     if (cid) loadOpportunitiesForCustomer(cid);
 })();
 
@@ -3918,13 +4207,18 @@ let draftRestored = false;
 
 // Get customer-specific draft key
 function getDraftKey() {
-    const customerId = document.getElementById('customer_id').value;
-    return customerId ? `${DRAFT_KEY_PREFIX}${customerId}` : null;
+    const customerEl = document.getElementById('customer_id');
+    const customerId = customerEl ? customerEl.value : null;
+    if (customerId) return `${DRAFT_KEY_PREFIX}${customerId}`;
+    // General notes use a fixed draft key
+    const isGeneral = !customerEl || !customerId;
+    return isGeneral ? `${DRAFT_KEY_PREFIX}general` : null;
 }
 
 // Get customer name from select dropdown
 function getCustomerName() {
     const customerSelect = document.getElementById('customer_id');
+    if (!customerSelect) return '';
     const selectedOption = customerSelect.options[customerSelect.selectedIndex];
     return selectedOption ? selectedOption.textContent.trim() : '';
 }
@@ -3974,8 +4268,9 @@ function saveDraft() {
     } : {};
     
     const draftData = {
-        customer_id: document.getElementById('customer_id').value,
+        customer_id: document.getElementById('customer_id')?.value || '',
         customer_name: getCustomerName(),
+        project_id: document.getElementById('project_id')?.value || '',
         call_date: document.getElementById('call_date').value,
         call_time: document.getElementById('call_time').value,
         content: quill.root.innerHTML,
@@ -4006,7 +4301,7 @@ function saveDraft() {
     tempDiv.innerHTML = draftData.content;
     const textContent = (tempDiv.textContent || tempDiv.innerText || '').trim();
     
-    if (textContent.length > 0 || draftData.topics.length > 0 || draftData.pendingTopics.length > 0 || draftData.partners.length > 0 || milestoneData.length > 0) {
+    if (textContent.length > 0 || draftData.topics.length > 0 || draftData.pendingTopics.length > 0 || draftData.partners.length > 0 || milestoneData.length > 0 || draftData.project_id) {
         try {
             localStorage.setItem(draftKey, JSON.stringify(draftData));
             console.log('Draft auto-saved');
@@ -4127,6 +4422,15 @@ function restoreDraft() {
             }
         }
 
+        // Restore project selection (general notes)
+        if (draft.project_id) {
+            var projSelect = document.getElementById('project_id');
+            if (projSelect) {
+                projSelect.value = draft.project_id;
+                if (typeof window.rebuildProjectDropdown === 'function') window.rebuildProjectDropdown();
+            }
+        }
+
         // Restore action item badges
         if (draft.engTaskBadges && draft.engTaskBadges.length > 0) {
             var badges = document.getElementById('engTaskBadges');
@@ -4139,8 +4443,8 @@ function restoreDraft() {
             });
         }
 
-        // Restore task form data
-        if (draft.task) {
+        // Restore task form data (customer notes only - elements don't exist on general notes)
+        if (draft.task && document.getElementById('task_subject')) {
             document.getElementById('task_subject').value = draft.task.subject || '';
             document.getElementById('task_category').value = draft.task.category || '';
             document.getElementById('task_description').value = draft.task.description || '';
@@ -4250,8 +4554,10 @@ function debouncedAutoSave() {
     }
     
     // Set new timeout to save after delay
-    const customerId = document.getElementById('customer_id').value;
-    if (customerId) {
+    const customerEl = document.getElementById('customer_id');
+    const customerId = customerEl ? customerEl.value : null;
+    const isGeneralNote = !customerEl;
+    if (customerId || isGeneralNote) {
         autoSaveTimeout = setTimeout(() => {
             if (!draftDiscarded) {
                 saveDraft();
@@ -4260,13 +4566,14 @@ function debouncedAutoSave() {
     }
 }
 
-// Function to start auto-save for selected customer
+// Function to start auto-save for selected customer (or general note)
 function startAutoSave() {
     const customerSelect = document.getElementById('customer_id');
-    const customerId = customerSelect.value || customerSelect.querySelector('option[selected]')?.value;
+    const customerId = customerSelect ? (customerSelect.value || customerSelect.querySelector('option[selected]')?.value) : null;
+    const isGeneralNote = !customerSelect;
     
-    // Check for existing draft when customer changes
-    if (customerId && !draftRestored) {
+    // Check for existing draft
+    if ((customerId || isGeneralNote) && !draftRestored) {
         const hasDraft = restoreDraft();
         if (hasDraft) {
             draftRestored = true;
@@ -4288,8 +4595,8 @@ function startAutoSave() {
         }
     }
     
-    // Set up debounced auto-save listeners if customer selected
-    if (customerId) {
+    // Set up debounced auto-save listeners
+    if (customerId || isGeneralNote) {
         // Listen to Quill text changes
         quill.on('text-change', debouncedAutoSave);
         
@@ -4310,12 +4617,18 @@ function startAutoSave() {
         document.getElementById('call_date').addEventListener('input', debouncedAutoSave);
         document.getElementById('call_time').addEventListener('input', debouncedAutoSave);
         
-        console.log('Debounced auto-save enabled for customer', customerId);
+        console.log('Debounced auto-save enabled', customerId ? 'for customer ' + customerId : 'for general note');
     }
 }
 
-// Start auto-save when customer is selected
-document.getElementById('customer_id').addEventListener('change', startAutoSave);
+// Start auto-save when customer is selected (or immediately for general notes)
+var _customerSelectEl = document.getElementById('customer_id');
+if (_customerSelectEl) {
+    _customerSelectEl.addEventListener('change', startAutoSave);
+} else {
+    // General note - start auto-save immediately
+    startAutoSave();
+}
 
 // Flags to prevent saving after form submission or draft discard
 let formSubmittedSuccessfully = false;
@@ -4332,8 +4645,10 @@ function cancelNote() {
 
 // Save draft before page unload (unless form was successfully submitted or draft discarded)
 window.addEventListener('beforeunload', function(e) {
-    const customerId = document.getElementById('customer_id').value;
-    if (customerId && !formSubmittedSuccessfully && !draftDiscarded) {
+    const customerEl = document.getElementById('customer_id');
+    const customerId = customerEl ? customerEl.value : null;
+    const isGeneralNote = !customerEl;
+    if ((customerId || isGeneralNote) && !formSubmittedSuccessfully && !draftDiscarded) {
         saveDraft();
     }
 });
@@ -4351,9 +4666,12 @@ document.getElementById('noteForm').addEventListener('submit', async function(e)
     
     // Auto-create task in MSX if task fields are filled but task wasn't created via the button
     // Only create the task on the first milestone attached to the note
-    const taskSubject = document.getElementById('task_subject').value.trim();
-    const taskCategory = document.getElementById('task_category').value;
-    const createdTaskId = document.getElementById('created_task_id').value.trim();
+    const taskSubjectEl = document.getElementById('task_subject');
+    const taskSubject = taskSubjectEl ? taskSubjectEl.value.trim() : '';
+    const taskCategoryEl = document.getElementById('task_category');
+    const taskCategory = taskCategoryEl ? taskCategoryEl.value : '';
+    const createdTaskIdEl = document.getElementById('created_task_id');
+    const createdTaskId = createdTaskIdEl ? createdTaskIdEl.value.trim() : '';
     const milestoneId = selectedMilestones.length > 0 ? selectedMilestones[0].id : null;
     
     if (milestoneId && taskSubject && taskCategory && !createdTaskId) {
@@ -5669,9 +5987,12 @@ function createEngTask() {
     });
 }
 
-document.getElementById('engTaskTitle').addEventListener('keydown', function(e) {
-    if (e.key === 'Enter') { e.preventDefault(); createEngTask(); }
-});
+var _engTaskTitleEl = document.getElementById('engTaskTitle');
+if (_engTaskTitleEl) {
+    _engTaskTitleEl.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') { e.preventDefault(); createEngTask(); }
+    });
+}
 
 // Hook into engagement selection changes
 var _origOnEngChange = window.onEngagementSelectionChanged;

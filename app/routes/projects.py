@@ -163,3 +163,98 @@ def project_add_action_item(id):
     db.session.add(item)
     db.session.commit()
     return jsonify(success=True, id=item.id)
+
+
+@projects_bp.route('/api/project/create-inline', methods=['POST'])
+def project_create_inline():
+    """Create a project with just a title (inline from note form).
+
+    Accepts JSON with: title, [project_type, description, due_date]
+    Returns: {success: true, id: X, title: "...", project_type: "..."}
+    """
+    data = request.get_json(silent=True) or {}
+    title = (data.get('title') or '').strip()
+    if not title:
+        return jsonify(success=False, error='Title is required'), 400
+
+    project_type = (data.get('project_type') or 'general').strip()
+    allowed_types = [t for t in Project.BUILT_IN_TYPES if t != 'copilot_saved']
+    if project_type not in allowed_types:
+        project_type = 'general'
+
+    project = Project(
+        title=title,
+        description=(data.get('description') or '').strip() or None,
+        project_type=project_type,
+    )
+    due_str = (data.get('due_date') or '').strip()
+    if due_str:
+        try:
+            project.due_date = datetime.strptime(due_str, '%Y-%m-%d').date()
+        except ValueError:
+            pass
+
+    db.session.add(project)
+    db.session.commit()
+
+    return jsonify(
+        success=True,
+        id=project.id,
+        title=project.title,
+        project_type=project.project_type,
+    )
+
+
+@projects_bp.route('/api/project/<int:id>', methods=['GET'])
+def project_get_json(id: int):
+    """Return project details as JSON (for inline flyout editing)."""
+    project = Project.query.get_or_404(id)
+    return jsonify(
+        id=project.id,
+        title=project.title,
+        description=project.description or '',
+        project_type=project.project_type,
+        status=project.status,
+        due_date=project.due_date.strftime('%Y-%m-%d') if project.due_date else '',
+    )
+
+
+@projects_bp.route('/api/project/<int:id>', methods=['PUT'])
+def project_update_json(id: int):
+    """Update a project from the inline flyout."""
+    project = Project.query.get_or_404(id)
+    data = request.get_json(silent=True) or {}
+
+    title = (data.get('title') or '').strip()
+    if not title:
+        return jsonify(success=False, error='Title is required'), 400
+
+    project.title = title
+    project.description = (data.get('description') or '').strip() or None
+
+    project_type = (data.get('project_type') or project.project_type).strip()
+    allowed_types = [t for t in Project.BUILT_IN_TYPES if t != 'copilot_saved']
+    if project_type in allowed_types:
+        project.project_type = project_type
+
+    status = (data.get('status') or '').strip()
+    if status in Project.STATUSES:
+        project.status = status
+
+    due_str = (data.get('due_date') or '').strip()
+    if due_str:
+        try:
+            project.due_date = datetime.strptime(due_str, '%Y-%m-%d').date()
+        except ValueError:
+            pass
+    else:
+        project.due_date = None
+
+    db.session.commit()
+    return jsonify(
+        success=True,
+        id=project.id,
+        title=project.title,
+        project_type=project.project_type,
+        status=project.status,
+    )

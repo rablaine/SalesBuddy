@@ -1,0 +1,85 @@
+<!-- Project form fields partial - used in both the dedicated project page and inline flyouts.
+     
+     Expected context variables:
+       project        - Project object (None for new)
+       project_types  - List of built-in type strings (from Project.BUILT_IN_TYPES)
+       flyout_mode    - If true, renders compact for offcanvas flyout
+       unattached_notes - General notes not linked to any project (optional)
+-->
+
+<div class="mb-3">
+    <label for="{{ 'flyout_project_title' if flyout_mode else 'title' }}" class="form-label">Title <span class="text-danger">*</span></label>
+    <input type="text" class="form-control" id="{{ 'flyout_project_title' if flyout_mode else 'title' }}" name="title"
+           {% if not flyout_mode %}required{% endif %}
+           placeholder="e.g. AZ-104 Cert Prep, Fabric Workshop"
+           value="{{ project.title if project else '' }}">
+    {% if flyout_mode %}<div class="invalid-feedback">Title is required.</div>{% endif %}
+</div>
+<div class="mb-3">
+    <label for="{{ 'flyout_project_description' if flyout_mode else 'description' }}" class="form-label">Description</label>
+    <textarea class="form-control" id="{{ 'flyout_project_description' if flyout_mode else 'description' }}" name="description"
+              rows="{{ 2 if flyout_mode else 3 }}" placeholder="What is this project about?">{{ project.description or '' }}</textarea>
+</div>
+{% if flyout_mode %}
+<div class="mb-3">
+    <label for="flyout_project_type" class="form-label">Type</label>
+    <select class="form-select" id="flyout_project_type" name="project_type">
+        {% for t in project_types %}
+        {% if t != 'copilot_saved' %}
+        <option value="{{ t }}" {{ 'selected' if project and project.project_type == t }}>{{ t|replace('_', ' ')|title }}</option>
+        {% endif %}
+        {% endfor %}
+    </select>
+</div>
+<div class="mb-3">
+    <label for="flyout_project_due_date" class="form-label">Due Date</label>
+    <input type="date" class="form-control" id="flyout_project_due_date" name="due_date"
+           value="{{ project.due_date.strftime('%Y-%m-%d') if project and project.due_date else '' }}">
+</div>
+{% else %}
+<div class="row mb-3">
+    <div class="col-6">
+        <label for="project_type" class="form-label">Type</label>
+        <select class="form-select" id="project_type" name="project_type">
+            {% for t in project_types %}
+            {% if t != 'copilot_saved' %}
+            <option value="{{ t }}" {{ 'selected' if project and project.project_type == t }}>{{ t|replace('_', ' ')|title }}</option>
+            {% endif %}
+            {% endfor %}
+        </select>
+    </div>
+    <div class="col-6">
+        <label for="due_date" class="form-label">Due Date</label>
+        <input type="date" class="form-control" id="due_date" name="due_date"
+               value="{{ project.due_date.strftime('%Y-%m-%d') if project and project.due_date else '' }}">
+    </div>
+</div>
+{% endif %}
+{% if project or flyout_mode %}
+<div class="mb-3" id="{{ 'flyout_project_status_group' if flyout_mode else '' }}" {% if flyout_mode and not project %}style="display: none;"{% endif %}>
+    <label for="{{ 'flyout_project_status' if flyout_mode else 'status' }}" class="form-label">Status</label>
+    <select class="form-select" id="{{ 'flyout_project_status' if flyout_mode else 'status' }}" name="status">
+        {% for s in ['Active', 'On Hold', 'Completed'] %}
+        <option value="{{ s }}" {{ 'selected' if project and project.status == s }}>{{ s }}</option>
+        {% endfor %}
+    </select>
+</div>
+{% endif %}
+{% if unattached_notes %}
+<div class="mb-3">
+    <label class="form-label"><i class="bi bi-journal-text"></i> Attach General Notes</label>
+    <div class="border rounded p-2" style="max-height: 200px; overflow-y: auto;">
+        {% for n in unattached_notes %}
+        <div class="form-check">
+            <input class="form-check-input" type="checkbox" name="note_ids" value="{{ n.id }}"
+                   id="{{ 'flyout_' if flyout_mode else '' }}note_{{ n.id }}"
+                   {% if project and n in project.notes %}checked{% endif %}>
+            <label class="form-check-label small" for="{{ 'flyout_' if flyout_mode else '' }}note_{{ n.id }}">
+                {{ n.call_date.strftime('%b %d, %Y') }} - {{ n.content|striptags|truncate(80) }}
+            </label>
+        </div>
+        {% endfor %}
+    </div>
+    <small class="text-muted">Only general notes not already attached to another project are shown.</small>
+</div>
+{% endif %}
