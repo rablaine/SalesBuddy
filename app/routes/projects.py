@@ -169,7 +169,7 @@ def project_add_action_item(id):
 def project_create_inline():
     """Create a project with just a title (inline from note form).
 
-    Accepts JSON with: title, [project_type, description]
+    Accepts JSON with: title, [project_type, description, due_date]
     Returns: {success: true, id: X, title: "...", project_type: "..."}
     """
     data = request.get_json(silent=True) or {}
@@ -187,6 +187,13 @@ def project_create_inline():
         description=(data.get('description') or '').strip() or None,
         project_type=project_type,
     )
+    due_str = (data.get('due_date') or '').strip()
+    if due_str:
+        try:
+            project.due_date = datetime.strptime(due_str, '%Y-%m-%d').date()
+        except ValueError:
+            pass
+
     db.session.add(project)
     db.session.commit()
 

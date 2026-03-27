@@ -81,6 +81,40 @@ class TestProjectCreateInlineAPI:
         assert data['success'] is True
         assert data['project_type'] == 'general'
 
+    def test_create_project_inline_with_due_date(self, client, app):
+        """Should accept and store a due_date."""
+        resp = client.post('/api/project/create-inline',
+                           data=json.dumps({'title': 'Deadlined Project',
+                                            'due_date': '2026-06-15'}),
+                           content_type='application/json')
+        data = resp.get_json()
+        assert data['success'] is True
+
+        with app.app_context():
+            proj = db.session.get(Project, data['id'])
+            assert proj.due_date is not None
+            assert proj.due_date.isoformat() == '2026-06-15'
+
+
+class TestProjectFormPartial:
+    """Tests that the project form partial renders correctly."""
+
+    def test_dedicated_project_form_renders(self, client):
+        """The dedicated /project/new page should render using the partial."""
+        resp = client.get('/project/new')
+        assert resp.status_code == 200
+        html = resp.data.decode()
+        assert 'Title' in html
+        assert 'Description' in html
+        assert 'Due Date' in html
+
+    def test_note_form_has_project_flyout(self, client):
+        """The general note form should include the project flyout offcanvas."""
+        resp = client.get('/note/new')
+        html = resp.data.decode()
+        assert 'projectFlyout' in html
+        assert 'Create New Project' in html
+
 
 class TestCopilotSavedHiddenFromNoteForm:
     """Tests that copilot_saved projects are excluded from the note form."""

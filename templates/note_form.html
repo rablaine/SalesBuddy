@@ -827,6 +827,24 @@
     </div>
 </div>
 
+{% if is_general_note %}
+<!-- Project Creation/Edit Flyout (general notes only) -->
+<div class="offcanvas offcanvas-end" tabindex="-1" id="projectFlyout" aria-labelledby="projectFlyoutLabel" data-bs-backdrop="false" data-bs-scroll="true" style="width: 400px;">
+    <div class="offcanvas-header py-2 border-bottom">
+        <h6 class="offcanvas-title" id="projectFlyoutLabel"><i class="bi bi-folder"></i> New Project</h6>
+        <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Close"></button>
+    </div>
+    <div class="offcanvas-body">
+        {% with flyout_mode=True, project=None, project_types=project_types %}
+        {% include 'partials/_project_form_fields.html' %}
+        {% endwith %}
+        <button type="button" class="btn btn-primary w-100" id="flyout_project_save" onclick="saveProjectFromFlyout()">
+            <i class="bi bi-check-circle"></i> Create Project
+        </button>
+    </div>
+</div>
+{% endif %}
+
 {% if not is_general_note %}
 <!-- Engagement Action Item Creation Flyout -->
 <div class="offcanvas offcanvas-end" tabindex="-1" id="engTaskFlyout" aria-labelledby="engTaskFlyoutLabel" data-bs-backdrop="false" data-bs-scroll="true" style="width: 400px;">
@@ -1042,7 +1060,7 @@
 </style>
 <script>
 (function() {
-    const ids = ['partnerFlyout', 'engagementFlyout', 'contactsFlyout', 'customerInfoFlyout', 'engTaskFlyout'];
+    const ids = ['partnerFlyout', 'engagementFlyout', 'contactsFlyout', 'customerInfoFlyout', 'engTaskFlyout', 'projectFlyout'];
     const flyouts = ids.map(id => document.getElementById(id)).filter(Boolean);
     if (flyouts.length < 2) return;
 
@@ -1782,19 +1800,56 @@ document.getElementById('noteForm').onsubmit = function(e) {
     }
 
     window.createProjectInline = function() {
-        const title = prompt('Project title:');
-        if (!title || !title.trim()) return;
+        const flyout = document.getElementById('projectFlyout');
+        const offcanvas = bootstrap.Offcanvas.getOrCreateInstance(flyout);
+        document.getElementById('projectFlyoutLabel').innerHTML = '<i class="bi bi-folder"></i> New Project';
+        document.getElementById('flyout_project_title').value = '';
+        document.getElementById('flyout_project_title').classList.remove('is-invalid');
+        document.getElementById('flyout_project_description').value = '';
+        document.getElementById('flyout_project_type').value = 'general';
+        document.getElementById('flyout_project_due_date').value = '';
+        const saveBtn = document.getElementById('flyout_project_save');
+        saveBtn.innerHTML = '<i class="bi bi-check-circle"></i> Create Project';
+        saveBtn.disabled = false;
+        offcanvas.show();
+        flyout.addEventListener('shown.bs.offcanvas', function handler() {
+            document.getElementById('flyout_project_title').focus();
+            flyout.removeEventListener('shown.bs.offcanvas', handler);
+        });
+    };
+
+    window.saveProjectFromFlyout = function() {
+        const title = document.getElementById('flyout_project_title').value.trim();
+        if (!title) {
+            document.getElementById('flyout_project_title').classList.add('is-invalid');
+            document.getElementById('flyout_project_title').focus();
+            return;
+        }
+        document.getElementById('flyout_project_title').classList.remove('is-invalid');
+
+        const saveBtn = document.getElementById('flyout_project_save');
+        saveBtn.disabled = true;
+        saveBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Creating...';
+
         fetch('/api/project/create-inline', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ title: title.trim() }),
+            body: JSON.stringify({
+                title: title,
+                project_type: document.getElementById('flyout_project_type').value,
+                description: document.getElementById('flyout_project_description').value.trim(),
+                due_date: document.getElementById('flyout_project_due_date').value,
+            }),
         })
         .then(r => r.json())
         .then(data => {
             if (!data.success) {
                 alert(data.error || 'Failed to create project');
+                saveBtn.disabled = false;
+                saveBtn.innerHTML = '<i class="bi bi-check-circle"></i> Create Project';
                 return;
             }
+            // Add new option to hidden select and select it
             const opt = document.createElement('option');
             opt.value = data.id;
             opt.textContent = data.title + ' (' + data.project_type.replace('_', ' ').replace(/\b\w/g, c => c.toUpperCase()) + ')';
@@ -1803,10 +1858,15 @@ document.getElementById('noteForm').onsubmit = function(e) {
             buildMenu();
             updateLabel();
             if (typeof debouncedAutoSave === 'function') debouncedAutoSave();
+
+            // Close the flyout
+            bootstrap.Offcanvas.getInstance(document.getElementById('projectFlyout')).hide();
         })
         .catch(err => {
             console.error('Error creating project:', err);
             alert('Failed to create project');
+            saveBtn.disabled = false;
+            saveBtn.innerHTML = '<i class="bi bi-check-circle"></i> Create Project';
         });
     };
 
