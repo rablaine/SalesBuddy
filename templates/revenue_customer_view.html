@@ -20,6 +20,9 @@
                 {% endif %}
             </h1>
         </div>
+        <div class="col-auto d-flex align-items-end">
+            <span id="bucketFilterContainer"></span>
+        </div>
     </div>
 
     <!-- Analysis Cards by Bucket -->
@@ -27,22 +30,26 @@
     {% from 'partials/review_action.html' import review_badge, action_buttons, previous_review_hint %}
     <div class="row mb-4">
         {% for a in analyses %}
-        <div class="col-md-4">
+        <div class="col-md-4" data-bucket="{{ a.bucket }}">
             <div class="card {% if a.category == 'CHURN_RISK' %}border-danger{% elif a.category == 'EXPANSION_OPPORTUNITY' %}border-success{% elif a.category == 'RECENT_DIP' %}border-warning{% endif %}">
                 <div class="card-header d-flex justify-content-between align-items-center">
                     <h6 class="mb-0"><a href="#bucket-{{ a.bucket | lower | replace(' ', '-') | replace('/', '') | replace(':', '') }}" class="text-decoration-none text-reset">{{ a.bucket }} <i class="bi bi-arrow-down-short text-muted" style="font-size: 0.75em;"></i></a></h6>
                     {% if a.category == 'CHURN_RISK' %}
-                    <span class="badge bg-danger">{{ a.category }}</span>
+                    <span class="badge bg-danger">Declining</span>
                     {% elif a.category == 'RECENT_DIP' %}
-                    <span class="badge bg-warning text-dark">{{ a.category }}</span>
+                    <span class="badge bg-warning text-dark">Recent Dip</span>
                     {% elif a.category == 'EXPANSION_OPPORTUNITY' %}
-                    <span class="badge bg-success">{{ a.category }}</span>
+                    <span class="badge bg-success">Expansion</span>
                     {% elif a.category == 'VOLATILE' %}
-                    <span class="badge bg-secondary">{{ a.category }}</span>
+                    <span class="badge bg-secondary">Volatile</span>
                     {% elif a.category == 'HEALTHY' %}
-                    <span class="badge bg-light text-dark">{{ a.category }}</span>
+                    <span class="badge bg-light text-dark">Healthy</span>
+                    {% elif a.category == 'NEW_CUSTOMER' %}
+                    <span class="badge bg-info">New Customer</span>
+                    {% elif a.category == 'CHURNED' %}
+                    <span class="badge bg-dark">Inactive</span>
                     {% else %}
-                    <span class="badge bg-info">{{ a.category }}</span>
+                    <span class="badge bg-info">{{ a.category|replace('_', ' ')|title }}</span>
                     {% endif %}
                 </div>
                 <div class="card-body">
@@ -149,7 +156,7 @@
 
                         <!-- Per-Bucket Rows -->
                         {% for bucket, bdata in bucket_product_data.items() %}
-                        <tr>
+                        <tr data-bucket="{{ bucket }}">
                             <td class="ps-3">
                                 <a href="#bucket-{{ bucket | lower | replace(' ', '-') | replace('/', '') | replace(':', '') }}" class="text-decoration-none">
                                     {{ bucket }}
@@ -185,7 +192,7 @@
     {% endif %}
 
     {% for bucket, history in revenue_by_bucket.items() %}
-    <div class="card mb-4" id="bucket-{{ bucket | lower | replace(' ', '-') | replace('/', '') | replace(':', '') }}">
+    <div class="card mb-4" data-bucket="{{ bucket }}" id="bucket-{{ bucket | lower | replace(' ', '-') | replace('/', '') | replace(':', '') }}">
         <div class="card-header d-flex justify-content-between align-items-center">
             <h5 class="mb-0"><i class="bi bi-graph-up"></i> {{ bucket }}</h5>
             {% if products_by_bucket.get(bucket) %}
@@ -291,4 +298,6 @@
 {% include 'partials/review_action.html' %}
 
 <style>html { scroll-behavior: smooth; }</style>
+<script src="{{ url_for('static', filename='js/revenue-bucket-filter.js') }}"></script>
+<script>RevenueBucketFilter.init({ containerId: 'bucketFilterContainer' });</script>
 {% endblock %}
