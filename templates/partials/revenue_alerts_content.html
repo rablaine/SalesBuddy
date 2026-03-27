@@ -36,6 +36,9 @@
 {% endif %}
 
 {% if alerts %}
+<div class="d-flex justify-content-end mb-2">
+    <span id="partialBucketFilterContainer"></span>
+</div>
 <div class="table-responsive">
     <table class="table table-hover table-sm align-middle mb-0" id="alertsTable">
         <thead>
@@ -202,4 +205,10 @@
     currentSort = { col: 0, asc: true };  // pretend asc so toggle flips to desc
     sortTable(0, priorityTh.dataset.sortType);
 })();
+</script>
+<script src="{{ url_for('static', filename='js/revenue-bucket-filter.js') }}"></script>
+<script>
+if (typeof RevenueBucketFilter !== 'undefined') {
+    RevenueBucketFilter.init({ containerId: 'partialBucketFilterContainer' });
+}
 </script>
