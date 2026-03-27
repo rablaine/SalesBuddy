@@ -3178,7 +3178,9 @@ async function inlineSaveTPID() {
 window._preselectMilestoneId = {{ preselect_milestone_id|default('null', true)|tojson }};
 
 // Listen for customer changes
-document.getElementById('customer_id').addEventListener('change', function() {
+var _milestoneCustomerEl = document.getElementById('customer_id');
+if (_milestoneCustomerEl) {
+_milestoneCustomerEl.addEventListener('change', function() {
     loadMilestonesForCustomer(this.value);
     // Clear selected milestone when customer changes
     removeMilestone();
@@ -3186,9 +3188,10 @@ document.getElementById('customer_id').addEventListener('change', function() {
     var contactsBtn = document.getElementById('contactsFlyoutBtn');
     if (contactsBtn) contactsBtn.style.display = this.value ? '' : 'none';
 });
+}
 
 // Load milestones on page load if customer is already selected
-const initialCustomerId = document.getElementById('customer_id').value;
+const initialCustomerId = _milestoneCustomerEl ? _milestoneCustomerEl.value : null;
 if (initialCustomerId) {
     loadMilestonesForCustomer(initialCustomerId);
 }
@@ -3837,15 +3840,19 @@ function loadOpportunitiesForCustomer(customerId) {
 }
 
 // Hook into customer dropdown change to load opportunities
-document.getElementById('customer_id').addEventListener('change', function() {
+var _custDropdown = document.getElementById('customer_id');
+if (_custDropdown) {
+_custDropdown.addEventListener('change', function() {
     loadOpportunitiesForCustomer(this.value);
     // Show/hide contacts button
     var contactsBtn = document.getElementById('contactsFlyoutBtn');
     if (contactsBtn) contactsBtn.style.display = this.value ? '' : 'none';
 });
+}
 // Load on page load if customer already selected
 (function() {
-    const cid = document.getElementById('customer_id').value;
+    const el = document.getElementById('customer_id');
+    const cid = el ? el.value : null;
     if (cid) loadOpportunitiesForCustomer(cid);
 })();
 
