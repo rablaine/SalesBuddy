@@ -835,7 +835,7 @@
         <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Close"></button>
     </div>
     <div class="offcanvas-body">
-        {% with flyout_mode=True, project=None, project_types=project_types %}
+        {% with flyout_mode=True, project=None, project_types=project_types, unattached_notes=unattached_notes %}
         {% include 'partials/_project_form_fields.html' %}
         {% endwith %}
         <button type="button" class="btn btn-primary w-100" id="flyout_project_save" onclick="saveProjectFromFlyout()">
