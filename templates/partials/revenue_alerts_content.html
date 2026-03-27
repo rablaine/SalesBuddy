@@ -55,7 +55,7 @@
         </thead>
         <tbody>
             {% for a in alerts %}
-            <tr data-analysis-id="{{ a.id }}" style="{% if alert_clickable %}cursor: pointer;{% endif %}{% if a.review_status not in ('new', 'to_be_reviewed') %} opacity: 0.6;{% endif %}"
+            <tr data-analysis-id="{{ a.id }}" data-bucket="{{ a.bucket }}" style="{% if alert_clickable %}cursor: pointer;{% endif %}{% if a.review_status not in ('new', 'to_be_reviewed') %} opacity: 0.6;{% endif %}"
                 {% if alert_clickable %}onclick="openAlertDetail(event, {{ a.id }}, '{{ a.customer_name|replace("'", "\\'") }}', '{{ a.bucket|replace("'", "\\'") }}')"{% endif %}>
                 <td>
                     <span class="badge {% if a.priority_score >= 80 %}bg-danger{% elif a.priority_score >= 60 %}bg-warning text-dark{% elif a.priority_score >= 40 %}bg-info{% else %}bg-secondary{% endif %}">
