@@ -185,6 +185,7 @@ def queue_event(
     status_code: int,
     response_time_ms: Optional[float],
     is_api: bool,
+    app_mode: str = 'unknown',
 ) -> None:
     """Add an event to the in-memory buffer for the next flush.
 
@@ -197,6 +198,7 @@ def queue_event(
         status_code: HTTP response status code.
         response_time_ms: Request duration in milliseconds.
         is_api: Whether the request was to an API endpoint.
+        app_mode: Client app mode - "standalone" (PWA), "browser", or "unknown".
     """
     if not is_telemetry_enabled():
         return
@@ -209,6 +211,7 @@ def queue_event(
             'category': category,
             'method': method,
             'is_api': str(is_api),
+            'app_mode': app_mode,
         },
         measurements={
             'status_code': float(status_code),
