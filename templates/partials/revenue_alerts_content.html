@@ -36,9 +36,11 @@
 {% endif %}
 
 {% if alerts %}
+{% if not hide_bucket_filter %}
 <div class="d-flex justify-content-end mb-2">
     <span id="partialBucketFilterContainer"></span>
 </div>
+{% endif %}
 <div class="table-responsive">
     <table class="table table-hover table-sm align-middle mb-0" id="alertsTable">
         <thead>
@@ -209,6 +211,7 @@
 <script src="{{ url_for('static', filename='js/revenue-bucket-filter.js') }}"></script>
 <script>
 if (typeof RevenueBucketFilter !== 'undefined') {
-    RevenueBucketFilter.init({ containerId: 'partialBucketFilterContainer' });
+    var _bfContainer = document.getElementById('partialBucketFilterContainer') ? 'partialBucketFilterContainer' : null;
+    RevenueBucketFilter.init({ containerId: _bfContainer });
 }
 </script>

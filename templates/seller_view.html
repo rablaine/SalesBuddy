@@ -271,7 +271,10 @@
     <div class="modal-dialog modal-dialog-scrollable" style="max-width: min(1320px, calc(100vw - 3rem)); width: calc(100vw - 3rem);">
         <div class="modal-content" style="max-height: 90vh;">
             <div class="modal-header py-2">
-                <h5 class="modal-title" id="revenueModalLabel"><i class="bi bi-exclamation-triangle"></i> Revenue Analyzer &mdash; {{ seller.name }} <a href="{{ url_for('revenue.revenue_seller_view', seller_name=seller.name) }}" class="text-muted ms-2" title="Open full page" style="font-size: 0.75em;"><i class="bi bi-box-arrow-up-right"></i></a></h5>
+                <div class="d-flex align-items-center gap-2 flex-grow-1 me-2">
+                    <h5 class="modal-title mb-0" id="revenueModalLabel"><i class="bi bi-exclamation-triangle"></i> Revenue - {{ seller.name }} <a href="{{ url_for('revenue.revenue_seller_view', seller_name=seller.name) }}" class="text-muted ms-2" title="Open full page" style="font-size: 0.75em;"><i class="bi bi-box-arrow-up-right"></i></a></h5>
+                    <span id="modalBucketFilterContainer"></span>
+                </div>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body p-3">
@@ -279,6 +282,7 @@
                 {% set summary = revenue_summary %}
 
                 {% set alert_clickable = true %}
+                {% set hide_bucket_filter = true %}
                 {% include 'partials/revenue_alerts_content.html' %}
             </div>
         </div>
@@ -500,7 +504,15 @@
 
 {% if revenue_alerts %}
 <script src="{{ url_for('static', filename='js/revenue-bucket-filter.js') }}"></script>
-<script>RevenueBucketFilter.init({ containerId: 'sellerBucketFilterContainer' });</script>
+<script>
+RevenueBucketFilter.init({ containerId: 'sellerBucketFilterContainer' });
+// Also init inside the modal header
+document.getElementById('revenueModal').addEventListener('shown.bs.modal', function() {
+    if (!document.querySelector('#modalBucketFilterContainer .btn')) {
+        RevenueBucketFilter.init({ containerId: 'modalBucketFilterContainer' });
+    }
+});
+</script>
 {% endif %}
 
 {% endblock %}
