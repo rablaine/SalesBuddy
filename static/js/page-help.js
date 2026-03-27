@@ -287,8 +287,8 @@ const PageHelp = (function () {
             <td>Recently started generating revenue (first few months of usage). Worth an early check-in to ensure onboarding is going well.</td>
           </tr>
           <tr>
-            <td><span class="badge bg-dark">Churned</span></td>
-            <td>Revenue dropped to $0 after previously generating usage. Customer has stopped using Azure entirely.</td>
+            <td><span class="badge bg-dark">Inactive</span></td>
+            <td>Revenue dropped to $0 in this bucket after previously generating usage. The customer stopped using this specific product/service.</td>
           </tr>
         </tbody>
       </table>

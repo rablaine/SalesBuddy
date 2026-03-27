@@ -146,7 +146,7 @@
                                         <small>{{ alert.customer_name }}</small>
                                         {% if alert.bucket %}<br><small class="text-muted">{{ alert.bucket }}</small>{% endif %}
                                     </td>
-                                    <td><small>{% if alert.category == 'CHURN_RISK' %}Declining{% else %}{{ alert.category|replace('_', ' ')|title }}{% endif %}</small></td>
+                                    <td><small>{% if alert.category == 'CHURN_RISK' %}Declining{% elif alert.category == 'CHURNED' %}Inactive{% else %}{{ alert.category|replace('_', ' ')|title }}{% endif %}</small></td>
                                     <td class="text-end">
                                         {% if alert.dollars_at_risk %}
                                         <small class="text-danger">${{ '{:,.0f}'.format(alert.dollars_at_risk) }}</small>

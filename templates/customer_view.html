@@ -187,7 +187,7 @@
                                 {% elif analysis.category == 'NEW_CUSTOMER' %}bg-primary
                                 {% elif analysis.category == 'CHURNED' %}bg-dark
                                 {% else %}bg-secondary{% endif %}">
-                                {% if analysis.category == 'CHURN_RISK' %}Declining{% else %}{{ analysis.category|replace('_', ' ')|title }}{% endif %}
+                                {% if analysis.category == 'CHURN_RISK' %}Declining{% elif analysis.category == 'CHURNED' %}Inactive{% else %}{{ analysis.category|replace('_', ' ')|title }}{% endif %}
                             </span>
                         </div>
                         
