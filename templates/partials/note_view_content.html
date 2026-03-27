@@ -94,8 +94,22 @@
                             <i class="bi bi-lightning-charge"></i> {{ eng.title[:50] }}{% if eng.title|length > 50 %}...{% endif %}
                         </a>
                     {% endfor %}
-                    <br>
-                    <button class="btn btn-sm btn-outline-success mt-1" type="button" data-bs-toggle="collapse" data-bs-target="#noteTaskCreate">
+                </p>
+                {% endif %}
+
+                {% if note.projects|length > 0 %}
+                <p><strong>Projects:</strong><br>
+                    {% for p in note.projects %}
+                        <a href="{{ url_for('projects.project_view', id=p.id) }}" class="badge bg-secondary text-decoration-none">
+                            <i class="bi bi-folder"></i> {{ p.title[:50] }}{% if p.title|length > 50 %}...{% endif %}
+                        </a>
+                    {% endfor %}
+                </p>
+                {% endif %}
+
+                {% if note.engagements|length > 0 %}
+                <p>
+                    <button class="btn btn-sm btn-outline-success" type="button" data-bs-toggle="collapse" data-bs-target="#noteTaskCreate">
                         <i class="bi bi-check2-square"></i> Create Action Item
                     </button>
                     <div class="collapse mt-2" id="noteTaskCreate">

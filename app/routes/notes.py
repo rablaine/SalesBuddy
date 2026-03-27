@@ -360,6 +360,14 @@ def note_create():
                 Engagement.id.in_([int(eid) for eid in engagement_ids])
             ).all()
             note.engagements.extend(engagements)
+
+        # Add project (for general notes)
+        project_id = request.form.get('project_id')
+        if project_id:
+            from app.models import Project
+            proj = db.session.get(Project, int(project_id))
+            if proj:
+                note.projects.append(proj)
         
         db.session.add(note)
         
@@ -426,6 +434,15 @@ def note_create():
 
     # Pre-select milestone from query params
     preselect_milestone_id = request.args.get('milestone_id', type=int)
+
+    # Pre-select project from query params (for general notes)
+    preselect_project_id = request.args.get('project_id', type=int)
+
+    # Active projects for the project selector (general notes)
+    from app.models import Project
+    active_projects = Project.query.filter(
+        Project.status.in_(['Active', 'On Hold'])
+    ).order_by(Project.title).all()
     
     # Capture referrer for redirect after creation
     referrer = request.referrer or ''
@@ -480,6 +497,8 @@ def note_create():
                          preselect_topic_id=preselect_topic_id,
                          preselect_engagement_id=preselect_engagement_id,
                          preselect_milestone_id=preselect_milestone_id,
+                         preselect_project_id=preselect_project_id,
+                         active_projects=active_projects,
                          previous_calls=previous_calls,
                          referrer=referrer,
                          today=today,
@@ -597,6 +616,15 @@ def note_edit(id):
                 Engagement.id.in_([int(eid) for eid in engagement_ids])
             ).all()
             note.engagements = engagements
+
+        # Update projects
+        note.projects = []
+        project_id = request.form.get('project_id')
+        if project_id:
+            from app.models import Project
+            proj = db.session.get(Project, int(project_id))
+            if proj:
+                note.projects.append(proj)
         
         # Handle milestone and optional task creation (only for customer-linked notes)
         if customer_id:
@@ -650,6 +678,11 @@ def note_edit(id):
     user_prompt = pref.workiq_summary_prompt if pref and pref.workiq_summary_prompt else DEFAULT_SUMMARY_PROMPT
     connect_impact_enabled = pref.workiq_connect_impact if pref else True
     
+    from app.models import Project
+    active_projects = Project.query.filter(
+        Project.status.in_(['Active', 'On Hold'])
+    ).order_by(Project.title).all()
+
     return render_template('note_form.html',
                          note=note,
                          customers=customers,
@@ -659,6 +692,8 @@ def note_edit(id):
                          templates=templates,
                          preselect_customer_id=None,
                          preselect_topic_id=None,
+                         preselect_project_id=None,
+                         active_projects=active_projects,
                          workiq_prompt=user_prompt,
                          default_workiq_prompt=DEFAULT_SUMMARY_PROMPT,
                          workiq_connect_impact=connect_impact_enabled,

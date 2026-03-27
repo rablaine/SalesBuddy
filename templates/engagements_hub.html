@@ -88,4 +88,51 @@
 {% set eng_empty_msg = 'No engagements match the current filter.' %}
 {% include 'partials/engagements_panel.html' %}
 
+<!-- Internal Projects -->
+{% if projects %}
+<div class="card mt-4">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h5 class="mb-0"><i class="bi bi-folder"></i> Internal Projects</h5>
+        <div class="d-flex align-items-center gap-2">
+            <span class="badge bg-secondary">{{ projects|length }}</span>
+            <a href="{{ url_for('projects.project_create') }}" class="btn btn-sm btn-primary"><i class="bi bi-plus-circle"></i> New Project</a>
+        </div>
+    </div>
+    <div class="list-group list-group-flush">
+        {% for p in projects %}
+        <a href="{{ url_for('projects.project_view', id=p.id) }}" class="list-group-item list-group-item-action py-2 px-3">
+            <div class="d-flex justify-content-between align-items-start">
+                <div>
+                    <div class="fw-semibold">
+                        {{ p.title }}
+                        <span class="badge bg-info ms-1" style="font-size: 0.65rem;">{{ p.project_type|replace('_', ' ')|title }}</span>
+                        {% if p.status == 'On Hold' %}<span class="badge bg-warning text-dark ms-1" style="font-size: 0.65rem;">On Hold</span>{% endif %}
+                    </div>
+                    {% if p.description %}<small class="text-muted">{{ p.description[:100] }}{% if p.description|length > 100 %}...{% endif %}</small>{% endif %}
+                </div>
+                <div class="text-end flex-shrink-0">
+                    {% if p.open_task_count %}<span class="badge bg-primary">{{ p.open_task_count }} task{{ 's' if p.open_task_count != 1 }}</span>{% endif %}
+                    {% if p.due_date %}
+                    <div><small class="{% if p.is_overdue %}text-danger fw-bold{% else %}text-muted{% endif %}">{{ p.due_date.strftime('%b %d') }}{% if p.is_overdue %} <i class="bi bi-exclamation-triangle-fill"></i>{% endif %}</small></div>
+                    {% endif %}
+                </div>
+            </div>
+        </a>
+        {% endfor %}
+    </div>
+</div>
+{% else %}
+<div class="card mt-4">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h5 class="mb-0"><i class="bi bi-folder"></i> Internal Projects</h5>
+        <a href="{{ url_for('projects.project_create') }}" class="btn btn-sm btn-primary"><i class="bi bi-plus-circle"></i> New Project</a>
+    </div>
+    <div class="card-body text-center text-muted py-4">
+        <i class="bi bi-folder" style="font-size: 2rem;"></i>
+        <p class="mb-0 mt-2">No internal projects yet.</p>
+        <p class="small">Track training, internal initiatives, and saved tasks here.</p>
+    </div>
+</div>
+{% endif %}
+
 {% endblock %}

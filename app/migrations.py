@@ -244,6 +244,10 @@ def run_migrations(db):
     _add_column_if_not_exists(db, inspector, 'user_preferences',
                               'show_hygiene_tasks', "BOOLEAN NOT NULL DEFAULT 1")
 
+    # Migration: Add project_id to action_items (for project-sourced tasks)
+    _add_column_if_not_exists(db, inspector, 'action_items',
+                              'project_id', "INTEGER REFERENCES projects(id)")
+
     # =========================================================================
     # End migrations
     # =========================================================================

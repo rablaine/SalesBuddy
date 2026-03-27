@@ -146,6 +146,8 @@ def create_app():
     app.register_blueprint(msx_bp)
     app.register_blueprint(opportunities_bp)
     app.register_blueprint(engagements_bp)
+    from app.routes.projects import projects_bp
+    app.register_blueprint(projects_bp)
     app.register_blueprint(connect_export_bp)
     app.register_blueprint(backup_bp)
     app.register_blueprint(reports_bp)

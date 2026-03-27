@@ -13,7 +13,7 @@ import re
 
 from app.models import (db, Note, Customer, Seller, Territory, Topic,
                         UserPreference, NoteTemplate, User, SyncStatus,
-                        Engagement, ActionItem, Milestone, RevenueAnalysis)
+                        Engagement, ActionItem, Milestone, RevenueAnalysis, Project)
 from app.services.backup import backup_template, delete_template_backup
 from app.services.seller_mode import get_seller_mode_seller_id
 
@@ -225,16 +225,17 @@ def index():
     open_tasks_q = ActionItem.query.filter(
         ActionItem.status == 'open'
     ).options(
-        db.joinedload(ActionItem.engagement).joinedload(Engagement.customer)
+        db.joinedload(ActionItem.engagement).joinedload(Engagement.customer),
+        db.joinedload(ActionItem.project),
     )
     # Exclude copilot items if disabled
     if not copilot_enabled:
         open_tasks_q = open_tasks_q.filter(ActionItem.source != 'copilot')
     if seller_mode_sid:
-        # In seller mode, show engagement tasks for this seller + all copilot tasks
+        # In seller mode, show engagement tasks for this seller + all copilot/project tasks
         open_tasks_q = open_tasks_q.filter(
             db.or_(
-                ActionItem.source == 'copilot',
+                ActionItem.source.in_(['copilot', 'project']),
                 db.and_(
                     ActionItem.engagement_id.isnot(None),
                     ActionItem.engagement.has(

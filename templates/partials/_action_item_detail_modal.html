@@ -20,6 +20,9 @@
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+                <button type="button" class="btn btn-outline-info" id="aiDetailSaveBtn" style="display: none;" onclick="saveCopilotTask()">
+                    <i class="bi bi-pin-angle"></i> Save Task
+                </button>
                 <a href="#" class="btn btn-primary" id="aiDetailEngLink" style="display: none;">
                     <i class="bi bi-lightning-charge"></i> Go to Engagement
                 </a>
@@ -95,6 +98,15 @@ function viewActionItem(taskId, opts) {
             descEl.innerHTML = '<p class="text-muted fst-italic">No description.</p>';
         }
 
+        // Save button (copilot tasks only)
+        var saveBtn = document.getElementById('aiDetailSaveBtn');
+        if (t.source === 'copilot') {
+            saveBtn.style.display = '';
+            saveBtn.dataset.taskId = taskId;
+        } else {
+            saveBtn.style.display = 'none';
+        }
+
         // Engagement link
         var engLink = document.getElementById('aiDetailEngLink');
         if (opts.showEngagementLink && t.engagement_id) {
@@ -119,6 +131,30 @@ function viewActionItem(taskId, opts) {
         new bootstrap.Modal(document.getElementById('actionItemDetailModal')).show();
     })
     .catch(function(err) { console.error(err); });
+}
+
+function saveCopilotTask() {
+    var btn = document.getElementById('aiDetailSaveBtn');
+    var taskId = btn.dataset.taskId;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Saving...';
+    fetch('/action-item/' + taskId + '/save', { method: 'POST' })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        if (data.success) {
+            btn.innerHTML = '<i class="bi bi-check-circle"></i> Saved';
+            btn.classList.replace('btn-outline-info', 'btn-success');
+            window._aiDetailChanged = true;
+            setTimeout(function() { btn.style.display = 'none'; }, 1500);
+        } else {
+            btn.innerHTML = '<i class="bi bi-x-circle"></i> ' + (data.error || 'Failed');
+            btn.disabled = false;
+        }
+    })
+    .catch(function() {
+        btn.innerHTML = '<i class="bi bi-pin-angle"></i> Save Task';
+        btn.disabled = false;
+    });
 }
 
 window._aiDetailChanged = false;

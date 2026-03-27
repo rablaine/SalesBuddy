@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Edit' if project else 'New' }} Project - Sales Buddy{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1><i class="bi bi-folder"></i> {{ 'Edit' if project else 'New' }} Project</h1>
+</div>
+
+<form method="POST" class="card">
+    <div class="card-body">
+        <div class="mb-3">
+            <label for="title" class="form-label">Title *</label>
+            <input type="text" class="form-control" id="title" name="title" required
+                   value="{{ project.title if project else '' }}">
+        </div>
+        <div class="mb-3">
+            <label for="description" class="form-label">Description</label>
+            <textarea class="form-control" id="description" name="description" rows="3">{{ project.description or '' }}</textarea>
+        </div>
+        <div class="row mb-3">
+            <div class="col-md-4">
+                <label for="project_type" class="form-label">Type</label>
+                <select class="form-select" id="project_type" name="project_type">
+                    {% for t in project_types %}
+                    {% if t != 'copilot_saved' %}
+                    <option value="{{ t }}" {{ 'selected' if project and project.project_type == t }}>{{ t|replace('_', ' ')|title }}</option>
+                    {% endif %}
+                    {% endfor %}
+                    <option value="custom" {{ 'selected' if project and project.project_type not in project_types }}>Custom</option>
+                </select>
+            </div>
+            <div class="col-md-4">
+                <label for="due_date" class="form-label">Due Date</label>
+                <input type="date" class="form-control" id="due_date" name="due_date"
+                       value="{{ project.due_date.strftime('%Y-%m-%d') if project and project.due_date else '' }}">
+            </div>
+            {% if project %}
+            <div class="col-md-4">
+                <label for="status" class="form-label">Status</label>
+                <select class="form-select" id="status" name="status">
+                    {% for s in ['Active', 'On Hold', 'Completed'] %}
+                    <option value="{{ s }}" {{ 'selected' if project.status == s }}>{{ s }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            {% endif %}
+        </div>
+        {% if unattached_notes %}
+        <div class="mb-3">
+            <label class="form-label"><i class="bi bi-journal-text"></i> Attach General Notes</label>
+            <div class="border rounded p-2" style="max-height: 200px; overflow-y: auto;">
+                {% for n in unattached_notes %}
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" name="note_ids" value="{{ n.id }}" id="note_{{ n.id }}"
+                           {% if project and n in project.notes %}checked{% endif %}>
+                    <label class="form-check-label small" for="note_{{ n.id }}">
+                        {{ n.call_date.strftime('%b %d, %Y') }} - {{ n.content|striptags|truncate(80) }}
+                    </label>
+                </div>
+                {% endfor %}
+            </div>
+            <small class="text-muted">Only general notes not already attached to another project are shown.</small>
+        </div>
+        {% endif %}
+    </div>
+    <div class="card-footer d-flex justify-content-between">
+        <a href="{{ url_for('projects.project_view', id=project.id) if project else url_for('engagements.engagements_hub') }}" class="btn btn-outline-secondary">Cancel</a>
+        <button type="submit" class="btn btn-primary"><i class="bi bi-check-circle"></i> {{ 'Save' if project else 'Create' }}</button>
+    </div>
+</form>
+{% endblock %}

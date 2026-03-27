@@ -1,0 +1,139 @@
+{% extends "base.html" %}
+{% block title %}{{ project.title }} - Sales Buddy{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <nav aria-label="breadcrumb">
+            <ol class="breadcrumb mb-1">
+                <li class="breadcrumb-item"><a href="{{ url_for('engagements.engagements_hub') }}">Engagements</a></li>
+                <li class="breadcrumb-item active">{{ project.title }}</li>
+            </ol>
+        </nav>
+        <h1>
+            <i class="bi bi-folder"></i> {{ project.title }}
+            <span class="badge {% if project.status == 'Active' %}bg-success{% elif project.status == 'On Hold' %}bg-warning text-dark{% else %}bg-secondary{% endif %}">{{ project.status }}</span>
+            <span class="badge bg-info" style="font-size: 0.5em;">{{ project.project_type|replace('_', ' ')|title }}</span>
+        </h1>
+    </div>
+    <div class="d-flex gap-2">
+        <a href="{{ url_for('projects.project_edit', id=project.id) }}" class="btn btn-sm btn-outline-primary"><i class="bi bi-pencil"></i> Edit</a>
+        <form method="POST" action="{{ url_for('projects.project_delete', id=project.id) }}" onsubmit="return confirm('Delete this project?');">
+            <button type="submit" class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i> Delete</button>
+        </form>
+    </div>
+</div>
+
+{% if project.description %}
+<div class="card mb-3">
+    <div class="card-body">
+        <p class="mb-0">{{ project.description }}</p>
+    </div>
+</div>
+{% endif %}
+
+<div class="row">
+    <div class="col-md-6">
+        <!-- Details -->
+        <div class="card mb-3">
+            <div class="card-header"><h5 class="mb-0"><i class="bi bi-info-circle"></i> Details</h5></div>
+            <ul class="list-group list-group-flush">
+                <li class="list-group-item d-flex justify-content-between">
+                    <span class="text-muted">Type</span>
+                    <span>{{ project.project_type|replace('_', ' ')|title }}</span>
+                </li>
+                {% if project.due_date %}
+                <li class="list-group-item d-flex justify-content-between">
+                    <span class="text-muted">Due Date</span>
+                    <span class="{% if project.is_overdue %}text-danger fw-bold{% endif %}">
+                        {{ project.due_date.strftime('%b %d, %Y') }}
+                        {% if project.is_overdue %}<i class="bi bi-exclamation-triangle-fill"></i>{% endif %}
+                    </span>
+                </li>
+                {% endif %}
+                <li class="list-group-item d-flex justify-content-between">
+                    <span class="text-muted">Created</span>
+                    <span>{{ project.created_at.strftime('%b %d, %Y') }}</span>
+                </li>
+            </ul>
+        </div>
+
+        <!-- Action Items -->
+        <div class="card mb-3">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-check2-square"></i> Action Items</h5>
+                <span class="badge bg-secondary">{{ project.action_items|length }}</span>
+            </div>
+            {% if project.action_items %}
+            <div class="list-group list-group-flush">
+                {% for task in project.action_items %}
+                <div class="list-group-item d-flex justify-content-between align-items-center py-2"
+                     onclick="viewActionItem({{ task.id }})" style="cursor: pointer;">
+                    <div>
+                        <i class="bi {% if task.status == 'completed' %}bi-check-circle-fill text-success{% else %}bi-circle{% endif %}"></i>
+                        <span class="{% if task.status == 'completed' %}text-decoration-line-through text-muted{% endif %}{% if task.priority == 'high' %} text-danger fw-bold{% endif %}">{{ task.title }}</span>
+                    </div>
+                    {% if task.due_date %}
+                    <span class="badge {% if task.is_overdue %}bg-danger{% else %}bg-secondary{% endif %}" style="font-size: 0.75em;">{{ task.due_date.strftime('%b %d') }}</span>
+                    {% endif %}
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="card-body text-muted">No action items yet.</div>
+            {% endif %}
+            <div class="card-footer">
+                <form id="addTaskForm" onsubmit="addProjectTask(event)">
+                    <div class="input-group input-group-sm">
+                        <input type="text" class="form-control" id="newTaskTitle" placeholder="Add action item..." required>
+                        <button class="btn btn-primary" type="submit"><i class="bi bi-plus"></i></button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-6">
+        <!-- Associated Notes -->
+        <div class="card mb-3">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-journal-text"></i> Notes</h5>
+                <div class="d-flex align-items-center gap-2">
+                    <span class="badge bg-secondary">{{ project.notes|length }}</span>
+                    <a href="{{ url_for('notes.note_create', project_id=project.id) }}" class="btn btn-primary btn-sm"><i class="bi bi-plus-circle"></i></a>
+                </div>
+            </div>
+            {% if project.notes %}
+            <div class="list-group list-group-flush">
+                {% for note in project.notes|sort(attribute='call_date', reverse=True) %}
+                <a href="{{ url_for('notes.note_view', id=note.id) }}" class="list-group-item list-group-item-action py-2">
+                    <div class="fw-semibold">{{ note.customer.name if note.customer else 'General Note' }}</div>
+                    <small class="text-muted">{{ note.call_date.strftime('%b %d, %Y') }}</small>
+                </a>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="card-body text-muted">No notes linked yet.</div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+{% include 'partials/_action_item_detail_modal.html' %}
+
+<script>
+function addProjectTask(e) {
+    e.preventDefault();
+    var title = document.getElementById('newTaskTitle').value.trim();
+    if (!title) return;
+    fetch('/api/project/{{ project.id }}/action-item', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({title: title})
+    }).then(function(r) { return r.json(); })
+    .then(function(data) {
+        if (data.success) location.reload();
+    });
+}
+</script>
+{% endblock %}

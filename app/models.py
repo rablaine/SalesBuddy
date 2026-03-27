@@ -73,6 +73,13 @@ notes_engagements = db.Table(
     db.Column('engagement_id', db.Integer, db.ForeignKey('engagements.id'), primary_key=True)
 )
 
+# Association table for many-to-many relationship between Note and Project
+notes_projects = db.Table(
+    'notes_projects',
+    db.Column('note_id', db.Integer, db.ForeignKey('notes.id'), primary_key=True),
+    db.Column('project_id', db.Integer, db.ForeignKey('projects.id'), primary_key=True)
+)
+
 # Association table for many-to-many relationship between Engagement and Opportunity
 engagements_opportunities = db.Table(
     'engagements_opportunities',
@@ -615,6 +622,12 @@ class Note(db.Model):
         back_populates='notes',
         lazy='select'
     )
+    projects = db.relationship(
+        'Project',
+        secondary=notes_projects,
+        back_populates='notes',
+        lazy='select'
+    )
     action_items = db.relationship('ActionItem', back_populates='note', lazy='select')
     
     @property
@@ -733,6 +746,7 @@ class ActionItem(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     engagement_id = db.Column(db.Integer, db.ForeignKey('engagements.id'), nullable=True)  # Nullable for copilot/project items
+    project_id = db.Column(db.Integer, db.ForeignKey('projects.id'), nullable=True)  # For project-sourced action items
     note_id = db.Column(db.Integer, db.ForeignKey('notes.id'), nullable=True)
     title = db.Column(db.String(300), nullable=False)
     description = db.Column(db.Text, nullable=True)  # Rich HTML from Quill
@@ -748,6 +762,7 @@ class ActionItem(db.Model):
 
     # Relationships
     engagement = db.relationship('Engagement', back_populates='action_items')
+    project = db.relationship('Project', back_populates='action_items')
     note = db.relationship('Note', back_populates='action_items')
 
     @property
@@ -759,6 +774,67 @@ class ActionItem(db.Model):
 
     def __repr__(self) -> str:
         return f'<ActionItem {self.id}: {self.title[:50]}>'
+
+
+class Project(db.Model):
+    """Internal project for tracking non-customer work.
+
+    Built-in project types enable special behaviors:
+    - general: user-created internal projects
+    - copilot_saved: preserved Copilot action items the user wants to keep
+    - training: learning, certifications, skill development
+    - achievement: completed goals, awards, accomplishments
+
+    Custom types can be added by users for any internal initiative.
+    """
+    __tablename__ = 'projects'
+
+    STATUSES = ['Active', 'On Hold', 'Completed']
+    BUILT_IN_TYPES = ['general', 'copilot_saved', 'training', 'achievement']
+
+    id = db.Column(db.Integer, primary_key=True)
+    title = db.Column(db.String(300), nullable=False)
+    description = db.Column(db.Text, nullable=True)
+    status = db.Column(db.String(50), nullable=False, default='Active')
+    project_type = db.Column(db.String(50), nullable=False, default='general')
+    due_date = db.Column(db.Date, nullable=True)
+    created_at = db.Column(db.DateTime, default=utc_now, nullable=False)
+    updated_at = db.Column(db.DateTime, default=utc_now, onupdate=utc_now, nullable=False)
+
+    # Relationships
+    notes = db.relationship(
+        'Note',
+        secondary=notes_projects,
+        back_populates='projects',
+        lazy='select'
+    )
+    action_items = db.relationship(
+        'ActionItem',
+        back_populates='project',
+        lazy='select',
+        cascade='all, delete-orphan',
+        order_by='ActionItem.sort_order, ActionItem.created_at'
+    )
+
+    @property
+    def is_built_in_type(self) -> bool:
+        """Return True if this project uses a built-in type."""
+        return self.project_type in self.BUILT_IN_TYPES
+
+    @property
+    def open_task_count(self) -> int:
+        """Count of open action items."""
+        return sum(1 for t in self.action_items if t.status == 'open')
+
+    @property
+    def is_overdue(self) -> bool:
+        """Return True if project is active and past due date."""
+        if self.status == 'Completed' or not self.due_date:
+            return False
+        return self.due_date < date.today()
+
+    def __repr__(self) -> str:
+        return f'<Project {self.id}: {self.title[:50]} ({self.project_type})>'
 
 
 class Opportunity(db.Model):

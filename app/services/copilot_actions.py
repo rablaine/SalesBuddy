@@ -14,9 +14,30 @@ import re
 import threading
 from datetime import datetime, date, time, timedelta, timezone
 
-from app.models import db, ActionItem, UserPreference
+from app.models import db, ActionItem, UserPreference, Project
 
 logger = logging.getLogger(__name__)
+
+
+def get_copilot_project() -> Project:
+    """Get or create the built-in copilot saved tasks project.
+
+    This project holds tasks the user saved from Copilot suggestions
+    and completed Copilot tasks. Hidden from the projects list UI.
+
+    Must be called inside an app context.
+    """
+    project = Project.query.filter_by(project_type='copilot_saved').first()
+    if not project:
+        project = Project(
+            title='Copilot Saved Tasks',
+            project_type='copilot_saved',
+            status='Active',
+        )
+        db.session.add(project)
+        db.session.commit()
+        logger.info("Created built-in copilot_saved project (id=%d)", project.id)
+    return project
 
 _COPILOT_PROMPT_BASE = (
     "Look through all my emails, chats, and meetings from the last 7 days, "
@@ -37,24 +58,38 @@ _sync_lock = threading.Lock()
 
 
 def _build_prompt() -> str:
-    """Build the Copilot prompt, excluding recently completed items.
+    """Build the Copilot prompt, excluding completed and saved items.
 
-    Queries ActionItems completed in the last 7 days with source='copilot'
-    and appends them as exclusions to the prompt.
+    Excludes:
+    - Copilot tasks completed in the last 7 days
+    - Tasks saved to the copilot_saved project (user chose to keep them)
     """
     exclusions = ""
     try:
+        exclude_titles = []
+
+        # Completed copilot tasks from last 7 days
         cutoff = datetime.now(timezone.utc) - timedelta(days=7)
         completed = ActionItem.query.filter(
             ActionItem.source == 'copilot',
             ActionItem.status == 'completed',
             ActionItem.completed_at >= cutoff,
         ).all()
-        if completed:
-            titles = [item.title for item in completed]
+        exclude_titles.extend(item.title for item in completed)
+
+        # Saved copilot tasks (on the copilot_saved project)
+        copilot_proj = Project.query.filter_by(project_type='copilot_saved').first()
+        if copilot_proj:
+            saved = ActionItem.query.filter(
+                ActionItem.project_id == copilot_proj.id,
+                ActionItem.status == 'open',
+            ).all()
+            exclude_titles.extend(item.title for item in saved)
+
+        if exclude_titles:
             exclusions = (
-                "Do NOT include these items because I already completed them: "
-                + "; ".join(titles) + ". "
+                "Do NOT include these items because I already completed or saved them: "
+                + "; ".join(exclude_titles) + ". "
             )
     except Exception:
         logger.debug("Could not query completed items for exclusion", exc_info=True)

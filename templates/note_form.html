@@ -134,9 +134,21 @@
                     <!-- Customer + Engagement side by side -->
                     {% if is_general_note %}
                     <div class="mb-3">
-                        <div class="alert alert-secondary py-2 mb-0">
+                        <div class="alert alert-secondary py-2 mb-2">
                             <i class="bi bi-journal-text me-1"></i> This is a <strong>general note</strong> not associated with a specific customer.
                         </div>
+                        {% if active_projects %}
+                        <label for="project_id" class="form-label"><i class="bi bi-folder"></i> Project (optional)</label>
+                        <select class="form-select" id="project_id" name="project_id">
+                            <option value="">-- No project --</option>
+                            {% for p in active_projects %}
+                            <option value="{{ p.id }}"
+                                {% if (preselect_project_id and preselect_project_id == p.id) or (note and p in note.projects) %}selected{% endif %}>
+                                {{ p.title }} ({{ p.project_type|replace('_', ' ')|title }})
+                            </option>
+                            {% endfor %}
+                        </select>
+                        {% endif %}
                     </div>
                     {% else %}
                     <div class="row mb-3">
