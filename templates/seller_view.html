@@ -190,15 +190,18 @@
         {% if revenue_alerts %}
         <div class="card mb-3 border-warning flex-grow-1 d-flex flex-column" style="min-height: 0;">
             <div class="card-header bg-warning text-dark d-flex justify-content-between align-items-center">
-                <h5 class="mb-0"><i class="bi bi-exclamation-triangle"></i> Revenue Analyzer <span class="badge bg-dark">{{ revenue_alerts|length }}</span></h5>
-                <button type="button" class="btn btn-sm btn-outline-dark" data-bs-toggle="modal" data-bs-target="#revenueModal">
-                    <i class="bi bi-arrows-fullscreen"></i> Full View
-                </button>
+                <h5 class="mb-0"><i class="bi bi-exclamation-triangle"></i> Revenue <span class="badge bg-dark">{{ revenue_alerts|length }}</span></h5>
+                <div class="d-flex align-items-center gap-2">
+                    <span id="sellerBucketFilterContainer"></span>
+                    <button type="button" class="btn btn-sm btn-outline-dark" data-bs-toggle="modal" data-bs-target="#revenueModal">
+                        <i class="bi bi-arrows-fullscreen"></i> Full View
+                    </button>
+                </div>
             </div>
             <div class="card-body p-0 flex-grow-1" style="overflow-y: auto; min-height: 0;">
                 <div class="list-group list-group-flush">
                 {% for alert in revenue_alerts %}
-                    <div onclick="openAlertDetail(event, {{ alert.id }}, '{{ alert.customer_name|replace("'", "\\'") }}', '{{ alert.bucket|replace("'", "\\'") }}')"
+                    <div data-bucket="{{ alert.bucket }}" onclick="openAlertDetail(event, {{ alert.id }}, '{{ alert.customer_name|replace("'", "\\'") }}', '{{ alert.bucket|replace("'", "\\'") }}')"
                        class="list-group-item list-group-item-action p-2" style="cursor: pointer; border-left: 3px solid {% if alert.review_status == 'actioned' %}var(--bs-success){% elif alert.review_status == 'reviewed' %}var(--bs-info){% elif alert.review_status == 'dismissed' %}var(--bs-secondary){% else %}transparent{% endif %};{% if alert.review_status in ('actioned', 'dismissed', 'reviewed') %} opacity: 0.5;{% endif %}">                        <div class="d-flex justify-content-between align-items-start">
                             <div class="text-truncate me-2" style="min-width: 0;">
                                 <div class="fw-semibold text-truncate" style="font-size: 0.85rem;">
@@ -493,6 +496,11 @@
     });
 })();
 </script>
+{% endif %}
+
+{% if revenue_alerts %}
+<script src="{{ url_for('static', filename='js/revenue-bucket-filter.js') }}"></script>
+<script>RevenueBucketFilter.init({ containerId: 'sellerBucketFilterContainer' });</script>
 {% endif %}
 
 {% endblock %}
