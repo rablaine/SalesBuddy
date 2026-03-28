@@ -1096,14 +1096,14 @@ def guided_tour_complete():
 
 @main_bp.route('/api/preferences/reset-onboarding', methods=['POST'])
 def reset_onboarding():
-    """Reset the onboarding wizard so it shows again on next page load."""
+    """Reset the onboarding wizard so it shows again on next page load.
+    
+    Preserves user_role and seller identity so the wizard picks up
+    at the right step instead of starting from scratch.
+    """
     pref = UserPreference.query.first()
     if pref:
         pref.first_run_modal_dismissed = False
-        pref.user_role = None
-        pref.my_seller_id = None
-        pref.my_seller_alias = None
-        session.pop('seller_mode_seller_id', None)
         db.session.commit()
     
     return jsonify({'first_run_modal_dismissed': False}), 200
