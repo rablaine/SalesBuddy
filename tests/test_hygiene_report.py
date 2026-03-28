@@ -48,7 +48,16 @@ def hygiene_data(app):
             msx_status='On Track',
             on_my_team=True,
         )
-        db.session.add_all([ms_no_eng, ms_with_eng])
+        # Off-team milestone with no engagement (visible when toggle is off)
+        ms_off_team = Milestone(
+            customer_id=cust.id,
+            msx_milestone_id='MS-003',
+            title='OffTeam Milestone',
+            url='https://msx.example.com/ms-003',
+            msx_status='On Track',
+            on_my_team=False,
+        )
+        db.session.add_all([ms_no_eng, ms_with_eng, ms_off_team])
         db.session.flush()
 
         # Link the healthy pair
@@ -60,6 +69,7 @@ def hygiene_data(app):
             'eng_with_ms_id': eng_with_ms.id,
             'ms_no_eng_id': ms_no_eng.id,
             'ms_with_eng_id': ms_with_eng.id,
+            'ms_off_team_id': ms_off_team.id,
         }
 
 
@@ -86,6 +96,15 @@ class TestHygieneReport:
         html = resp.data.decode()
         assert 'Orphan Milestone' in html
         assert 'Healthy Milestone' not in html
+
+    def test_off_team_milestones_in_html_but_hidden(self, client, hygiene_data):
+        """Off-team milestones should be in the HTML (for toggle) but hidden by default."""
+        resp = client.get('/reports/hygiene')
+        html = resp.data.decode()
+        assert 'OffTeam Milestone' in html
+        assert 'data-on-team="false"' in html
+        # On-team toggle should be present
+        assert 'onTeamToggle' in html
 
     def test_shows_existing_hygiene_notes(self, client, app, hygiene_data):
         """Should display pre-existing hygiene notes inline."""
