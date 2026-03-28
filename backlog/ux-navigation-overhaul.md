@@ -158,15 +158,14 @@ Prereq for removing Customers from navbar. Compact the sellers list so each sell
 - [x] Add Revenue Analyzer to Reports hub (Revenue Analysis group, first item)
 - [x] Existing URLs unchanged (no broken bookmarks)
 
-### Phase 5: Navbar Restructure
+### Phase 5: Navbar Restructure ✅ (3/28/2026)
 The main event. Rearrange the navbar to match intent-based navigation.
-- [ ] SE mode: Sellers top-level | DSS mode: Customers top-level
-- [ ] Reports dropdown: 1:1, Revenue Analyzer, Milestone Tracker, Workload, Hygiene, New Synapse Users
-- [ ] Browse dropdown: Customers/Sellers (opposite of top-level), Notes, Engagements & Projects, Partners, Revenue Import, Topics, Territories, Pods
-- [ ] Persistent + New Note button in navbar (right side)
-- [ ] Make Ctrl+K search trigger more visible
-- [ ] Remove Milestones, Revenue, Engagements from top-level nav
-- [ ] Mobile responsive - verify dropdowns work on collapse
+- [x] SE mode: Sellers top-level (with dropdown) | DSS mode: Customers top-level
+- [x] Reports dropdown: All Reports, 1:1, Revenue Analyzer, Milestone Tracker, Workload, Hygiene, New Synapse Users
+- [x] Browse dropdown: Customers/Sellers (opposite of top-level), Notes, Engagements & Projects, Partners, Revenue Import, Topics, Territories, PODs, Search, Analytics, Connect Export, Solution Engineers
+- [x] Remove Partners, Milestones, Revenue from top-level nav
+- [x] Rename More to Browse with restructured contents
+- [x] Update active nav highlighting for new dropdown structure
 
 ### Phase 6: Monthly Revenue Import Reminder
 - [ ] User setting: revenue import reminders (default on)
