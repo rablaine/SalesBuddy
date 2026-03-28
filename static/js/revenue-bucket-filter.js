@@ -112,7 +112,11 @@ var RevenueBucketFilter = (function() {
             var term = this.value.toLowerCase().trim();
             popover.querySelectorAll('.bucket-filter-item').forEach(function(item) {
                 var name = item.dataset.bucketName || '';
-                item.style.display = name.includes(term) ? '' : 'none';
+                if (!term || name.includes(term)) {
+                    item.classList.remove('d-none');
+                } else {
+                    item.classList.add('d-none');
+                }
             });
         });
 
