@@ -705,6 +705,18 @@ def revenue_product_view(product: str):
     )
 
 
+@revenue_bp.route('/api/revenue/buckets')
+def revenue_buckets_api():
+    """Return distinct buckets from imported revenue data."""
+    buckets = (
+        db.session.query(CustomerRevenueData.bucket)
+        .distinct()
+        .order_by(CustomerRevenueData.bucket)
+        .all()
+    )
+    return jsonify([b[0] for b in buckets if b[0]])
+
+
 @revenue_bp.route('/revenue/config', methods=['GET', 'POST'])
 def revenue_config():
     """Configure revenue analysis thresholds."""

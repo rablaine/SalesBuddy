@@ -46,6 +46,21 @@
                 </div>
             </div>
 
+            <!-- Bucket Picker (shown after import or when import history exists) -->
+            <div class="card mb-4 {% if not import_history %}d-none{% endif %}" id="bucketPickerCard">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="bi bi-funnel"></i> Select Your Buckets</h5>
+                </div>
+                <div class="card-body">
+                    <p class="text-muted small mb-3">Check the service comp groupings you're compensated on. This filters your revenue views across the app.</p>
+                    <div id="bucketPickerList">
+                        <div class="text-center text-muted py-3">
+                            <div class="spinner-border spinner-border-sm"></div> Loading buckets...
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <!-- Instructions -->
             <div class="card">
                 <div class="card-header">
@@ -57,10 +72,9 @@
                             <br>Or go to <a href="https://aka.ms/msxi" target="_blank">https://aka.ms/msxi</a> and search for the report name</li>
                         <li>(If bookmarked/customized) Click <strong>"My Report Bookmarks"</strong> in the top right corner and <strong>"Clear current view"</strong></li>
                         <li>Scroll down to the <strong>"ACR Details by Quarter / Month"</strong> section</li>
-                        <li>Under Choose Fields (left), check <strong>"ServiceLevel4"</strong></li>
-                        <li>In Filters (right side), find <strong>ServiceCompGrouping</strong> and select your buckets</li>
+                        <li>Under Choose Fields (left), leave <strong>ServiceCompGrouping</strong> checked and also check <strong>"ServiceLevel4"</strong></li>
                         <li>Right-click the <strong>"ACR Details by Quarter / Month"</strong> header text → <strong>Expand to next level</strong></li>
-                        <li>Repeat step 6</li>
+                        <li>Repeat step 5</li>
                         <li>Top right <strong>'...'</strong> → <strong>Export Data</strong> → <strong>Data with current layout</strong></li>
                         <li>Open in Excel → <strong>Save As</strong> → <strong>CSV (Comma delimited)</strong></li>
                     </ol>
@@ -237,6 +251,8 @@ fileInput.addEventListener('change', async function() {
                     </a>
                 </div>
             `;
+            // Show bucket picker after successful import
+            if (typeof showBucketPicker === 'function') showBucketPicker();
         } else {
             throw new Error('Import completed but no results received');
         }
@@ -270,5 +286,101 @@ fileInput.addEventListener('change', async function() {
         if (this.checked && window.showBrainrotPanel) window.showBrainrotPanel();
         else if (!this.checked && window.hideBrainrotPanel) window.hideBrainrotPanel();
     });
+})();
+
+// Inline bucket picker for the import page
+(function() {
+    var STORAGE_KEY = 'salesbuddy_revenue_bucket_filter';
+    var pickerCard = document.getElementById('bucketPickerCard');
+    var listEl = document.getElementById('bucketPickerList');
+    if (!listEl) return;
+
+    function loadBucketPicker() {
+        fetch('/api/revenue/buckets')
+            .then(function(r) { return r.json(); })
+            .then(function(buckets) {
+                if (!buckets || buckets.length === 0) {
+                    listEl.innerHTML = '<p class="text-muted small mb-0">No buckets found. Import revenue data first.</p>';
+                    return;
+                }
+                // Load saved selection
+                var selected = new Set();
+                try {
+                    var saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
+                    if (saved && Array.isArray(saved)) selected = new Set(saved);
+                } catch(e) {}
+                // If no saved selection, default to all selected
+                if (selected.size === 0) selected = new Set(buckets);
+
+                var html = '<div class="mb-2">';
+                html += '<input type="text" class="form-control form-control-sm mb-2" id="importBucketSearch" placeholder="Search" autocomplete="off">';
+                html += '<label class="form-check d-flex align-items-center gap-2 mb-1 border-bottom pb-1" style="cursor:pointer;">';
+                var allChecked = buckets.every(function(b) { return selected.has(b); });
+                html += '<input class="form-check-input mt-0" type="checkbox" id="importBucketSelectAll"' + (allChecked ? ' checked' : '') + '>';
+                html += '<span class="small fw-semibold">Select all</span>';
+                html += '</label>';
+                html += '</div>';
+                html += '<div style="max-height:300px;overflow-y:auto;" id="importBucketItems">';
+                buckets.forEach(function(b) {
+                    var checked = selected.has(b) ? ' checked' : '';
+                    html += '<label class="import-bucket-item form-check d-flex align-items-center gap-2 mb-0 py-1" data-name="' + b.toLowerCase() + '" style="cursor:pointer;">';
+                    html += '<input class="form-check-input mt-0 import-bucket-cb" type="checkbox" value="' + b + '"' + checked + '>';
+                    html += '<span class="small">' + b + '</span>';
+                    html += '</label>';
+                });
+                html += '</div>';
+                listEl.innerHTML = html;
+
+                // Search
+                document.getElementById('importBucketSearch').addEventListener('input', function() {
+                    var term = this.value.toLowerCase().trim();
+                    document.querySelectorAll('.import-bucket-item').forEach(function(item) {
+                        item.style.display = (item.dataset.name || '').includes(term) ? '' : 'none';
+                    });
+                });
+
+                // Select all
+                document.getElementById('importBucketSelectAll').addEventListener('change', function() {
+                    var checked = this.checked;
+                    document.querySelectorAll('.import-bucket-cb').forEach(function(cb) { cb.checked = checked; });
+                    saveImportBuckets(buckets);
+                });
+
+                // Individual changes
+                document.querySelectorAll('.import-bucket-cb').forEach(function(cb) {
+                    cb.addEventListener('change', function() {
+                        saveImportBuckets(buckets);
+                        var allCb = document.getElementById('importBucketSelectAll');
+                        if (allCb) allCb.checked = buckets.every(function(b) {
+                            var el = listEl.querySelector('input[value="' + b + '"]');
+                            return el && el.checked;
+                        });
+                    });
+                });
+            })
+            .catch(function(err) {
+                console.error('Failed to load buckets:', err);
+                listEl.innerHTML = '<p class="text-danger small mb-0">Failed to load buckets.</p>';
+            });
+    }
+
+    function saveImportBuckets(allBuckets) {
+        var sel = [];
+        document.querySelectorAll('.import-bucket-cb').forEach(function(cb) {
+            if (cb.checked) sel.push(cb.value);
+        });
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(sel));
+    }
+
+    // Load immediately if card is visible (import history exists)
+    if (pickerCard && !pickerCard.classList.contains('d-none')) {
+        loadBucketPicker();
+    }
+
+    // Also expose so the import success handler can show + load it
+    window.showBucketPicker = function() {
+        if (pickerCard) pickerCard.classList.remove('d-none');
+        loadBucketPicker();
+    };
 })();
 </script>{% endblock %}

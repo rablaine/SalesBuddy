@@ -5,6 +5,8 @@
  * Stores selected buckets in localStorage so the filter persists
  * across the dashboard, seller alerts, and homepage.
  *
+ * Renders a searchable picklist with checkboxes (like MSXi filters).
+ *
  * Usage:
  *   1. Include this script on any page with revenue alerts
  *   2. Add a container with id="bucketFilterContainer" where the filter button should appear
@@ -16,6 +18,8 @@ var RevenueBucketFilter = (function() {
     var allBuckets = [];
     var selectedBuckets = new Set();
     var onFilterChange = null;
+    var _popoverInstance = null;
+    var _btn = null;
 
     function loadSelection() {
         try {
@@ -49,7 +53,11 @@ var RevenueBucketFilter = (function() {
             el.style.display = show ? '' : 'none';
             if (show) visibleCount++;
         });
-        // Update any badge counts
+        updateBadge();
+        if (onFilterChange) onFilterChange(visibleCount);
+    }
+
+    function updateBadge() {
         var countEl = document.getElementById('bucketFilterCount');
         if (countEl) {
             var total = allBuckets.length;
@@ -60,54 +68,115 @@ var RevenueBucketFilter = (function() {
                 countEl.classList.add('d-none');
             }
         }
-        if (onFilterChange) onFilterChange(visibleCount);
+    }
+
+    function buildContent() {
+        var allSelected = allBuckets.every(function(b) { return selectedBuckets.has(b); });
+        var c = '<div class="bucket-filter-panel" style="min-width:220px;">';
+        // Search box
+        c += '<div class="px-2 pt-2 pb-1">';
+        c += '<input type="text" class="form-control form-control-sm" id="bucketSearchInput" placeholder="Search" autocomplete="off">';
+        c += '</div>';
+        // Select all row
+        c += '<div class="px-2 py-1 border-bottom">';
+        c += '<label class="form-check d-flex align-items-center gap-2 mb-0" style="cursor:pointer;">';
+        c += '<input class="form-check-input mt-0" type="checkbox" id="bucketSelectAll"' + (allSelected ? ' checked' : '') + '>';
+        c += '<span class="small fw-semibold">Select all</span>';
+        c += '</label>';
+        c += '</div>';
+        // Bucket list
+        c += '<div style="max-height:240px;overflow-y:auto;" id="bucketListContainer">';
+        allBuckets.forEach(function(b) {
+            var checked = selectedBuckets.has(b) ? ' checked' : '';
+            var safeId = 'bf_' + b.replace(/[^a-zA-Z0-9]/g, '_');
+            c += '<label class="bucket-filter-item form-check d-flex align-items-center gap-2 px-2 py-1 mb-0" data-bucket-name="' + b.toLowerCase() + '" style="cursor:pointer;">';
+            c += '<input class="form-check-input mt-0 bucket-check" type="checkbox" value="' + b + '" id="' + safeId + '"' + checked + '>';
+            c += '<span class="small">' + b + '</span>';
+            c += '</label>';
+        });
+        c += '</div>';
+        c += '</div>';
+        return c;
+    }
+
+    function wirePopoverEvents() {
+        var search = document.getElementById('bucketSearchInput');
+        var selectAllCb = document.getElementById('bucketSelectAll');
+        if (!search) return;
+
+        // Search filtering
+        search.addEventListener('input', function() {
+            var term = this.value.toLowerCase().trim();
+            document.querySelectorAll('.bucket-filter-item').forEach(function(item) {
+                var name = item.dataset.bucketName || '';
+                item.style.display = name.includes(term) ? '' : 'none';
+            });
+        });
+
+        // Select all toggle
+        if (selectAllCb) {
+            selectAllCb.addEventListener('change', function() {
+                if (this.checked) {
+                    RevenueBucketFilter.selectAll();
+                } else {
+                    RevenueBucketFilter.selectNone();
+                }
+            });
+        }
+
+        // Individual checkbox changes
+        document.querySelectorAll('.bucket-check').forEach(function(cb) {
+            cb.addEventListener('change', function() {
+                if (this.checked) {
+                    selectedBuckets.add(this.value);
+                } else {
+                    selectedBuckets.delete(this.value);
+                }
+                saveSelection();
+                applyFilter();
+                // Sync "Select all" checkbox
+                var allCb = document.getElementById('bucketSelectAll');
+                if (allCb) {
+                    allCb.checked = allBuckets.every(function(b) { return selectedBuckets.has(b); });
+                }
+            });
+        });
+
+        // Auto-focus search
+        setTimeout(function() { search.focus(); }, 50);
     }
 
     function renderFilterUI(containerId) {
         var container = document.getElementById(containerId);
         if (!container || allBuckets.length === 0) return;
 
-        var btn = document.createElement('button');
-        btn.className = 'btn btn-sm btn-outline-secondary';
-        btn.type = 'button';
-        btn.setAttribute('data-bs-toggle', 'popover');
-        btn.setAttribute('data-bs-placement', 'bottom');
-        btn.setAttribute('data-bs-trigger', 'click');
-        btn.innerHTML = '<i class="bi bi-funnel"></i> Buckets <span id="bucketFilterCount" class="badge bg-info ms-1 d-none"></span>';
-        container.appendChild(btn);
+        _btn = document.createElement('button');
+        _btn.className = 'btn btn-sm btn-outline-secondary';
+        _btn.type = 'button';
+        _btn.setAttribute('data-bs-toggle', 'popover');
+        _btn.setAttribute('data-bs-placement', 'bottom');
+        _btn.setAttribute('data-bs-trigger', 'click');
+        _btn.innerHTML = '<i class="bi bi-funnel"></i> Buckets <span id="bucketFilterCount" class="badge bg-info ms-1 d-none"></span>';
+        container.appendChild(_btn);
 
-        function buildContent() {
-            var c = '<div style="max-height:300px;overflow-y:auto;min-width:200px;">';
-            c += '<div class="mb-2"><button class="btn btn-sm btn-link p-0 me-2" onclick="RevenueBucketFilter.selectAll()">All</button>';
-            c += '<button class="btn btn-sm btn-link p-0" onclick="RevenueBucketFilter.selectNone()">None</button></div>';
-            allBuckets.forEach(function(b) {
-                var checked = selectedBuckets.has(b) ? ' checked' : '';
-                c += '<div class="form-check">';
-                c += '<input class="form-check-input bucket-check" type="checkbox" value="' + b + '" id="bf_' + b.replace(/\s/g, '_') + '"' + checked + ' onchange="RevenueBucketFilter.toggle(\'' + b.replace(/'/g, "\\'") + '\')">';
-                c += '<label class="form-check-label small" for="bf_' + b.replace(/\s/g, '_') + '">' + b + '</label>';
-                c += '</div>';
-            });
-            c += '</div>';
-            return c;
-        }
-
-        // Defer popover init until Bootstrap is available
         function initPopover() {
             if (typeof bootstrap !== 'undefined' && bootstrap.Popover) {
-                var pop = new bootstrap.Popover(btn, {
+                _popoverInstance = new bootstrap.Popover(_btn, {
                     sanitize: false,
                     html: true,
                     content: buildContent
                 });
+                // Wire events after popover is shown
+                _btn.addEventListener('shown.bs.popover', wirePopoverEvents);
+                // Rebuild content each time the popover opens
+                _btn.addEventListener('show.bs.popover', function() {
+                    _popoverInstance._config.content = buildContent;
+                });
                 // Close on outside click
                 document.addEventListener('click', function(e) {
-                    if (!btn.contains(e.target) && !document.querySelector('.popover')?.contains(e.target)) {
-                        pop.hide();
+                    if (!_btn.contains(e.target) && !document.querySelector('.popover')?.contains(e.target)) {
+                        _popoverInstance.hide();
                     }
-                });
-                // Rebuild content each time the popover opens
-                btn.addEventListener('show.bs.popover', function() {
-                    pop._config.content = buildContent;
                 });
             } else {
                 setTimeout(initPopover, 50);
@@ -142,12 +211,16 @@ var RevenueBucketFilter = (function() {
             selectedBuckets = new Set(allBuckets);
             saveSelection();
             document.querySelectorAll('.bucket-check').forEach(function(cb) { cb.checked = true; });
+            var allCb = document.getElementById('bucketSelectAll');
+            if (allCb) allCb.checked = true;
             applyFilter();
         },
         selectNone: function() {
             selectedBuckets.clear();
             saveSelection();
             document.querySelectorAll('.bucket-check').forEach(function(cb) { cb.checked = false; });
+            var allCb = document.getElementById('bucketSelectAll');
+            if (allCb) allCb.checked = false;
             applyFilter();
         },
         getSelected: function() {
@@ -155,6 +228,9 @@ var RevenueBucketFilter = (function() {
         },
         isSelected: function(bucket) {
             return selectedBuckets.has(bucket);
+        },
+        getAllBuckets: function() {
+            return allBuckets.slice();
         }
     };
 })();
