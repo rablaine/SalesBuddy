@@ -79,8 +79,8 @@ var RevenueBucketFilter = (function() {
         c += '</div>';
         // Select all row
         c += '<div class="px-2 py-1 border-bottom">';
-        c += '<label class="form-check d-flex align-items-center gap-2 mb-0" style="cursor:pointer;">';
-        c += '<input class="form-check-input mt-0" type="checkbox" id="bucketSelectAll"' + (allSelected ? ' checked' : '') + '>';
+        c += '<label class="d-flex align-items-center gap-2 mb-0" style="cursor:pointer;">';
+        c += '<input type="checkbox" id="bucketSelectAll"' + (allSelected ? ' checked' : '') + ' style="width:16px;height:16px;flex-shrink:0;">';
         c += '<span class="small fw-semibold">Select all</span>';
         c += '</label>';
         c += '</div>';
@@ -89,8 +89,8 @@ var RevenueBucketFilter = (function() {
         allBuckets.forEach(function(b) {
             var checked = selectedBuckets.has(b) ? ' checked' : '';
             var safeId = 'bf_' + b.replace(/[^a-zA-Z0-9]/g, '_');
-            c += '<label class="bucket-filter-item form-check d-flex align-items-center gap-2 px-2 py-1 mb-0" data-bucket-name="' + b.toLowerCase() + '" style="cursor:pointer;">';
-            c += '<input class="form-check-input mt-0 bucket-check" type="checkbox" value="' + b + '" id="' + safeId + '"' + checked + '>';
+            c += '<label class="bucket-filter-item d-flex align-items-center gap-2 px-2 py-1 mb-0" data-bucket-name="' + b.toLowerCase() + '" style="cursor:pointer;">';
+            c += '<input class="bucket-check" type="checkbox" value="' + b + '" id="' + safeId + '"' + checked + ' style="width:16px;height:16px;flex-shrink:0;">';
             c += '<span class="small">' + b + '</span>';
             c += '</label>';
         });
