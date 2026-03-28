@@ -1184,7 +1184,7 @@
     <script src="{{ url_for('static', filename='js/page-help.js') }}" defer></script>
     <script>document.addEventListener('DOMContentLoaded', () => Share.init());</script>
 
-    <!-- Global: Esc closes any open Bootstrap popover -->
+    <!-- Global: Esc closes any open Bootstrap popover, click-outside closes popovers -->
     <script>
     document.addEventListener('keydown', function(e) {
         if (e.key === 'Escape') {
@@ -1197,8 +1197,22 @@
                     if (instance) { instance.hide(); closed = true; }
                 }
             });
-            if (closed) e.stopImmediatePropagation();
+            if (closed) {
+                e.stopImmediatePropagation();
+                e.stopPropagation();
+                e.preventDefault();
+            }
         }
+    });
+    document.addEventListener('click', function(e) {
+        document.querySelectorAll('.popover').forEach(function(pop) {
+            var id = pop.id;
+            var trigger = id ? document.querySelector('[aria-describedby="' + id + '"]') : null;
+            if (trigger && !trigger.contains(e.target) && !pop.contains(e.target)) {
+                var instance = bootstrap.Popover.getInstance(trigger);
+                if (instance) instance.hide();
+            }
+        });
     });
     </script>
 

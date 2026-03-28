@@ -179,12 +179,6 @@ var RevenueBucketFilter = (function() {
                 _btn.addEventListener('show.bs.popover', function() {
                     _popoverInstance._config.content = buildContent;
                 });
-                // Close on outside click
-                document.addEventListener('click', function(e) {
-                    if (!_btn.contains(e.target) && !document.querySelector('.popover')?.contains(e.target)) {
-                        _popoverInstance.hide();
-                    }
-                });
             } else {
                 setTimeout(initPopover, 50);
             }
