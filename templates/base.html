@@ -964,18 +964,20 @@
 
                                 </div>
 
-                                <!-- Success state -->
-                                <div id="importRevenueSuccess" class="d-none text-center">
-                                    <i class="bi bi-check-circle-fill text-success fs-3"></i>
-                                    <p class="mt-2 mb-1 fw-bold text-success">Revenue imported!</p>
-                                    <div id="importRevenueSummary" class="small text-muted"></div>
-                                </div>
-
-                                <!-- Bucket picker (shown after successful import) -->
-                                <div id="wizardBucketPicker" class="d-none mt-3 text-start">
-                                    <h6 class="mb-2"><i class="bi bi-funnel"></i> Select Your Buckets</h6>
-                                    <p class="text-muted small mb-2">Check the buckets you're compensated on.</p>
-                                    <div id="wizardBucketList"></div>
+                                <!-- Success state + Bucket picker side by side -->
+                                <div id="importRevenueSuccess" class="d-none">
+                                    <div class="row">
+                                        <div class="col-6 text-center">
+                                            <i class="bi bi-check-circle-fill text-success fs-3"></i>
+                                            <p class="mt-2 mb-1 fw-bold text-success">Revenue imported!</p>
+                                            <div id="importRevenueSummary" class="small text-muted"></div>
+                                        </div>
+                                        <div class="col-6 text-start" id="wizardBucketPicker" style="display:none;">
+                                            <h6 class="mb-2"><i class="bi bi-funnel"></i> Select Your Buckets</h6>
+                                            <p class="text-muted small mb-2">Check the buckets you're compensated on.</p>
+                                            <div id="wizardBucketList"></div>
+                                        </div>
+                                    </div>
                                 </div>
 
                                 <!-- Error state -->
@@ -2052,7 +2054,7 @@
                         .then(function(r) { return r.json(); })
                         .then(function(buckets) {
                             if (!buckets || buckets.length === 0) return;
-                            pickerDiv.classList.remove('d-none');
+                            pickerDiv.style.display = '';
                             listEl.innerHTML = '';
 
                             var selected = new Set();
