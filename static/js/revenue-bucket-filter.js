@@ -100,14 +100,17 @@ var RevenueBucketFilter = (function() {
     }
 
     function wirePopoverEvents() {
-        var search = document.getElementById('bucketSearchInput');
-        var selectAllCb = document.getElementById('bucketSelectAll');
+        // Find elements inside the active popover (not just anywhere in document)
+        var popover = document.querySelector('.popover');
+        if (!popover) return;
+        var search = popover.querySelector('#bucketSearchInput');
+        var selectAllCb = popover.querySelector('#bucketSelectAll');
         if (!search) return;
 
         // Search filtering
         search.addEventListener('input', function() {
             var term = this.value.toLowerCase().trim();
-            document.querySelectorAll('.bucket-filter-item').forEach(function(item) {
+            popover.querySelectorAll('.bucket-filter-item').forEach(function(item) {
                 var name = item.dataset.bucketName || '';
                 item.style.display = name.includes(term) ? '' : 'none';
             });
@@ -125,7 +128,7 @@ var RevenueBucketFilter = (function() {
         }
 
         // Individual checkbox changes
-        document.querySelectorAll('.bucket-check').forEach(function(cb) {
+        popover.querySelectorAll('.bucket-check').forEach(function(cb) {
             cb.addEventListener('change', function() {
                 if (this.checked) {
                     selectedBuckets.add(this.value);
@@ -135,7 +138,7 @@ var RevenueBucketFilter = (function() {
                 saveSelection();
                 applyFilter();
                 // Sync "Select all" checkbox
-                var allCb = document.getElementById('bucketSelectAll');
+                var allCb = popover.querySelector('#bucketSelectAll');
                 if (allCb) {
                     allCb.checked = allBuckets.every(function(b) { return selectedBuckets.has(b); });
                 }
