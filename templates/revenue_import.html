@@ -65,7 +65,9 @@
                     </ol>
                 </div>
             </div>
+        </div>
 
+        <div class="col-lg-6">
             <!-- Bucket Picker (shown after import or when import history exists, SE only) -->
             {% if user_role != 'dss' %}
             <div class="card mb-4 {% if not import_history %}d-none{% endif %}" id="bucketPickerCard">
@@ -82,9 +84,7 @@
                 </div>
             </div>
             {% endif %}
-        </div>
 
-        <div class="col-lg-6">
             <!-- Import History -->
             <div class="card mb-4">
                 <div class="card-header">
