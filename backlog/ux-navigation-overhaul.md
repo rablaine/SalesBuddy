@@ -167,12 +167,12 @@ The main event. Rearrange the navbar to match intent-based navigation.
 - [x] Rename More to Browse with restructured contents
 - [x] Update active nav highlighting for new dropdown structure
 
-### Phase 6: Monthly Revenue Import Reminder
-- [ ] User setting: revenue import reminders (default on)
-- [ ] Check if DB has data for the most recently completed month
-- [ ] Banner: "Last month's revenue data has been finalized. Import your latest CSV to keep trends accurate."
-- [ ] Links: [Import Now] → import page | [Dismiss] → hide until next month
-- [ ] Dismiss state persists (localStorage or DB)
+### Phase 6: Monthly Revenue Import Reminder ✅ (3/28/2026)
+- [x] User setting: revenue_import_reminder (default on) with migration
+- [x] Check if DB has data for the most recently completed month
+- [x] Banner on dashboard: "Last month's revenue data has been finalized. Import your latest CSV to keep trends accurate."
+- [x] Links: [Import Now] goes to import page | [X] dismisses
+- [x] Dismiss state persists in localStorage until next month (keyed by year-month)
 
 ### Phase 7: Revenue Refactor
 Revenue is now a report, not a core feature. Refactor URLs and UX to match.

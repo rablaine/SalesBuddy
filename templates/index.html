@@ -9,6 +9,33 @@
     </div>
 </div>
 
+<!-- Revenue Import Reminder -->
+{% if show_revenue_reminder %}
+<div class="alert alert-info alert-dismissible fade show mb-4" role="alert" id="revenueImportReminder">
+    <i class="bi bi-calendar-check"></i>
+    <strong>Last month's revenue data has been finalized.</strong> Import your latest CSV to keep trends accurate.
+    <a href="{{ url_for('revenue.revenue_import') }}" class="btn btn-sm btn-primary ms-2"><i class="bi bi-upload"></i> Import Now</a>
+    <button type="button" class="btn-close" aria-label="Close" onclick="dismissRevenueReminder()"></button>
+</div>
+<script>
+(function() {
+    var KEY = 'salesbuddy_revenue_reminder_dismissed';
+    var now = new Date();
+    var monthKey = now.getFullYear() + '-' + (now.getMonth() + 1);
+    var dismissed = localStorage.getItem(KEY);
+    if (dismissed === monthKey) {
+        var el = document.getElementById('revenueImportReminder');
+        if (el) el.remove();
+    }
+    window.dismissRevenueReminder = function() {
+        localStorage.setItem(KEY, monthKey);
+        var el = document.getElementById('revenueImportReminder');
+        if (el) el.remove();
+    };
+})();
+</script>
+{% endif %}
+
 <!-- Dashboard Cards Row -->
 <div class="row mb-4">
     <!-- Action Items -->
