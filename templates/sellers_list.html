@@ -5,78 +5,174 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
     <h1><i class="bi bi-people"></i> Sellers</h1>
-    <a href="{{ url_for('sellers.seller_create') }}" class="btn btn-sm btn-primary">
-        <i class="bi bi-plus-circle"></i> New Seller
-    </a>
+    <div class="d-flex gap-2">
+        <button class="btn btn-sm btn-outline-secondary" id="toggleAllBtn" onclick="toggleAll()">
+            <i class="bi bi-arrows-expand"></i> Expand All
+        </button>
+        <a href="{{ url_for('sellers.seller_create') }}" class="btn btn-sm btn-primary">
+            <i class="bi bi-plus-circle"></i> New Seller
+        </a>
+    </div>
 </div>
 
-{% if sellers %}
+{% if growth_sellers or acquisition_sellers %}
     <style>
-        .clickable-seller {
+        .seller-row {
             cursor: pointer;
             transition: background-color 0.15s ease-in-out;
+            user-select: none;
         }
-        .clickable-seller:hover {
-            background-color: rgba(0, 0, 0, 0.05);
+        .seller-row:hover {
+            background-color: rgba(0, 0, 0, 0.04);
         }
-        html[data-bs-theme="dark"] .clickable-seller:hover {
-            background-color: rgba(255, 255, 255, 0.15);
+        html[data-bs-theme="dark"] .seller-row:hover {
+            background-color: rgba(255, 255, 255, 0.06);
         }
-        .clickable-seller a, .clickable-seller button {
+        .seller-row a, .seller-row button {
             position: relative;
             z-index: 2;
         }
+        .seller-chevron {
+            transition: transform 0.2s ease;
+            font-size: 0.85rem;
+        }
+        .seller-row.expanded .seller-chevron {
+            transform: rotate(90deg);
+        }
+        .customer-panel {
+            display: none;
+        }
+        .customer-panel.show {
+            display: block;
+        }
+        .customer-row:hover {
+            background-color: rgba(0, 0, 0, 0.03);
+        }
+        html[data-bs-theme="dark"] .customer-row:hover {
+            background-color: rgba(255, 255, 255, 0.04);
+        }
     </style>
-    <div class="list-group">
-        {% for seller in sellers %}
-            <div class="list-group-item clickable-seller" onclick="window.location.href='{{ url_for('sellers.seller_view', id=seller.id) }}';">
-                <div class="d-flex w-100 justify-content-between align-items-start">
-                    <div class="flex-grow-1">
-                        <h5 class="mb-1">{{ seller.name }}</h5>
-                        {% if seller.alias %}
-                            <p class="mb-1"><small class="text-muted"><i class="bi bi-envelope"></i> {{ seller.alias }}@microsoft.com</small></p>
-                        {% endif %}
-                        <p class="mb-1">
-                            {% if seller.seller_type %}
-                                <span class="badge {% if seller.seller_type == 'Growth' %}bg-success{% else %}bg-info{% endif %}">{{ seller.seller_type }}</span>
-                            {% endif %}
-                            {% set pods = seller.territories|map(attribute='pod')|select|unique|list %}
-                            {% if pods %}
-                                {% for pod in pods|sort(attribute='name') %}
-                                    <a href="{{ url_for('pods.pod_view', id=pod.id) }}" class="badge bg-primary text-decoration-none" onclick="event.stopPropagation();"><i class="bi bi-diagram-3"></i> {{ pod.name }}</a>
-                                {% endfor %}
-                            {% endif %}
-                            {% if seller.territories %}
-                                {% for territory in seller.territories|sort(attribute='name') %}
-                                    <a href="{{ url_for('territories.territory_view', id=territory.id) }}" class="badge bg-secondary text-decoration-none" onclick="event.stopPropagation();"><i class="bi bi-geo-alt"></i> {{ territory.name }}</a>
-                                {% endfor %}
-                            {% else %}
-                                <span class="badge bg-secondary">No territory</span>
-                            {% endif %}
-                        </p>
-                    </div>
-                    <div class="text-end">
-                        <div class="d-flex align-items-center justify-content-end gap-2">
-                            <small class="text-muted text-nowrap">{{ seller.customers|length }} customers</small>
-                            <a href="{{ url_for('customers.customer_create', seller_id=seller.id) }}" class="btn btn-sm btn-success text-white" onclick="event.stopPropagation();">
-                                <i class="bi bi-plus-circle"></i> New Customer
-                            </a>
+
+    {% macro render_seller(item) %}
+        {% set seller = item.seller %}
+        {% set customers = item.customers %}
+        <!-- Seller header row -->
+        <div class="list-group-item seller-row py-2 px-3" data-seller-id="{{ seller.id }}" onclick="toggleSeller(this)">
+            <div class="d-flex align-items-center gap-2">
+                <i class="bi bi-chevron-right seller-chevron text-muted"></i>
+                <div class="flex-grow-1 ms-1">
+                    <div class="d-flex align-items-center justify-content-between">
+                        <div class="flex-grow-1">
+                            <a href="{{ url_for('sellers.seller_view', id=seller.id) }}" class="fw-semibold text-decoration-none text-white" onclick="event.stopPropagation();">{{ seller.name }}</a>
+                            <div class="d-flex align-items-center flex-wrap gap-1 mt-1">
+                                {% if seller.alias %}
+                                    <small class="text-muted me-1" style="font-size: 0.75rem;">{{ seller.alias }}@microsoft.com</small>
+                                {% endif %}
+                                {% if seller.territories %}
+                                    {% for territory in seller.territories|sort(attribute='name') %}
+                                        <a href="{{ url_for('territories.territory_view', id=territory.id) }}" class="badge bg-info text-dark text-decoration-none" style="font-size: 0.65rem;" onclick="event.stopPropagation();"><i class="bi bi-geo-alt"></i> {{ territory.name }}</a>
+                                    {% endfor %}
+                                {% endif %}
+                            </div>
                         </div>
-                        {% if not seller_mode %}
-                        <button class="btn btn-sm btn-outline-secondary mt-1" onclick="event.stopPropagation(); activateSellerMode({{ seller.id }});">
-                            <i class="bi bi-eye"></i> View as Seller
-                        </button>
-                        {% endif %}
+                        <div class="d-flex flex-column align-items-end flex-shrink-0 gap-1">
+                            {% if not seller_mode %}
+                            <button class="btn btn-sm btn-outline-secondary py-0" style="font-size: 0.75rem;" onclick="event.stopPropagation(); activateSellerMode({{ seller.id }});">
+                                <i class="bi bi-eye"></i> View as
+                            </button>
+                            {% endif %}
+                            <small class="text-muted text-nowrap">{{ customers|length }} customer{{ 's' if customers|length != 1 }}</small>
+                        </div>
                     </div>
                 </div>
             </div>
+        </div>
+        <!-- Expandable customer panel -->
+        <div class="customer-panel" id="customers-{{ seller.id }}">
+            {% if customers %}
+                {% for c in customers %}
+                    {% set customer = c.customer %}
+                    {% set last_note = c.last_note %}
+                    <a href="{{ url_for('customers.customer_view', id=customer.id) }}" class="list-group-item list-group-item-action customer-row py-2 ps-5 pe-3 border-0 border-bottom">
+                        <div class="d-flex align-items-center justify-content-between">
+                            <div class="d-flex align-items-center gap-2">
+                                {% if customer.favicon_b64 %}
+                                    <img src="data:image/png;base64,{{ customer.favicon_b64 }}" alt="" width="16" height="16" style="border-radius: 2px;">
+                                {% else %}
+                                    <i class="bi bi-building text-muted" style="font-size: 0.85rem;"></i>
+                                {% endif %}
+                                <span>{{ customer.get_display_name() }}</span>
+                            </div>
+                            <div class="text-end">
+                                {% if last_note %}
+                                    <small class="text-muted">{{ last_note.call_date.strftime('%b %d') }}</small>
+                                {% else %}
+                                    <small class="text-muted fst-italic">No notes</small>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </a>
+                {% endfor %}
+            {% else %}
+                <div class="list-group-item text-muted small ps-5 border-0 border-bottom py-2">
+                    No customers assigned
+                </div>
+            {% endif %}
+        </div>
+    {% endmacro %}
+
+    {% if growth_sellers %}
+    <h5 class="text-muted mt-3 mb-2"><i class="bi bi-graph-up-arrow"></i> Growth</h5>
+    <div class="list-group mb-4">
+        {% for item in growth_sellers %}
+            {{ render_seller(item) }}
         {% endfor %}
     </div>
+    {% endif %}
+
+    {% if acquisition_sellers %}
+    <h5 class="text-muted mt-3 mb-2"><i class="bi bi-rocket-takeoff"></i> Acquisition</h5>
+    <div class="list-group mb-4">
+        {% for item in acquisition_sellers %}
+            {{ render_seller(item) }}
+        {% endfor %}
+    </div>
+    {% endif %}
 {% else %}
     <div class="alert alert-info">
         <i class="bi bi-info-circle"></i> No sellers yet. <a href="{{ url_for('sellers.seller_create') }}">Create your first seller</a>!
     </div>
 {% endif %}
+
+<script>
+function toggleSeller(row) {
+    var sellerId = row.dataset.sellerId;
+    var panel = document.getElementById('customers-' + sellerId);
+    var isExpanded = row.classList.toggle('expanded');
+    panel.classList.toggle('show', isExpanded);
+    updateToggleAllBtn();
+}
+
+function toggleAll() {
+    var rows = document.querySelectorAll('.seller-row');
+    var panels = document.querySelectorAll('.customer-panel');
+    var anyCollapsed = Array.from(rows).some(function(r) { return !r.classList.contains('expanded'); });
+
+    rows.forEach(function(r) { r.classList.toggle('expanded', anyCollapsed); });
+    panels.forEach(function(p) { p.classList.toggle('show', anyCollapsed); });
+    updateToggleAllBtn();
+}
+
+function updateToggleAllBtn() {
+    var btn = document.getElementById('toggleAllBtn');
+    if (!btn) return;
+    var rows = document.querySelectorAll('.seller-row');
+    var allExpanded = Array.from(rows).every(function(r) { return r.classList.contains('expanded'); });
+    btn.innerHTML = allExpanded
+        ? '<i class="bi bi-arrows-collapse"></i> Collapse All'
+        : '<i class="bi bi-arrows-expand"></i> Expand All';
+}
+</script>
 {% endblock %}
 
 

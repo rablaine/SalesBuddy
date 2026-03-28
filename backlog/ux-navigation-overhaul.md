@@ -129,15 +129,55 @@ The import flow has specific multi-step instructions (go to MSXi report, configu
 - Where exactly revenue import page lives in nav (Browse? Its own thing? Just linked from reminder?)
 - Fill My Day page - where does this live?
 
-## Implementation Order (Suggested)
+## Implementation Phases
 
-1. Sellers page redesign (compact rows, expandable customers) - prereq for removing Customers from navbar
-2. Seller page customer card sort options
-3. Projects tab on dashboard
-4. Move Milestone Tracker + Revenue Analyzer to Reports
-5. Navbar restructure (Sellers/Customers top-level, Reports dropdown, Browse dropdown, + New Note)
-6. Monthly revenue import reminder
-7. Engagements Hub demotion to Browse
+### Phase 1: Sellers Page Redesign ✅ (3/28/2026)
+Prereq for removing Customers from navbar. Compact the sellers list so each seller is a 1-line row that expands to show their customers inline.
+- [x] Redesign sellers list: 2-line rows (name + email/territories), grouped by Growth/Acquisition
+- [x] Expandable customer list under each seller (with favicon, last note date)
+- [x] Expand/Collapse All button
+- [x] Remove New Customer button from seller cards (exists on individual seller page)
+- [x] Remove Pod tag from seller cards
+- [x] Keep View as Seller button
+- [x] Move Customers to More dropdown for SE mode
+- [x] Move Notes and Engagements to More dropdown (both modes)
+- [x] Fix seller_view Details card flex-shrink
+
+### Phase 2: Seller Page Customer Card Sort
+- [ ] Add sort options on seller view page: by name, by last note date
+- [ ] Persist sort preference (localStorage or user pref)
+
+### Phase 3: Projects Tab on Dashboard
+- [ ] Add a Projects tab alongside the existing Engagements tab on the home page
+- [ ] Show active projects with status, customer, open tasks
+
+### Phase 4: Move Milestone Tracker + Revenue Analyzer to Reports
+- [ ] Add Milestone Tracker link to Reports hub page
+- [ ] Add Revenue Analyzer link to Reports hub page
+- [ ] Ensure both still work at their existing URLs (no breaking bookmarks)
+
+### Phase 5: Navbar Restructure
+The main event. Rearrange the navbar to match intent-based navigation.
+- [ ] SE mode: Sellers top-level | DSS mode: Customers top-level
+- [ ] Reports dropdown: 1:1, Revenue Analyzer, Milestone Tracker, Workload, Hygiene, New Synapse Users
+- [ ] Browse dropdown: Customers/Sellers (opposite of top-level), Notes, Engagements & Projects, Partners, Revenue Import, Topics, Territories, Pods
+- [ ] Persistent + New Note button in navbar (right side)
+- [ ] Make Ctrl+K search trigger more visible
+- [ ] Remove Milestones, Revenue, Engagements from top-level nav
+- [ ] Mobile responsive - verify dropdowns work on collapse
+
+### Phase 6: Monthly Revenue Import Reminder
+- [ ] User setting: revenue import reminders (default on)
+- [ ] Check if DB has data for the most recently completed month
+- [ ] Banner: "Last month's revenue data has been finalized. Import your latest CSV to keep trends accurate."
+- [ ] Links: [Import Now] → import page | [Dismiss] → hide until next month
+- [ ] Dismiss state persists (localStorage or DB)
+
+### Phase 7: Cleanup
+- [ ] Demote Engagements Hub to Browse dropdown (once Projects tab exists on dashboard)
+- [ ] Decide: does Reports hub page still exist, or is the dropdown sufficient?
+- [ ] Decide: where Fill My Day lives
+- [ ] Final pass on mobile nav behavior
 
 ## Implementation Notes
 

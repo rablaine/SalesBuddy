@@ -6,7 +6,7 @@ from flask import Blueprint, render_template, request, redirect, url_for, flash,
 from datetime import date, datetime, timedelta, timezone
 from sqlalchemy.orm import joinedload, subqueryload
 
-from app.models import db, Seller, Territory, Customer, Engagement
+from app.models import db, Seller, Territory, Customer, Engagement, Note
 
 # Create blueprint
 sellers_bp = Blueprint('sellers', __name__)
@@ -14,12 +14,30 @@ sellers_bp = Blueprint('sellers', __name__)
 
 @sellers_bp.route('/sellers')
 def sellers_list():
-    """List all sellers."""
+    """List all sellers with expandable customer rows."""
     sellers = Seller.query.options(
         db.joinedload(Seller.territories).joinedload(Territory.pod),
-        db.joinedload(Seller.customers)
+        db.joinedload(Seller.customers).joinedload(Customer.notes),
     ).order_by(Seller.name).all()
-    return render_template('sellers_list.html', sellers=sellers)
+
+    def build_customers(seller):
+        customers_data = []
+        for customer in sorted(seller.customers, key=lambda c: c.get_display_name()):
+            sorted_notes = sorted(customer.notes, key=lambda n: n.call_date, reverse=True)
+            customers_data.append({
+                'customer': customer,
+                'last_note': sorted_notes[0] if sorted_notes else None,
+            })
+        return {'seller': seller, 'customers': customers_data}
+
+    growth_sellers = [build_customers(s) for s in sellers if s.seller_type == 'Growth']
+    acquisition_sellers = [build_customers(s) for s in sellers if s.seller_type != 'Growth']
+
+    return render_template(
+        'sellers_list.html',
+        growth_sellers=growth_sellers,
+        acquisition_sellers=acquisition_sellers,
+    )
 
 
 @sellers_bp.route('/seller/new', methods=['GET', 'POST'])
