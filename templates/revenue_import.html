@@ -65,25 +65,6 @@
                     </ol>
                 </div>
             </div>
-        </div>
-
-        <div class="col-lg-6">
-            <!-- Bucket Picker (shown after import or when import history exists, SE only) -->
-            {% if user_role != 'dss' %}
-            <div class="card mb-4 {% if not import_history %}d-none{% endif %}" id="bucketPickerCard">
-                <div class="card-header">
-                    <h5 class="mb-0"><i class="bi bi-funnel"></i> Select Your Buckets</h5>
-                </div>
-                <div class="card-body">
-                    <p class="text-muted small mb-3">Check the service comp groupings you're compensated on. This filters your revenue views across the app.</p>
-                    <div id="bucketPickerList">
-                        <div class="text-center text-muted py-3">
-                            <div class="spinner-border spinner-border-sm"></div> Loading buckets...
-                        </div>
-                    </div>
-                </div>
-            </div>
-            {% endif %}
 
             <!-- Import History -->
             <div class="card mb-4">
@@ -113,6 +94,25 @@
                     {% endif %}
                 </ul>
             </div>
+        </div>
+
+        <div class="col-lg-6">
+            <!-- Bucket Picker (shown after import or when import history exists, SE only) -->
+            {% if user_role != 'dss' %}
+            <div class="card mb-4 {% if not import_history %}d-none{% endif %}" id="bucketPickerCard">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="bi bi-funnel"></i> Select Your Buckets</h5>
+                </div>
+                <div class="card-body">
+                    <p class="text-muted small mb-3">Check the service comp groupings you're compensated on. This filters your revenue views across the app.</p>
+                    <div id="bucketPickerList">
+                        <div class="text-center text-muted py-3">
+                            <div class="spinner-border spinner-border-sm"></div> Loading buckets...
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
 
             <!-- Data Range -->
             <div class="card">
