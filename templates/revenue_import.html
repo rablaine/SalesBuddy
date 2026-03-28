@@ -331,32 +331,41 @@ fileInput.addEventListener('change', async function() {
                 html += '</div>';
                 listEl.innerHTML = html;
 
-                // Search
-                document.getElementById('importBucketSearch').addEventListener('input', function() {
-                    var term = this.value.toLowerCase().trim();
-                    document.querySelectorAll('.import-bucket-item').forEach(function(item) {
-                        item.style.display = (item.dataset.name || '').includes(term) ? '' : 'none';
-                    });
-                });
+                // Wire events after DOM update
+                setTimeout(function() {
+                    // Search
+                    var searchEl = document.getElementById('importBucketSearch');
+                    if (searchEl) {
+                        searchEl.addEventListener('input', function() {
+                            var term = this.value.toLowerCase().trim();
+                            document.querySelectorAll('.import-bucket-item').forEach(function(item) {
+                                item.style.display = (item.dataset.name || '').includes(term) ? '' : 'none';
+                            });
+                        });
+                    }
 
-                // Select all
-                document.getElementById('importBucketSelectAll').addEventListener('change', function() {
-                    var checked = this.checked;
-                    document.querySelectorAll('.import-bucket-cb').forEach(function(cb) { cb.checked = checked; });
-                    saveImportBuckets(buckets);
-                });
+                    // Select all
+                    var selAllEl = document.getElementById('importBucketSelectAll');
+                    if (selAllEl) {
+                        selAllEl.addEventListener('change', function() {
+                            var checked = this.checked;
+                            document.querySelectorAll('.import-bucket-cb').forEach(function(cb) { cb.checked = checked; });
+                            saveImportBuckets(buckets);
+                        });
+                    }
 
-                // Individual changes
-                document.querySelectorAll('.import-bucket-cb').forEach(function(cb) {
-                    cb.addEventListener('change', function() {
-                        saveImportBuckets(buckets);
-                        var allCb = document.getElementById('importBucketSelectAll');
-                        if (allCb) allCb.checked = buckets.every(function(b) {
-                            var el = listEl.querySelector('input[value="' + b + '"]');
-                            return el && el.checked;
+                    // Individual changes
+                    document.querySelectorAll('.import-bucket-cb').forEach(function(cb) {
+                        cb.addEventListener('change', function() {
+                            saveImportBuckets(buckets);
+                            var allCb = document.getElementById('importBucketSelectAll');
+                            if (allCb) allCb.checked = buckets.every(function(b) {
+                                var el = listEl.querySelector('input[value="' + b + '"]');
+                                return el && el.checked;
+                            });
                         });
                     });
-                });
+                }, 0);
             })
             .catch(function(err) {
                 console.error('Failed to load buckets:', err);
