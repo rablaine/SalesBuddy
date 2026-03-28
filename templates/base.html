@@ -2175,6 +2175,12 @@
                                     if (row.cb.checked) sel.push(row.cb.value);
                                 });
                                 localStorage.setItem(STORAGE_KEY, JSON.stringify(sel));
+                                // Persist to DB as compensated buckets fallback
+                                fetch('/api/revenue/compensated-buckets', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify(sel),
+                                }).catch(function() {});
                             }
                         })
                         .catch(function(err) {

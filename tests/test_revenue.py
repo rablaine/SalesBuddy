@@ -739,3 +739,52 @@ def test_user(app):
             db.session.add(user)
             db.session.commit()
         return user
+
+
+class TestCompensatedBucketsAPI:
+    """Tests for compensated buckets save/get API."""
+
+    def test_save_compensated_buckets(self, client, app):
+        """Should save compensated buckets to user preferences."""
+        import json
+        resp = client.post('/api/revenue/compensated-buckets',
+                           data=json.dumps(['Analytics', 'Modern DBs']),
+                           content_type='application/json')
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data['success'] is True
+
+        with app.app_context():
+            from app.models import UserPreference
+            pref = UserPreference.query.first()
+            saved = json.loads(pref.compensated_buckets)
+            assert saved == ['Analytics', 'Modern DBs']
+
+    def test_get_compensated_buckets(self, client, app):
+        """Should return saved compensated buckets."""
+        import json
+        with app.app_context():
+            from app.models import UserPreference
+            pref = UserPreference.query.first()
+            pref.compensated_buckets = json.dumps(['Core DBs', 'AI Infra'])
+            db.session.commit()
+
+        resp = client.get('/api/revenue/compensated-buckets')
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data == ['Core DBs', 'AI Infra']
+
+    def test_get_compensated_buckets_empty(self, client):
+        """Should return empty array when nothing saved."""
+        resp = client.get('/api/revenue/compensated-buckets')
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data == []
+
+    def test_save_rejects_non_array(self, client):
+        """Should return 400 when body is not an array."""
+        import json
+        resp = client.post('/api/revenue/compensated-buckets',
+                           data=json.dumps({'not': 'an array'}),
+                           content_type='application/json')
+        assert resp.status_code == 400

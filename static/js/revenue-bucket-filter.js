@@ -20,17 +20,36 @@ var RevenueBucketFilter = (function() {
     var onFilterChange = null;
     var _popoverInstance = null;
     var _btn = null;
+    var _usedFallback = false;  // True if we defaulted to all (no localStorage)
 
     function loadSelection() {
         try {
             var saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
             if (saved && Array.isArray(saved) && saved.length > 0) {
                 selectedBuckets = new Set(saved);
+                _usedFallback = false;
                 return;
             }
         } catch(e) {}
-        // Default: all buckets selected
+        // Default: all buckets selected (may be overridden by DB fallback)
         selectedBuckets = new Set(allBuckets);
+        _usedFallback = true;
+    }
+
+    function loadFallbackFromDB() {
+        // If localStorage had a selection, no need for fallback
+        if (!_usedFallback) return;
+        fetch('/api/revenue/compensated-buckets')
+            .then(function(r) { return r.json(); })
+            .then(function(buckets) {
+                if (buckets && Array.isArray(buckets) && buckets.length > 0) {
+                    selectedBuckets = new Set(buckets);
+                    // Persist to localStorage so future loads are instant
+                    saveSelection();
+                    applyFilter();
+                }
+            })
+            .catch(function() {});
     }
 
     function saveSelection() {
@@ -198,6 +217,7 @@ var RevenueBucketFilter = (function() {
             });
             if (opts.containerId) renderFilterUI(opts.containerId);
             applyFilter();
+            loadFallbackFromDB();
         },
         toggle: function(bucket) {
             if (selectedBuckets.has(bucket)) {

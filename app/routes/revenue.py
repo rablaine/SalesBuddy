@@ -717,6 +717,38 @@ def revenue_buckets_api():
     return jsonify([b[0] for b in buckets if b[0]])
 
 
+@revenue_bp.route('/api/revenue/compensated-buckets', methods=['GET'])
+def get_compensated_buckets():
+    """Return the user's saved compensated buckets (fallback for localStorage)."""
+    from app.models import UserPreference
+    import json as _json
+    pref = UserPreference.query.first()
+    if pref and pref.compensated_buckets:
+        try:
+            return jsonify(_json.loads(pref.compensated_buckets))
+        except (ValueError, TypeError):
+            pass
+    return jsonify([])
+
+
+@revenue_bp.route('/api/revenue/compensated-buckets', methods=['POST'])
+def save_compensated_buckets():
+    """Save the user's compensated buckets to preferences."""
+    from app.models import UserPreference
+    import json as _json
+    data = request.get_json(silent=True)
+    if not isinstance(data, list):
+        return jsonify(success=False, error='Expected a JSON array'), 400
+
+    pref = UserPreference.query.first()
+    if not pref:
+        return jsonify(success=False, error='No preferences found'), 400
+
+    pref.compensated_buckets = _json.dumps(data)
+    db.session.commit()
+    return jsonify(success=True)
+
+
 @revenue_bp.route('/revenue/config', methods=['GET', 'POST'])
 def revenue_config():
     """Configure revenue analysis thresholds."""
