@@ -177,7 +177,9 @@ var RevenueBucketFilter = (function() {
         if (!container || allBuckets.length === 0) return;
 
         _btn = document.createElement('button');
-        _btn.className = 'btn btn-sm btn-outline-secondary';
+        _btn.className = 'btn btn-sm btn-outline-secondary py-0';
+        _btn.style.fontSize = '0.75rem';
+        _btn.style.lineHeight = '1.5';
         _btn.type = 'button';
         _btn.setAttribute('data-bs-toggle', 'popover');
         _btn.setAttribute('data-bs-placement', 'bottom');

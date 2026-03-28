@@ -1,24 +1,18 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
-  <!-- Solid purple note document - OneNote purple refined -->
-  
-  <!-- Document shadow -->
-  <rect x="10" y="6" width="42" height="54" rx="3" fill="#5A1785" opacity="0.4"/>
-  
-  <!-- Main document body - saturated purple -->
-  <rect x="7" y="3" width="42" height="54" rx="3" fill="#9226D4"/>
-  
-  <!-- Folded corner -->
-  <path d="M37 3 L49 3 L49 15 Z" fill="#7318A8"/>
-  <path d="M37 3 L37 15 L49 15" fill="#AD4DEF"/>
-  
-  <!-- Text lines - white -->
-  <line x1="14" y1="16" x2="36" y2="16" stroke="white" stroke-width="2.5" stroke-linecap="round" opacity="0.9"/>
-  <line x1="14" y1="23" x2="42" y2="23" stroke="white" stroke-width="2.5" stroke-linecap="round" opacity="0.6"/>
-  <line x1="14" y1="30" x2="34" y2="30" stroke="white" stroke-width="2.5" stroke-linecap="round" opacity="0.6"/>
-  <line x1="14" y1="37" x2="40" y2="37" stroke="white" stroke-width="2.5" stroke-linecap="round" opacity="0.6"/>
-  <line x1="14" y1="44" x2="28" y2="44" stroke="white" stroke-width="2.5" stroke-linecap="round" opacity="0.45"/>
-  
-  <!-- Accent circle with dollar sign -->
-  <circle cx="52" cy="48.25" r="10" fill="white"/>
-  <text x="52" y="55" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="bold" fill="#198754">$</text>
+  <!-- Placeholder SB monogram - will be replaced with actual vector from designer -->
+  <defs>
+    <linearGradient id="sbGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#27C3B3"/>
+      <stop offset="100%" stop-color="#2A86D1"/>
+    </linearGradient>
+    <clipPath id="roundClip">
+      <rect x="2" y="2" width="60" height="60" rx="14"/>
+    </clipPath>
+  </defs>
+  <!-- Rounded square background -->
+  <rect x="2" y="2" width="60" height="60" rx="14" fill="url(#sbGrad)"/>
+  <!-- S letter -->
+  <text x="22" y="46" font-family="Arial, Helvetica, sans-serif" font-size="40" font-weight="bold" font-style="italic" fill="white" opacity="0.95">S</text>
+  <!-- B letter overlapping -->
+  <text x="32" y="46" font-family="Arial, Helvetica, sans-serif" font-size="36" font-weight="bold" font-style="italic" fill="white" opacity="0.8">B</text>
 </svg>
