@@ -507,11 +507,10 @@ def report_hygiene():
         ).filter(Customer.seller_id == seller_mode_sid)
     engagements_no_ms = eng_q.all()
 
-    # --- Milestones without engagements (on my team, active statuses) ---
+    # --- Milestones without engagements (active statuses, all team status) ---
     ms_q = (
         Milestone.query
         .filter(
-            Milestone.on_my_team == True,
             Milestone.msx_status.in_(['On Track', 'At Risk', 'Blocked']),
             ~Milestone.engagements.any(),
         )

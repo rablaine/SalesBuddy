@@ -139,8 +139,14 @@
 <!-- Milestones without Engagements -->
 <div class="card mb-4">
     <div class="card-header d-flex justify-content-between align-items-center">
-        <h5 class="mb-0"><i class="bi bi-flag me-1"></i> On-Team Milestones without Engagements</h5>
-        <span class="badge bg-warning text-dark">{{ milestones_no_eng|length }}</span>
+        <h5 class="mb-0"><i class="bi bi-flag me-1"></i> Milestones without Engagements</h5>
+        <div class="d-flex align-items-center gap-2">
+            <div class="form-check form-switch mb-0">
+                <input class="form-check-input" type="checkbox" id="onTeamToggle" checked>
+                <label class="form-check-label small" for="onTeamToggle">On my team only</label>
+            </div>
+            <span class="badge bg-warning text-dark" id="msCount">{{ milestones_no_eng|selectattr('on_my_team')|list|length }}</span>
+        </div>
     </div>
     {% if milestones_no_eng %}
     <div class="table-responsive">
@@ -157,7 +163,8 @@
             </thead>
             <tbody>
                 {% for ms in milestones_no_eng %}
-                <tr>
+                <tr class="ms-row" data-on-team="{{ 'true' if ms.on_my_team else 'false' }}"
+                    {% if not ms.on_my_team %}style="display: none;"{% endif %}>
                     <td>
                         <a href="{{ url_for('milestones.milestone_view', id=ms.id) }}">{{ ms.title }}</a>
                         {% if ms.workload %}
@@ -267,6 +274,31 @@
             });
         }
     });
+})();
+
+// On-team toggle for milestones
+(function() {
+    var toggle = document.getElementById('onTeamToggle');
+    if (!toggle) return;
+    var rows = document.querySelectorAll('.ms-row');
+    var badge = document.getElementById('msCount');
+
+    function applyFilter() {
+        var onlyOnTeam = toggle.checked;
+        var visible = 0;
+        rows.forEach(function(row) {
+            var isOnTeam = row.dataset.onTeam === 'true';
+            if (onlyOnTeam && !isOnTeam) {
+                row.style.display = 'none';
+            } else {
+                row.style.display = '';
+                visible++;
+            }
+        });
+        badge.textContent = visible;
+    }
+
+    toggle.addEventListener('change', applyFilter);
 })();
 </script>
 {% endblock %}
