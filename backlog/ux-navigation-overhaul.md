@@ -129,15 +129,62 @@ The import flow has specific multi-step instructions (go to MSXi report, configu
 - Where exactly revenue import page lives in nav (Browse? Its own thing? Just linked from reminder?)
 - Fill My Day page - where does this live?
 
-## Implementation Order (Suggested)
+## Implementation Phases
 
-1. Sellers page redesign (compact rows, expandable customers) - prereq for removing Customers from navbar
-2. Seller page customer card sort options
-3. Projects tab on dashboard
-4. Move Milestone Tracker + Revenue Analyzer to Reports
-5. Navbar restructure (Sellers/Customers top-level, Reports dropdown, Browse dropdown, + New Note)
-6. Monthly revenue import reminder
-7. Engagements Hub demotion to Browse
+### Phase 1: Sellers Page Redesign ✅ (3/28/2026)
+Prereq for removing Customers from navbar. Compact the sellers list so each seller is a 1-line row that expands to show their customers inline.
+- [x] Redesign sellers list: 2-line rows (name + email/territories), grouped by Growth/Acquisition
+- [x] Expandable customer list under each seller (with favicon, last note date)
+- [x] Expand/Collapse All button
+- [x] Remove New Customer button from seller cards (exists on individual seller page)
+- [x] Remove Pod tag from seller cards
+- [x] Keep View as Seller button
+- [x] Move Customers to More dropdown for SE mode
+- [x] Move Notes and Engagements to More dropdown (both modes)
+- [x] Fix seller_view Details card flex-shrink
+
+### Phase 2: Seller Page Customer Card Sort ✅ (3/28/2026)
+- [x] Add sort options on seller view page: by name, by last note date
+- [x] Persist sort preference (localStorage)
+
+### Phase 3: Projects Tab on Dashboard ✅ (3/28/2026)
+- [x] Add a Projects tab alongside the existing Engagements tab on the home page
+- [x] Show active projects with status, type, open tasks, due date
+- [x] Lazy-load via /api/projects/active API
+- [x] Tab persistence in localStorage
+
+### Phase 4: Move Milestone Tracker + Revenue Analyzer to Reports ✅ (3/28/2026)
+- [x] Add Milestone Tracker to Reports hub (Data Hygiene group, first item)
+- [x] Add Revenue Analyzer to Reports hub (Revenue Analysis group, first item)
+- [x] Existing URLs unchanged (no broken bookmarks)
+
+### Phase 5: Navbar Restructure ✅ (3/28/2026)
+The main event. Rearrange the navbar to match intent-based navigation.
+- [x] SE mode: Sellers top-level (with dropdown) | DSS mode: Customers top-level
+- [x] Reports dropdown: All Reports, 1:1, Revenue Analyzer, Milestone Tracker, Workload, Hygiene, New Synapse Users
+- [x] Browse dropdown: Customers/Sellers (opposite of top-level), Notes, Engagements & Projects, Partners, Revenue Import, Topics, Territories, PODs, Search, Analytics, Connect Export, Solution Engineers
+- [x] Remove Partners, Milestones, Revenue from top-level nav
+- [x] Rename More to Browse with restructured contents
+- [x] Update active nav highlighting for new dropdown structure
+
+### Phase 6: Monthly Revenue Import Reminder ✅ (3/28/2026)
+- [x] User setting: revenue_import_reminder (default on) with migration
+- [x] Check if DB has data for the most recently completed month
+- [x] Banner on dashboard: "Last month's revenue data has been finalized. Import your latest CSV to keep trends accurate."
+- [x] Links: [Import Now] goes to import page | [X] dismisses
+- [x] Dismiss state persists in localStorage until next month (keyed by year-month)
+
+### Phase 7: Revenue Refactor ✅ (3/28/2026)
+Revenue is now a report, not a core feature. Refactor URLs and UX to match.
+
+- [x] Move revenue import route to `/import/revenue` (old `/revenue/import` still works)
+- [x] Remove Revenue Analyzer breadcrumb from import page
+- [x] Fix post-import button: "Go Home" links to `/` instead of Revenue Analyzer
+- [x] Products at top-level: `/products` and `/product/<name>` (old URLs still work)
+- [x] Customer revenue at `/customer/<id>/revenue` (old URL still work)
+- [x] Customer bucket products at `/customer/<id>/revenue/bucket/<bucket>` (old URL still works)
+- [x] Remove `target="_blank"` from Revenue Analyzer customer links (opens in same tab)
+- [x] Rename "View in Sales Buddy" to "View Customer Hub" / "View Seller Hub" across all revenue templates
 
 ## Implementation Notes
 

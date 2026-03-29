@@ -7,8 +7,7 @@
         <div class="col">
             <nav aria-label="breadcrumb">
                 <ol class="breadcrumb">
-                    <li class="breadcrumb-item"><a href="{{ url_for('revenue.revenue_dashboard') }}">Revenue Analyzer</a></li>
-                    <li class="breadcrumb-item active">Import Data</li>
+                    <li class="breadcrumb-item active">Import Revenue Data</li>
                 </ol>
             </nav>
             <h1><i class="bi bi-upload"></i> Import Revenue Data</h1>
@@ -65,25 +64,6 @@
                     </ol>
                 </div>
             </div>
-        </div>
-
-        <div class="col-lg-6">
-            <!-- Bucket Picker (shown after import or when import history exists, SE only) -->
-            {% if user_role != 'dss' %}
-            <div class="card mb-4 {% if not import_history %}d-none{% endif %}" id="bucketPickerCard">
-                <div class="card-header">
-                    <h5 class="mb-0"><i class="bi bi-funnel"></i> Select Your Buckets</h5>
-                </div>
-                <div class="card-body">
-                    <p class="text-muted small mb-3">Check the service comp groupings you're compensated on. This filters your revenue views across the app.</p>
-                    <div id="bucketPickerList">
-                        <div class="text-center text-muted py-3">
-                            <div class="spinner-border spinner-border-sm"></div> Loading buckets...
-                        </div>
-                    </div>
-                </div>
-            </div>
-            {% endif %}
 
             <!-- Import History -->
             <div class="card mb-4">
@@ -113,6 +93,25 @@
                     {% endif %}
                 </ul>
             </div>
+        </div>
+
+        <div class="col-lg-6">
+            <!-- Bucket Picker (shown after import or when import history exists, SE only) -->
+            {% if user_role != 'dss' %}
+            <div class="card mb-4 {% if not import_history %}d-none{% endif %}" id="bucketPickerCard">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="bi bi-funnel"></i> Select Your Buckets</h5>
+                </div>
+                <div class="card-body">
+                    <p class="text-muted small mb-3">Check the service comp groupings you're compensated on. This filters your revenue views across the app.</p>
+                    <div id="bucketPickerList">
+                        <div class="text-center text-muted py-3">
+                            <div class="spinner-border spinner-border-sm"></div> Loading buckets...
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
 
             <!-- Data Range -->
             <div class="card">
@@ -248,8 +247,8 @@ fileInput.addEventListener('change', async function() {
                         <li>New months added: ${finalResult.new_months || 0}</li>
                         ${finalResult.duration ? '<li><i class="bi bi-clock"></i> Completed in ' + finalResult.duration + 's</li>' : ''}
                     </ul>
-                    <a href="{{ url_for('revenue.revenue_dashboard') }}" class="btn btn-primary btn-sm">
-                        <i class="bi bi-arrow-right"></i> View Dashboard
+                    <a href="{{ url_for('main.index') }}" class="btn btn-primary btn-sm">
+                        <i class="bi bi-arrow-right"></i> Go Home
                     </a>
                 </div>
             `;

@@ -64,10 +64,10 @@
                 </td>
                 <td>
                     {% if a.customer_id %}
-                    <a href="{{ url_for('revenue.revenue_customer_view', customer_id=a.customer_id) }}" target="_blank">
+                    <a href="{{ url_for('revenue.revenue_customer_view', customer_id=a.customer_id) }}">
                         {{ a.customer_name }}
                     </a>
-                    <a href="{{ url_for('customers.customer_view', id=a.customer_id) }}" class="text-muted" title="View in Sales Buddy" target="_blank">
+                    <a href="{{ url_for('customers.customer_view', id=a.customer_id) }}" class="text-muted" title="View Customer Hub">
                         <i class="bi bi-box-arrow-up-right"></i>
                     </a>
                     {% else %}

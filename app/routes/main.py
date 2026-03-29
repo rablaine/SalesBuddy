@@ -357,6 +357,25 @@ def index():
         )
     engagement_count = engagement_q.count()
 
+    project_count = Project.query.filter(
+        Project.status.in_(['Active', 'On Hold']),
+        Project.project_type != 'copilot_saved',
+    ).count()
+
+    # Revenue import reminder: check if user has imported since this month started
+    show_revenue_reminder = False
+    if pref and pref.revenue_import_reminder:
+        from app.models import RevenueImport
+        last_import = RevenueImport.query.order_by(
+            RevenueImport.imported_at.desc()
+        ).first()
+        if last_import:
+            # User has imported before - remind if no import this month
+            today = date.today()
+            first_of_this_month = datetime(today.year, today.month, 1, tzinfo=timezone.utc)
+            if last_import.imported_at.replace(tzinfo=timezone.utc) < first_of_this_month:
+                show_revenue_reminder = True
+
     return render_template(
         'index.html',
         open_tasks=open_tasks,
@@ -367,6 +386,9 @@ def index():
         has_milestones=has_milestones,
         has_engagements=engagement_count > 0,
         engagement_count=engagement_count,
+        has_projects=project_count > 0,
+        project_count=project_count,
+        show_revenue_reminder=show_revenue_reminder,
         pref=pref,
     )
 
@@ -532,6 +554,30 @@ def api_active_engagements():
         })
 
     return jsonify({'success': True, 'engagements': results, 'count': len(results)})
+
+
+@main_bp.route('/api/projects/active')
+def api_active_projects():
+    """Return active/on-hold projects for the homepage tab."""
+    projects = Project.query.filter(
+        Project.status.in_(['Active', 'On Hold']),
+        Project.project_type != 'copilot_saved',
+    ).order_by(Project.updated_at.desc()).all()
+
+    results = []
+    for p in projects:
+        results.append({
+            'id': p.id,
+            'title': p.title,
+            'description': (p.description[:100] + '...') if p.description and len(p.description) > 100 else p.description,
+            'status': p.status,
+            'project_type': p.project_type.replace('_', ' ').title(),
+            'open_task_count': p.open_task_count,
+            'due_date': p.due_date.strftime('%b %d') if p.due_date else None,
+            'is_overdue': p.is_overdue,
+        })
+
+    return jsonify({'success': True, 'projects': results, 'count': len(results)})
 
 
 @main_bp.route('/search')

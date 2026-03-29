@@ -1078,6 +1078,7 @@ class UserPreference(db.Model):
     show_hygiene_tasks = db.Column(db.Boolean, default=True, nullable=False, server_default='1')  # Show data hygiene tasks in Action Items card
     last_copilot_sync = db.Column(db.DateTime, nullable=True)  # Last time Copilot daily action items were synced
     compensated_buckets = db.Column(db.Text, nullable=True)  # JSON array of selected ServiceCompGrouping buckets (fallback for localStorage)
+    revenue_import_reminder = db.Column(db.Boolean, default=True, nullable=False, server_default='1')
     created_at = db.Column(db.DateTime, default=utc_now, nullable=False)
     updated_at = db.Column(db.DateTime, default=utc_now, onupdate=utc_now, nullable=False)
     

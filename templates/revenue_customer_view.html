@@ -7,17 +7,16 @@
         <div class="col">
             <nav aria-label="breadcrumb">
                 <ol class="breadcrumb">
-                    <li class="breadcrumb-item"><a href="{{ url_for('revenue.revenue_dashboard') }}">Revenue Analyzer</a></li>
-                    <li class="breadcrumb-item active">{{ customer_name }}</li>
+                    {% if customer %}
+                    <li class="breadcrumb-item"><a href="{{ url_for('customers.customer_view', id=customer.id) }}">{{ customer_name }}</a></li>
+                    {% else %}
+                    <li class="breadcrumb-item">{{ customer_name }}</li>
+                    {% endif %}
+                    <li class="breadcrumb-item active">Revenue</li>
                 </ol>
             </nav>
             <h1>
                 <i class="bi bi-building"></i> {{ customer_name }}
-                {% if customer %}
-                <a href="{{ url_for('customers.customer_view', id=customer.id) }}" class="btn btn-sm btn-outline-primary">
-                    View in Sales Buddy
-                </a>
-                {% endif %}
             </h1>
         </div>
         <div class="col-auto d-flex align-items-end">

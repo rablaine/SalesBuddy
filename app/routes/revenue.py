@@ -95,6 +95,7 @@ def revenue_dashboard():
 
 
 @revenue_bp.route('/revenue/import', methods=['GET', 'POST'])
+@revenue_bp.route('/import/revenue', methods=['GET', 'POST'])
 def revenue_import():
     """Import revenue CSV data (form display only, POST redirects to streaming)."""
     if request.method == 'POST':
@@ -462,6 +463,7 @@ def revenue_seller_product_view(seller_name: str, product: str):
 
 
 @revenue_bp.route('/revenue/customer/<int:customer_id>')
+@revenue_bp.route('/customer/<int:customer_id>/revenue')
 def revenue_customer_view(customer_id: int):
     """View revenue history and analysis for a specific customer."""
     # Get the Sales Buddy customer
@@ -567,6 +569,7 @@ def revenue_customer_view(customer_id: int):
 
 
 @revenue_bp.route('/revenue/customer/<int:customer_id>/bucket/<bucket>')
+@revenue_bp.route('/customer/<int:customer_id>/revenue/bucket/<bucket>')
 def revenue_bucket_products(customer_id: int, bucket: str):
     """View product-level revenue breakdown for a customer/bucket."""
     # Get the Sales Buddy customer
@@ -629,6 +632,7 @@ def revenue_bucket_products(customer_id: int, bucket: str):
 
 
 @revenue_bp.route('/revenue/products')
+@revenue_bp.route('/products')
 def revenue_products_list():
     """List all products with usage statistics."""
     products = get_all_products()
@@ -640,6 +644,7 @@ def revenue_products_list():
 
 
 @revenue_bp.route('/revenue/product/<path:product>')
+@revenue_bp.route('/product/<path:product>')
 def revenue_product_view(product: str):
     """View all customers using a specific product."""
     from app.services.revenue_import import PRODUCT_CONSOLIDATION_PREFIXES

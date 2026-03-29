@@ -44,6 +44,14 @@
                                maxlength="500" placeholder="https://microsoftsales.crm.dynamics.com/main.aspx?appid=...&id=...">
                         <div class="form-text">Link to this customer's account record in Microsoft Sales Experience (MSX)</div>
                     </div>
+
+                    <div class="mb-3">
+                        <label for="website" class="form-label">Website</label>
+                        <input type="text" class="form-control" id="website" name="website" 
+                               value="{{ customer.website|default('', true) if customer else '' }}" 
+                               maxlength="500" placeholder="example.com">
+                        <div class="form-text">Customer's domain (used for favicon)</div>
+                    </div>
                     
                     {% if seller_mode and seller_mode_seller %}
                     <input type="hidden" name="seller_id" value="{{ seller_mode_seller.id }}">

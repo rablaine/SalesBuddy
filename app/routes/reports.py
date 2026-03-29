@@ -39,6 +39,16 @@ def reports_hub():
             'icon': 'bi-currency-dollar',
             'reports': [
                 {
+                    'id': 'revenue-analyzer',
+                    'name': 'Revenue Analyzer',
+                    'description': (
+                        'Revenue trends, alerts, and drilldowns across all customers. '
+                        'Track declining accounts and expansion opportunities.'
+                    ),
+                    'icon': 'bi-graph-up',
+                    'url': url_for('revenue.revenue_dashboard'),
+                },
+                {
                     'id': 'new-synapse-users',
                     'name': 'New Azure Synapse Analytics Users',
                     'description': (
@@ -70,6 +80,16 @@ def reports_hub():
             'title': 'Data Hygiene',
             'icon': 'bi-clipboard-check',
             'reports': [
+                {
+                    'id': 'milestone-tracker',
+                    'name': 'Milestone Tracker',
+                    'description': (
+                        'Surface milestones across all accounts. Find milestones '
+                        'you are not aligned to yet and get on the team.'
+                    ),
+                    'icon': 'bi-flag-fill',
+                    'url': url_for('milestones.milestone_tracker'),
+                },
                 {
                     'id': 'hygiene-report',
                     'name': 'Engagement / Milestone Hygiene',

@@ -9,14 +9,40 @@
     </div>
 </div>
 
+<!-- Revenue Import Reminder -->
+{% if show_revenue_reminder %}
+<div class="alert alert-info alert-dismissible fade show mb-4" role="alert" id="revenueImportReminder">
+    <i class="bi bi-calendar-check"></i>
+    <strong>Last month's revenue data has been finalized.</strong> Import your latest CSV to keep trends accurate.
+    <a href="{{ url_for('revenue.revenue_import') }}" class="btn btn-sm btn-primary ms-2"><i class="bi bi-upload"></i> Import Now</a>
+    <button type="button" class="btn-close" aria-label="Close" onclick="dismissRevenueReminder()"></button>
+</div>
+<script>
+(function() {
+    var KEY = 'salesbuddy_revenue_reminder_dismissed';
+    var now = new Date();
+    var monthKey = now.getFullYear() + '-' + (now.getMonth() + 1);
+    var dismissed = localStorage.getItem(KEY);
+    if (dismissed === monthKey) {
+        var el = document.getElementById('revenueImportReminder');
+        if (el) el.remove();
+    }
+    window.dismissRevenueReminder = function() {
+        localStorage.setItem(KEY, monthKey);
+        var el = document.getElementById('revenueImportReminder');
+        if (el) el.remove();
+    };
+})();
+</script>
+{% endif %}
+
 <!-- Dashboard Cards Row -->
 <div class="row mb-4">
     <!-- Action Items -->
     <div class="col-lg-4 mb-3">
         <div class="card h-100">
             <div class="card-header d-flex justify-content-between align-items-center">
-                <h5 class="mb-0"><i class="bi bi-check2-square"></i> Action Items</h5>
-                {% if open_tasks or stale_milestones or hygiene_tasks %}<span class="badge bg-primary">{{ (open_tasks|length) + (stale_milestones|length) + (hygiene_tasks|length) }}</span>{% endif %}
+                <h5 class="mb-0" title="Action items from across the app and suggested items from Copilot"><i class="bi bi-check2-square"></i> Action Items</h5>
             </div>
             <div class="card-body p-0" style="max-height: 360px; overflow-y: auto;">
                 {% set engagement_tasks = open_tasks|selectattr('source', 'equalto', 'engagement')|list %}
@@ -166,8 +192,7 @@
     <div class="col-lg-4 mb-3">
         <div class="card h-100">
             <div class="card-header d-flex justify-content-between align-items-center">
-                <h5 class="mb-0"><i class="bi bi-flag-fill" style="color: #c49000;"></i> Milestones Due</h5>
-                {% if upcoming_milestones %}<span class="badge bg-warning text-dark">{{ upcoming_milestones|length }}</span>{% endif %}
+                <h5 class="mb-0" title="Milestones coming due in the next 30 days where you're on the milestone team"><i class="bi bi-flag-fill" style="color: #c49000;"></i> Milestones Due</h5>
             </div>
             <div class="card-body p-0" style="max-height: 360px; overflow-y: auto;">
                 {% if upcoming_milestones %}
@@ -227,10 +252,9 @@
     <div class="col-lg-4 mb-3">
         <div class="card h-100">
             <div class="card-header d-flex justify-content-between align-items-center">
-                <h5 class="mb-0"><i class="bi bi-exclamation-diamond text-danger"></i> Revenue Alerts</h5>
+                <h5 class="mb-0" title="Top 10 unactioned revenue alerts across your accounts"><i class="bi bi-exclamation-diamond text-danger"></i> Revenue Alerts</h5>
                 <div class="d-flex align-items-center gap-2">
                     <span id="homeBucketFilterContainer"></span>
-                    {% if revenue_alerts %}<span class="badge bg-danger" id="revenueAlertCount">{{ revenue_alerts|length }}</span>{% endif %}
                 </div>
             </div>
             <div class="card-body p-0" style="max-height: 360px; overflow-y: auto;">
@@ -445,6 +469,13 @@
                     </button>
                 </li>
                 {% endif %}
+                {% if has_projects %}
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="projects-tab" data-bs-toggle="pill" data-bs-target="#projects-view" type="button" role="tab" aria-controls="projects-view" aria-selected="false">
+                        <i class="bi bi-folder"></i> Projects <span class="fw-normal" style="font-size:0.8em; opacity:0.85;">({{ project_count }})</span>
+                    </button>
+                </li>
+                {% endif %}
             </ul>
         </div>
         
@@ -539,6 +570,20 @@
                 {% set eng_count_id = 'eng-panel-count' %}
                 {% set eng_empty_msg = 'No engagements match the current filter.' %}
                 {% include 'partials/engagements_panel.html' %}
+            </div>
+            {% endif %}
+
+            <!-- Projects Tab -->
+            {% if has_projects %}
+            <div class="tab-pane fade" id="projects-view" role="tabpanel" aria-labelledby="projects-tab">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0"><i class="bi bi-folder"></i> Active Projects</h5>
+                        <a href="{{ url_for('projects.project_create') }}" class="btn btn-sm btn-primary"><i class="bi bi-plus-circle"></i> New Project</a>
+                    </div>
+                    <div class="list-group list-group-flush" id="projectsList">
+                    </div>
+                </div>
             </div>
             {% endif %}
         </div>
@@ -731,6 +776,10 @@
             const engTabEl = document.getElementById('engagements-tab');
             const engTab = new bootstrap.Tab(engTabEl);
             engTab.show();
+        } else {% endif %}{% if has_projects %}if (savedTab === 'projects') {
+            const projTabEl = document.getElementById('projects-tab');
+            const projTab = new bootstrap.Tab(projTabEl);
+            projTab.show();
         } else {% endif %}{
             // Calendar is default - load it immediately
             if (!calendarLoaded) {
@@ -1180,6 +1229,54 @@
             window.engLoad_engagementsListBody();
         }
     });
+    {% endif %}
+
+    {% if has_projects %}
+    // ===== PROJECTS TAB =====
+    let projectsLoaded = false;
+    document.getElementById('projects-tab').addEventListener('shown.bs.tab', function() {
+        localStorage.setItem(TAB_STORAGE_KEY, 'projects');
+        if (!projectsLoaded) {
+            projectsLoaded = true;
+            loadProjects();
+        }
+    });
+    function loadProjects() {
+        var list = document.getElementById('projectsList');
+        list.innerHTML = '<div class="p-3 text-muted"><i class="bi bi-hourglass-split"></i> Loading...</div>';
+        fetch('/api/projects/active')
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (!data.projects || data.projects.length === 0) {
+                    list.innerHTML = '<div class="p-3 text-center text-muted">No active projects.</div>';
+                    return;
+                }
+                var html = '';
+                data.projects.forEach(function(p) {
+                    html += '<a href="/project/' + p.id + '" class="list-group-item list-group-item-action py-2 px-3">';
+                    html += '<div class="d-flex justify-content-between align-items-start">';
+                    html += '<div>';
+                    html += '<div class="fw-semibold">' + p.title;
+                    html += ' <span class="badge bg-info ms-1" style="font-size: 0.65rem;">' + p.project_type + '</span>';
+                    if (p.status === 'On Hold') html += ' <span class="badge bg-warning text-dark ms-1" style="font-size: 0.65rem;">On Hold</span>';
+                    html += '</div>';
+                    if (p.description) html += '<small class="text-muted">' + p.description + '</small>';
+                    html += '</div>';
+                    html += '<div class="text-end flex-shrink-0">';
+                    if (p.open_task_count) html += '<span class="badge bg-primary">' + p.open_task_count + ' task' + (p.open_task_count !== 1 ? 's' : '') + '</span>';
+                    if (p.due_date) {
+                        html += '<div><small class="' + (p.is_overdue ? 'text-danger fw-bold' : 'text-muted') + '">' + p.due_date;
+                        if (p.is_overdue) html += ' <i class="bi bi-exclamation-triangle-fill"></i>';
+                        html += '</small></div>';
+                    }
+                    html += '</div></div></a>';
+                });
+                list.innerHTML = html;
+            })
+            .catch(function() {
+                list.innerHTML = '<div class="p-3 text-danger"><i class="bi bi-exclamation-triangle"></i> Failed to load projects.</div>';
+            });
+    }
     {% endif %}
 </script>
 

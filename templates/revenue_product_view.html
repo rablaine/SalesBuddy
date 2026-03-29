@@ -5,7 +5,6 @@
 <div class="container-fluid py-4">
     <nav aria-label="breadcrumb">
         <ol class="breadcrumb">
-            <li class="breadcrumb-item"><a href="{{ url_for('revenue.revenue_dashboard') }}">Revenue Analyzer</a></li>
             <li class="breadcrumb-item"><a href="{{ url_for('revenue.revenue_products_list') }}">Products</a></li>
             <li class="breadcrumb-item active">{{ product }}</li>
         </ol>
@@ -93,7 +92,7 @@
                                 <a href="{{ url_for('revenue.revenue_customer_view', customer_id=c.customer_id) }}">
                                     {{ c.customer_name }}
                                 </a>
-                                <a href="{{ url_for('customers.customer_view', id=c.customer_id) }}" class="text-muted ms-1" title="View in Sales Buddy">
+                                <a href="{{ url_for('customers.customer_view', id=c.customer_id) }}" class="text-muted ms-1" title="View Customer Hub">
                                     <i class="bi bi-box-arrow-up-right"></i>
                                 </a>
                                 {% else %}

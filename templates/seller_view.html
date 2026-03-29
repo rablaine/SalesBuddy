@@ -32,7 +32,7 @@
     <!-- Left column: Details + Customers -->
     <div class="col-lg-4 d-flex flex-column" style="height: 100%;">
         <!-- Details Card -->
-        <div class="card mb-3">
+        <div class="card mb-3 flex-shrink-0">
             <div class="card-header">
                 <h5 class="mb-0">Details</h5>
             </div>
@@ -84,39 +84,41 @@
         <div class="card mb-3 flex-grow-1 d-flex flex-column" style="min-height: 0;">
             <div class="card-header d-flex justify-content-between align-items-center">
                 <h5 class="mb-0"><i class="bi bi-building"></i> Customers <span class="badge bg-secondary">{{ customers|length }}</span></h5>
+                <div class="btn-group btn-group-sm" role="group" aria-label="Sort customers">
+                    <button type="button" class="btn btn-outline-secondary py-0 customer-sort-btn" data-sort="date" style="font-size: 0.7rem;" title="Sort by last note date">
+                        <i class="bi bi-calendar-event"></i> Date
+                    </button>
+                    <button type="button" class="btn btn-outline-secondary py-0 customer-sort-btn" data-sort="name" style="font-size: 0.7rem;" title="Sort by name">
+                        <i class="bi bi-sort-alpha-down"></i> Name
+                    </button>
+                </div>
             </div>
             <div class="card-body p-0 ps-2 flex-grow-1" style="overflow-y: auto; min-height: 0;">
                 {% if customers %}
                 <div>
                     <table class="table table-hover table-sm mb-0" style="--bs-table-bg: transparent;">
-                        <thead class="sticky-top" style="background: var(--bs-card-bg, var(--bs-body-bg));">
+                        <thead>
                             <tr>
-                                <th style="font-size: 0.8rem;">Customer</th>
-                                <th style="font-size: 0.8rem;">Last Note</th>
-                                <th style="font-size: 0.8rem; width: 40px;"></th>
+                                <th style="font-size: 0.8rem; border-top: none;">Customer</th>
+                                <th style="font-size: 0.8rem; border-top: none; white-space: nowrap;">Last Note</th>
                             </tr>
                         </thead>
-                        <tbody>
+                        <tbody id="customerTableBody">
                             {% for customer_data in customers %}
-                            <tr>
-                                <td style="font-size: 0.85rem;">
-                                    <a href="{{ url_for('customers.customer_view', id=customer_data.customer.id) }}" class="text-decoration-none">
-                                        {{ customer_favicon(customer_data.customer) }} {{ customer_data.customer.name }}
+                            <tr data-customer-name="{{ customer_data.customer.get_display_name()|lower }}" data-note-date="{{ customer_data.last_note.call_date.strftime('%Y-%m-%d') if customer_data.last_note else '0000-00-00' }}">
+                                <td style="font-size: 0.85rem; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                    <a href="{{ url_for('customers.customer_view', id=customer_data.customer.id) }}" class="text-decoration-none" title="{{ customer_data.customer.get_display_name() }}">
+                                        {{ customer_favicon(customer_data.customer) }} {{ customer_data.customer.get_display_name() }}
                                     </a>
                                 </td>
-                                <td style="font-size: 0.8rem;">
+                                <td style="font-size: 0.8rem; white-space: nowrap;">
                                     {% if customer_data.last_note %}
                                         <a href="{{ url_for('notes.note_view', id=customer_data.last_note.id) }}" class="text-decoration-none text-muted">
-                                            {{ customer_data.last_note.call_date.strftime('%b %d, %Y') }}
+                                            {{ customer_data.last_note.call_date.strftime('%b %d') }}
                                         </a>
                                     {% else %}
-                                        <span class="text-muted">No notes yet</span>
+                                        <span class="text-muted">No notes</span>
                                     {% endif %}
-                                </td>
-                                <td>
-                                    <a href="{{ url_for('notes.note_create', customer_id=customer_data.customer.id) }}" class="btn btn-sm btn-success py-0 px-1" title="New Note">
-                                        <i class="bi bi-plus"></i>
-                                    </a>
                                 </td>
                             </tr>
                             {% endfor %}
@@ -135,7 +137,7 @@
         {% if milestones %}
         <div class="card mb-3 border-info flex-grow-1 d-flex flex-column" style="min-height: 0;">
             <div class="card-header bg-info text-dark d-flex justify-content-between align-items-center">
-                <h5 class="mb-0"><i class="bi bi-flag"></i> Milestones <span class="badge bg-dark">{{ milestones|length }}</span></h5>
+                <h5 class="mb-0"><i class="bi bi-flag"></i> Milestones</h5>
                 <button type="button" class="btn btn-sm btn-outline-dark" data-bs-toggle="modal" data-bs-target="#milestonesModal">
                     <i class="bi bi-arrows-fullscreen"></i> Full View
                 </button>
@@ -190,7 +192,7 @@
         {% if revenue_alerts %}
         <div class="card mb-3 border-warning flex-grow-1 d-flex flex-column" style="min-height: 0;">
             <div class="card-header bg-warning text-dark d-flex justify-content-between align-items-center">
-                <h5 class="mb-0"><i class="bi bi-exclamation-triangle"></i> Revenue <span class="badge bg-dark">{{ revenue_alerts|length }}</span></h5>
+                <h5 class="mb-0"><i class="bi bi-exclamation-triangle"></i> Revenue</h5>
                 <div class="d-flex align-items-center gap-2">
                     <span id="sellerBucketFilterContainer"></span>
                     <button type="button" class="btn btn-sm btn-outline-dark" data-bs-toggle="modal" data-bs-target="#revenueModal">
@@ -513,5 +515,43 @@ document.getElementById('revenueModal').addEventListener('shown.bs.modal', funct
 });
 </script>
 {% endif %}
+
+<script>
+(function() {
+    var SORT_KEY = 'salesbuddy_seller_customer_sort';
+    var tbody = document.getElementById('customerTableBody');
+    var btns = document.querySelectorAll('.customer-sort-btn');
+    if (!tbody || !btns.length) return;
+
+    function sortCustomers(mode) {
+        var rows = Array.from(tbody.querySelectorAll('tr'));
+        rows.sort(function(a, b) {
+            if (mode === 'name') {
+                return (a.dataset.customerName || '').localeCompare(b.dataset.customerName || '');
+            } else {
+                // Date descending (most recent first), nulls last
+                return (b.dataset.noteDate || '').localeCompare(a.dataset.noteDate || '');
+            }
+        });
+        rows.forEach(function(r) { tbody.appendChild(r); });
+
+        btns.forEach(function(btn) {
+            btn.classList.toggle('active', btn.dataset.sort === mode);
+        });
+        try { localStorage.setItem(SORT_KEY, mode); } catch(e) {}
+    }
+
+    btns.forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            sortCustomers(this.dataset.sort);
+        });
+    });
+
+    // Restore saved sort preference
+    var saved = 'date';
+    try { saved = localStorage.getItem(SORT_KEY) || 'date'; } catch(e) {}
+    sortCustomers(saved);
+})();
+</script>
 
 {% endblock %}

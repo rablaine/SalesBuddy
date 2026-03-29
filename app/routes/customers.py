@@ -151,6 +151,7 @@ def customer_create():
             nickname=nickname if nickname else None,
             tpid=tpid_value,
             tpid_url=tpid_url if tpid_url else None,
+            website=request.form.get('website', '').strip() or None,
             seller_id=int(seller_id) if seller_id else None,
             territory_id=int(territory_id) if territory_id else None)
         db.session.add(customer)
@@ -278,6 +279,20 @@ def customer_edit(id):
         customer.nickname = nickname if nickname else None
         customer.tpid = tpid_value
         customer.tpid_url = tpid_url if tpid_url else None
+        website = request.form.get('website', '').strip()
+        old_website = customer.website
+        customer.website = website if website else None
+        # Fetch favicon if website changed
+        if website and website != old_website:
+            try:
+                from app.routes.admin import fetch_favicon_for_domain
+                favicon = fetch_favicon_for_domain(website)
+                if favicon:
+                    customer.favicon_b64 = favicon
+            except Exception:
+                pass  # Favicon fetch failure should not block edit
+        elif not website:
+            customer.favicon_b64 = None
         customer.seller_id = int(seller_id) if seller_id else None
         customer.territory_id = int(territory_id) if territory_id else None
 
