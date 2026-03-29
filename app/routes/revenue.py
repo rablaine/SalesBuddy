@@ -1091,3 +1091,5 @@ def report_new_synapse_users():
         lookback_months=lookback_months,
         product_name='Azure Synapse Analytics'
     )
+
+

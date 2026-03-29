@@ -1,172 +1,160 @@
-# Desktop App Packaging — MSI Installer + Edge App Mode
+# Packaging for Release - MSI Bootstrapper
 
 ## Goal
-Let users install Sales Buddy like a native desktop app: download an MSI, double-click to install, launch from Start Menu. No terminal, no `flask run`, no Python install required.
+One-click MSI installer that sets up everything a non-technical user needs to run Sales Buddy. After install, the existing `git pull` update system stays in place - no need to ship new MSIs for code changes.
 
-## Architecture
+## Design Philosophy
+The MSI is just a bootstrapper. It handles the painful first-time setup (prerequisites, cloning, venv, scheduled tasks) so the user never opens a terminal. After that, `update.bat` and the admin panel update button keep working exactly as they do today.
 
-```
-SalesBuddy-Setup.msi
-  └─ installs to C:\Program Files\SalesBuddy\
-      ├── salesbuddy.exe          ← Tiny launcher (PyInstaller-built)
-      ├── python311\              ← Embedded Python (no system install needed)
-      │   ├── python.exe
-      │   └── Lib\site-packages\ ← All pip deps pre-installed
-      ├── app\                    ← Flask app code
-      ├── templates\
-      ├── static\
-      ├── .env.default            ← Default config (copied to AppData on first run)
-      └── data\                   ← Empty (DB created at runtime in AppData)
+## What "Install" Means
+1. Install prerequisites (Git, Python, Node.js, Azure CLI) via winget
+2. Clone the repo to `%LOCALAPPDATA%\SalesBuddy`
+3. Create venv, install pip dependencies
+4. Generate `.env` with a random SECRET_KEY
+5. Run `scripts\server.ps1` to handle migrations and scheduled task setup
+6. Create shortcuts (desktop + Start Menu)
+7. Launch browser to `http://localhost:5151`
 
-Runtime data lives in:
-  %APPDATA%\SalesBuddy\
-      ├── data\salesbuddy.db      ← User's database (persists across updates)
-      ├── .env                    ← User's config
-      └── logs\                   ← App logs
-```
+After install, the server auto-starts at login via the existing `SalesBuddy-AutoStart` scheduled task. The desktop shortcut just opens the browser to localhost:5151.
 
-## How It Works
+## Install Location
 
-### Launcher (`salesbuddy.exe`)
-A small Python script bundled with PyInstaller that:
-1. Ensures `%APPDATA%\SalesBuddy\` exists, copies default `.env` if first run
-2. Sets `DATABASE_URL` to point at the AppData DB path
-3. Starts Flask on `localhost:5000` (or first available port) in a background thread
-4. Waits for Flask to respond on `/health` (quick self-check)
-5. Opens Edge in app mode: `msedge.exe --app=http://localhost:5000 --user-data-dir=%APPDATA%\SalesBuddy\edge-profile`
-6. Monitors the Edge process — when the user closes the window, shuts down Flask and exits
+**`%LOCALAPPDATA%\SalesBuddy`** (e.g. `C:\Users\jsmith\AppData\Local\SalesBuddy`)
 
-```python
-# Pseudocode for launcher
-import subprocess, threading, time, sys, os
+NOT `C:\Program Files` - that's read-only without elevation, which breaks `git pull`, `pip install`, and writing to `data/`. The update system would require admin every time.
 
-def start_flask():
-    from app import create_app
-    app = create_app()
-    app.run(host='127.0.0.1', port=5000)
+`%LOCALAPPDATA%` is user-writable, no elevation needed, and standard for per-user installed apps (VS Code, Chrome, Discord all install there).
 
-def main():
-    # Start Flask in background thread
-    t = threading.Thread(target=start_flask, daemon=True)
-    t.start()
+## Shortcuts
 
-    # Wait for Flask to be ready
-    wait_for_health("http://127.0.0.1:5000/health")
+### Desktop
+- `Sales Buddy.lnk` -> opens default browser to `http://localhost:5151`
+- Optional (prompt during install, don't force it)
 
-    # Launch Edge in app mode
-    edge = find_edge_executable()
-    proc = subprocess.Popen([edge, "--app=http://127.0.0.1:5000"])
-    proc.wait()  # Block until user closes the window
-    sys.exit(0)  # Flask thread dies with the process
-```
+### Start Menu
+Create `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Sales Buddy\` with:
+- `Sales Buddy.lnk` -> opens browser to `http://localhost:5151`
+- `Start Server.lnk` -> `start.bat`
+- `Stop Server.lnk` -> `stop.bat`
+- `Update.lnk` -> `update.bat`
 
-### Edge App Mode
-- `--app=URL` removes all browser chrome (no tabs, address bar, bookmarks)
-- `--user-data-dir=...` gives Sales Buddy its own Edge profile (no interference with the user's regular Edge sessions, no "restore tabs" prompts)
-- User sees a clean window with just Sales Buddy content and a title bar
-- Gets its own taskbar icon and Alt+Tab entry
-- Right-click context menu still shows "Inspect Element" but users won't notice
+Start Menu folders still work fine on Windows 11 - they show up in search and the All Apps list.
 
-### Fallback
-If Edge isn't found (unlikely on Windows 10/11), fall back to Chrome with the same `--app` flag. If neither is found, open the default browser to `http://localhost:5000` (degrades to current experience).
+## Prerequisites Installed by MSI
 
-## Build Pipeline
+The installer checks for each and installs via winget if missing:
 
-### Step 1: Embedded Python Bundle
-```powershell
-# Download Python embeddable zip (no installer needed)
-Invoke-WebRequest -Uri "https://www.python.org/ftp/python/3.13.x/python-3.13.x-embed-amd64.zip" -OutFile python-embed.zip
-Expand-Archive python-embed.zip -DestinationPath build\python
+| Tool | Why | winget ID |
+|------|-----|-----------|
+| Git | Clone repo + pull updates | `Git.Git` |
+| Python 3.13 | Flask backend | `Python.Python.3.13` |
+| Node.js 18+ | WorkIQ CLI | `OpenJS.NodeJS.LTS` |
+| Azure CLI | AI features + MSX auth | `Microsoft.AzureCLI` |
 
-# Install pip into the embedded Python
-build\python\python.exe get-pip.py
-
-# Install all dependencies
-build\python\python.exe -m pip install -r requirements.txt --target build\python\Lib\site-packages
-```
-
-### Step 2: PyInstaller Launcher
-```powershell
-# Build the launcher exe (one-file mode)
-pyinstaller --onefile --windowed --name salesbuddy --icon static/icon.ico launcher.py
-```
-
-`--windowed` prevents a console window from flashing on launch.
-
-### Step 3: MSI with WiX
-WiX Toolset v4 builds the MSI. Key features:
-- Install to Program Files
-- Create Start Menu shortcut
-- Register in Add/Remove Programs
-- Check for Azure CLI as a prerequisite (warn if missing, don't block)
-- Set file associations if desired (e.g., `.salesbuddy` backup files)
-
-Alternatively, use **MSIX** for a more modern installer that supports auto-update via App Installer.
-
-### Step 4: CI Build Script
-```powershell
-# Full build (could be a GitHub Action or local script)
-scripts/build-installer.ps1
-# Outputs: dist/SalesBuddy-Setup-1.x.x.msi
-```
-
-## Azure CLI / Auth Dependency
-
-- `DefaultAzureCredential` in `gateway_client.py` calls `az` from PATH
-- This works as long as Azure CLI is installed — doesn't matter how Python was launched
-- MSI installer can check for `az` and display a message if not found
-- The onboarding wizard already handles `az login` with the right scope on first use
-- No code changes needed to the auth flow
-
-## Database Location Change
-
-Currently the DB lives at `data/salesbuddy.db` relative to the project root. For an installed app, it needs to live in a user-writable location:
-
-- **Install time:** Create `%APPDATA%\SalesBuddy\data\`
-- **Launcher:** Set `DATABASE_URL=sqlite:///%APPDATA%/SalesBuddy/data/salesbuddy.db` before starting Flask
-- **Migrations:** Run on every launch (already idempotent)
-- **Backup/restore:** Update `backup.ps1` / `restore.ps1` to use the AppData path
+Each check is idempotent - if already installed, skip it. Same pattern as `server.ps1` but in the MSI custom action.
 
 ## Update Strategy
 
-Two options:
+**No change from today.** The MSI installs a git clone. Updates happen via:
+- `update.bat` (user-initiated, runs `git pull` + `pip install` + migrations)
+- Admin panel "Check for Updates" button (same thing via the web UI)
+- Both already work and are battle-tested
 
-### Option A: MSI Replacements
-- Ship new MSI for each version
-- User downloads and runs it — MSI handles the upgrade (replaces Program Files, leaves AppData alone)
-- Simple, familiar, works
+This is a huge advantage over Electron-style packaging where every code change requires building and shipping a new release. Here, you push to git and users pull when ready.
 
-### Option B: Auto-Update
-- On startup, launcher checks a GitHub release API (or a simple JSON file on blob storage) for the latest version
-- If newer, prompt user to download
-- Could use MSIX + App Installer for fully automatic updates
+## MSI Build Approach
 
-Recommendation: Start with Option A, add auto-update later if adoption grows.
+### Option A: WiX Toolset v4 (recommended)
+WiX is the standard for Windows MSI creation. The MSI would contain:
+- A custom action (PowerShell script) that runs the bootstrap sequence
+- Shortcut definitions for desktop and Start Menu
+- Add/Remove Programs registration
+- An uninstaller that removes the app folder, shortcuts, and scheduled tasks
 
-## Migration Path from Current Setup
+### Option B: NSIS
+Simpler to set up than WiX, produces an .exe installer instead of .msi. Same capabilities. MSX Helper uses this via electron-builder, but we'd use it standalone.
 
-For existing users who run from source:
-1. Install the MSI
-2. Copy `data/salesbuddy.db` from their repo folder to `%APPDATA%\SalesBuddy\data\`
-3. Done — all data preserved
+### Recommendation
+Start with WiX for a proper MSI. Corp machines often have policies that prefer .msi over .exe installers.
 
-Could automate this with a one-time migration prompt on first launch: "Found an existing Sales Buddy database at [path]. Import it?"
+## MSI Custom Action - Bootstrap Script
+
+The core of the installer is a PowerShell script (similar to `server.ps1`):
+
+```powershell
+# 1. Check and install prerequisites via winget
+# 2. Refresh PATH after installs
+# 3. git clone https://github.com/rablaine/SalesBuddy.git %LOCALAPPDATA%\SalesBuddy
+# 4. cd %LOCALAPPDATA%\SalesBuddy
+# 5. python -m venv venv
+# 6. venv\Scripts\pip install -r requirements.txt
+# 7. Copy .env.example to .env, generate SECRET_KEY
+# 8. Run server.ps1 (handles migrations, scheduled tasks)
+# 9. Create shortcuts
+# 10. Open browser to http://localhost:5151
+```
+
+Much of this logic already exists in `server.ps1` - the MSI just front-loads the prerequisite installation.
+
+## Uninstall
+
+The MSI uninstaller should:
+1. Run `stop.bat` to kill the server
+2. Remove scheduled tasks (`SalesBuddy-AutoStart`, `SalesBuddy-DailyBackup`)
+3. Remove Start Menu folder and desktop shortcut
+4. Remove `%LOCALAPPDATA%\SalesBuddy` (code + venv)
+5. **Keep** `data\salesbuddy.db` (prompt user: "Delete your data too?")
+
+## Migration for Existing Users
+
+Users currently running from source (e.g. `C:\dev\SalesBuddy`):
+1. Install the MSI (creates new install at `%LOCALAPPDATA%\SalesBuddy`)
+2. Copy `data\salesbuddy.db` from old location to new
+3. Done - all data preserved
+
+Could detect existing installs and offer to migrate automatically.
+
+## Switch WorkIQ from npx to Global CLI Install
+
+### Problem
+We currently invoke WorkIQ via `npx -y @microsoft/workiq ask -q "..."` which:
+- Has noticeable startup overhead on every call (npx checks the package cache)
+- Auto-fetches the latest version silently, which could break things mid-day
+- Requires more complex command construction (escaping, PowerShell wrapping)
+
+### Proposed Change
+Switch to `npm install -g @microsoft/workiq` so the `workiq` binary is on PATH directly. The MSI installer would run this as part of setup.
+
+**In `query_workiq()` (`app/services/workiq_service.py`):**
+1. Try `shutil.which('workiq')` first (global CLI install)
+2. If not found, fall back to current npx approach (backward compatible)
+3. When using the global CLI, invoke as: `workiq ask -q "..."`
+4. EULA auto-accept becomes: `workiq accept-eula`
+
+### Benefits
+- **Faster:** No npx overhead on every meeting import / Fill My Day call
+- **Predictable:** User controls when to update (`npm update -g @microsoft/workiq`)
+- **Simpler commands:** `workiq ask` vs `npx -y @microsoft/workiq ask`
+
+### Risk
+- If global install path isn't on PATH, npx fallback kicks in automatically. Zero regression risk.
 
 ## Open Questions
 
-- **Icon:** Need a proper `.ico` file for the exe and Start Menu shortcut
-- **Signing:** MSI/exe should be code-signed to avoid SmartScreen warnings. Need a code signing cert (Microsoft internal certs may work)
-- **Auto-update:** Worth building from day one, or add later?
-- **Name:** The rebrand should happen before building the installer so the MSI, shortcuts, and AppData folder all use the new name
+- **Icon:** Need a proper `.ico` file for shortcuts and the Add/Remove Programs entry
+- **Signing:** MSI should be code-signed to avoid SmartScreen warnings. Need a code signing cert.
+- **PWA vs shortcut:** We already have a PWA manifest - should the desktop shortcut open the PWA install prompt instead of just the URL? PWA gives offline indicator and a proper app window.
+- **Elevation:** winget installs may need admin. Does the MSI need to request elevation, or can we use per-user winget installs?
+- **Branch:** Should end users track `main` or a `release` branch? A release branch would let you control exactly what users get.
 
-## Prerequisites Summary
+## Future: Full Desktop Packaging (v2+)
 
-What the user needs on their machine:
-1. **Windows 10/11** (Edge is already there)
-2. **Azure CLI** (for AI features and sharing — most internal users have it)
+The current backlog had a heavier approach using embedded Python + PyInstaller + Edge app mode. That's still a valid long-term goal for truly standalone distribution (no prerequisites at all), but it's much more work and gives up the `git pull` update flow. Consider this if:
+- Distribution expands beyond Microsoft internal (can't assume winget)
+- Users push back on having Git/Python/Node installed
+- The update bat approach becomes too fragile
 
-What they do NOT need:
-- Python
-- Git
-- pip / venv
-- A terminal
+See git history for the original embedded-Python architecture plan.
+
+## Priority
+High - this is the main blocker for first release to colleagues

@@ -97,6 +97,11 @@
 - Extract magic numbers and strings into constants at top of file
 - Separate business logic from route handlers when complexity grows
 
+### Route Placement Rules
+- **NEVER put new reports, pages, or API endpoints under the `/revenue/` URL prefix or the `revenue` blueprint** unless they are specifically about revenue data import, revenue configuration, or the revenue dashboard itself. The revenue blueprint (`app/routes/revenue.py`) is strictly for revenue data management.
+- **Reports that use revenue data** (whitespace analysis, synapse users, etc.) belong in the `reports` blueprint (`app/routes/reports.py`) under `/reports/` URLs with APIs under `/api/reports/`.
+- **When in doubt, put it in `reports.py`** - revenue.py is for CRUD and data pipeline, not for analytical views.
+
 ### Extracting Template Partials
 **CRITICAL - Read this carefully and follow it exactly.**
 

@@ -1,0 +1,568 @@
+{% extends "base.html" %}
+{% block title %}Whitespace Analysis - Sales Buddy{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <nav aria-label="breadcrumb" class="mb-3">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="{{ url_for('reports.reports_hub') }}">Reports</a></li>
+            <li class="breadcrumb-item active">Whitespace Analysis</li>
+        </ol>
+    </nav>
+
+    <div class="row mb-4">
+        <div class="col">
+            <h1><i class="bi bi-grid-3x3-gap"></i> Whitespace Analysis</h1>
+            <p class="text-muted">Find gaps in customer technology adoption and identify outreach opportunities</p>
+        </div>
+        <div class="col-auto">
+            <a href="{{ url_for('reports.reports_hub') }}" class="btn btn-outline-secondary">
+                <i class="bi bi-arrow-left"></i> Back to Reports
+            </a>
+        </div>
+    </div>
+
+    <!-- Tabs -->
+    <ul class="nav nav-tabs mb-4" role="tablist">
+        <li class="nav-item" role="presentation">
+            <button class="nav-link active" id="grid-tab" data-bs-toggle="tab" data-bs-target="#gridPanel" type="button" role="tab">
+                <i class="bi bi-grid-3x3-gap"></i> Whitespace Grid
+            </button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="reverse-tab" data-bs-toggle="tab" data-bs-target="#reversePanel" type="button" role="tab">
+                <i class="bi bi-search"></i> Reverse Lookup
+            </button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="penetration-tab" data-bs-toggle="tab" data-bs-target="#penetrationPanel" type="button" role="tab">
+                <i class="bi bi-bar-chart"></i> Bucket Penetration
+            </button>
+        </li>
+    </ul>
+
+    <div class="tab-content">
+        <!-- ================================================================ -->
+        <!-- Whitespace Grid Tab -->
+        <!-- ================================================================ -->
+        <div class="tab-pane fade show active" id="gridPanel" role="tabpanel">
+            <!-- Bucket selector -->
+            <div class="card mb-3">
+                <div class="card-body">
+                    <div class="d-flex align-items-center gap-3 flex-wrap">
+                        <strong>Select Buckets:</strong>
+                        <div id="bucketCheckboxes" class="d-flex flex-wrap gap-2">
+                            <span class="text-muted">Loading buckets...</span>
+                        </div>
+                        <button class="btn btn-primary btn-sm" id="btnLoadGrid" disabled>
+                            <i class="bi bi-grid-3x3-gap"></i> Show Whitespace
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Grid results -->
+            <div id="gridResults" style="display: none;">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h5 id="gridSummary" class="mb-0"></h5>
+                    <div class="form-check form-switch">
+                        <input class="form-check-input" type="checkbox" id="showAllCustomers">
+                        <label class="form-check-label" for="showAllCustomers">Show all customers (including fully covered)</label>
+                    </div>
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-hover table-sm align-middle" id="gridTable">
+                        <thead id="gridHead"></thead>
+                        <tbody id="gridBody"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div id="gridEmpty" style="display: none;">
+                <div class="alert alert-info">
+                    <i class="bi bi-info-circle"></i> No whitespace found for the selected buckets. All customers either have spend in all selected buckets or none of them.
+                </div>
+            </div>
+
+            <div id="gridLoading" style="display: none;">
+                <div class="text-center py-4">
+                    <div class="spinner-border text-primary" role="status"></div>
+                    <p class="text-muted mt-2">Analyzing customer spend...</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- ================================================================ -->
+        <!-- Reverse Lookup Tab -->
+        <!-- ================================================================ -->
+        <div class="tab-pane fade" id="reversePanel" role="tabpanel">
+            <div class="card mb-3" style="overflow: visible;">
+                <div class="card-body">
+                    <label class="form-label"><strong>Search for a customer:</strong></label>
+                    <div class="position-relative" style="max-width: 500px;">
+                        <div class="input-group">
+                            <span class="input-group-text"><i class="bi bi-search"></i></span>
+                            <input type="text" class="form-control" id="reverseCustomerSearch"
+                                   placeholder="Type to search customers..." autocomplete="off">
+                        </div>
+                        <div id="reverseSearchResults" class="list-group shadow-lg position-absolute w-100"
+                             style="z-index: 1050; max-height: 300px; overflow-y: auto; display: none;"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="reverseResults" style="display: none;"></div>
+
+            <div id="reverseLoading" style="display: none;">
+                <div class="text-center py-4">
+                    <div class="spinner-border text-primary" role="status"></div>
+                    <p class="text-muted mt-2">Analyzing customer gaps...</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- ================================================================ -->
+        <!-- Bucket Penetration Tab -->
+        <!-- ================================================================ -->
+        <div class="tab-pane fade" id="penetrationPanel" role="tabpanel">
+            <div id="penetrationLoading">
+                <div class="text-center py-4">
+                    <div class="spinner-border text-primary" role="status"></div>
+                    <p class="text-muted mt-2">Loading penetration stats...</p>
+                </div>
+            </div>
+            <div id="penetrationResults" style="display: none;"></div>
+        </div>
+    </div>
+</div>
+
+<!-- Bucket detail modal -->
+<div class="modal fade" id="bucketDetailModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="bucketDetailTitle">Bucket Details</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="bucketDetailBody">
+                <div class="text-center py-3">
+                    <div class="spinner-border text-primary" role="status"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// ============================================================================
+// State
+// ============================================================================
+let allBuckets = [];
+let allCustomersCache = null;  // for reverse lookup search
+let gridData = null;           // last grid API response (includes fully-covered)
+let gridDataAll = null;        // all customers including fully covered
+
+// ============================================================================
+// Bucket selector
+// ============================================================================
+async function loadBuckets() {
+    const resp = await fetch('/api/revenue/buckets');
+    allBuckets = await resp.json();
+
+    // Try to load saved compensated buckets as default selection
+    let savedBuckets = [];
+    try {
+        const saved = localStorage.getItem('salesbuddy_revenue_bucket_filter');
+        if (saved) savedBuckets = JSON.parse(saved);
+    } catch(e) {}
+    if (!savedBuckets.length) {
+        try {
+            const resp2 = await fetch('/api/revenue/compensated-buckets');
+            savedBuckets = await resp2.json();
+        } catch(e) {}
+    }
+    const savedSet = new Set(savedBuckets);
+
+    const container = document.getElementById('bucketCheckboxes');
+    container.innerHTML = allBuckets.map(b => `
+        <div class="form-check form-check-inline">
+            <input class="form-check-input bucket-check" type="checkbox" value="${b}" id="bkt_${b.replace(/[^a-zA-Z0-9]/g, '_')}"
+                   ${savedSet.has(b) ? 'checked' : ''}>
+            <label class="form-check-label small" for="bkt_${b.replace(/[^a-zA-Z0-9]/g, '_')}">${b}</label>
+        </div>
+    `).join('');
+
+    document.getElementById('btnLoadGrid').disabled = false;
+
+    // Auto-load if we have saved buckets
+    if (savedSet.size > 0) loadGrid();
+}
+
+function getSelectedBuckets() {
+    return Array.from(document.querySelectorAll('.bucket-check:checked')).map(cb => cb.value);
+}
+
+// ============================================================================
+// Whitespace Grid
+// ============================================================================
+async function loadGrid() {
+    const buckets = getSelectedBuckets();
+    if (!buckets.length) {
+        alert('Please select at least one bucket.');
+        return;
+    }
+
+    document.getElementById('gridLoading').style.display = '';
+    document.getElementById('gridResults').style.display = 'none';
+    document.getElementById('gridEmpty').style.display = 'none';
+
+    // Always fetch all customers so the toggle works client-side
+    const resp = await fetch(`/api/reports/whitespace?buckets=${encodeURIComponent(buckets.join(','))}&show_all=1`);
+    gridData = await resp.json();
+
+    document.getElementById('gridLoading').style.display = 'none';
+    renderGrid(gridData, buckets);
+}
+
+function renderGrid(data, buckets) {
+    const showAll = document.getElementById('showAllCustomers').checked;
+    let customers = data.customers;
+
+    // If not showing all, filter to only those with gaps
+    if (!showAll) {
+        customers = customers.filter(c => {
+            const hasBuckets = Object.keys(c.buckets).length;
+            return hasBuckets > 0 && hasBuckets < buckets.length;
+        });
+    }
+
+    if (customers.length === 0) {
+        document.getElementById('gridResults').style.display = 'none';
+        document.getElementById('gridEmpty').style.display = '';
+        return;
+    }
+
+    // Sort by number of gaps (most gaps first)
+    customers.sort((a, b) => {
+        const gapsA = buckets.length - Object.keys(a.buckets).length;
+        const gapsB = buckets.length - Object.keys(b.buckets).length;
+        if (gapsA !== gapsB) return gapsB - gapsA;
+        return a.name.localeCompare(b.name);
+    });
+
+    // Build header
+    const thead = document.getElementById('gridHead');
+    thead.innerHTML = `<tr>
+        <th class="sticky-top" style="min-width: 200px;">Customer</th>
+        ${buckets.map(b => `<th class="sticky-top text-center" style="min-width: 120px;">${b}</th>`).join('')}
+        <th class="sticky-top text-center">Gaps</th>
+    </tr>`;
+
+    // Build rows
+    const tbody = document.getElementById('gridBody');
+    tbody.innerHTML = customers.map(c => {
+        const gaps = buckets.length - Object.keys(c.buckets).length;
+        const displayName = c.nickname ? `${c.name} (${c.nickname})` : c.name;
+
+        const cells = buckets.map(b => {
+            const rev = c.buckets[b];
+            if (rev !== undefined && rev !== null) {
+                // Has spend - clickable cell
+                return `<td class="text-center">
+                    <a href="#" class="text-decoration-none" onclick="showBucketDetail(${c.id}, '${b.replace(/'/g, "\\'")}'); return false;">
+                        <span class="badge bg-success bg-opacity-75 px-2 py-1">$${formatRevenue(rev)}</span>
+                    </a>
+                </td>`;
+            } else {
+                // Whitespace - empty cell highlighted
+                return `<td class="text-center" style="background: rgba(255, 193, 7, 0.15);">
+                    <span class="text-muted small"><i class="bi bi-dash-lg"></i></span>
+                </td>`;
+            }
+        }).join('');
+
+        return `<tr>
+            <td><a href="/customer/${c.id}/revenue" class="text-decoration-none">${displayName}</a></td>
+            ${cells}
+            <td class="text-center">
+                ${gaps > 0 ? `<span class="badge bg-warning text-dark">${gaps}</span>` : '<span class="badge bg-success">0</span>'}
+            </td>
+        </tr>`;
+    }).join('');
+
+    document.getElementById('gridSummary').textContent =
+        `${customers.length} customer${customers.length !== 1 ? 's' : ''} with whitespace opportunities`;
+    document.getElementById('gridResults').style.display = '';
+    document.getElementById('gridEmpty').style.display = 'none';
+}
+
+function formatRevenue(amount) {
+    if (amount >= 1000) return (amount / 1000).toFixed(1) + 'K';
+    return amount.toFixed(0);
+}
+
+function showBucketDetail(customerId, bucket) {
+    const modal = new bootstrap.Modal(document.getElementById('bucketDetailModal'));
+    document.getElementById('bucketDetailTitle').textContent = `${bucket} - Product Breakdown`;
+    document.getElementById('bucketDetailBody').innerHTML = `
+        <div class="text-center py-3">
+            <div class="spinner-border text-primary" role="status"></div>
+        </div>`;
+    modal.show();
+
+    fetch(`/revenue/customer/${customerId}/bucket/${encodeURIComponent(bucket)}`)
+        .then(r => r.text())
+        .then(html => {
+            // Extract just the main content (skip the base template chrome)
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(html, 'text/html');
+            const content = doc.querySelector('.container-fluid');
+            if (content) {
+                // Remove breadcrumb and header from the embedded page
+                const breadcrumb = content.querySelector('nav[aria-label="breadcrumb"]');
+                if (breadcrumb) breadcrumb.remove();
+                const header = content.querySelector('h1');
+                if (header && header.parentElement) header.parentElement.remove();
+                document.getElementById('bucketDetailBody').innerHTML = content.innerHTML;
+            } else {
+                document.getElementById('bucketDetailBody').innerHTML = html;
+            }
+        })
+        .catch(() => {
+            document.getElementById('bucketDetailBody').innerHTML =
+                '<div class="alert alert-danger">Failed to load bucket details.</div>';
+        });
+}
+
+// ============================================================================
+// Reverse Lookup
+// ============================================================================
+async function loadCustomersForSearch() {
+    if (allCustomersCache) return allCustomersCache;
+    const resp = await fetch('/api/customers');
+    allCustomersCache = await resp.json();
+    return allCustomersCache;
+}
+
+function initReverseLookup() {
+    const input = document.getElementById('reverseCustomerSearch');
+    const dropdown = document.getElementById('reverseSearchResults');
+    let selectedIdx = -1;
+
+    input.addEventListener('input', async () => {
+        const q = input.value.trim().toLowerCase();
+        if (q.length < 2) {
+            dropdown.style.display = 'none';
+            return;
+        }
+
+        const customers = await loadCustomersForSearch();
+        const matches = customers.filter(c =>
+            (c.name && c.name.toLowerCase().includes(q)) ||
+            (c.nickname && c.nickname.toLowerCase().includes(q)) ||
+            (c.tpid && String(c.tpid).includes(q))
+        ).slice(0, 15);
+
+        if (!matches.length) {
+            dropdown.innerHTML = '<div class="list-group-item text-muted">No matches</div>';
+            dropdown.style.display = '';
+            return;
+        }
+
+        selectedIdx = -1;
+        dropdown.innerHTML = matches.map((c, i) => {
+            const display = c.nickname ? `${c.name} <span class="text-muted small">(${c.nickname})</span>` : c.name;
+            return `<a href="#" class="list-group-item list-group-item-action" data-idx="${i}" data-id="${c.id}"
+                       onclick="selectReverseCustomer(${c.id}); return false;">${display}</a>`;
+        }).join('');
+        dropdown.style.display = '';
+    });
+
+    input.addEventListener('keydown', (e) => {
+        const items = dropdown.querySelectorAll('.list-group-item-action');
+        if (!items.length) return;
+
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            selectedIdx = Math.min(selectedIdx + 1, items.length - 1);
+            items.forEach((el, i) => el.classList.toggle('active', i === selectedIdx));
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            selectedIdx = Math.max(selectedIdx - 1, 0);
+            items.forEach((el, i) => el.classList.toggle('active', i === selectedIdx));
+        } else if (e.key === 'Enter' && selectedIdx >= 0) {
+            e.preventDefault();
+            const id = items[selectedIdx].dataset.id;
+            selectReverseCustomer(parseInt(id));
+        } else if (e.key === 'Escape') {
+            dropdown.style.display = 'none';
+        }
+    });
+
+    document.addEventListener('click', (e) => {
+        if (!e.target.closest('#reverseCustomerSearch') && !e.target.closest('#reverseSearchResults')) {
+            dropdown.style.display = 'none';
+        }
+    });
+}
+
+async function selectReverseCustomer(customerId) {
+    document.getElementById('reverseSearchResults').style.display = 'none';
+    document.getElementById('reverseLoading').style.display = '';
+    document.getElementById('reverseResults').style.display = 'none';
+
+    const resp = await fetch(`/api/reports/whitespace/reverse/${customerId}`);
+    const data = await resp.json();
+
+    document.getElementById('reverseLoading').style.display = 'none';
+
+    if (data.error) {
+        document.getElementById('reverseResults').innerHTML =
+            `<div class="alert alert-danger">${data.error}</div>`;
+        document.getElementById('reverseResults').style.display = '';
+        return;
+    }
+
+    // Update search box with selected customer name
+    document.getElementById('reverseCustomerSearch').value = data.customer.name;
+
+    let html = `<h5 class="mb-3">
+        <a href="/customer/${data.customer.id}/revenue" class="text-decoration-none">${data.customer.name}</a>
+        - Gap Analysis
+    </h5>`;
+
+    // Missing buckets
+    if (data.missing_buckets.length) {
+        html += `<div class="card mb-3">
+            <div class="card-header"><i class="bi bi-x-circle text-danger"></i> <strong>No spend in these buckets</strong>
+                <span class="badge bg-danger ms-2">${data.missing_buckets.length}</span>
+            </div>
+            <div class="card-body">
+                <div class="d-flex flex-wrap gap-2">
+                    ${data.missing_buckets.map(b => `<span class="badge bg-danger bg-opacity-75 px-3 py-2">${b}</span>`).join('')}
+                </div>
+            </div>
+        </div>`;
+    } else {
+        html += `<div class="alert alert-success mb-3">
+            <i class="bi bi-check-circle"></i> This customer has spend in all buckets.
+        </div>`;
+    }
+
+    // Missing products within used buckets
+    const missingBuckets = Object.keys(data.missing_products);
+    if (missingBuckets.length) {
+        html += `<div class="card mb-3">
+            <div class="card-header"><i class="bi bi-puzzle text-warning"></i> <strong>Missing products within active buckets</strong></div>
+            <div class="card-body">`;
+
+        for (const bucket of missingBuckets.sort()) {
+            const products = data.missing_products[bucket];
+            html += `<div class="mb-3">
+                <h6 class="text-muted">${bucket} <span class="badge bg-secondary">${products.length} missing</span></h6>
+                <div class="d-flex flex-wrap gap-1">
+                    ${products.map(p => `<span class="badge bg-secondary bg-opacity-50">${p}</span>`).join('')}
+                </div>
+            </div>`;
+        }
+
+        html += `</div></div>`;
+    }
+
+    if (!data.missing_buckets.length && !missingBuckets.length) {
+        html += `<div class="alert alert-info">
+            <i class="bi bi-stars"></i> This customer has spend across all products in all buckets. Full coverage!
+        </div>`;
+    }
+
+    document.getElementById('reverseResults').innerHTML = html;
+    document.getElementById('reverseResults').style.display = '';
+}
+
+// ============================================================================
+// Bucket Penetration
+// ============================================================================
+async function loadPenetration() {
+    const resp = await fetch('/api/reports/whitespace/penetration');
+    const data = await resp.json();
+
+    document.getElementById('penetrationLoading').style.display = 'none';
+
+    if (!data.length) {
+        document.getElementById('penetrationResults').innerHTML =
+            '<div class="alert alert-info">No revenue data available.</div>';
+        document.getElementById('penetrationResults').style.display = '';
+        return;
+    }
+
+    // Sort by penetration (lowest first - biggest opportunity at top)
+    data.sort((a, b) => a.penetration_pct - b.penetration_pct);
+
+    let html = `<div class="card">
+        <div class="card-header">
+            <strong>Customer Adoption by Bucket</strong>
+            <span class="text-muted ms-2">(${data[0].total_customers} total customers with revenue data)</span>
+        </div>
+        <div class="card-body p-0">
+            <table class="table table-hover mb-0">
+                <thead>
+                    <tr>
+                        <th>Bucket</th>
+                        <th class="text-center">Customers with Spend</th>
+                        <th style="min-width: 250px;">Adoption Rate</th>
+                        <th class="text-center">Gap</th>
+                    </tr>
+                </thead>
+                <tbody>`;
+
+    for (const row of data) {
+        const gap = row.total_customers - row.customers_with_spend;
+        const barColor = row.penetration_pct >= 75 ? 'bg-success' :
+                         row.penetration_pct >= 50 ? 'bg-info' :
+                         row.penetration_pct >= 25 ? 'bg-warning' : 'bg-danger';
+
+        html += `<tr>
+            <td><strong>${row.bucket}</strong></td>
+            <td class="text-center">${row.customers_with_spend} / ${row.total_customers}</td>
+            <td>
+                <div class="d-flex align-items-center gap-2">
+                    <div class="progress flex-grow-1" style="height: 20px;">
+                        <div class="progress-bar ${barColor}" style="width: ${row.penetration_pct}%">${row.penetration_pct}%</div>
+                    </div>
+                </div>
+            </td>
+            <td class="text-center">
+                ${gap > 0 ? `<span class="badge bg-warning text-dark">${gap} customers</span>` : '<span class="badge bg-success">Full</span>'}
+            </td>
+        </tr>`;
+    }
+
+    html += `</tbody></table></div></div>`;
+
+    document.getElementById('penetrationResults').innerHTML = html;
+    document.getElementById('penetrationResults').style.display = '';
+}
+
+// ============================================================================
+// Init
+// ============================================================================
+document.addEventListener('DOMContentLoaded', () => {
+    loadBuckets();
+    initReverseLookup();
+
+    document.getElementById('btnLoadGrid').addEventListener('click', loadGrid);
+    document.getElementById('showAllCustomers').addEventListener('change', () => {
+        if (gridData) renderGrid(gridData, getSelectedBuckets());
+    });
+
+    // Load penetration when its tab is shown
+    document.getElementById('penetration-tab').addEventListener('shown.bs.tab', () => {
+        if (!document.getElementById('penetrationResults').innerHTML) {
+            loadPenetration();
+        }
+    });
+});
+</script>
+{% endblock %}
