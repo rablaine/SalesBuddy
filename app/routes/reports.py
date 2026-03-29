@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone, date
 from flask import Blueprint, render_template, url_for, jsonify, request
 from app.models import (
     db, Customer, Engagement, Note, Milestone, Seller, SolutionEngineer,
-    Topic, RevenueAnalysis, HygieneNote,
+    Topic, RevenueAnalysis, HygieneNote, CustomerRevenueData, ProductRevenueData,
     notes_engagements, notes_milestones, notes_topics,
 )
 from sqlalchemy import func, desc, or_
@@ -57,7 +57,7 @@ def reports_hub():
                         'outreach opportunities.'
                     ),
                     'icon': 'bi-grid-3x3-gap',
-                    'url': url_for('revenue.report_whitespace'),
+                    'url': url_for('reports.report_whitespace'),
                 },
                 {
                     'id': 'new-synapse-users',
@@ -623,3 +623,230 @@ def save_hygiene_note():
 
     db.session.commit()
     return jsonify(success=True)
+
+
+# =============================================================================
+# Whitespace Report
+# =============================================================================
+
+@bp.route('/reports/whitespace')
+def report_whitespace():
+    """Whitespace report: find gaps in customer technology adoption."""
+    return render_template('report_whitespace.html')
+
+
+@bp.route('/api/reports/whitespace')
+def api_whitespace_grid():
+    """Return whitespace grid data for selected buckets.
+
+    Query params:
+        buckets: comma-separated bucket names
+        min_revenue: minimum total revenue to count as "has spend" (default 0)
+
+    Returns JSON with:
+        customers: list of {id, name, nickname, buckets: {bucket: latest_revenue}}
+        buckets: list of selected bucket names
+    """
+    bucket_param = request.args.get('buckets', '')
+    if not bucket_param:
+        return jsonify(customers=[], buckets=[])
+    selected_buckets = [b.strip() for b in bucket_param.split(',') if b.strip()]
+    min_revenue = float(request.args.get('min_revenue', 0))
+
+    # Find the latest month in the data
+    latest_month = db.session.query(
+        func.max(CustomerRevenueData.month_date)
+    ).scalar()
+    if not latest_month:
+        return jsonify(customers=[], buckets=selected_buckets)
+
+    # Get the trailing 3 months for a more stable view
+    trailing_start = latest_month - timedelta(days=62)  # ~2 months back
+
+    # Average revenue per customer per bucket over the trailing 3 months
+    spend_query = (
+        db.session.query(
+            CustomerRevenueData.customer_id,
+            CustomerRevenueData.bucket,
+            func.avg(CustomerRevenueData.revenue).label('avg_revenue')
+        )
+        .filter(
+            CustomerRevenueData.customer_id.isnot(None),
+            CustomerRevenueData.bucket.in_(selected_buckets),
+            CustomerRevenueData.month_date >= trailing_start,
+        )
+        .group_by(CustomerRevenueData.customer_id, CustomerRevenueData.bucket)
+        .all()
+    )
+
+    # Build customer -> bucket -> avg_revenue mapping
+    customer_buckets = {}
+    for row in spend_query:
+        cid = row.customer_id
+        if cid not in customer_buckets:
+            customer_buckets[cid] = {}
+        if row.avg_revenue and row.avg_revenue > min_revenue:
+            customer_buckets[cid][row.bucket] = round(row.avg_revenue, 2)
+
+    # Filter customers based on show_all parameter
+    show_all = request.args.get('show_all', '') == '1'
+    if show_all:
+        # Show all customers that have any spend in selected buckets
+        target_ids = [cid for cid, bkts in customer_buckets.items() if bkts]
+    else:
+        # Only customers with at least one bucket but missing at least one
+        target_ids = [
+            cid for cid, bkts in customer_buckets.items()
+            if 0 < len(bkts) < len(selected_buckets)
+        ]
+
+    if not target_ids:
+        return jsonify(customers=[], buckets=selected_buckets)
+
+    # Fetch customer details
+    customers = Customer.query.filter(
+        Customer.id.in_(target_ids)
+    ).order_by(Customer.name).all()
+
+    result = []
+    for c in customers:
+        result.append({
+            'id': c.id,
+            'name': c.name,
+            'nickname': c.nickname,
+            'buckets': customer_buckets.get(c.id, {}),
+        })
+
+    return jsonify(customers=result, buckets=selected_buckets)
+
+
+@bp.route('/api/reports/whitespace/reverse/<int:customer_id>')
+def api_whitespace_reverse(customer_id: int):
+    """Return buckets and products a customer does NOT have spend in.
+
+    Returns JSON with:
+        customer: {id, name}
+        missing_buckets: list of bucket names with zero spend
+        missing_products: {bucket: [product_names]} for buckets they DO use
+    """
+    customer = db.session.get(Customer, customer_id)
+    if not customer:
+        return jsonify(error='Customer not found'), 404
+
+    # All distinct buckets in the database
+    all_buckets = {
+        r[0] for r in
+        db.session.query(CustomerRevenueData.bucket).distinct().all()
+        if r[0]
+    }
+
+    # All distinct products per bucket
+    all_products_rows = (
+        db.session.query(ProductRevenueData.bucket, ProductRevenueData.product)
+        .distinct()
+        .all()
+    )
+    all_products_by_bucket = {}
+    for bucket, product in all_products_rows:
+        if bucket and product:
+            all_products_by_bucket.setdefault(bucket, set()).add(product)
+
+    # This customer's buckets (any non-zero spend ever)
+    customer_buckets = {
+        r[0] for r in
+        db.session.query(CustomerRevenueData.bucket)
+        .filter(
+            CustomerRevenueData.customer_id == customer_id,
+            CustomerRevenueData.revenue > 0,
+        )
+        .distinct()
+        .all()
+        if r[0]
+    }
+
+    # This customer's products per bucket
+    customer_products_rows = (
+        db.session.query(ProductRevenueData.bucket, ProductRevenueData.product)
+        .filter(
+            ProductRevenueData.customer_id == customer_id,
+            ProductRevenueData.revenue > 0,
+        )
+        .distinct()
+        .all()
+    )
+    customer_products_by_bucket = {}
+    for bucket, product in customer_products_rows:
+        if bucket and product:
+            customer_products_by_bucket.setdefault(bucket, set()).add(product)
+
+    # Missing buckets
+    missing_buckets = sorted(all_buckets - customer_buckets)
+
+    # Missing products within buckets they DO use
+    missing_products = {}
+    for bucket in customer_buckets:
+        all_prods = all_products_by_bucket.get(bucket, set())
+        cust_prods = customer_products_by_bucket.get(bucket, set())
+        missing = sorted(all_prods - cust_prods)
+        if missing:
+            missing_products[bucket] = missing
+
+    return jsonify(
+        customer={'id': customer.id, 'name': customer.name},
+        missing_buckets=missing_buckets,
+        missing_products=missing_products,
+    )
+
+
+@bp.route('/api/reports/whitespace/penetration')
+def api_whitespace_penetration():
+    """Return bucket penetration stats.
+
+    Query params:
+        buckets: comma-separated bucket names (optional, defaults to all)
+
+    Returns JSON list of:
+        {bucket, customers_with_spend, total_customers, penetration_pct}
+    """
+    bucket_param = request.args.get('buckets', '')
+    selected_buckets = (
+        [b.strip() for b in bucket_param.split(',') if b.strip()]
+        if bucket_param else None
+    )
+
+    # Total customers with any revenue data
+    total_customers = (
+        db.session.query(func.count(func.distinct(CustomerRevenueData.customer_id)))
+        .filter(CustomerRevenueData.customer_id.isnot(None))
+        .scalar()
+    ) or 0
+
+    if total_customers == 0:
+        return jsonify([])
+
+    # Customers with spend per bucket
+    query = (
+        db.session.query(
+            CustomerRevenueData.bucket,
+            func.count(func.distinct(CustomerRevenueData.customer_id))
+        )
+        .filter(
+            CustomerRevenueData.customer_id.isnot(None),
+            CustomerRevenueData.revenue > 0,
+        )
+    )
+    if selected_buckets:
+        query = query.filter(CustomerRevenueData.bucket.in_(selected_buckets))
+    bucket_counts = query.group_by(CustomerRevenueData.bucket).all()
+
+    result = []
+    for bucket, count in sorted(bucket_counts, key=lambda x: x[0]):
+        pct = round(count / total_customers * 100, 1) if total_customers else 0
+        result.append({
+            'bucket': bucket,
+            'customers_with_spend': count,
+            'total_customers': total_customers,
+            'penetration_pct': pct,
+        })
+
+    return jsonify(result)
