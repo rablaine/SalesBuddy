@@ -1,75 +1,131 @@
 # Sales Buddy
 
-Your customer engagement brain, running locally on your machine.
+A local-first productivity tool for Azure solution engineers and technical sellers. Unified customer views, call notes, revenue trends, milestones, and partner tracking - all in one place, running on your machine.
 
-Sales Buddy is a local-first productivity tool for Azure solution engineers and technical sellers. It pulls together your call notes, MSX data, revenue trends, milestones, and partner relationships into a single unified view per customer, so you stop context-switching between MSX, OneNote, Excel, and email to piece together what's happening in your accounts.
+![Python](https://img.shields.io/badge/Python-3.13-3776AB?logo=python&logoColor=white)
+![Flask](https://img.shields.io/badge/Flask-000000?logo=flask&logoColor=white)
+![SQLite](https://img.shields.io/badge/SQLite-003B57?logo=sqlite&logoColor=white)
+![License: MIT](https://img.shields.io/badge/License-MIT-50fa7b)
 
-## Why Sales Buddy?
+## Download
 
-### The problem
+**[Download Sales Buddy Installer (Windows)](https://github.com/rablaine/SalesBuddy/releases/latest)**
 
-Solution engineers and sellers already have MSX and OneNote. But in practice:
+The MSI installer handles everything: prerequisites (Git, Python, Azure CLI, Node.js), repo clone, environment setup, scheduled tasks, and server startup. Just run it.
 
-- **MSX is built for reporting up, not helping you sell.** Finding your own notes, tracking what happened on a call, or seeing revenue trends for a specific customer means clicking through multiple disconnected pages. There's no fast, unified view of a customer.
-- **OneNote is freeform, which means unstructured.** Six months in, your notebook is a wall of text. Searching for "that call where we discussed Fabric migration with Contoso" means scrolling and hoping. There's no tagging, no linking to engagements or milestones, no way to filter by technology or seller.
-- **Revenue analysis lives in Excel.** You download ACR reports, build pivot tables, spot trends manually, and repeat next month. Nobody alerts you when a customer's Synapse consumption drops 40%.
+## Features
 
-### What Sales Buddy does differently
-
-| Capability | MSX | OneNote | Sales Buddy |
-|---|---|---|---|
-| Unified customer view (notes + revenue + milestones + opportunities + partners) | Fragmented across pages | No structure | Single page, everything linked |
-| Search by customer, topic, seller, territory, date range | Limited | Ctrl+F only | Structured search + full-text |
-| AI auto-tagging, milestone matching, call analysis | No | No | Built-in (Azure OpenAI) |
-| Revenue trend alerts (drops, spikes, new users) | Manual Excel work | No | Automated analyzer with drill-down |
-| Import Teams meeting summaries into call logs | No | No | One-click via WorkIQ |
-| Connect self-eval export | Manual | Manual | Structured export with AI summary |
-| Milestone tracker with MSX sync | MSX native (slow) | No | Visual board + auto-sync |
-| Partner directory with contacts and specialties | No | Manual | Structured + shareable between instances |
-| Local-first, instant, works offline | Cloud-dependent + VPN | Cloud sync | SQLite on your machine |
-
-### Who it's for
-
-Azure solution engineers and technical sellers who want to:
-- **Spend less time logging and more time selling** - AI fills in topics, matches milestones, and summarizes meetings
-- **Walk into every call prepared** - one page shows everything about a customer: recent notes, active engagements, revenue trends, milestones, and partner involvement
-- **Catch revenue signals early** - automated alerts flag drops, spikes, and new product adoption before they show up in a QBR
-- **Nail Connect season** - export structured activity summaries with per-customer breakdowns instead of scrambling through OneNote
-
-## Feature Highlights
-
-- **Call Notes** - rich text editor, tagging by topic/seller/customer, templates, meeting import, AI analysis
-- **Customer Hub** - unified view per customer with notes, engagements, milestones, opportunities, revenue, and partners
-- **Revenue Analyzer** - CSV import, trend charts, growth alerts, seller/customer/product drill-downs, review workflow
-- **Milestone Tracker** - visual board, MSX sync, task management, AI milestone matching from call notes
-- **AI Assistant** - topic suggestions, milestone matching, call analysis, engagement stories, Connect summaries
+- **Unified Customer View** - notes, engagements, milestones, opportunities, revenue, and partners on one page
+- **Call Notes** - rich text editor with topic/seller/customer tagging, templates, and meeting import
+- **Revenue Analyzer** - CSV import, trend charts, growth alerts, seller/customer/product drill-downs
+- **Milestone Tracker** - visual board with MSX sync, task management, and AI matching from call notes
+- **AI Assistant** - auto-suggest topics, match milestones, analyze calls, generate Connect summaries (Azure OpenAI)
+- **WorkIQ Integration** - import Teams meeting summaries directly into call logs
 - **Partner Management** - directory with contacts, specialties, and real-time sharing between instances
-- **Connect Export** - structured self-eval summaries over date ranges with optional AI summary
+- **Connect Export** - structured self-eval summaries over date ranges with per-customer breakdowns
 - **Global Search** - full-text across notes, customers, sellers, topics, and territories
 - **Analytics Dashboard** - activity heatmap, engagement trends, top topics and customers
+- **Automatic Updates** - `update.bat` pulls latest code, migrates the database, and restarts
+- **Daily Backups** - automatic OneDrive backup with daily/weekly/monthly retention
 
-## Install
+## Quick Start (Manual)
 
-The easiest way to get started is the MSI installer. It handles all prerequisites and sets up everything automatically.
+> If you installed via the MSI, skip to [First Run](#first-run).
 
-### Download
+```powershell
+git clone https://github.com/rablaine/SalesBuddy.git C:\prod\SalesBuddy
+cd C:\prod\SalesBuddy
+start.bat
+```
 
-> **[Download Sales Buddy Installer](https://github.com/rablaine/SalesBuddy/releases/latest)**
+The launcher checks for prerequisites, offers to install anything missing via `winget`, creates the venv, and starts the server on `http://localhost:5151`.
 
-Download `SalesBuddy.msi` from the link above and run it. The installer will:
+<details>
+<summary>Full manual setup</summary>
 
-1. Install prerequisites (Git, Python 3.13+, Azure CLI, Node.js) via winget
-2. Clone the repo to `%LOCALAPPDATA%\SalesBuddy`
-3. Create the virtual environment and install dependencies
-4. Generate a `.env` file with a random secret key
-5. Run database migrations and register scheduled tasks
-6. Start the server
+```powershell
+git clone https://github.com/rablaine/SalesBuddy.git
+cd SalesBuddy
+python -m venv venv
+.\venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+copy .env.example .env
+# Add a secret key to .env:
+python -c "import secrets; print(secrets.token_hex(32))"
+flask run
+```
 
-On the final page you can choose to launch Sales Buddy, create Start Menu shortcuts, and create a desktop shortcut (all checked by default).
+Visit `http://localhost:5151`. The database creates itself on first run.
 
-### Build from Source
+</details>
 
-If you prefer to build the MSI yourself:
+## First Run
+
+A setup wizard walks you through:
+
+1. **Welcome** - overview and theme selection
+2. **Azure login** - authenticate for MSX integration
+3. **Import Accounts** - pull customer accounts from MSX
+4. **Import Milestones** - sync milestone data from MSX
+5. **Import Revenue** - upload an ACR CSV for the Revenue Analyzer
+
+All steps are optional and can be re-run from the Admin Panel.
+
+## AI Features
+
+AI is powered by Azure OpenAI through a shared APIM gateway. No Azure OpenAI resource or env vars needed.
+
+**Requirements:** Azure CLI + Microsoft corp account (`@microsoft.com`)
+
+The setup wizard handles authentication and consent. You can also enable/disable AI from the Admin Panel. When AI is off, AI buttons are hidden automatically.
+
+## WorkIQ (Meeting Import)
+
+Import Teams meeting summaries into call logs via [WorkIQ](https://github.com/nicklhw/workiq).
+
+**Requirements:** Node.js 18+ (installed automatically by the launcher) and a Microsoft 365 Copilot license.
+
+Two modes: **Import from Meeting** (summary only) and **Auto-fill** (summary + AI topic/milestone matching). The summary prompt is customizable globally or per-meeting.
+
+## Updating
+
+Double-click `update.bat`. It backs up the database, pulls latest code, installs new dependencies, runs migrations, and restarts. If anything fails, it rolls back automatically.
+
+## Backups
+
+Automatic daily backups to OneDrive with retention rotation (7 daily, 4 weekly, 3 monthly).
+
+```powershell
+.\scripts\backup.ps1 -Setup    # Configure OneDrive path + daily schedule
+.\scripts\backup.ps1 -Status   # Show backup status
+.\scripts\backup.ps1            # Backup now
+```
+
+Or use the Admin Panel for one-click backups.
+
+## Scripts
+
+| File | Purpose |
+|------|---------|
+| `start.bat` | Launch the server (auto-setup on first run) |
+| `stop.bat` | Stop the server |
+| `update.bat` | Pull updates, migrate, restart |
+| `backup.bat` | Run a backup or configure automatic backups |
+| `restore.bat` | Interactive restore from a backup |
+| `uninstall.bat` | Remove scheduled tasks and stop server |
+
+## Scheduled Tasks
+
+| Task | Trigger | Purpose |
+|------|---------|---------|
+| `SalesBuddy-AutoStart` | At login | Start the server automatically |
+| `SalesBuddy-DailyBackup` | Daily 11:00 AM | Back up database to OneDrive |
+
+Remove with `uninstall.bat` or `scripts\uninstall.ps1`.
+
+## Build the MSI
+
+If you want to build the installer from source:
 
 ```powershell
 # Prerequisites: .NET SDK 8.0+ and WiX v4
@@ -82,101 +138,6 @@ cd installer
 
 See [installer/README.md](installer/README.md) for details.
 
-### Uninstall
-
-Use **Add/Remove Programs** in Windows Settings, or run `scripts\uninstall.ps1` directly. The uninstaller stops the server, removes scheduled tasks and shortcuts, and optionally deletes app files (your database is preserved to `%TEMP%`).
-
-## Getting Started
-
-> **Note:** If you installed via the MSI, skip to [Initial Setup (First Run)](#initial-setup-first-run) - everything below is already done.
-
-### Prerequisites
-
-- **Python 3.13+** (the launcher can install this for you)
-- **Git** (required for updates; the launcher can install this for you. Without it you can still [download the ZIP](https://github.com/rablaine/SalesBuddy/archive/refs/heads/main.zip) to get started, but updates won't work)
-- **Azure CLI** (optional - required for MSX and AI features; the launcher can install this too)
-- **Node.js 18+** (optional - required for WorkIQ meeting import; the launcher can install this too)
-- **VPN connection** - required for MSX integration (account imports, milestones)
-
-### Quick Start
-
-The fastest way to get running — clone (or download and extract the ZIP) and run `start.bat`. It checks for prerequisites, offers to install anything missing via `winget`, then sets up the app:
-
-> **Recommended:** Install to a local path like `C:\prod\SalesBuddy` rather than your Desktop or Documents folder. OneDrive will try to sync the Python virtual environment (~100MB+), which slows things down and wastes space.
-
-```powershell
-# Option A: Clone with Git
-git clone https://github.com/rablaine/SalesBuddy.git C:\prod\SalesBuddy
-cd C:\prod\SalesBuddy
-start.bat
-
-# Option B: Download ZIP from GitHub, extract to C:\prod\SalesBuddy, then run start.bat
-```
-
-The script will:
-1. Check for Python 3.13+, Azure CLI, and Node.js — offer to install via `winget` if missing
-2. Create a Python virtual environment (if one doesn't exist)
-3. Install all dependencies from `requirements.txt`
-4. Create a `.env` file with a generated secret key (if one doesn't exist)
-5. Start the server on `http://localhost:5151`
-
-On subsequent runs, the script detects the existing venv and `.env`, installs any new dependencies, and launches the app.
-
-> **What the script does NOT do:** It does not enable AI features. Those are optional and require signing in with Azure CLI — see [AI Features](#ai-features-optional) for instructions.
-
-> **Next steps:** Once the server is running, check out [Initial Setup (First Run)](#initial-setup-first-run) to import your accounts and milestones, then optionally [AI Features](#ai-features-optional) to enable auto-tagging and meeting summaries.
-
-### Manual Setup
-
-If you prefer to set things up yourself:
-
-1. **Clone the repository:**
-```bash
-git clone https://github.com/rablaine/SalesBuddy.git
-cd SalesBuddy
-```
-
-2. **Create virtual environment:**
-```powershell
-python -m venv venv
-.\venv\Scripts\Activate.ps1
-```
-
-3. **Install dependencies:**
-```bash
-pip install -r requirements.txt
-```
-
-4. **Set up environment variables:**
-```powershell
-copy .env.example .env
-# Generate a secret key and add it to .env:
-python -c "import secrets; print(secrets.token_hex(32))"
-```
-
-5. **Start the server:**
-```bash
-flask run
-```
-
-6. **Visit** `http://localhost:5151` in your browser
-
-> **Note:** The database will be created automatically in `data/salesbuddy.db` on first run.
-
-### Initial Setup (First Run)
-
-When you first launch Sales Buddy, a **guided setup wizard** walks you through connecting your data:
-
-1. **Welcome** — quick overview of Sales Buddy and what it does
-2. **Authenticate with Azure** — the wizard checks for an existing `az login` session and prompts you to authenticate if needed. This is required for MSX integration (accounts, milestones).
-3. **Import Accounts** — pulls your customer accounts from MSX with one click
-4. **Import Milestones (recommended)** — syncs milestone data for your accounts from MSX. It's a single click and gives you milestone tracking right away.
-5. **Import Revenue Data (recommended)** — import a revenue CSV from the ACR Service Level Subscription report to power the Revenue Analyzer (trend charts, service breakdowns, growth tracking)
-
-You can skip steps and come back later — the wizard remembers your progress. You can re-run the setup wizard anytime from the **Admin Panel** — it shows your current progress and lets you pick up where you left off.
-
-All of these imports can also be run independently from the Admin Panel, Milestone Tracker, and Revenue Analyzer after initial setup.
-
 ## Running Tests
 
 ```powershell
@@ -184,261 +145,35 @@ pytest
 pytest --cov=app tests/  # with coverage
 ```
 
-## Starting & Updating
-
-Sales Buddy uses a single smart script (`scripts/server.ps1`) that handles everything: first-run setup, starting the server, checking for updates, and applying new versions.
-
-### Quick start
-
-Double-click `start.bat`. On first run it will:
-1. Check for Python 3.13+
-2. Create a virtual environment and install dependencies
-3. Create `.env` from `.env.example` with a generated secret key
-4. Start the server using [Waitress](https://docs.pylonsproject.org/projects/waitress/) on the port from `.env`
-
-On subsequent runs, it checks for updates from GitHub and applies them automatically before starting.
-
-### Updating
-
-Double-click `update.bat` to update. This runs the full update cycle:
-
-1. Stops the running server
-2. **Backs up your database** to `data/salesbuddy_backup_YYYY-MM-DD_HHMMSS.db`
-3. Pulls the latest code from GitHub
-4. Installs any new/updated dependencies
-5. Runs database migrations
-6. Restarts the server
-
-If anything fails, it restarts the server with the previous code.
-
-You can also run it from PowerShell:
-
-```powershell
-.\scripts\server.ps1          # Smart mode: bootstrap, update, or start as needed
-.\scripts\server.ps1 -Force   # Full update cycle regardless of state
-```
-
-### Script files
-
-| File | Purpose |
-|------|---------|  
-| `start.bat` | Double-click launcher (calls `scripts/server.ps1`) |
-| `stop.bat` | Double-click to stop the server |
-| `update.bat` | Update shortcut that runs `scripts/server.ps1 -Force` |
-| `backup.bat` | Run a backup now or set up automatic backups |
-| `restore.bat` | Interactive restore from a backup |
-| `uninstall.bat` | Remove all Sales Buddy scheduled tasks and stop the server |
-| `scripts/server.ps1` | The brain - handles setup, updates, and server management |
-| `scripts/backup.ps1` | Backup engine - copy, rotate, schedule |
-| `scripts/restore.ps1` | Restore engine - browse, compare, swap |
-| `scripts/uninstall.ps1` | Uninstall engine - remove tasks, stop server |
-
-> **Admin elevation:** Batch files automatically request admin (UAC prompt) only when `PORT` in `.env` is below 1024 (e.g. port 80). For higher ports like 8080, they run without elevation.
-
-## Scheduled Tasks
-
-Sales Buddy registers Windows Scheduled Tasks during first-run setup. These run under your user account (inheriting your `az login` session and OneDrive access):
-
-| Task Name | Trigger | Purpose |
-|-----------|---------|--------|
-| `SalesBuddy-AutoStart` | At login | Starts the web server automatically when you sign in |
-| `SalesBuddy-DailyBackup` | Daily at 11:00 AM | Backs up the database to OneDrive |
-
-To remove all scheduled tasks: double-click `uninstall.bat` or run `scripts\uninstall.ps1`.
-
-To view registered tasks in Task Scheduler, search for "SalesBuddy" in the Task Scheduler Library.
-
-## Backups
-
-Sales Buddy can automatically back up your database to OneDrive daily. Backups are simple file copies with daily/weekly/monthly retention rotation.
-
-### Setting Up Automatic Backups
-
-The first time you run `start.bat`, it will offer to configure automatic backups. You can also set them up manually:
-
-```powershell
-.\scripts\backup.ps1 -Setup    # Configure OneDrive path + register daily scheduled task
-.\scripts\backup.ps1 -Status   # Show backup status and recent backups
-.\scripts\backup.ps1 -Remove   # Remove the scheduled task
-.\scripts\backup.ps1            # Run a backup right now
-```
-
-Or just double-click `backup.bat` to run a backup.
-
-### Restoring from a Backup
-
-Double-click `restore.bat` for an interactive restore. It will:
-
-1. List all available backups (from OneDrive and local) with dates, sizes, and contents
-2. Show your current database stats for comparison
-3. Stop the server, create a safety backup of the current DB, swap in the selected backup, and restart
-
-### What Gets Backed Up
-
-- **Database only** (`data/salesbuddy.db`) - contains all your call logs, customers, sellers, revenue data, and backup settings
-
-### Retention Policy (defaults)
-
-| Tier | Kept | Description |
-|------|------|-------------|
-| Daily | 7 | One backup per day for the last week |
-| Weekly | 4 | One backup per ISO week for the last month |
-| Monthly | 3 | One backup per month for the last quarter |
-
-### Admin Panel
-
-The **Admin Panel** shows backup status, recent backups, and a "Backup Now" button. No need to use the command line for quick backups.
-
-## AI Features (Optional)
-
-Sales Buddy can use Azure OpenAI to auto-suggest topics, match milestones, and auto-fill task descriptions. All AI calls route through a shared APIM gateway — no Azure OpenAI resource or env vars needed.
-
-### Prerequisites
-
-- **Azure CLI** — install with `winget install Microsoft.AzureCLI` (the launcher can do this for you)
-- **Microsoft corp account** (`@microsoft.com`)
-
-### Enable AI
-
-AI features are enabled during the first-time setup wizard (Step 2). The wizard will:
-
-1. Sign you in with `az login` (or detect an existing session)
-2. Request consent for the **NoteHelper-AI-Gateway** Entra app
-3. Once consent is granted, AI features are enabled automatically
-
-You can also enable or disable AI later from the **Admin Panel** → **AI Integration** card.
-
-### No Environment Variables Required
-
-The gateway URL and Entra app ID are built into the app. There are no AI-related env vars to configure.
-
-> **Note:** When AI is not enabled, all AI buttons are automatically hidden from the UI. MSX integration (account imports, milestones) does **not** require AI — it uses your `az login` session independently.
-
-## WorkIQ Integration (Meeting Import)
-
-Sales Buddy integrates with [WorkIQ](https://github.com/nicklhw/workiq) to import meeting summaries from Microsoft Teams. WorkIQ fetches meeting transcripts and generates structured summaries that can be imported directly into call logs.
-
-### Prerequisites
-
-- **Node.js 18+** — WorkIQ runs via `npx`. The `start.bat` launcher will detect if Node.js is missing and offer to install it automatically via `winget`.
-- **Microsoft 365 Copilot license** — required for transcript access
-- **Delegated authentication** — WorkIQ uses your browser-based Microsoft identity (no service principal needed). You'll be prompted to authenticate in your browser the first time WorkIQ runs.
-
-### How It Works
-
-There are two ways to import meeting data:
-
-- **Import from Meeting** (above the notes editor) — fetches the meeting summary and inserts it into the call log. Requires only WorkIQ/Node.js.
-- **Auto-fill** (top right) — does everything Import from Meeting does, plus uses Azure OpenAI to auto-suggest topics, generate a task description, and match a milestone. **Requires [AI Features](#ai-features-optional) to be configured.** The Auto-fill button is hidden when AI is not set up.
-
-The flow:
-
-1. Click either button on the new call log form
-2. Select the date — Sales Buddy queries WorkIQ for your meetings on that date
-3. Pick a meeting from the list (Sales Buddy auto-selects the best match if a customer is chosen)
-4. Sales Buddy fetches a ~250-word summary including discussion points, technologies, and action items
-5. The summary is inserted into the call log editor
-6. *(Auto-fill only)* AI analyzes the summary to suggest topics, a task, and the best-matching milestone
-
-### Customizing the Summary Prompt
-
-The prompt used to generate meeting summaries can be customized:
-
-- **Global default:** Go to **Settings** → **WorkIQ & AI** → edit the **Meeting Summary Prompt** textarea. Use `{title}` and `{date}` as placeholders.
-- **Per-meeting override:** When importing a meeting, click **Customize summary prompt** to edit the prompt for just that import.
-
-### No Extra Configuration Needed
-
-WorkIQ uses delegated auth — it authenticates through your browser session. No environment variables are needed beyond having Node.js installed. If `npx` is available on your PATH, WorkIQ will work.
-
-## Connect Features (Self-Evaluation Support)
-
-Sales Buddy includes tools to help you prepare for Microsoft Connect self-evaluations:
-
-- **Connect Export** -- generate a structured summary of your customer engagement over a date range, with per-customer breakdowns and topic frequency. Available from the Admin Panel.
-- **Connect Impact Signals** -- when importing meetings via WorkIQ, Sales Buddy can extract customer impact signals (adoption milestones, technical wins, business value) and include them in your call log notes.
-
-See [docs/CONNECT_FEATURES.md](docs/CONNECT_FEATURES.md) for full details, including how to toggle impact extraction on/off.
-
-## Scheduled Milestone Sync (Optional — Server Must Be Running)
-
-Sales Buddy can automatically sync milestones from MSX on a daily schedule. This keeps your milestone data fresh without manual intervention. **The Sales Buddy server must be running at the scheduled time for the sync to execute.**
-
-### Setup
-
-Add the `MILESTONE_SYNC_HOUR` environment variable to your `.env` file:
-
-```dotenv
-# Sync milestones daily at 3:00 AM
-MILESTONE_SYNC_HOUR=3
-```
-
-The value is the hour in 24-hour format (0-23) in your **local time zone**. When configured:
-
-- A background thread checks every 60 seconds if it's time to sync
-- The sync runs once per day at the configured hour
-- All customers with MSX account links are synced
-- Results are logged to the console
-
-To disable scheduled sync, remove or comment out the `MILESTONE_SYNC_HOUR` variable.
-
-### Verifying
-
-Check your server logs for messages like:
-```
-Scheduled milestone sync started (daily at 03:00)
-Starting scheduled milestone sync at 2025-01-15T03:00:12
-Scheduled sync complete: 42 customers, 5 new, 18 updated
-```
-
-### Windows Task Scheduler Alternative
-
-If you prefer to use Windows Task Scheduler instead of the built-in background sync:
-
-1. Create a new Basic Task in Task Scheduler
-2. Set the trigger to **Daily** at your preferred time
-3. Set the action to run:
-   ```
-   powershell.exe -Command "Invoke-RestMethod -Method POST -Uri http://localhost:5151/api/milestone-tracker/sync"
-   ```
-4. Sales Buddy must be running when the task fires
+## Documentation
+
+| Guide | Description |
+|-------|-------------|
+| [MSX Integration](docs/MSX_INTEGRATION.md) | Account imports, milestone sync, API details |
+| [WorkIQ Integration](docs/WORKIQ_INTEGRATION.md) | Meeting import setup and customization |
+| [Connect Features](docs/CONNECT_FEATURES.md) | Self-eval export and impact signals |
+| [App Insights](docs/APP_INSIGHTS.md) | Telemetry details and opt-out |
+| [MSX Account Team Roles](docs/MSX_ACCOUNT_TEAM_ROLES.md) | Role definitions for account teams |
 
 ## Telemetry
 
-Sales Buddy sends anonymous, aggregated feature usage data to Azure Application Insights to help maintainers understand which features are used and improve the app. **No personal data, customer names, IP addresses, or endpoint paths are ever sent** -- only the feature category (e.g. "Call Logs"), HTTP method, status code, and response time.
+Anonymous, aggregated feature usage data is sent to Application Insights. No personal data, customer names, or IP addresses are collected. See [App Insights](docs/APP_INSIGHTS.md) for details.
 
-See [APP_INSIGHTS.md](APP_INSIGHTS.md) for full details on what is sent, how it works, and Kusto queries for auditing.
-
-### Opting Out
-
-To disable central telemetry, add this line to your `.env` file:
-
-```
-SALESBUDDY_TELEMETRY_OPT_OUT=true
-```
-
-Then restart the app. Local usage tracking (visible in Admin > Usage Telemetry) still works regardless of this setting.
+**Opt out:** Add `SALESBUDDY_TELEMETRY_OPT_OUT=true` to `.env` and restart.
 
 ## Compliance
 
-This application stores customer account data locally. The SQLite database is **not encrypted at the application level** — encryption at rest is provided by **BitLocker** full-disk encryption on your managed device. To remain compliant with organizational data handling policies:
-
-- **Must run on a Microsoft-managed device** (Intune-enrolled or domain-joined)
-- **Must reside on a BitLocker-encrypted drive** — this is your encryption-at-rest layer
-- Do not copy the database file (`data/salesbuddy.db`) to unmanaged devices or unencrypted storage
+The SQLite database is not encrypted at the application level. Encryption at rest is provided by BitLocker on your managed device. Must run on a Microsoft-managed, BitLocker-encrypted device. Do not copy the database to unmanaged or unencrypted storage.
 
 ## Uninstalling
 
-Double-click `uninstall.bat` (or run `scripts\uninstall.ps1`) to cleanly remove Sales Buddy from your system. This will:
+**MSI install:** Use Add/Remove Programs in Windows Settings. Your database is preserved to `%TEMP%`.
 
-1. **Stop the running server** on the configured port
-2. **Remove all scheduled tasks** (`SalesBuddy-AutoStart`, `SalesBuddy-DailyBackup`)
-
-Your data is preserved. To fully remove Sales Buddy, delete the app folder after running the uninstall script. Your OneDrive backups remain in the `Backups/SalesBuddy` folder.
+**Manual install:** Run `uninstall.bat` to remove scheduled tasks, then delete the app folder. OneDrive backups are preserved.
 
 ## License
 
-MIT License - see LICENSE file for details
+MIT - see [LICENSE](LICENSE) for details.
 
 ## Credits
 
