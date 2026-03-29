@@ -54,7 +54,9 @@ The easiest way to get started is the MSI installer. It handles all prerequisite
 
 ### Download
 
-Download the latest `SalesBuddy.msi` from the [Releases](https://github.com/rablaine/SalesBuddy/releases) page and run it. The installer will:
+> **[Download Sales Buddy Installer](https://github.com/rablaine/SalesBuddy/releases/latest)**
+
+Download `SalesBuddy.msi` from the link above and run it. The installer will:
 
 1. Install prerequisites (Git, Python 3.13+, Azure CLI, Node.js) via winget
 2. Clone the repo to `%LOCALAPPDATA%\SalesBuddy`
