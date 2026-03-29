@@ -73,6 +73,10 @@
             <ComponentRef Id="UninstallScript" />
         </Feature>
 
+        <!-- Pull in custom actions from install-actions.wxs -->
+        <CustomActionRef Id="InstallAction" />
+        <CustomActionRef Id="UninstallAction" />
+
     </Package>
 
 </Wix>
