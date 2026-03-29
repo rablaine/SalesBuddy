@@ -16,8 +16,8 @@ const PageHelp = (function () {
       <p>Your home base — a quick overview of recent activity across Sales Buddy.</p>
       <h6>Quick actions</h6>
       <ul>
-        <li>Use <span class="kbd">/</span> or <span class="kbd">Ctrl</span>+<span class="kbd">K</span> to jump to any customer</li>
-        <li>Use <span class="kbd">Ctrl</span>+<span class="kbd">Shift</span>+<span class="kbd">N</span> to create a quick note</li>
+        <li>Use <span class="kbd">/</span> to jump to any customer</li>
+        <li>Use <span class="kbd">Ctrl</span>+<span class="kbd">K</span> to create a quick note</li>
         <li>Press <span class="kbd">?</span> to see all keyboard shortcuts</li>
         <li>Click any card to dive into that section</li>
       </ul>
@@ -69,7 +69,7 @@ const PageHelp = (function () {
       <ul>
         <li>Use the search bar to filter by name</li>
         <li>Click a customer to see all their linked notes, engagements, and revenue</li>
-        <li><span class="kbd">Ctrl</span>+<span class="kbd">K</span> opens quick customer lookup from any page</li>
+        <li><span class="kbd">/</span> opens quick customer lookup from any page</li>
       </ul>
     `},
     { pattern: /^\/customer\/new/, title: 'New Customer', content: `
@@ -390,10 +390,10 @@ const PageHelp = (function () {
       <table class="table table-sm mb-3">
         <tbody>
           <tr><td><span class="kbd">F1</span></td><td>Page help (you're here!)</td></tr>
-          <tr><td><span class="kbd">Ctrl</span>+<span class="kbd">K</span></td><td>Quick customer lookup</td></tr>
-          <tr><td><span class="kbd">Ctrl</span>+<span class="kbd">Shift</span>+<span class="kbd">N</span></td><td>New note</td></tr>
+          <tr><td><span class="kbd">/</span></td><td>Quick customer lookup</td></tr>
+          <tr><td><span class="kbd">Ctrl</span>+<span class="kbd">K</span></td><td>New note</td></tr>
           <tr><td><span class="kbd">Ctrl</span>+<span class="kbd">Enter</span></td><td>Submit form</td></tr>
-          <tr><td><span class="kbd">/</span> or <span class="kbd">?</span></td><td>Keyboard shortcuts</td></tr>
+          <tr><td><span class="kbd">/</span> or <span class="kbd">?</span></td><td>Customer search / Keyboard shortcuts</td></tr>
         </tbody>
       </table>
       <p class="text-muted mb-0">Press <span class="kbd">F1</span> on any page for help specific to that page.</p>

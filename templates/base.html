@@ -621,7 +621,7 @@
                     </li>
                 </ul>
                 <div class="d-flex align-items-center gap-2">
-                    <button class="btn btn-success" id="navNewNote" data-bs-toggle="modal" data-bs-target="#quickNoteModal" title="Create new note (Ctrl+Shift+N)" aria-label="Create new note">
+                    <button class="btn btn-success" id="navNewNote" data-bs-toggle="modal" data-bs-target="#quickNoteModal" title="Create new note (Ctrl+K)" aria-label="Create new note">
                         <i class="bi bi-plus-circle"></i> <span class="d-none d-md-inline">New Note</span>
                     </button>
                     <div class="dropdown">
@@ -1301,11 +1301,11 @@
                     <table class="table table-sm mb-0">
                         <tbody>
                             <tr>
-                                <td><span class="kbd">/</span> or <span class="kbd">Ctrl</span> + <span class="kbd">K</span></td>
+                                <td><span class="kbd">/</span></td>
                                 <td>Customer search</td>
                             </tr>
                             <tr>
-                                <td><span class="kbd">Ctrl</span> + <span class="kbd">Shift</span> + <span class="kbd">N</span></td>
+                                <td><span class="kbd">Ctrl</span> + <span class="kbd">K</span></td>
                                 <td>Create new note</td>
                             </tr>
                             <tr>
@@ -2985,7 +2985,7 @@
             // Backdrop overlay for dimming the page
             const backdrop = document.createElement('div');
             backdrop.id = 'navSearchBackdrop';
-            backdrop.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:1040;display:none;';
+            backdrop.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:1040;opacity:0;pointer-events:none;transition:opacity .15s ease;';
             document.body.appendChild(backdrop);
             backdrop.addEventListener('click', function() {
                 navSearch.value = '';
@@ -2993,8 +2993,8 @@
                 navSearch.blur();
             });
 
-            function showBackdrop() { backdrop.style.display = 'block'; }
-            function hideBackdrop() { backdrop.style.display = 'none'; }
+            function showBackdrop() { backdrop.style.opacity = '1'; backdrop.style.pointerEvents = 'auto'; }
+            function hideBackdrop() { backdrop.style.opacity = '0'; backdrop.style.pointerEvents = 'none'; }
 
             function closeResults() {
                 navResults.style.display = 'none';
@@ -3088,17 +3088,8 @@
                 const tag = e.target.tagName.toLowerCase();
                 const isTyping = tag === 'input' || tag === 'textarea' || e.target.isContentEditable;
                 
-                // Ctrl+K: Focus navbar customer search
+                // Ctrl+K: Open Quick New Note
                 if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
-                    e.preventDefault();
-                    const navSearch = document.getElementById('navCustomerSearch');
-                    if (navSearch) {
-                        navSearch.focus();
-                        navSearch.select();
-                    }
-                }
-                // Ctrl+Shift+N: Open Quick New Note
-                if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'N') {
                     e.preventDefault();
                     const noteModal = document.getElementById('quickNoteModal');
                     if (noteModal && typeof bootstrap !== 'undefined') {
@@ -3417,7 +3408,7 @@
                         element: '#navQuickLookup',
                         popover: {
                             title: 'Customer Search',
-                            description: 'Type a customer name to jump to their page. Use Ctrl+K to focus from anywhere.',
+                            description: 'Type a customer name to jump to their page. Use / to focus from anywhere.',
                             side: 'bottom',
                             align: 'end'
                         }
