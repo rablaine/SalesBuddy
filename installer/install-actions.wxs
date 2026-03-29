@@ -3,11 +3,16 @@
 <!--
     Custom Action definitions for Sales Buddy MSI.
 
-    Install: runs scripts/install.ps1 with flags from MSI properties
+    Install: runs scripts/install.ps1 with all options enabled
     Uninstall: runs scripts/uninstall.ps1 -Silent
 
-    These use WiX Quiet Execution custom actions to run PowerShell
-    without showing a terminal window.
+    Both use type 50 (Property + ExeCommand) deferred custom actions.
+    The scripts are installed as File components by the MSI, so they
+    exist on disk before the deferred actions run.
+
+    Environment variable %LOCALAPPDATA% is used in ExeCommand because
+    deferred actions cannot resolve MSI property references like
+    [INSTALLFOLDER]. cmd.exe expands the env var at runtime.
 -->
 
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
@@ -15,31 +20,20 @@
     <Fragment>
 
         <!-- ================================================================
-             INSTALL: Run install.ps1 with checkbox flags
+             INSTALL: Run install.ps1 (prereqs, clone, server setup, shortcuts)
              ================================================================ -->
 
-        <!-- Build the install command line from MSI properties -->
-        <SetProperty Id="InstallCommand"
-                     Value="powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File &quot;[INSTALLFOLDER]scripts\install.ps1&quot; -Shortcuts -DesktopShortcut -LaunchBrowser"
+        <!-- Set CustomActionData = path to cmd.exe (resolved during immediate phase) -->
+        <SetProperty Id="InstallAction"
+                     Value="[SystemFolder]cmd.exe"
                      Before="InstallAction"
                      Sequence="execute"
-                     Condition="LAUNCH_APP AND CREATE_SHORTCUTS AND CREATE_DESKTOP_SHORTCUT" />
+                     Condition="NOT REMOVE" />
 
-        <SetProperty Id="InstallCommandNoLaunch"
-                     Value="powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File &quot;[INSTALLFOLDER]scripts\install.ps1&quot; -Shortcuts -DesktopShortcut"
-                     Before="InstallAction"
-                     Sequence="execute"
-                     Condition="(NOT LAUNCH_APP) AND CREATE_SHORTCUTS AND CREATE_DESKTOP_SHORTCUT" />
-
-        <SetProperty Id="InstallCommandMinimal"
-                     Value="powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File &quot;[INSTALLFOLDER]scripts\install.ps1&quot;"
-                     Before="InstallAction"
-                     Sequence="execute"
-                     Condition="(NOT CREATE_SHORTCUTS) AND (NOT CREATE_DESKTOP_SHORTCUT)" />
-
+        <!-- Deferred type 50: cmd.exe runs powershell with the bootstrap script -->
         <CustomAction Id="InstallAction"
-                      Directory="INSTALLFOLDER"
-                      ExeCommand="[InstallCommand]"
+                      Property="InstallAction"
+                      ExeCommand="/c powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File &quot;%LOCALAPPDATA%\SalesBuddy\scripts\install.ps1&quot; -Shortcuts -DesktopShortcut -LaunchBrowser"
                       Execute="deferred"
                       Impersonate="yes"
                       Return="check" />
@@ -48,38 +42,26 @@
              UNINSTALL: Run uninstall.ps1 -Silent
              ================================================================ -->
 
-        <Property Id="UninstallCommand"
-                  Value="powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File &quot;[INSTALLFOLDER]scripts\uninstall.ps1&quot; -Silent" />
+        <SetProperty Id="UninstallAction"
+                     Value="[SystemFolder]cmd.exe"
+                     Before="UninstallAction"
+                     Sequence="execute"
+                     Condition="REMOVE=&quot;ALL&quot;" />
 
         <CustomAction Id="UninstallAction"
-                      Directory="INSTALLFOLDER"
-                      ExeCommand="[UninstallCommand]"
+                      Property="UninstallAction"
+                      ExeCommand="/c powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File &quot;%LOCALAPPDATA%\SalesBuddy\scripts\uninstall.ps1&quot; -Silent"
                       Execute="deferred"
                       Impersonate="yes"
                       Return="ignore" />
-
-        <!-- ================================================================
-             POST-INSTALL: Launch browser (conditional on checkbox)
-             ================================================================ -->
-
-        <Property Id="WixShellExecTarget" Value="http://localhost:5151" />
-        <CustomAction Id="LaunchApp"
-                      Directory="INSTALLFOLDER"
-                      ExeCommand="cmd.exe /c start http://localhost:5151"
-                      Impersonate="yes"
-                      Return="asyncNoWait" />
 
         <!-- ================================================================
              Schedule custom actions in InstallExecuteSequence
              ================================================================ -->
 
         <InstallExecuteSequence>
-            <!-- Install action runs after files are installed -->
             <Custom Action="InstallAction" After="InstallFiles" Condition="NOT REMOVE" />
-            <!-- Uninstall action runs before files are removed -->
             <Custom Action="UninstallAction" Before="RemoveFiles" Condition="REMOVE=&quot;ALL&quot;" />
-            <!-- Launch browser after install completes (if checkbox checked) -->
-            <Custom Action="LaunchApp" After="InstallFinalize" Condition="(NOT REMOVE) AND LAUNCH_APP" />
         </InstallExecuteSequence>
 
     </Fragment>

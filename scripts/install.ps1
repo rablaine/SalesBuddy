@@ -161,15 +161,29 @@ if (-not $SkipPrereqs) {
 
 # -- Step 3: Clone the repository --------------------------------------------
 if (Test-Path (Join-Path $InstallDir '.git')) {
-    Write-Log "Repository already exists at $InstallDir, skipping clone."
+    Write-Log "Repository already exists at $InstallDir, pulling latest."
+    Push-Location $InstallDir
+    $pullOutput = git pull --ff-only 2>&1
+    $pullOutput | ForEach-Object { Write-Log "  [git] $_" }
+    Pop-Location
+} elseif (Test-Path $InstallDir) {
+    # Directory exists but isn't a git repo (MSI installed bootstrap files here).
+    # Initialize a repo in-place and pull rather than moving the directory.
+    Write-Log "Directory exists at $InstallDir, initializing git repository..."
+    Refresh-Path
+    Push-Location $InstallDir
+    git init 2>&1 | ForEach-Object { Write-Log "  [git] $_" }
+    git remote add origin $RepoUrl 2>&1 | ForEach-Object { Write-Log "  [git] $_" }
+    git fetch origin 2>&1 | ForEach-Object { Write-Log "  [git] $_" }
+    git checkout -f -B main origin/main 2>&1 | ForEach-Object { Write-Log "  [git] $_" }
+    Pop-Location
+    if ($LASTEXITCODE -ne 0) {
+        Write-Log "Failed to initialize repository." 'ERROR'
+        exit 2
+    }
+    Write-Log "Repository initialized."
 } else {
     Write-Log "Cloning repository..."
-    if (Test-Path $InstallDir) {
-        # Directory exists but isn't a git repo - back it up
-        $backupDir = "$InstallDir.backup-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
-        Write-Log "Existing directory found, backing up to $backupDir"
-        Move-Item $InstallDir $backupDir -ErrorAction SilentlyContinue
-    }
     Refresh-Path
     $cloneOutput = git clone $RepoUrl $InstallDir 2>&1
     if ($LASTEXITCODE -ne 0) {
