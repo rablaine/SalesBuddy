@@ -48,7 +48,7 @@
 </div>
 
 <!-- Filters -->
-<div class="card mb-4">
+<div class="card mb-4" data-role="filterCard" style="overflow: visible;">
     <div class="card-body py-2">
         <div class="row align-items-center g-2">
             <div class="col-md">
@@ -456,6 +456,19 @@
         updateQuarterButtonText();
         saveFilters();
         updateResetButton();
+
+        // Dispatch event for external listeners (e.g. calendar view)
+        container.dispatchEvent(new CustomEvent('milestone-filter-change', {
+            bubbles: true,
+            detail: {
+                quarters: selectedQuarters,
+                seller: sv,
+                status: stv,
+                area: av,
+                urgency: uv,
+                myTeam: myTeam
+            }
+        }));
     }
 
     function updateQuarterButtonText() {

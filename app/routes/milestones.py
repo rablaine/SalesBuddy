@@ -594,8 +594,14 @@ def milestones_calendar_api():
     """API endpoint returning milestone due dates for a calendar view.
 
     Query params:
-        year:  int (default: current year)
-        month: int, 1-12 (default: current month)
+        year:      int (default: current year)
+        month:     int, 1-12 (default: current month)
+        team_only: '1' to show only milestones where user is on the team
+        status:    milestone status string (e.g. 'On Track', 'At Risk', 'Blocked')
+        seller_id: int seller ID to filter by
+        area:      workload area prefix (e.g. 'Infra', 'Data & AI')
+        quarters:  comma-separated fiscal quarter strings (e.g. 'FY26 Q3,FY26 Q4')
+        urgency:   urgency level ('past_due', 'this_week', 'this_month')
 
     Returns JSON with:
         - year, month, month_name
@@ -605,6 +611,13 @@ def milestones_calendar_api():
     today = date.today()
     year = request.args.get('year', today.year, type=int)
     month = request.args.get('month', today.month, type=int)
+
+    # Filter params
+    status_filter = request.args.get('status', '')
+    seller_id_param = request.args.get('seller_id', '', type=str)
+    area_filter = request.args.get('area', '')
+    quarters_filter = request.args.get('quarters', '')
+    urgency_filter = request.args.get('urgency', '')
 
     if month < 1 or month > 12:
         month = today.month
@@ -623,15 +636,66 @@ def milestones_calendar_api():
             db.joinedload(Milestone.customer).joinedload(Customer.seller),
         )
     )
+
+    # Status filter (server-side)
+    if status_filter:
+        milestones_q = milestones_q.filter(Milestone.msx_status == status_filter)
+
+    # Seller filter: seller mode takes priority, then explicit param
     seller_mode_sid = get_seller_mode_seller_id()
     if seller_mode_sid:
-        milestones_q = milestones_q.join(Customer, Milestone.customer_id == Customer.id).filter(
-            Customer.seller_id == seller_mode_sid
-        )
+        milestones_q = milestones_q.join(
+            Customer, Milestone.customer_id == Customer.id
+        ).filter(Customer.seller_id == seller_mode_sid)
+    elif seller_id_param:
+        milestones_q = milestones_q.join(
+            Customer, Milestone.customer_id == Customer.id
+        ).filter(Customer.seller_id == int(seller_id_param))
+
+    # Team filter
+    if request.args.get('team_only') == '1':
+        milestones_q = milestones_q.filter(Milestone.on_my_team.is_(True))
+
     milestones = milestones_q.order_by(Milestone.due_date).all()
 
-    days: dict = {}
+    # Post-query filters for area, quarters, urgency (computed fields)
+    quarters_set = (
+        set(q.strip() for q in quarters_filter.split(',') if q.strip())
+        if quarters_filter else None
+    )
+    filtered = []
     for ms in milestones:
+        # Area filter
+        if area_filter:
+            wl_area = ''
+            if ms.workload and ':' in ms.workload:
+                wl_area = ms.workload.split(':', 1)[0].strip()
+            elif ms.workload:
+                wl_area = ms.workload.strip()
+            if wl_area != area_filter:
+                continue
+
+        # Quarters filter
+        if quarters_set and ms.due_date:
+            m = ms.due_date.month
+            y = ms.due_date.year
+            if m >= 7:
+                fy = y + 1
+                q = 1 if m <= 9 else 2
+            else:
+                fy = y
+                q = 3 if m <= 3 else 4
+            if f"FY{fy % 100:02d} Q{q}" not in quarters_set:
+                continue
+
+        # Urgency filter
+        if urgency_filter and ms.due_date_urgency != urgency_filter:
+            continue
+
+        filtered.append(ms)
+
+    days: dict = {}
+    for ms in filtered:
         day = ms.due_date.day
         if day not in days:
             days[day] = []

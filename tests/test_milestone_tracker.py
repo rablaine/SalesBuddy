@@ -1523,7 +1523,7 @@ class TestMilestoneCalendarAPI:
 
 
 class TestMilestoneCalendarTab:
-    """Tests for the milestone calendar tab on the front page."""
+    """Tests for the milestone calendar on the tracker page."""
 
     def _mark_milestones_synced(self, app):
         """Mark milestones as synced and create a milestone so the tab renders."""
@@ -1554,36 +1554,36 @@ class TestMilestoneCalendarTab:
                 db.session.add(ms)
             db.session.commit()
 
-    def test_index_has_milestones_tab(self, client, app, sample_data):
-        """Front page should have the milestones tab button when synced."""
+    def test_tracker_has_calendar_view(self, client, app, sample_data):
+        """Tracker page should have the calendar container."""
         self._mark_milestones_synced(app)
+        response = client.get('/milestone-tracker')
+        assert response.status_code == 200
+        assert b'msCalendarWrap' in response.data
+        assert b'msCalendarTable' in response.data
+
+    def test_index_does_not_have_calendar(self, client, app, sample_data):
+        """Front page should not have the milestone calendar (moved to tracker)."""
         response = client.get('/')
         assert response.status_code == 200
-        assert b'milestones-tab' in response.data
-        assert b'milestones-view' in response.data
+        assert b'msCalendarTable' not in response.data
 
-    def test_index_hides_milestones_tab_when_not_synced(self, client, app, sample_data):
-        """Front page should not have milestones tab when not synced."""
-        response = client.get('/')
-        assert response.status_code == 200
-        assert b'milestones-tab' not in response.data
-        assert b'milestones-view' not in response.data
-
-    def test_milestones_tab_has_full_week(self, client, app, sample_data):
+    def test_tracker_calendar_has_full_week(self, client, app, sample_data):
         """Milestone calendar should have 7-day week headers (Sun-Sat)."""
         self._mark_milestones_synced(app)
-        response = client.get('/')
+        response = client.get('/milestone-tracker')
         assert response.status_code == 200
         assert b'msCalendarTable' in response.data
         assert b'<th>Sun</th>' in response.data
         assert b'<th>Sat</th>' in response.data
 
-    def test_milestones_tab_has_tracker_link(self, client, app, sample_data):
-        """Milestone calendar footer should link to full tracker."""
+    def test_tracker_has_view_tabs(self, client, app, sample_data):
+        """Tracker page JS should set up list/calendar view tabs."""
         self._mark_milestones_synced(app)
-        response = client.get('/')
+        response = client.get('/milestone-tracker')
         assert response.status_code == 200
-        assert b'Full Tracker' in response.data
+        assert b'data-ms-view="list"' in response.data
+        assert b'data-ms-view="calendar"' in response.data
 
 
 class TestOnMyTeamModel:

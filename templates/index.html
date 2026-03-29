@@ -3,11 +3,6 @@
 {% block title %}Home - Sales Buddy{% endblock %}
 
 {% block content %}
-<div class="row mb-3">
-    <div class="col-md-12">
-        <h1 class="mb-0">Dashboard</h1>
-    </div>
-</div>
 
 <!-- Revenue Import Reminder -->
 {% if show_revenue_reminder %}
@@ -204,7 +199,6 @@
                             <div class="me-2" style="min-width: 0;">
                                 <div class="fw-semibold text-truncate">
                                     {{ ms.title or ms.opportunity_name or 'Milestone #' ~ ms.id }}
-                                    {% if ms.msx_status != 'On Track' and ms.monthly_usage %}<small class="text-success fw-normal">${{ '{:,.0f}'.format(ms.monthly_usage) }}/mo</small>{% endif %}
                                 </div>
                                 <div class="text-muted small text-truncate">
                                     {% if ms.customer %}{{ ms.customer.name }}{% endif %}
@@ -217,17 +211,13 @@
                                     {{ ms.due_date.strftime('%b %d') }}
                                 </span>
                                 {% endif %}
-                                <div>
-                                    {% if ms.msx_status == 'On Track' and ms.monthly_usage %}
-                                    <span class="badge bg-success" style="font-size: 0.65rem;">${{ '{:,.0f}'.format(ms.monthly_usage) }}/mo</span>
-                                    {% elif ms.msx_status == 'On Track' %}
-                                    <span class="badge bg-success" style="font-size: 0.65rem;">On Track</span>
-                                    {% else %}
-                                    <span class="badge {% if ms.msx_status == 'At Risk' %}bg-warning text-dark{% elif ms.msx_status == 'Blocked' %}bg-danger{% else %}bg-secondary{% endif %}" style="font-size: 0.65rem;">
-                                        {{ ms.msx_status }}
-                                    </span>
-                                    {% endif %}
+                                {% if ms.msx_status == 'On Track' and ms.monthly_usage %}
+                                <div class="text-success small fw-semibold">${{ '{:,.0f}'.format(ms.monthly_usage) }}/mo</div>
+                                {% elif ms.msx_status != 'On Track' %}
+                                <div class="small fw-semibold {% if ms.msx_status == 'At Risk' %}text-warning{% elif ms.msx_status == 'Blocked' %}text-danger{% else %}text-muted{% endif %}">
+                                    {{ ms.msx_status }}
                                 </div>
+                                {% endif %}
                             </div>
                         </div>
                     </div>
@@ -403,31 +393,6 @@
     .cal-fill-btn:hover { opacity: 1; color: var(--bs-warning) !important; }
     #calendarTable td:hover .cal-add-btn { opacity: 0.7; }
     #calendarTable td:hover .cal-fill-btn { opacity: 0.7; }
-    /* Milestone calendar styles */
-    #msCalendarTable {
-        table-layout: fixed;
-        width: 100%;
-    }
-    #msCalendarTable th,
-    #msCalendarTable td {
-        width: 14.28%;
-        overflow: hidden;
-    }
-    #msCalendarTable td {
-        transition: background-color 0.15s;
-    }
-    .ms-cal-entry {
-        font-size: 0.72rem;
-        line-height: 1.3;
-        cursor: pointer;
-        transition: all 0.15s;
-    }
-    .ms-cal-entry:hover {
-        opacity: 0.85;
-    }
-    .ms-status-ontrack { border-left: 3px solid #198754; }
-    .ms-status-atrisk  { border-left: 3px solid #ffc107; }
-    .ms-status-blocked  { border-left: 3px solid #dc3545; }
 </style>
 
 <div class="row mt-4" id="draftsSection" style="display: none;">
@@ -455,13 +420,6 @@
                         <i class="bi bi-calendar3"></i> Calendar
                     </button>
                 </li>
-                {% if has_milestones %}
-                <li class="nav-item" role="presentation">
-                    <button class="nav-link" id="milestones-tab" data-bs-toggle="pill" data-bs-target="#milestones-view" type="button" role="tab" aria-controls="milestones-view" aria-selected="false">
-                        <i class="bi bi-flag-fill"></i> Milestones Due
-                    </button>
-                </li>
-                {% endif %}
                 {% if has_engagements %}
                 <li class="nav-item" role="presentation">
                     <button class="nav-link" id="engagements-tab" data-bs-toggle="pill" data-bs-target="#engagements-view" type="button" role="tab" aria-controls="engagements-view" aria-selected="false">
@@ -518,48 +476,6 @@
                 </div>
             </div>
             
-            <!-- Milestones Calendar Tab -->
-            {% if has_milestones %}
-            <div class="tab-pane fade" id="milestones-view" role="tabpanel" aria-labelledby="milestones-tab">
-                <div class="card">
-                    <div class="card-header d-flex justify-content-between align-items-center">
-                        <button class="btn btn-outline-secondary btn-sm" id="msPrevMonthBtn">
-                            <i class="bi bi-chevron-left"></i>
-                        </button>
-                        <h5 class="mb-0" id="msCalendarTitle">Loading...</h5>
-                        <button class="btn btn-outline-secondary btn-sm" id="msNextMonthBtn">
-                            <i class="bi bi-chevron-right"></i>
-                        </button>
-                    </div>
-                    <div class="card-body p-0">
-                        <table class="table table-bordered mb-0" id="msCalendarTable">
-                            <thead>
-                                <tr class="text-center">
-                                    <th>Sun</th>
-                                    <th>Mon</th>
-                                    <th>Tue</th>
-                                    <th>Wed</th>
-                                    <th>Thu</th>
-                                    <th>Fri</th>
-                                    <th>Sat</th>
-                                </tr>
-                            </thead>
-                            <tbody id="msCalendarBody">
-                            </tbody>
-                        </table>
-                    </div>
-                    <div class="card-footer d-flex justify-content-between align-items-center">
-                        <a href="{{ url_for('milestones.milestone_tracker') }}" class="btn btn-outline-success btn-sm">
-                            <i class="bi bi-flag-fill"></i> Full Tracker
-                        </a>
-                        <button class="btn btn-outline-secondary btn-sm" id="msTodayBtn">
-                            <i class="bi bi-calendar-day"></i> Today
-                        </button>
-                    </div>
-                </div>
-            </div>
-            {% endif %}
-
             <!-- Engagements Tab -->
             {% if has_engagements %}
             <div class="tab-pane fade" id="engagements-view" role="tabpanel" aria-labelledby="engagements-tab">
@@ -767,12 +683,7 @@
     // Apply saved tab after Bootstrap is loaded
     window.addEventListener('DOMContentLoaded', function() {
         const savedTab = localStorage.getItem(TAB_STORAGE_KEY);
-        {% if has_milestones %}
-        if (savedTab === 'milestones') {
-            const msTabEl = document.getElementById('milestones-tab');
-            const msTab = new bootstrap.Tab(msTabEl);
-            msTab.show();
-        } else {% endif %}{% if has_engagements %}if (savedTab === 'engagements') {
+        {% if has_engagements %}if (savedTab === 'engagements') {
             const engTabEl = document.getElementById('engagements-tab');
             const engTab = new bootstrap.Tab(engTabEl);
             engTab.show();
@@ -1033,191 +944,6 @@
             calendarBody.appendChild(row);
         }
     }
-
-    {% if has_milestones %}
-    // ===== MILESTONE CALENDAR VIEW =====
-    const MS_MONTH_KEY = 'salesbuddy_ms_cal_month';
-    const MS_YEAR_KEY = 'salesbuddy_ms_cal_year';
-    let msCalYear = parseInt(localStorage.getItem(MS_YEAR_KEY)) || new Date().getFullYear();
-    let msCalMonth = parseInt(localStorage.getItem(MS_MONTH_KEY)) || (new Date().getMonth() + 1);
-    let msCalLoaded = false;
-
-    function saveMsCalendarPosition() {
-        localStorage.setItem(MS_YEAR_KEY, msCalYear);
-        localStorage.setItem(MS_MONTH_KEY, msCalMonth);
-    }
-
-    // Load milestone calendar when tab is shown
-    document.getElementById('milestones-tab').addEventListener('shown.bs.tab', function() {
-        localStorage.setItem(TAB_STORAGE_KEY, 'milestones');
-        if (!msCalLoaded) {
-            loadMsCalendar(msCalYear, msCalMonth);
-            msCalLoaded = true;
-        }
-    });
-
-    // Month navigation
-    document.getElementById('msPrevMonthBtn').addEventListener('click', function() {
-        if (msCalMonth === 1) { msCalMonth = 12; msCalYear--; }
-        else { msCalMonth--; }
-        saveMsCalendarPosition();
-        loadMsCalendar(msCalYear, msCalMonth);
-    });
-    document.getElementById('msNextMonthBtn').addEventListener('click', function() {
-        if (msCalMonth === 12) { msCalMonth = 1; msCalYear++; }
-        else { msCalMonth++; }
-        saveMsCalendarPosition();
-        loadMsCalendar(msCalYear, msCalMonth);
-    });
-    document.getElementById('msTodayBtn').addEventListener('click', function() {
-        const now = new Date();
-        msCalYear = now.getFullYear();
-        msCalMonth = now.getMonth() + 1;
-        saveMsCalendarPosition();
-        loadMsCalendar(msCalYear, msCalMonth);
-    });
-
-    function loadMsCalendar(year, month) {
-        const body = document.getElementById('msCalendarBody');
-        const title = document.getElementById('msCalendarTitle');
-        body.innerHTML = '<tr><td colspan="7" class="text-center py-4"><div class="spinner-border spinner-border-sm"></div> Loading...</td></tr>';
-
-        fetch(`/api/milestones/calendar?year=${year}&month=${month}`)
-            .then(r => r.json())
-            .then(data => {
-                title.textContent = `${data.month_name} ${data.year}`;
-                renderMsCalendar(data);
-            })
-            .catch(err => {
-                console.error('Error loading milestone calendar:', err);
-                body.innerHTML = '<tr><td colspan="7" class="text-center py-4 text-danger">Error loading calendar</td></tr>';
-            });
-    }
-
-    function renderMsCalendar(data) {
-        const body = document.getElementById('msCalendarBody');
-        body.innerHTML = '';
-
-        const days = data.days || {};
-        const daysInMonth = data.days_in_month;
-        const todayDay = data.today_day;
-
-        function escapeHtml(text) {
-            if (!text) return '';
-            const d = document.createElement('div');
-            d.textContent = text;
-            return d.innerHTML;
-        }
-
-        // Build color map for customers this month
-        const customerColorMap = {};
-        const allIds = new Set();
-        Object.values(days).forEach(items => items.forEach(m => allIds.add(m.customer_id)));
-        Array.from(allIds).forEach((id, i) => { customerColorMap[id] = (i % 15) + 1; });
-
-        // First day of month: 0=Sun ... 6=Sat (full 7-day week)
-        const firstDow = new Date(data.year, data.month - 1, 1).getDay();
-
-        let dayNum = 1;
-        let started = false;
-
-        while (dayNum <= daysInMonth) {
-            const row = document.createElement('tr');
-
-            for (let col = 0; col < 7; col++) {
-                const cell = document.createElement('td');
-                cell.className = 'p-1';
-                cell.style.verticalAlign = 'top';
-                cell.style.height = '100px';
-
-                if ((!started && col < firstDow) || dayNum > daysInMonth) {
-                    // Empty cell
-                    cell.classList.add('bg-light');
-                } else {
-                    started = true;
-                    const d = dayNum;
-
-                    // Day number
-                    const header = document.createElement('div');
-                    header.className = 'd-flex justify-content-between align-items-center mb-1';
-                    const numEl = document.createElement('span');
-                    numEl.className = 'fw-bold small';
-                    if (d === todayDay) {
-                        numEl.innerHTML = `<span class="badge bg-primary rounded-circle">${d}</span>`;
-                    } else {
-                        numEl.textContent = d;
-                    }
-                    header.appendChild(numEl);
-
-                    // Milestone count badge
-                    const msForDay = days[d] || [];
-                    if (msForDay.length > 0) {
-                        const countBadge = document.createElement('span');
-                        countBadge.className = 'badge bg-success rounded-pill';
-                        countBadge.style.fontSize = '0.65rem';
-                        countBadge.textContent = msForDay.length;
-                        header.appendChild(countBadge);
-                    }
-                    cell.appendChild(header);
-
-                    // Milestone entries
-                    if (msForDay.length > 0) {
-                        const container = document.createElement('div');
-                        container.style.maxHeight = '72px';
-                        container.style.overflowY = 'auto';
-                        container.className = 'calendar-entries';
-
-                        msForDay.forEach(ms => {
-                            const entry = document.createElement('div');
-                            entry.style.cursor = 'pointer';
-                            entry.addEventListener('click', function(e) {
-                                openHomeMilestoneDetail(e, ms.id, ms.title || '', ms.status || '', ms.url || '');
-                            });
-                            const statusClass = ms.status === 'On Track' ? 'ms-status-ontrack'
-                                : ms.status === 'At Risk' ? 'ms-status-atrisk' : 'ms-status-blocked';
-                            const colorIdx = customerColorMap[ms.customer_id] || 1;
-                            entry.className = `d-block text-decoration-none text-truncate mb-1 px-1 rounded ms-cal-entry ${statusClass} cal-customer-${colorIdx}`;
-                            entry.style.color = 'inherit';
-
-                            let label = '';
-                            if (ms.on_my_team) {
-                                label += '<i class="bi bi-people-fill text-primary" style="font-size:.7em"></i> ';
-                            }
-                            label += escapeHtml(ms.customer_name);
-                            if (ms.monthly_usage) {
-                                label += ` <span class="text-muted">$${Number(ms.monthly_usage).toLocaleString()}</span>`;
-                            }
-                            entry.innerHTML = label;
-
-                            let tip = ms.customer_name + ' — ' + escapeHtml(ms.title);
-                            if (ms.seller_name) tip += ' (' + ms.seller_name + ')';
-                            if (ms.status) tip += ' [' + ms.status + ']';
-                            entry.title = tip;
-
-                            // Highlight all entries for same customer on hover
-                            entry.setAttribute('data-customer-id', ms.customer_id);
-                            entry.addEventListener('mouseenter', function() {
-                                document.querySelectorAll(`#msCalendarBody [data-customer-id="${ms.customer_id}"]`)
-                                    .forEach(el => el.classList.add('cal-highlight'));
-                            });
-                            entry.addEventListener('mouseleave', function() {
-                                document.querySelectorAll(`#msCalendarBody [data-customer-id="${ms.customer_id}"]`)
-                                    .forEach(el => el.classList.remove('cal-highlight'));
-                            });
-
-                            container.appendChild(entry);
-                        });
-                        cell.appendChild(container);
-                    }
-
-                    dayNum++;
-                }
-                row.appendChild(cell);
-            }
-            body.appendChild(row);
-        }
-    }
-    {% endif %}
 
     {% if has_engagements %}
     // ===== ENGAGEMENTS TAB =====

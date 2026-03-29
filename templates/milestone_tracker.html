@@ -77,9 +77,283 @@
 
 {% include 'partials/milestone_tracker_content.html' %}
 
+<!-- Calendar View (positioned by JS after the filter bar) -->
+<div id="msCalendarWrap" style="display: none;">
+<div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <button class="btn btn-outline-secondary btn-sm" id="msPrevMonthBtn">
+            <i class="bi bi-chevron-left"></i>
+        </button>
+        <h5 class="mb-0" id="msCalendarTitle">Loading...</h5>
+        <div class="d-flex align-items-center gap-2">
+            <button class="btn btn-outline-secondary btn-sm" id="msTodayBtn">
+                <i class="bi bi-calendar-day"></i> Today
+            </button>
+            <button class="btn btn-outline-secondary btn-sm" id="msNextMonthBtn">
+                <i class="bi bi-chevron-right"></i>
+            </button>
+        </div>
+    </div>
+    <div class="card-body p-0">
+        <table class="table table-bordered mb-0" id="msCalendarTable">
+            <thead>
+                <tr class="text-center">
+                    <th>Sun</th><th>Mon</th><th>Tue</th><th>Wed</th><th>Thu</th><th>Fri</th><th>Sat</th>
+                </tr>
+            </thead>
+            <tbody id="msCalendarBody"></tbody>
+        </table>
+    </div>
+</div>
+</div>
+
 {% endblock %}
 
 {% block extra_js %}
+<style>
+    #msCalendarTable { table-layout: fixed; width: 100%; }
+    #msCalendarTable th, #msCalendarTable td { width: 14.28%; overflow: hidden; }
+    #msCalendarTable td { transition: background-color 0.15s; }
+    .ms-cal-entry { font-size: 0.72rem; line-height: 1.3; cursor: pointer; transition: all 0.15s; }
+    .ms-cal-entry:hover { opacity: 0.85; }
+    .ms-status-ontrack { border-left: 3px solid #198754; }
+    .ms-status-atrisk  { border-left: 3px solid #ffc107; }
+    .ms-status-blocked  { border-left: 3px solid #dc3545; }
+    .calendar-entries::-webkit-scrollbar { width: 4px; }
+    .calendar-entries::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.2); border-radius: 2px; }
+    html[data-bs-theme="dark"] .calendar-entries::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); }
+</style>
+<script>
+// =============================================================================
+// Milestone Calendar + View Tabs
+// =============================================================================
+(function() {
+    const MS_MONTH_KEY = 'salesbuddy_ms_cal_month';
+    const MS_YEAR_KEY = 'salesbuddy_ms_cal_year';
+    const MS_VIEW_KEY = 'salesbuddy_ms_view';
+    let year = parseInt(localStorage.getItem(MS_YEAR_KEY)) || new Date().getFullYear();
+    let month = parseInt(localStorage.getItem(MS_MONTH_KEY)) || (new Date().getMonth() + 1);
+    let calendarIsActive = localStorage.getItem(MS_VIEW_KEY) === 'calendar';
+
+    const instance = document.querySelector('.milestone-tracker-instance');
+    if (!instance) return;
+
+    const filterCard = instance.querySelector('[data-role="filterCard"]');
+    const calWrap = document.getElementById('msCalendarWrap');
+    // Grab the list content element (table or empty state) before inserting tabs
+    const listContentEl = filterCard ? filterCard.nextElementSibling : null;
+
+    // Create tab nav and insert between filter bar and content
+    const tabNav = document.createElement('div');
+    tabNav.className = 'mb-3';
+    tabNav.innerHTML =
+        '<ul class="nav nav-pills nav-sm mb-0">' +
+            '<li class="nav-item">' +
+                '<button class="nav-link' + (!calendarIsActive ? ' active' : '') + '" data-ms-view="list">' +
+                    '<i class="bi bi-list-ul"></i> List' +
+                '</button>' +
+            '</li>' +
+            '<li class="nav-item">' +
+                '<button class="nav-link' + (calendarIsActive ? ' active' : '') + '" data-ms-view="calendar">' +
+                    '<i class="bi bi-calendar3"></i> Calendar' +
+                '</button>' +
+            '</li>' +
+        '</ul>';
+
+    if (filterCard) {
+        filterCard.after(tabNav);
+        tabNav.after(calWrap);
+    }
+
+    function setView(view) {
+        calendarIsActive = (view === 'calendar');
+        localStorage.setItem(MS_VIEW_KEY, view);
+
+        tabNav.querySelectorAll('.nav-link').forEach(function(btn) {
+            btn.classList.toggle('active', btn.dataset.msView === view);
+        });
+
+        if (calendarIsActive) {
+            if (listContentEl) listContentEl.style.display = 'none';
+            calWrap.style.display = '';
+            load();
+        } else {
+            if (listContentEl) listContentEl.style.display = '';
+            calWrap.style.display = 'none';
+        }
+    }
+
+    tabNav.querySelectorAll('.nav-link').forEach(function(btn) {
+        btn.addEventListener('click', function() { setView(btn.dataset.msView); });
+    });
+
+    // Calendar month navigation
+    function savePos() {
+        localStorage.setItem(MS_YEAR_KEY, year);
+        localStorage.setItem(MS_MONTH_KEY, month);
+    }
+
+    document.getElementById('msPrevMonthBtn').addEventListener('click', function() {
+        if (month === 1) { month = 12; year--; } else { month--; }
+        savePos(); load();
+    });
+    document.getElementById('msNextMonthBtn').addEventListener('click', function() {
+        if (month === 12) { month = 1; year++; } else { month++; }
+        savePos(); load();
+    });
+    document.getElementById('msTodayBtn').addEventListener('click', function() {
+        var now = new Date();
+        year = now.getFullYear(); month = now.getMonth() + 1;
+        savePos(); load();
+    });
+
+    // Build filter query params from the tracker filter bar
+    function getFilterParams() {
+        var params = '';
+        var seller = instance.querySelector('[data-role="sellerFilter"]');
+        var status = instance.querySelector('[data-role="statusFilter"]');
+        var area = instance.querySelector('[data-role="areaFilter"]');
+        var urgency = instance.querySelector('[data-role="urgencyFilter"]');
+        var myTeam = instance.querySelector('[data-role="myTeamFilter"]');
+
+        if (seller && seller.value) params += '&seller_id=' + seller.value;
+        if (status && status.value) params += '&status=' + encodeURIComponent(status.value);
+        if (area && area.value) params += '&area=' + encodeURIComponent(area.value);
+        if (urgency && urgency.value) params += '&urgency=' + encodeURIComponent(urgency.value);
+        if (myTeam && myTeam.checked) params += '&team_only=1';
+
+        var checkedQs = instance.querySelectorAll('.quarter-checkbox:checked');
+        var allQs = instance.querySelectorAll('.quarter-checkbox');
+        if (checkedQs.length === 0 && allQs.length > 0) {
+            params += '&quarters=none';
+        } else if (checkedQs.length < allQs.length && checkedQs.length > 0) {
+            var qvals = Array.from(checkedQs).map(function(cb) { return cb.value; });
+            params += '&quarters=' + encodeURIComponent(qvals.join(','));
+        }
+
+        return params;
+    }
+
+    function load() {
+        if (!calendarIsActive) return;
+        var body = document.getElementById('msCalendarBody');
+        var title = document.getElementById('msCalendarTitle');
+        body.innerHTML = '<tr><td colspan="7" class="text-center py-4"><div class="spinner-border spinner-border-sm"></div> Loading...</td></tr>';
+
+        var filterParams = getFilterParams();
+        fetch('/api/milestones/calendar?year=' + year + '&month=' + month + filterParams)
+            .then(function(r) { return r.json(); })
+            .then(function(data) { title.textContent = data.month_name + ' ' + data.year; render(data); })
+            .catch(function() { body.innerHTML = '<tr><td colspan="7" class="text-center py-4 text-danger">Error loading calendar</td></tr>'; });
+    }
+
+    function render(data) {
+        var body = document.getElementById('msCalendarBody');
+        body.innerHTML = '';
+        var days = data.days || {};
+        var daysInMonth = data.days_in_month;
+        var todayDay = data.today_day;
+
+        function esc(text) {
+            if (!text) return '';
+            var d = document.createElement('div'); d.textContent = text; return d.innerHTML;
+        }
+
+        var colorMap = {};
+        var allIds = new Set();
+        Object.values(days).forEach(function(items) { items.forEach(function(m) { allIds.add(m.customer_id); }); });
+        Array.from(allIds).forEach(function(id, i) { colorMap[id] = (i % 15) + 1; });
+
+        var firstDow = new Date(data.year, data.month - 1, 1).getDay();
+        var dayNum = 1, started = false;
+
+        while (dayNum <= daysInMonth) {
+            var row = document.createElement('tr');
+            for (var col = 0; col < 7; col++) {
+                var cell = document.createElement('td');
+                cell.className = 'p-1'; cell.style.verticalAlign = 'top'; cell.style.height = '100px';
+
+                if ((!started && col < firstDow) || dayNum > daysInMonth) {
+                    cell.classList.add('bg-light');
+                } else {
+                    started = true;
+                    var d = dayNum;
+                    var header = document.createElement('div');
+                    header.className = 'd-flex justify-content-between align-items-center mb-1';
+                    var numEl = document.createElement('span');
+                    numEl.className = 'fw-bold small';
+                    if (d === todayDay) { numEl.innerHTML = '<span class="badge bg-primary rounded-circle">' + d + '</span>'; }
+                    else { numEl.textContent = d; }
+                    header.appendChild(numEl);
+
+                    var msForDay = days[d] || [];
+                    if (msForDay.length > 0) {
+                        var badge = document.createElement('span');
+                        badge.className = 'badge bg-success rounded-pill'; badge.style.fontSize = '0.65rem';
+                        badge.textContent = msForDay.length; header.appendChild(badge);
+                    }
+                    cell.appendChild(header);
+
+                    if (msForDay.length > 0) {
+                        var container = document.createElement('div');
+                        container.style.maxHeight = '72px'; container.style.overflowY = 'auto';
+                        container.className = 'calendar-entries';
+
+                        msForDay.forEach(function(ms) {
+                            var entry = document.createElement('div');
+                            entry.style.cursor = 'pointer';
+                            entry.addEventListener('click', function() {
+                                window.location.href = '/milestone/' + ms.id;
+                            });
+                            var statusClass = ms.status === 'On Track' ? 'ms-status-ontrack'
+                                : ms.status === 'At Risk' ? 'ms-status-atrisk' : 'ms-status-blocked';
+                            var colorIdx = colorMap[ms.customer_id] || 1;
+                            entry.className = 'd-block text-decoration-none text-truncate mb-1 px-1 rounded ms-cal-entry ' + statusClass + ' cal-customer-' + colorIdx;
+                            entry.style.color = 'inherit';
+
+                            var label = '';
+                            if (ms.on_my_team) { label += '<i class="bi bi-people-fill text-primary" style="font-size:.7em"></i> '; }
+                            label += esc(ms.customer_name);
+                            if (ms.monthly_usage) { label += ' <span class="text-muted">$' + Number(ms.monthly_usage).toLocaleString() + '</span>'; }
+                            entry.innerHTML = label;
+
+                            var tip = ms.customer_name + ' - ' + esc(ms.title);
+                            if (ms.seller_name) tip += ' (' + ms.seller_name + ')';
+                            if (ms.status) tip += ' [' + ms.status + ']';
+                            entry.title = tip;
+
+                            entry.setAttribute('data-customer-id', ms.customer_id);
+                            entry.addEventListener('mouseenter', function() {
+                                document.querySelectorAll('#msCalendarBody [data-customer-id="' + ms.customer_id + '"]')
+                                    .forEach(function(el) { el.classList.add('cal-highlight'); });
+                            });
+                            entry.addEventListener('mouseleave', function() {
+                                document.querySelectorAll('#msCalendarBody [data-customer-id="' + ms.customer_id + '"]')
+                                    .forEach(function(el) { el.classList.remove('cal-highlight'); });
+                            });
+
+                            container.appendChild(entry);
+                        });
+                        cell.appendChild(container);
+                    }
+                    dayNum++;
+                }
+                row.appendChild(cell);
+            }
+            body.appendChild(row);
+        }
+    }
+
+    // Reload calendar when tracker filters change
+    document.addEventListener('milestone-filter-change', function() {
+        if (calendarIsActive) load();
+    });
+
+    // Initialize view
+    setView(calendarIsActive ? 'calendar' : 'list');
+})();
+</script>
+
 <script>
 // =============================================================================
 // Join Milestone Team (inline tracker)
