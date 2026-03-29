@@ -767,10 +767,9 @@ class TestEngagementsHub:
             assert field in e, f"Missing field: {field}"
 
     def test_navbar_has_engagements_link(self, client, engagement_data):
-        """Navbar should have an Engagements link."""
+        """Navbar should have an Engagements link in Browse dropdown."""
         resp = client.get('/')
         assert resp.status_code == 200
-        assert b'navEngagements' in resp.data
         assert b'/engagements' in resp.data
 
 

@@ -16,8 +16,9 @@ const PageHelp = (function () {
       <p>Your home base — a quick overview of recent activity across Sales Buddy.</p>
       <h6>Quick actions</h6>
       <ul>
-        <li>Use <span class="kbd">Ctrl</span>+<span class="kbd">K</span> to jump to any customer</li>
+        <li>Use <span class="kbd">/</span> or <span class="kbd">Ctrl</span>+<span class="kbd">K</span> to jump to any customer</li>
         <li>Use <span class="kbd">Ctrl</span>+<span class="kbd">Shift</span>+<span class="kbd">N</span> to create a quick note</li>
+        <li>Press <span class="kbd">?</span> to see all keyboard shortcuts</li>
         <li>Click any card to dive into that section</li>
       </ul>
     `},

@@ -242,6 +242,7 @@
             background-color: var(--sb-navbar) !important;
             border-bottom: 1px solid var(--sb-border);
             transition: background-color 0.2s ease;
+            z-index: 1050;
         }
         [data-bs-theme="dark"] .sb-navbar {
             background-color: var(--sb-navy) !important;
@@ -308,6 +309,84 @@
             border: 1px solid rgba(0, 0, 0, 0.15) !important;
             box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08) !important;
         }
+
+        /* --- Navbar customer search --- */
+        #navCustomerSearch,
+        #navSearchIcon {
+            border-color: rgba(255, 255, 255, 0.2) !important;
+            color: rgba(255, 255, 255, 0.4) !important;
+            transition: border-color 0.2s, color 0.2s;
+        }
+        #navCustomerSearch::placeholder {
+            color: rgba(255, 255, 255, 0.3);
+            transition: color 0.2s;
+        }
+        #navCustomerSearch:focus {
+            background-color: rgba(255, 255, 255, 0.08) !important;
+            border-color: rgba(255, 255, 255, 0.5) !important;
+            color: #fff !important;
+            box-shadow: none;
+        }
+        #navCustomerSearch:focus::placeholder {
+            color: rgba(255, 255, 255, 0.5);
+        }
+        #navCustomerSearch:focus ~ #navSearchIcon,
+        #navQuickLookup:focus-within #navSearchIcon {
+            border-color: rgba(255, 255, 255, 0.5) !important;
+            color: rgba(255, 255, 255, 0.7) !important;
+        }
+        [data-bs-theme="light"] #navCustomerSearch,
+        [data-bs-theme="light"] #navSearchIcon {
+            border-color: rgba(0, 0, 0, 0.15) !important;
+            color: rgba(0, 0, 0, 0.3) !important;
+        }
+        [data-bs-theme="light"] #navCustomerSearch::placeholder {
+            color: rgba(0, 0, 0, 0.3);
+        }
+        [data-bs-theme="light"] #navCustomerSearch:focus {
+            border-color: rgba(0, 0, 0, 0.4) !important;
+            color: #0E1A2B !important;
+            background-color: rgba(0, 0, 0, 0.05) !important;
+        }
+        [data-bs-theme="light"] #navQuickLookup:focus-within #navSearchIcon {
+            border-color: rgba(0, 0, 0, 0.4) !important;
+            color: rgba(0, 0, 0, 0.5) !important;
+        }
+
+        /* --- Navbar search results panel --- */
+        #navCustomerResults .list-group-item {
+            padding: 0.6rem 1rem;
+            border-left: 3px solid transparent;
+            border-right: none;
+            border-top: none;
+            font-size: 0.92rem;
+        }
+        #navCustomerResults .list-group-item:last-child {
+            border-bottom: none;
+        }
+        #navCustomerResults .list-group-item-action:hover {
+            background-color: #e9ecef;
+        }
+        [data-bs-theme="dark"] #navCustomerResults {
+            background-color: #1a2636;
+            border-color: rgba(255,255,255,0.1) !important;
+        }
+        [data-bs-theme="dark"] #navCustomerResults .list-group-item {
+            background-color: transparent;
+            border-bottom-color: rgba(255,255,255,0.06);
+        }
+        [data-bs-theme="dark"] #navCustomerResults .list-group-item-action:hover {
+            background-color: #243040;
+        }
+        #navCustomerResults .list-group-item.enter-target {
+            background-color: #e9ecef;
+            border-left-color: #2A86D1;
+        }
+        [data-bs-theme="dark"] #navCustomerResults .list-group-item.enter-target {
+            background-color: #243040;
+            border-left-color: #4A9DE0;
+        }
+
         .navbar .btn-light:hover,
         .navbar .btn-light:focus {
             box-shadow: 0 2px 4px rgba(0, 0, 0, 0.12) !important;
@@ -443,7 +522,7 @@
     <!-- Navigation -->
     {% if not request.args.get('embed') %}
     <nav class="navbar navbar-expand-lg sb-navbar sticky-top">
-        <div class="container-fluid px-4">
+        <div class="container-fluid px-4 position-relative">
             <a class="navbar-brand d-flex align-items-center" href="{{ url_for('main.index') }}">
                 <img src="{{ url_for('static', filename='Sales Buddy.jpeg') }}" alt="Sales Buddy" height="28" style="position:relative;top:1px;margin-right:2px;">
                 {% if is_debug %}
@@ -539,9 +618,6 @@
                     </li>
                 </ul>
                 <div class="d-flex align-items-center gap-2">
-                    <button class="btn btn-outline-light" id="navQuickLookup" data-bs-toggle="modal" data-bs-target="#quickCustomerLookupModal" title="Quick customer lookup (Ctrl+K)" aria-label="Quick customer lookup">
-                        <i class="bi bi-building"></i>
-                    </button>
                     <button class="btn btn-success" id="navNewNote" data-bs-toggle="modal" data-bs-target="#quickNoteModal" title="Create new note (Ctrl+Shift+N)" aria-label="Create new note">
                         <i class="bi bi-plus-circle"></i> <span class="d-none d-md-inline">New Note</span>
                     </button>
@@ -563,6 +639,14 @@
                         </ul>
                     </div>
                 </div>
+            </div>
+            <!-- Centered customer search -->
+            <div class="position-absolute d-none d-lg-block" id="navQuickLookup" style="left: 50%; transform: translateX(-50%); z-index: 1;">
+                <div class="input-group input-group-sm" style="width: 360px;">
+                    <span class="input-group-text bg-transparent" id="navSearchIcon"><i class="bi bi-search"></i></span>
+                    <input type="text" class="form-control form-control-sm bg-transparent" id="navCustomerSearch" placeholder="Type / to search customers" autocomplete="off" aria-label="Customer search">
+                </div>
+                <div id="navCustomerResults" class="list-group shadow-lg" style="width: 525px; max-height: 70vh; overflow-y: auto; display: none; position: absolute; top: calc(100% + 6px); left: 50%; transform: translateX(-50%); z-index: 1050; border: 1px solid rgba(255,255,255,0.15); border-radius: 8px;"></div>
             </div>
         </div>
     </nav>
@@ -1214,8 +1298,8 @@
                     <table class="table table-sm mb-0">
                         <tbody>
                             <tr>
-                                <td><span class="kbd">Ctrl</span> + <span class="kbd">K</span></td>
-                                <td>Quick customer lookup</td>
+                                <td><span class="kbd">/</span> or <span class="kbd">Ctrl</span> + <span class="kbd">K</span></td>
+                                <td>Customer search</td>
                             </tr>
                             <tr>
                                 <td><span class="kbd">Ctrl</span> + <span class="kbd">Shift</span> + <span class="kbd">N</span></td>
@@ -1230,7 +1314,7 @@
                                 <td>Page help</td>
                             </tr>
                             <tr>
-                                <td><span class="kbd">/</span> or <span class="kbd">?</span></td>
+                                <td><span class="kbd">?</span></td>
                                 <td>Show this help</td>
                             </tr>
                             <tr>
@@ -1244,27 +1328,6 @@
         </div>
     </div>
     
-    <!-- Quick Customer Lookup Modal -->
-    <div class="modal fade" id="quickCustomerLookupModal" tabindex="-1" aria-labelledby="quickCustomerLookupModalLabel" aria-hidden="true">
-        <div class="modal-dialog modal-dialog-scrollable">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title" id="quickCustomerLookupModalLabel">
-                        <i class="bi bi-building"></i> Go to Customer
-                    </h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                </div>
-                <div class="modal-body">
-                    <div class="mb-3">
-                        <label for="customerLookupSearch" class="form-label">Search for Customer</label>
-                        <input type="text" class="form-control" id="customerLookupSearch" placeholder="Search customers..." autocomplete="off">
-                    </div>
-                    <div id="customerLookupResults" class="list-group" style="max-height: 400px; overflow-y: auto;"></div>
-                </div>
-            </div>
-        </div>
-    </div>
-
     <!-- Footer -->
     {% if not request.args.get('embed') %}
     <footer class="bg-light text-center text-muted py-3 mt-5">
@@ -2716,8 +2779,6 @@
         window.addEventListener('load', () => {
             // Setup for call log modal - goes to call log form
             setupCustomerSearchModal('quickNoteModal', 'customerSearch', 'customerResults', '{{ url_for("notes.note_create") }}?customer_id=', '{{ url_for("notes.note_create") }}');
-            // Setup for customer lookup modal - goes directly to customer page
-            setupCustomerSearchModal('quickCustomerLookupModal', 'customerLookupSearch', 'customerLookupResults', '{{ url_for("customers.customer_view", id=0) }}'.replace('/0', '/'));
             // Setup for new engagement modal - goes to engagement form
             setupCustomerSearchModal('quickEngagementModal', 'engagementCustomerSearch', 'engagementCustomerResults', '{{ url_for("customers.customer_view", id=0) }}'.replace('/0', '/'), null, function() { return '/engagement/new'; });
             // Setup for calendar quick-create modal (if present on page)
@@ -2860,6 +2921,154 @@
             });
         }
     </script>
+
+    <!-- Navbar Inline Customer Search -->
+    <script defer>
+        window.addEventListener('load', () => {
+            const navSearch = document.getElementById('navCustomerSearch');
+            const navResults = document.getElementById('navCustomerResults');
+            if (!navSearch || !navResults) return;
+
+            const customerUrl = '{{ url_for("customers.customer_view", id=0) }}'.replace('/0', '/');
+            let allCustomers = null;
+            let selectedIndex = -1;
+
+            async function loadCustomers() {
+                if (allCustomers) return;
+                try {
+                    const resp = await fetch('{{ url_for("customers.api_customers_list") }}');
+                    allCustomers = await resp.json();
+                } catch (err) {
+                    navResults.innerHTML = '<div class="list-group-item text-danger">Error loading customers</div>';
+                }
+            }
+
+            function renderResults(customers) {
+                if (!customers || customers.length === 0) {
+                    navResults.innerHTML = '<div class="list-group-item text-muted" style="border-left:3px solid transparent;">No customers found</div>';
+                    navResults.style.display = 'block';
+                    showBackdrop();
+                    selectedIndex = -1;
+                    return;
+                }
+                // Only clamp if something is selected
+                if (selectedIndex >= customers.length) selectedIndex = customers.length - 1;
+
+                navResults.innerHTML = customers.map((c, i) => {
+                    const displayName = c.nickname ? `${c.name} (${c.nickname})` : c.name;
+                    const tpidBadge = c.tpid ? `<span class="badge bg-secondary ms-2">TPID: ${c.tpid}</span>` : '';
+                    const cls = (selectedIndex >= 0 && i === selectedIndex) ? ' enter-target' : '';
+                    return `<a href="${customerUrl}${c.id}" class="list-group-item list-group-item-action${cls}" data-index="${i}"><i class="bi bi-building"></i> ${displayName}${tpidBadge}</a>`;
+                }).join('');
+                navResults.style.display = 'block';
+                showBackdrop();
+
+                // Scroll active item into view
+                const activeEl = navResults.querySelector('.enter-target');
+                if (activeEl) activeEl.scrollIntoView({ block: 'nearest' });
+            }
+
+            function getFiltered() {
+                if (!allCustomers) return [];
+                const q = navSearch.value.trim().toLowerCase();
+                if (!q) return [];
+                return allCustomers.filter(c =>
+                    c.name.toLowerCase().includes(q) ||
+                    (c.nickname && c.nickname.toLowerCase().includes(q)) ||
+                    (c.tpid && String(c.tpid).includes(q))
+                );
+            }
+
+            // Backdrop overlay for dimming the page
+            const backdrop = document.createElement('div');
+            backdrop.id = 'navSearchBackdrop';
+            backdrop.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:1040;display:none;';
+            document.body.appendChild(backdrop);
+            backdrop.addEventListener('click', function() {
+                navSearch.value = '';
+                closeResults();
+                navSearch.blur();
+            });
+
+            function showBackdrop() { backdrop.style.display = 'block'; }
+            function hideBackdrop() { backdrop.style.display = 'none'; }
+
+            function closeResults() {
+                navResults.style.display = 'none';
+                navResults.innerHTML = '';
+                selectedIndex = -1;
+                hideBackdrop();
+            }
+
+            navSearch.addEventListener('focus', async function() {
+                await loadCustomers();
+                selectedIndex = this.value.trim() ? 0 : -1;
+                renderResults(this.value.trim() ? getFiltered() : allCustomers.slice(0, 10));
+            });
+
+            navSearch.addEventListener('input', function() {
+                const q = this.value.trim();
+                if (!q) {
+                    selectedIndex = -1;
+                    renderResults(allCustomers.slice(0, 10));
+                    return;
+                }
+                selectedIndex = 0;
+                renderResults(getFiltered());
+            });
+
+            navSearch.addEventListener('keydown', function(e) {
+                const visible = navSearch.value.trim() ? getFiltered() : (allCustomers || []).slice(0, 10);
+                if (!visible.length && e.key !== 'Escape') return;
+
+                if (e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    selectedIndex = Math.min(selectedIndex + 1, visible.length - 1);
+                    renderResults(visible);
+                } else if (e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    selectedIndex = Math.max(selectedIndex - 1, 0);
+                    renderResults(visible);
+                } else if (e.key === 'Tab') {
+                    if (visible.length && navResults.style.display === 'block') {
+                        e.preventDefault();
+                        if (e.shiftKey) {
+                            selectedIndex = (selectedIndex - 1 + visible.length) % visible.length;
+                        } else {
+                            selectedIndex = (selectedIndex + 1) % visible.length;
+                        }
+                        renderResults(visible);
+                    }
+                } else if (e.key === 'Enter') {
+                    e.preventDefault();
+                    if (visible.length && selectedIndex >= 0 && selectedIndex < visible.length) {
+                        window.location.href = customerUrl + visible[selectedIndex].id;
+                    }
+                } else if (e.key === 'Escape') {
+                    navSearch.value = '';
+                    closeResults();
+                    navSearch.blur();
+                }
+            });
+
+            // Mouse hover updates selection
+            navResults.addEventListener('mouseover', function(e) {
+                const item = e.target.closest('.list-group-item-action[data-index]');
+                if (item) {
+                    selectedIndex = parseInt(item.dataset.index);
+                    navResults.querySelectorAll('.list-group-item-action').forEach(el => el.classList.remove('enter-target'));
+                    item.classList.add('enter-target');
+                }
+            });
+
+            // Close when clicking outside
+            document.addEventListener('click', function(e) {
+                if (!navSearch.contains(e.target) && !navResults.contains(e.target)) {
+                    closeResults();
+                }
+            });
+        });
+    </script>
     
     <!-- Global Keyboard Shortcuts -->
     <script defer>
@@ -2876,13 +3085,13 @@
                 const tag = e.target.tagName.toLowerCase();
                 const isTyping = tag === 'input' || tag === 'textarea' || e.target.isContentEditable;
                 
-                // Ctrl+K: Open Quick Customer Lookup
+                // Ctrl+K: Focus navbar customer search
                 if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
                     e.preventDefault();
-                    const lookupModal = document.getElementById('quickCustomerLookupModal');
-                    if (lookupModal && typeof bootstrap !== 'undefined') {
-                        const modal = bootstrap.Modal.getOrCreateInstance(lookupModal);
-                        modal.show();
+                    const navSearch = document.getElementById('navCustomerSearch');
+                    if (navSearch) {
+                        navSearch.focus();
+                        navSearch.select();
                     }
                 }
                 // Ctrl+Shift+N: Open Quick New Note
@@ -2894,8 +3103,17 @@
                         modal.show();
                     }
                 }
-                // / or ?: Toggle keyboard shortcuts help (only when not typing)
-                if (!isTyping && (e.key === '/' || e.key === '?')) {
+                // / : Focus customer search (only when not typing)
+                if (!isTyping && e.key === '/') {
+                    e.preventDefault();
+                    const navSearch = document.getElementById('navCustomerSearch');
+                    if (navSearch) {
+                        navSearch.focus();
+                        navSearch.select();
+                    }
+                }
+                // ?: Toggle keyboard shortcuts help (only when not typing)
+                if (!isTyping && e.key === '?') {
                     e.preventDefault();
                     const helpModal = document.getElementById('keyboardShortcutsModal');
                     if (helpModal && typeof bootstrap !== 'undefined') {
@@ -3195,8 +3413,8 @@
                     {
                         element: '#navQuickLookup',
                         popover: {
-                            title: 'Quick Customer Lookup',
-                            description: 'Quickly navigate to a specific customer\'s page with text search.',
+                            title: 'Customer Search',
+                            description: 'Type a customer name to jump to their page. Use Ctrl+K to focus from anywhere.',
                             side: 'bottom',
                             align: 'end'
                         }

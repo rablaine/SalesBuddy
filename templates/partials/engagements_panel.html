@@ -170,11 +170,12 @@
             if (eng.seller_name) parts.push('<i class="bi bi-person"></i> ' + escapeHtml(eng.seller_name));
             if (eng.customer_name) {
                 const iconHtml = eng.customer_favicon
-                    ? '<img src="data:image/png;base64,' + eng.customer_favicon + '" width="12" height="12" alt="" style="vertical-align:middle;">' 
+                    ? '<img src="data:image/png;base64,' + eng.customer_favicon + '" width="12" height="12" alt="" style="vertical-align:middle;">'
                     : '<i class="bi bi-building"></i>';
-                parts.push(iconHtml + ' <a href="/customer/' + eng.customer_id + '" class="text-decoration-none" onclick="event.stopPropagation();">' + escapeHtml(eng.customer_name) + '</a>');
+                const custDisplay = eng.customer_nickname || eng.customer_name;
+                parts.push(iconHtml + ' <a href="/customer/' + eng.customer_id + '" class="text-decoration-none" onclick="event.stopPropagation();">' + escapeHtml(custDisplay) + '</a>');
             }
-            if (parts.length) contextHtml = '<div class="text-muted mb-1" style="font-size:0.75rem;">' + parts.join(' <span class="mx-1">|</span> ') + '</div>';
+            if (parts.length) contextHtml = '<div class="text-muted text-truncate mb-1" style="font-size:0.75rem;">' + parts.join(' <span class="mx-1">|</span> ') + '</div>';
         }
 
         return `<div style="width:300px; flex-shrink:0;"><div class="card h-100 border" style="cursor:pointer;" onclick="if(!event.target.closest('a')){window.location='/engagement/${eng.id}'}">
@@ -213,7 +214,7 @@
         return `<div style="flex: 0 1 auto;">
             <div class="d-flex align-items-center gap-2 mb-1 px-1">
                 ${iconHtml}
-                <a href="/customer/${group.id}" class="fw-semibold text-decoration-none" style="font-size:0.9rem;">${escapeHtml(group.name)}</a>
+                <a href="/customer/${group.id}" class="fw-semibold text-decoration-none text-truncate" style="font-size:0.9rem;max-width:250px;">${escapeHtml(group.name)}</a>
                 <span class="badge bg-secondary" style="font-size:0.65rem;">${group.items.length}</span>
             </div>
             <div class="d-flex flex-wrap gap-2">${cards}</div>
@@ -225,7 +226,7 @@
         items.forEach(eng => {
             const key = eng.customer_id || 0;
             if (!groups.has(key)) {
-                groups.set(key, { name: eng.customer_name, id: eng.customer_id, seller: eng.seller_name, favicon: eng.customer_favicon, items: [] });
+                groups.set(key, { name: eng.customer_nickname || eng.customer_name, id: eng.customer_id, seller: eng.seller_name, favicon: eng.customer_favicon, items: [] });
             }
             groups.get(key).items.push(eng);
         });

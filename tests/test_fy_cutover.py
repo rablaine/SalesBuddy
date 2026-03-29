@@ -353,17 +353,18 @@ class TestNavbarReorg:
     """Tests for navbar reorganization."""
 
     def test_notes_in_main_nav(self, client):
-        """Notes should be a top-level nav item, not in More menu."""
+        """Notes should be accessible from the Browse dropdown."""
         resp = client.get('/')
         html = resp.data.decode()
-        # Notes should be in the main nav area with id="navNotes"
-        assert 'id="navNotes"' in html
+        # Notes should be in the Browse dropdown
+        assert '/notes' in html
 
     def test_customers_in_main_nav(self, client):
-        """Customers should be a top-level nav item."""
+        """Customers should be accessible from the navbar."""
         resp = client.get('/')
         html = resp.data.decode()
-        assert 'id="navCustomers"' in html
+        # Customers link should be in the navbar (Browse dropdown or top-level in DSS mode)
+        assert '/customers' in html
 
 
 class TestArchiveExplorer:
@@ -607,10 +608,10 @@ class TestNavbarReorgExtended:
         assert 'id="navPods"' not in html
 
     def test_partners_in_main_nav(self, client):
-        """Partners should be a top-level nav item."""
+        """Partners should be accessible from the Browse dropdown."""
         resp = client.get('/')
         html = resp.data.decode()
-        assert 'id="navPartners"' in html
+        assert '/partners' in html
 
     def test_topics_in_more_dropdown(self, client):
         """Topics should be in the More dropdown menu."""

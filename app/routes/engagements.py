@@ -103,6 +103,7 @@ def api_all_engagements():
             'title': eng.title,
             'status': eng.status,
             'customer_name': eng.customer.name if eng.customer else 'Unknown',
+            'customer_nickname': eng.customer.nickname if eng.customer else None,
             'customer_id': eng.customer_id,
             'seller_name': (eng.customer.seller.name
                            if eng.customer and eng.customer.seller else None),
