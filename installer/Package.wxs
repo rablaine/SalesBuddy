@@ -23,7 +23,10 @@
              Scope="perUser"
              InstallerVersion="500">
 
-        <SummaryInformation Description="Sales Buddy - Note-taking app for Azure technical sellers" />
+        <SummaryInformation Description="Sales Buddy - Your Azure sales companion" />
+
+        <!-- Embed cabinet into MSI so it's a single file -->
+        <MediaTemplate EmbedCab="yes" />
 
         <!-- Upgrade: remove previous versions before install -->
         <MajorUpgrade DowngradeErrorMessage="A newer version of Sales Buddy is already installed." />
