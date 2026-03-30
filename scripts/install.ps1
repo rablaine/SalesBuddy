@@ -402,8 +402,11 @@ $env:GCM_INTERACTIVE = 'never'
 if (Test-Path (Join-Path $InstallDir '.git')) {
     Write-Log "Repository already exists at $InstallDir, pulling latest."
     Push-Location $InstallDir
-    $pullOutput = git -c credential.helper= pull --ff-only 2>&1
-    $pullOutput | ForEach-Object { Write-Log "  [git] $_" }
+    # Use fetch + reset instead of pull to handle dirty working trees from
+    # previous installs (untracked scripts, modified files, etc.).
+    git -c credential.helper= fetch origin 2>&1 | ForEach-Object { Write-Log "  [git] $_" }
+    git reset --hard origin/main 2>&1 | ForEach-Object { Write-Log "  [git] $_" }
+    git clean -fd 2>&1 | ForEach-Object { Write-Log "  [git] $_" }
     Pop-Location
 } elseif (Test-Path $InstallDir) {
     # Directory exists but isn't a git repo (MSI installed bootstrap files here).

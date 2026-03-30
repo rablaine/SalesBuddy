@@ -93,7 +93,8 @@ if (Test-Path $DesktopShortcut) {
 # We only need to handle the git-cloned repo at %LOCALAPPDATA%\SalesBuddy.
 $removeFiles = $false
 if ($Silent) {
-    # MSI handles file removal. Backup the database so the user doesn't lose data.
+    # MSI uninstall: backup the database, then remove the cloned repo.
+    # The script is running FROM this directory, so we cd out first.
     $clonedRepo = Join-Path $env:LOCALAPPDATA 'SalesBuddy'
     $dbFile = Join-Path $clonedRepo 'data\salesbuddy.db'
     if (Test-Path $dbFile) {
@@ -101,13 +102,13 @@ if ($Silent) {
         Copy-Item $dbFile $dbBackup -ErrorAction SilentlyContinue
         Write-Host "  [OK] Database backed up to $dbBackup" -ForegroundColor Green
     }
-    # Remove the cloned repo (separate from the MSI install directory)
-    # Use cmd rmdir which is orders of magnitude faster than Remove-Item -Recurse
-    if ((Test-Path $clonedRepo) -and ($clonedRepo -ne $RepoRoot)) {
+    # Move out of the directory so rmdir can delete it
+    Set-Location $env:TEMP
+    if (Test-Path $clonedRepo) {
         Write-Host "  Removing app files (this may take a moment)..." -ForegroundColor Yellow
         cmd /c "rmdir /s /q `"$clonedRepo`"" 2>$null
         if (-not (Test-Path $clonedRepo)) {
-            Write-Host "  [OK] Cloned repository removed." -ForegroundColor Green
+            Write-Host "  [OK] App files removed." -ForegroundColor Green
         } else {
             Write-Host "  [WARNING] Some files could not be removed (may be in use)." -ForegroundColor Yellow
         }
