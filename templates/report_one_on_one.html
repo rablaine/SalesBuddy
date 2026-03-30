@@ -69,9 +69,7 @@
         </div>
     </div>
 
-    {% set wins_count = milestone_commitments|length %}
-    {% set attention_count = quarter_milestones|length %}
-    <!-- Highlights: Wins, Needs Attention, Topics (under shorter column) -->
+    <!-- Highlights: Commitments & Topics | Revenue Alerts & Quarter Milestones -->
     <div class="row mb-4">
         <!-- Left column -->
         <div class="col-md-6 d-flex flex-column gap-3">
@@ -121,6 +119,61 @@
                     {% endif %}
                 </div>
             </div>
+            <!-- Topic Trends -->
+            <div class="card">
+                <div class="card-header py-2">
+                    <h6 class="mb-0"><i class="bi bi-graph-up text-info"></i> Topic Trends (FY)</h6>
+                </div>
+                <div class="card-body p-0">
+                    {% if top_topics %}
+                    <div class="table-responsive">
+                        <table class="table table-sm mb-0" style="font-size: 0.82em; --bs-table-bg: transparent;">
+                            <thead>
+                                <tr class="text-muted" style="font-size: 0.85em;">
+                                    <th class="ps-3">Topic</th>
+                                    <th class="text-center" style="width: 120px;">Trend</th>
+                                    <th class="text-end">2w</th>
+                                    <th class="text-end pe-3">Cust</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for topic in top_topics %}
+                                {% set vals = topic.sparkline %}
+                                {% set mx = vals|max if vals|max > 0 else 1 %}
+                                <tr>
+                                    <td class="ps-3">
+                                        <i class="bi bi-tag text-warning"></i>
+                                        <a href="{{ url_for('topics.topic_view', id=topic.id) }}" class="text-decoration-none" style="font-weight: normal;">{{ topic.name }}</a>
+                                    </td>
+                                    <td class="text-center">
+                                        <svg width="100" height="20" viewBox="0 0 {{ vals|length * 12 }} 20" class="align-middle">
+                                            {% for v in vals %}
+                                            {% set h = (v / mx * 16)|round|int if mx > 0 else 0 %}
+                                            <rect x="{{ loop.index0 * 12 + 1 }}" y="0" width="10" height="20" fill="transparent">
+                                                <title>{{ fy_month_labels[loop.index0] }}: {{ v }}</title>
+                                            </rect>
+                                            <rect x="{{ loop.index0 * 12 + 1 }}" y="{{ 18 - h }}" width="10" height="{{ h + 2 }}" rx="1" fill="{% if loop.last %}#17a2b8{% else %}#6c757d{% endif %}" opacity="{{ 0.4 + (v / mx * 0.6) if mx > 0 else 0.3 }}" style="pointer-events: none;"/>
+                                            {% endfor %}
+                                        </svg>
+                                    </td>
+                                    <td class="text-end"><span class="badge bg-secondary">{{ topic.note_count }}</span></td>
+                                    <td class="text-end pe-3"><small class="text-muted">{{ topic.customer_count }}</small></td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% else %}
+                    <div class="p-3 text-center">
+                        <small class="text-muted">No topics tagged on recent notes.</small>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <!-- Right column -->
+        <div class="col-md-6 d-flex flex-column gap-3">
             <!-- Revenue Alerts Reviewed -->
             <div class="card">
                 <div class="card-header py-2 d-flex justify-content-between align-items-center">
@@ -173,63 +226,6 @@
                     {% endif %}
                 </div>
             </div>
-            {% if wins_count <= attention_count %}
-            <!-- Topics (under Wins - fewer rows) -->
-            <div class="card">
-                <div class="card-header py-2">
-                    <h6 class="mb-0"><i class="bi bi-graph-up text-info"></i> Topic Trends (FY)</h6>
-                </div>
-                <div class="card-body p-0">
-                    {% if top_topics %}
-                    <div class="table-responsive">
-                        <table class="table table-sm mb-0" style="font-size: 0.82em; --bs-table-bg: transparent;">
-                            <thead>
-                                <tr class="text-muted" style="font-size: 0.85em;">
-                                    <th class="ps-3">Topic</th>
-                                    <th class="text-center" style="width: 120px;">Trend</th>
-                                    <th class="text-end">2w</th>
-                                    <th class="text-end pe-3">Cust</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {% for topic in top_topics %}
-                                {% set vals = topic.sparkline %}
-                                {% set mx = vals|max if vals|max > 0 else 1 %}
-                                <tr>
-                                    <td class="ps-3">
-                                        <i class="bi bi-tag text-warning"></i>
-                                        <a href="{{ url_for('topics.topic_view', id=topic.id) }}" class="text-decoration-none" style="font-weight: normal;">{{ topic.name }}</a>
-                                    </td>
-                                    <td class="text-center">
-                                        <svg width="100" height="20" viewBox="0 0 {{ vals|length * 12 }} 20" class="align-middle">
-                                            {% for v in vals %}
-                                            {% set h = (v / mx * 16)|round|int if mx > 0 else 0 %}
-                                            <rect x="{{ loop.index0 * 12 + 1 }}" y="0" width="10" height="20" fill="transparent">
-                                                <title>{{ fy_month_labels[loop.index0] }}: {{ v }}</title>
-                                            </rect>
-                                            <rect x="{{ loop.index0 * 12 + 1 }}" y="{{ 18 - h }}" width="10" height="{{ h + 2 }}" rx="1" fill="{% if loop.last %}#17a2b8{% else %}#6c757d{% endif %}" opacity="{{ 0.4 + (v / mx * 0.6) if mx > 0 else 0.3 }}" style="pointer-events: none;"/>
-                                            {% endfor %}
-                                        </svg>
-                                    </td>
-                                    <td class="text-end"><span class="badge bg-secondary">{{ topic.note_count }}</span></td>
-                                    <td class="text-end pe-3"><small class="text-muted">{{ topic.customer_count }}</small></td>
-                                </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
-                    </div>
-                    {% else %}
-                    <div class="p-3 text-center">
-                        <small class="text-muted">No topics tagged on recent notes.</small>
-                    </div>
-                    {% endif %}
-                </div>
-            </div>
-            {% endif %}
-        </div>
-
-        <!-- Right column -->
-        <div class="col-md-6 d-flex flex-column gap-3">
             <!-- Quarter Milestones -->
             <div class="card">
                 <div class="card-header py-2 d-flex justify-content-between align-items-center">
@@ -284,59 +280,6 @@
                     {% endif %}
                 </div>
             </div>
-            {% if wins_count > attention_count %}
-            <!-- Topics (under Needs Attention - fewer rows) -->
-            <div class="card">
-                <div class="card-header py-2">
-                    <h6 class="mb-0"><i class="bi bi-graph-up text-info"></i> Topic Trends (FY)</h6>
-                </div>
-                <div class="card-body p-0">
-                    {% if top_topics %}
-                    <div class="table-responsive">
-                        <table class="table table-sm mb-0" style="font-size: 0.82em; --bs-table-bg: transparent;">
-                            <thead>
-                                <tr class="text-muted" style="font-size: 0.85em;">
-                                    <th class="ps-3">Topic</th>
-                                    <th class="text-center" style="width: 120px;">Trend</th>
-                                    <th class="text-end">2w</th>
-                                    <th class="text-end pe-3">Cust</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {% for topic in top_topics %}
-                                {% set vals = topic.sparkline %}
-                                {% set mx = vals|max if vals|max > 0 else 1 %}
-                                <tr>
-                                    <td class="ps-3">
-                                        <i class="bi bi-tag text-warning"></i>
-                                        <a href="{{ url_for('topics.topic_view', id=topic.id) }}" class="text-decoration-none" style="font-weight: normal;">{{ topic.name }}</a>
-                                    </td>
-                                    <td class="text-center">
-                                        <svg width="100" height="20" viewBox="0 0 {{ vals|length * 12 }} 20" class="align-middle">
-                                            {% for v in vals %}
-                                            {% set h = (v / mx * 16)|round|int if mx > 0 else 0 %}
-                                            <rect x="{{ loop.index0 * 12 + 1 }}" y="0" width="10" height="20" fill="transparent">
-                                                <title>{{ fy_month_labels[loop.index0] }}: {{ v }}</title>
-                                            </rect>
-                                            <rect x="{{ loop.index0 * 12 + 1 }}" y="{{ 18 - h }}" width="10" height="{{ h + 2 }}" rx="1" fill="{% if loop.last %}#17a2b8{% else %}#6c757d{% endif %}" opacity="{{ 0.4 + (v / mx * 0.6) if mx > 0 else 0.3 }}" style="pointer-events: none;"/>
-                                            {% endfor %}
-                                        </svg>
-                                    </td>
-                                    <td class="text-end"><span class="badge bg-secondary">{{ topic.note_count }}</span></td>
-                                    <td class="text-end pe-3"><small class="text-muted">{{ topic.customer_count }}</small></td>
-                                </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
-                    </div>
-                    {% else %}
-                    <div class="p-3 text-center">
-                        <small class="text-muted">No topics tagged on recent notes.</small>
-                    </div>
-                    {% endif %}
-                </div>
-            </div>
-            {% endif %}
         </div>
     </div>
 
