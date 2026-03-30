@@ -958,7 +958,7 @@ def dark_mode_preference():
     # GET request
     pref = UserPreference.query.first()
     if not pref:
-        pref = UserPreference(dark_mode=True)
+        pref = UserPreference()
         db.session.add(pref)
         db.session.commit()
     
@@ -1410,7 +1410,8 @@ def dev_toggle_role():
 def inject_preferences():
     """Inject user preferences and pending link requests into all templates."""
     pref = UserPreference.query.first() if g.user.is_authenticated else None
-    dark_mode = pref.dark_mode if pref else True
+    dark_mode = pref.dark_mode if pref else None
+    dark_mode_unset = dark_mode is None
     customer_view_grouped = pref.customer_view_grouped if pref else False
     topic_sort_by_calls = pref.topic_sort_by_calls if pref else False
     first_run_modal_dismissed = pref.first_run_modal_dismissed if pref else False
@@ -1477,7 +1478,8 @@ def inject_preferences():
             session.pop('seller_mode_seller_id', None)
 
     return dict(
-        dark_mode=dark_mode, 
+        dark_mode=dark_mode,
+        dark_mode_unset=dark_mode_unset,
         customer_view_grouped=customer_view_grouped, 
         topic_sort_by_calls=topic_sort_by_calls,
         first_run_modal_dismissed=first_run_modal_dismissed,

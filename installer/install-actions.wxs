@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!--
+    Custom Action definitions for Sales Buddy MSI.
+
+    Install: runs run-install.cmd (wrapper that calls install.ps1 with logging)
+    Uninstall: runs run-uninstall.cmd (wrapper that calls uninstall.ps1)
+
+    Uses type 18 custom actions (FileRef + ExeCommand) with Execute="deferred".
+    Deferred actions run inside the InstallFinalize script alongside file
+    operations, so the files are guaranteed to be on disk. Immediate actions
+    run during the script-building phase BEFORE files are extracted.
+
+    Impersonate="yes" ensures the action runs as the installing user (not
+    SYSTEM), which is needed for perUser installs to access user's PATH,
+    %LOCALAPPDATA%, etc.
+-->
+
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+
+    <Fragment>
+
+        <!-- ================================================================
+             INSTALL: Run run-install.cmd wrapper (deferred)
+             Scheduled After InstallFiles - files are on disk at this point.
+             ================================================================ -->
+
+        <CustomAction Id="InstallAction"
+                      FileRef="RunInstallCmd"
+                      ExeCommand=""
+                      Execute="deferred"
+                      Impersonate="yes"
+                      Return="ignore" />
+
+        <!-- ================================================================
+             UNINSTALL: Run run-uninstall.cmd wrapper (deferred)
+             Scheduled Before RemoveFiles - files still on disk.
+             ================================================================ -->
+
+        <CustomAction Id="UninstallAction"
+                      FileRef="RunUninstallCmd"
+                      ExeCommand=""
+                      Execute="deferred"
+                      Impersonate="yes"
+                      Return="ignore" />
+
+        <!-- ================================================================
+             Schedule custom actions in InstallExecuteSequence
+             ================================================================ -->
+
+        <InstallExecuteSequence>
+            <Custom Action="InstallAction" After="InstallFiles" Condition="NOT REMOVE" />
+            <Custom Action="UninstallAction" Before="RemoveFiles" Condition="REMOVE=&quot;ALL&quot;" />
+        </InstallExecuteSequence>
+
+    </Fragment>
+
+</Wix>

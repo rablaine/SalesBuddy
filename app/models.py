@@ -1046,7 +1046,7 @@ class UserPreference(db.Model):
     __tablename__ = 'user_preferences'
     
     id = db.Column(db.Integer, primary_key=True)
-    dark_mode = db.Column(db.Boolean, default=True, nullable=False)
+    dark_mode = db.Column(db.Boolean, default=None, nullable=True)
     customer_view_grouped = db.Column(db.Boolean, default=False, nullable=False)
     customer_sort_by = db.Column(db.String(20), default='alphabetical', nullable=False)  # 'alphabetical', 'grouped', or 'by_calls'
     topic_sort_by_calls = db.Column(db.Boolean, default=False, nullable=False)

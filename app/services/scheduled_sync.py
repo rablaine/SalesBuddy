@@ -169,9 +169,12 @@ def start_milestone_sync_background(app):
         app: Flask application instance.
     """
     with app.app_context():
-        from app.models import UserPreference
+        from app.models import UserPreference, SyncStatus
         pref = UserPreference.query.first()
         if not pref:
+            return
+        if not SyncStatus.is_complete('accounts'):
+            logger.debug("Skipping milestone sync - first account sync not yet completed")
             return
         if not pref.milestone_auto_sync:
             logger.debug("Milestone auto-sync disabled in settings")
@@ -201,9 +204,13 @@ def start_daily_milestone_scheduler(app):
             try:
                 should_run = False
                 with app.app_context():
-                    from app.models import UserPreference
+                    from app.models import UserPreference, SyncStatus
                     pref = UserPreference.query.first()
                     if not pref:
+                        time.sleep(300)
+                        continue
+
+                    if not SyncStatus.is_complete('accounts'):
                         time.sleep(300)
                         continue
 

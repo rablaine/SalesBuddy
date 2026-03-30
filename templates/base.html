@@ -1,10 +1,18 @@
 <!DOCTYPE html>
-<html lang="en" data-bs-theme="{{ 'dark' if dark_mode else 'light' }}">
+<html lang="en" {% if dark_mode is not none %}data-bs-theme="{{ 'dark' if dark_mode else 'light' }}"{% endif %}>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}Sales Buddy{% endblock %}</title>
     <script>if(window.matchMedia('(display-mode: standalone)').matches){document.title=document.title.replace(/ - Sales Buddy$/,'')}</script>
+    <script>
+        // Capture PWA install prompt early (fires before DOMContentLoaded)
+        window.__pwaInstallPrompt = null;
+        window.addEventListener('beforeinstallprompt', function(e) {
+            e.preventDefault();
+            window.__pwaInstallPrompt = e;
+        });
+    </script>
     <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}">
     <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='favicon.png') }}">
     <link rel="manifest" href="/manifest.json">
@@ -866,6 +874,26 @@
                             </div>
                         </div>
 
+                        <!-- PWA Install Prompt (hidden unless browser supports it) -->
+                        <div class="card mb-3 d-none" id="pwaInstallCard">
+                            <div class="card-body">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <div>
+                                        <h6 class="card-title mb-1"><i class="bi bi-window-stack text-primary"></i> Install as Desktop App</h6>
+                                        <p class="text-muted small mb-0">Get a standalone window with no browser tabs or address bar. You can always do this later from the <i class="bi bi-box-arrow-in-down"></i> icon in your browser's URL bar.</p>
+                                    </div>
+                                    <div class="d-flex align-items-center gap-2 ms-3">
+                                        <button class="btn btn-outline-primary btn-sm" id="pwaInstallBtn">
+                                            <i class="bi bi-download"></i> Install
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="d-none mt-2" id="pwaInstallSuccess">
+                                    <span class="text-success small"><i class="bi bi-check-circle-fill"></i> Installed! Sales Buddy will open in its own window next time.</span>
+                                </div>
+                            </div>
+                        </div>
+
                         <div class="alert alert-info mb-0">
                             <i class="bi bi-info-circle"></i> <strong>What's next:</strong> We'll sign you in to Azure (which also enables AI features like topic suggestions and engagement summaries), then import your accounts, milestones, and revenue data.
                         </div>
@@ -1548,6 +1576,26 @@
                 const progressBar = document.getElementById('onboardingProgress');
                 const nextBtn = document.getElementById('onboardNextBtn');
                 const backBtn = document.getElementById('onboardBackBtn');
+
+                // --- PWA Install Prompt ---
+                const pwaInstallCard = document.getElementById('pwaInstallCard');
+                const pwaInstallBtn = document.getElementById('pwaInstallBtn');
+                if (window.__pwaInstallPrompt && pwaInstallCard) {
+                    pwaInstallCard.classList.remove('d-none');
+                    pwaInstallBtn.addEventListener('click', async () => {
+                        const prompt = window.__pwaInstallPrompt;
+                        if (!prompt) return;
+                        window.__pwaInstallPrompt = null;
+                        prompt.prompt();
+                        const result = await prompt.userChoice;
+                        if (result.outcome === 'accepted') {
+                            pwaInstallBtn.classList.add('d-none');
+                            document.getElementById('pwaInstallSuccess').classList.remove('d-none');
+                        } else {
+                            window.__pwaInstallPrompt = prompt;
+                        }
+                    });
+                }
 
 
                 function showStep(step) {
@@ -2447,6 +2495,26 @@
 
                 // --- Wizard Initialization: detect progress and resume at correct step ---
                 async function initWizard() {
+                    // On first launch, dark_mode is unset in the database.
+                    // Detect the OS theme, apply it, and save it so this only
+                    // runs once. After this, UserPreference.dark_mode is set
+                    // and the server renders the correct theme directly.
+                    {% if dark_mode_unset %}
+                    {
+                        const osPrefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+                        htmlElement.setAttribute('data-bs-theme', osPrefersDark ? 'dark' : 'light');
+                        const toggle = document.getElementById('onboardDarkModeToggle');
+                        if (toggle) toggle.checked = osPrefersDark;
+                        try {
+                            await fetch('/api/preferences/dark-mode', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ dark_mode: osPrefersDark })
+                            });
+                        } catch (err) { /* best effort */ }
+                    }
+                    {% endif %}
+
                     let startStep = 1;
 
                     // Check for step override from URL (used after Step 1 role selection reload)

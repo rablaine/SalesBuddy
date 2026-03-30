@@ -82,3 +82,8 @@ issue_plans/
 
 # Temp APIM policy files (may contain secrets)
 apim-policy*.json
+
+# Installer build output
+installer/output/
+installer/bin/
+installer/obj/
