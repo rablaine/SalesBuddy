@@ -10,12 +10,14 @@
         </div>
         <div class="d-flex align-items-center gap-2">
             <label class="form-label mb-0 text-nowrap"><i class="bi bi-funnel"></i></label>
+            {% if user_role != 'dss' %}
             <select class="form-select form-select-sm" id="sellerFilter" style="width: auto;" onchange="applyFilters()">
                 <option value="">All Sellers</option>
                 {% for seller in sellers %}
                 <option value="{{ seller.id }}" {% if seller_mode_sid and seller_mode_sid == seller.id %}selected{% endif %}>{{ seller.name }}</option>
                 {% endfor %}
             </select>
+            {% endif %}
             <select class="form-select form-select-sm" id="areaFilter" style="width: auto;" onchange="applyFilters()">
                 <option value="">All Areas</option>
                 {% for area in areas %}
@@ -189,11 +191,14 @@
 
 <script>
 var STORAGE_KEY = 'whats_new_filters';
+var COLLAPSE_KEY = 'whats_new_collapsed';
 var grouped = true;
+var collapsedGroups = {};
 
 function saveFilters() {
+    var sellerEl = document.getElementById('sellerFilter');
     var state = {
-        seller: document.getElementById('sellerFilter').value,
+        seller: sellerEl ? sellerEl.value : '',
         area: document.getElementById('areaFilter').value,
         team: document.getElementById('teamFilter').value,
         grouped: grouped,
@@ -201,24 +206,95 @@ function saveFilters() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 }
 
+function saveCollapsed() {
+    localStorage.setItem(COLLAPSE_KEY, JSON.stringify(collapsedGroups));
+}
+
 function loadFilters() {
     try {
         var saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
         if (!saved) return;
-        if (saved.seller) document.getElementById('sellerFilter').value = saved.seller;
+        var sellerEl = document.getElementById('sellerFilter');
+        if (saved.seller && sellerEl) sellerEl.value = saved.seller;
         if (saved.area) document.getElementById('areaFilter').value = saved.area;
         if (saved.team) document.getElementById('teamFilter').value = saved.team;
         if (saved.grouped) grouped = true;
+    } catch(e) {}
+    try {
+        var c = JSON.parse(localStorage.getItem(COLLAPSE_KEY));
+        if (c) collapsedGroups = c;
     } catch(e) {}
 }
 
 function toggleGroupBy() {
     grouped = !grouped;
+    if (!grouped) collapsedGroups = {};
     applyFilters();
 }
 
+function toggleGroup(key, section) {
+    var fullKey = section + ':' + key;
+    collapsedGroups[fullKey] = !collapsedGroups[fullKey];
+    saveCollapsed();
+    applyGroupVisibility(section);
+}
+
+function applyGroupVisibility(section) {
+    var tbody = document.getElementById(section + 'Body');
+    var sellerEl = document.getElementById('sellerFilter');
+    var inSellerMode = sellerEl ? !!sellerEl.value : true;
+
+    // Build a map: for each seller-group, which customer-groups and data-rows belong to it
+    // For each customer-group, which data-rows belong to it
+    var allRows = Array.from(tbody.children);
+    var currentSeller = null;
+    var currentCustomer = null;
+
+    allRows.forEach(function(row) {
+        if (row.classList.contains('seller-group')) {
+            currentSeller = row;
+            currentCustomer = null;
+            // Update chevron
+            var sk = section + ':' + row.dataset.groupKey;
+            var sCollapsed = !!collapsedGroups[sk];
+            var chevron = row.querySelector('.bi-chevron-down, .bi-chevron-right');
+            if (chevron) chevron.className = sCollapsed ? 'bi bi-chevron-right me-1' : 'bi bi-chevron-down me-1';
+            return;
+        }
+        if (row.classList.contains('customer-group')) {
+            currentCustomer = row;
+            var ck = section + ':' + row.dataset.groupKey;
+            var cCollapsed = !!collapsedGroups[ck];
+            var chevron = row.querySelector('.bi-chevron-down, .bi-chevron-right');
+            if (chevron) chevron.className = cCollapsed ? 'bi bi-chevron-right me-1' : 'bi bi-chevron-down me-1';
+            // Customer header visibility: hidden if parent seller is collapsed
+            if (currentSeller) {
+                var sk = section + ':' + currentSeller.dataset.groupKey;
+                if (collapsedGroups[sk]) { row.style.display = 'none'; return; }
+            }
+            row.style.display = '';
+            return;
+        }
+        if (row.classList.contains('data-row')) {
+            // Data row: hidden if filtered out, or if parent seller/customer is collapsed
+            if (row.dataset._filtered === 'true') return;
+            var hidden = false;
+            if (currentSeller) {
+                var sk = section + ':' + currentSeller.dataset.groupKey;
+                if (collapsedGroups[sk]) hidden = true;
+            }
+            if (!hidden && currentCustomer) {
+                var ck = section + ':' + currentCustomer.dataset.groupKey;
+                if (collapsedGroups[ck]) hidden = true;
+            }
+            row.style.display = hidden ? 'none' : '';
+        }
+    });
+}
+
 function applyFilters() {
-    var sellerId = document.getElementById('sellerFilter').value;
+    var sellerEl = document.getElementById('sellerFilter');
+    var sellerId = sellerEl ? sellerEl.value : '';
     var area = document.getElementById('areaFilter').value;
     var team = document.getElementById('teamFilter').value;
 
@@ -234,6 +310,7 @@ function applyFilters() {
 
     ['created', 'updated'].forEach(function(section) {
         var tbody = document.getElementById(section + 'Body');
+        if (!tbody) return;
         var dataRows = Array.from(tbody.querySelectorAll('tr.data-row'));
 
         // Remove old group headers
@@ -248,6 +325,7 @@ function applyFilters() {
             if (team === 'on' && row.dataset.onMyTeam !== 'true') show = false;
             if (team === 'off' && row.dataset.onMyTeam !== 'false') show = false;
             row.style.display = show ? '' : 'none';
+            row.dataset._filtered = show ? 'false' : 'true';
             if (show) visible++;
         });
         document.getElementById(section + 'Count').textContent = visible;
@@ -280,23 +358,36 @@ function applyFilters() {
                 var cName = row.dataset.customerName || 'No Customer';
 
                 if (!inSellerMode && sName !== lastSeller) {
+                    var sellerKey = 'seller:' + sName;
+                    var sCollapsed = !!collapsedGroups[section + ':' + sellerKey];
                     var sellerHeader = document.createElement('tr');
-                    sellerHeader.className = 'group-header';
-                    sellerHeader.innerHTML = '<td colspan="5" class="ps-2 py-1 fw-bold" style="background: var(--bs-tertiary-bg); font-size: 0.85em;"><i class="bi bi-person text-primary me-1"></i>' + escapeHtml(sName) + '</td>';
+                    sellerHeader.className = 'group-header seller-group';
+                    sellerHeader.dataset.groupKey = sellerKey;
+                    sellerHeader.style.cursor = 'pointer';
+                    sellerHeader.onclick = (function(k, s) { return function() { toggleGroup(k, s); }; })(sellerKey, section);
+                    sellerHeader.innerHTML = '<td colspan="5" class="ps-2 py-1 fw-bold" style="background: var(--bs-tertiary-bg); font-size: 0.85em;"><i class="bi ' + (sCollapsed ? 'bi-chevron-right' : 'bi-chevron-down') + ' me-1"></i><i class="bi bi-person text-primary me-1"></i>' + escapeHtml(sName) + '</td>';
                     tbody.insertBefore(sellerHeader, row);
                     lastSeller = sName;
                     lastCustomer = null;
                 }
 
                 if (cName !== lastCustomer) {
+                    var custKey = (inSellerMode ? '' : 'seller:' + sName + '/') + 'cust:' + cName;
+                    var cCollapsed = !!collapsedGroups[section + ':' + custKey];
                     var custHeader = document.createElement('tr');
-                    custHeader.className = 'group-header';
-                    var indent = inSellerMode ? 'ps-3' : 'ps-4';
-                    custHeader.innerHTML = '<td colspan="5" class="' + indent + ' py-1" style="background: var(--bs-tertiary-bg); font-size: 0.8em; opacity: 0.85;"><i class="bi bi-building me-1"></i>' + escapeHtml(cName) + '</td>';
+                    custHeader.className = 'group-header customer-group';
+                    custHeader.dataset.groupKey = custKey;
+                    custHeader.style.cursor = 'pointer';
+                    custHeader.onclick = (function(k, s) { return function() { toggleGroup(k, s); }; })(custKey, section);
+                    var indent = inSellerMode ? 'ps-2' : 'ps-4';
+                    custHeader.innerHTML = '<td colspan="5" class="' + indent + ' py-1" style="background: var(--bs-tertiary-bg); font-size: 0.8em; opacity: 0.85;"><i class="bi ' + (cCollapsed ? 'bi-chevron-right' : 'bi-chevron-down') + ' me-1"></i><i class="bi bi-building me-1"></i>' + escapeHtml(cName) + '</td>';
                     tbody.insertBefore(custHeader, row);
                     lastCustomer = cName;
                 }
             });
+
+            // Apply collapsed state
+            applyGroupVisibility(section);
         }
     });
     saveFilters();
