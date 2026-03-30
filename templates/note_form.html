@@ -264,7 +264,9 @@
                                 {% if note %}
                                     {% for partner in note.partners %}
                                         <span class="badge d-flex align-items-center" style="background-color: #6f42c1;" data-partner-id="{{ partner.id }}">
-                                            <i class="bi bi-building me-1"></i> {{ partner.name }}
+                                            <a href="javascript:void(0)" class="text-white text-decoration-none" onclick="openPartnerFlyoutForEdit({{ partner.id }})">
+                                                <i class="bi bi-building me-1"></i> {{ partner.name }}
+                                            </a>
                                             <button type="button" class="btn-close btn-close-white ms-2" style="font-size: 0.7rem;" onclick="removePartner({{ partner.id }})"></button>
                                             <input type="hidden" name="partner_ids" value="{{ partner.id }}">
                                         </span>
@@ -766,7 +768,7 @@
     </div>
 </div>
 
-<!-- Partner Creation Flyout -->
+<!-- Partner Creation/Edit Flyout -->
 <div class="offcanvas offcanvas-end" tabindex="-1" id="partnerFlyout" aria-labelledby="partnerFlyoutLabel" data-bs-backdrop="false" data-bs-scroll="true" style="width: 400px;">
     <div class="offcanvas-header py-2 border-bottom">
         <h6 class="offcanvas-title" id="partnerFlyoutLabel"><i class="bi bi-building"></i> New Partner</h6>
@@ -815,6 +817,7 @@
             <div id="flyout_contacts_list"></div>
             <div class="input-group input-group-sm mt-1">
                 <input type="text" class="form-control" id="flyout_contact_name" placeholder="Name">
+                <input type="text" class="form-control" id="flyout_contact_title" placeholder="Title">
                 <input type="text" class="form-control" id="flyout_contact_email" placeholder="Email">
                 <button type="button" class="btn btn-outline-secondary" onclick="addFlyoutContact()">
                     <i class="bi bi-plus"></i>
@@ -827,7 +830,7 @@
             <textarea class="form-control" id="flyout_partner_overview" rows="2" placeholder="Quick notes about this partner..."></textarea>
         </div>
         <button type="button" class="btn btn-primary w-100" id="flyout_partner_save" onclick="savePartnerFromFlyout()">
-            <i class="bi bi-check-circle"></i> Create Partner
+            <i class="bi bi-check-circle"></i> <span id="flyout_partner_save_text">Create Partner</span>
         </button>
     </div>
 </div>
@@ -1042,6 +1045,12 @@
 
 <!-- Flyout stacking: multiple flyouts shift left so they don't overlap -->
 <style>
+    /* Push flyouts below the sticky navbar (z-index 1050, ~56px tall) */
+    #partnerFlyout, #engagementFlyout, #contactsFlyout,
+    #customerInfoFlyout, #engTaskFlyout, #projectFlyout {
+        top: var(--sb-navbar-height, 56px) !important;
+        height: calc(100% - var(--sb-navbar-height, 56px)) !important;
+    }
     .offcanvas.flyout-shifted {
         transform: translateX(-399px) !important;
         z-index: 1044 !important;
@@ -1147,6 +1156,23 @@ updateAiButtonState();
 
 // ---- Customer Contacts Flyout ----
 var contactsFlyoutInstance = null;
+
+function isContactsFlyoutDirty() {
+    var flyout = document.getElementById('contactsFlyout');
+    if (!flyout || !flyout.classList.contains('show')) return false;
+    // Dirty if any ghost cards (add-in-progress) or inline edits are open
+    if (flyout.querySelector('[id^="contactGhost-"]')) return true;
+    if (flyout.querySelector('[id^="fEditName"]')) return true;
+    return false;
+}
+
+document.getElementById('contactsFlyout').addEventListener('hide.bs.offcanvas', function(e) {
+    if (isContactsFlyoutDirty()) {
+        if (!confirm('You have unsaved contact edits. Discard them?')) {
+            e.preventDefault();
+        }
+    }
+});
 
 function getContactsFlyout() {
     if (!contactsFlyoutInstance) {
@@ -1532,6 +1558,32 @@ function saveCustNickname() {
 
 // Sync editor content to hidden textarea on form submit
 document.getElementById('noteForm').onsubmit = function(e) {
+    // Check for unsaved flyout changes before saving the note
+    if (isPartnerFlyoutDirty()) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        alert('You have unsaved changes in the partner flyout. Please save or close it first.');
+        return false;
+    }
+    if (typeof isContactsFlyoutDirty === 'function' && isContactsFlyoutDirty()) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        alert('You have unsaved contact edits. Please save or cancel them first.');
+        return false;
+    }
+    if (typeof isEngFlyoutDirty === 'function' && isEngFlyoutDirty()) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        alert('You have unsaved changes in the engagement flyout. Please save or close it first.');
+        return false;
+    }
+    if (typeof isProjFlyoutDirty === 'function' && window.isProjFlyoutDirty()) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        alert('You have unsaved changes in the project flyout. Please save or close it first.');
+        return false;
+    }
+
     var content = document.querySelector('textarea[name=content]');
     content.value = quill.root.innerHTML;
     
@@ -1809,6 +1861,32 @@ document.getElementById('noteForm').onsubmit = function(e) {
     // Track flyout mode: null = create, project ID = edit
     var _flyoutEditProjectId = null;
     var _projFlyoutInstance = null;
+    var _projFlyoutCleanState = null;
+
+    function _getProjFlyoutState() {
+        return JSON.stringify({
+            title: document.getElementById('flyout_project_title').value.trim(),
+            description: document.getElementById('flyout_project_description').value.trim(),
+            project_type: document.getElementById('flyout_project_type').value,
+            due_date: document.getElementById('flyout_project_due_date').value,
+            status: document.getElementById('flyout_project_status').value
+        });
+    }
+
+    window.isProjFlyoutDirty = function() {
+        var flyout = document.getElementById('projectFlyout');
+        if (!flyout || !flyout.classList.contains('show')) return false;
+        return _projFlyoutCleanState !== _getProjFlyoutState();
+    };
+
+    // Guard the project flyout close
+    document.getElementById('projectFlyout').addEventListener('hide.bs.offcanvas', function(e) {
+        if (window.isProjFlyoutDirty()) {
+            if (!confirm('You have unsaved changes in the project flyout. Discard them?')) {
+                e.preventDefault();
+            }
+        }
+    });
 
     window.createProjectInline = function() {
         _flyoutEditProjectId = null;
@@ -1828,6 +1906,7 @@ document.getElementById('noteForm').onsubmit = function(e) {
         offcanvas.show();
         flyout.addEventListener('shown.bs.offcanvas', function handler() {
             document.getElementById('flyout_project_title').focus();
+            _projFlyoutCleanState = _getProjFlyoutState();
             flyout.removeEventListener('shown.bs.offcanvas', handler);
         });
     };
@@ -1875,6 +1954,7 @@ document.getElementById('noteForm').onsubmit = function(e) {
                 document.getElementById('flyout_project_status').value = data.status || 'Active';
                 saveBtn.innerHTML = '<i class="bi bi-check-circle"></i> Save Changes';
                 saveBtn.disabled = false;
+                _projFlyoutCleanState = _getProjFlyoutState();
             })
             .catch(err => {
                 console.error('Error loading project:', err);
@@ -2605,7 +2685,9 @@ function addPartner(partnerId, partnerName) {
     badge.style.backgroundColor = '#6f42c1'; // Purple color
     badge.setAttribute('data-partner-id', partnerId);
     badge.innerHTML = `
-        <i class="bi bi-building me-1"></i> ${partnerName}
+        <a href="javascript:void(0)" class="text-white text-decoration-none" onclick="openPartnerFlyoutForEdit(${partnerId})">
+            <i class="bi bi-building me-1"></i> ${partnerName}
+        </a>
         <button type="button" class="btn-close btn-close-white ms-2" style="font-size: 0.7rem;" onclick="removePartner(${partnerId})"></button>
         <input type="hidden" name="partner_ids" value="${partnerId}">
     `;
@@ -2725,17 +2807,50 @@ function createFlyoutSpecialty() {
 }
 
 // --- Partner flyout contacts ---
-let flyoutContacts = []; // [{name, email}]
+let flyoutContacts = []; // [{name, email}] for create, [{id, name, email, is_primary}] for edit
+
+// Track flyout mode: null = create, partner ID = edit
+var _flyoutEditPartnerId = null;
+// Snapshot of flyout state when opened (for dirty detection)
+var _flyoutCleanState = null;
+
+function _getFlyoutState() {
+    return JSON.stringify({
+        name: document.getElementById('flyout_partner_name').value.trim(),
+        website: document.getElementById('flyout_partner_website').value.trim(),
+        overview: document.getElementById('flyout_partner_overview').value.trim(),
+        rating: document.getElementById('flyout_partner_rating_value').value,
+        specialtyIds: flyoutSpecialtyIds.slice().sort(),
+        contacts: flyoutContacts.map(c => c.name + '|' + (c.title || '') + '|' + (c.email || ''))
+    });
+}
+
+function isPartnerFlyoutDirty() {
+    var flyout = document.getElementById('partnerFlyout');
+    var instance = bootstrap.Offcanvas.getInstance(flyout);
+    if (!instance || !flyout.classList.contains('show')) return false;
+    return _flyoutCleanState !== _getFlyoutState();
+}
+
+function _confirmFlyoutSwitch() {
+    if (isPartnerFlyoutDirty()) {
+        return confirm('You have unsaved changes in the partner flyout. Discard them?');
+    }
+    return true;
+}
 
 function addFlyoutContact() {
     const nameInput = document.getElementById('flyout_contact_name');
+    const titleInput = document.getElementById('flyout_contact_title');
     const emailInput = document.getElementById('flyout_contact_email');
     const name = nameInput.value.trim();
     if (!name) { nameInput.focus(); return; }
+    const title = titleInput.value.trim();
     const email = emailInput.value.trim();
-    flyoutContacts.push({ name, email });
+    flyoutContacts.push({ name, title, email });
     renderFlyoutContacts();
     nameInput.value = '';
+    titleInput.value = '';
     emailInput.value = '';
     nameInput.focus();
 }
@@ -2749,7 +2864,7 @@ function renderFlyoutContacts() {
     const list = document.getElementById('flyout_contacts_list');
     list.innerHTML = flyoutContacts.map((c, i) =>
         `<div class="d-flex align-items-center gap-2 mb-1">
-            <span class="small flex-grow-1"><i class="bi bi-person"></i> ${c.name}${c.email ? ' <span class="text-muted">(' + c.email + ')</span>' : ''}</span>
+            <span class="small flex-grow-1"><i class="bi bi-person"></i> ${c.name}${c.title ? ' <span class="text-muted">- ' + c.title + '</span>' : ''}${c.email ? ' <span class="text-muted">(' + c.email + ')</span>' : ''}${c.is_primary ? ' <span class="badge bg-primary" style="font-size:0.65em">Primary</span>' : ''}</span>
             <button type="button" class="btn btn-sm btn-outline-danger py-0 px-1" onclick="removeFlyoutContact(${i})">
                 <i class="bi bi-x"></i>
             </button>
@@ -2761,13 +2876,20 @@ function renderFlyoutContacts() {
 document.getElementById('flyout_contact_name')?.addEventListener('keydown', function(e) {
     if (e.key === 'Enter') { e.preventDefault(); addFlyoutContact(); }
 });
+document.getElementById('flyout_contact_title')?.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') { e.preventDefault(); addFlyoutContact(); }
+});
 document.getElementById('flyout_contact_email')?.addEventListener('keydown', function(e) {
     if (e.key === 'Enter') { e.preventDefault(); addFlyoutContact(); }
 });
 
 function openPartnerFlyout() {
+    if (!_confirmFlyoutSwitch()) return;
+    _flyoutEditPartnerId = null;
     const flyout = document.getElementById('partnerFlyout');
     const offcanvas = bootstrap.Offcanvas.getOrCreateInstance(flyout);
+    document.getElementById('partnerFlyoutLabel').innerHTML = '<i class="bi bi-building"></i> New Partner';
+    document.getElementById('flyout_partner_save_text').textContent = 'Create Partner';
     // Pre-fill name from search
     document.getElementById('flyout_partner_name').value = partnerSearch.value.trim();
     document.getElementById('flyout_partner_website').value = '';
@@ -2784,13 +2906,72 @@ function openPartnerFlyout() {
     flyoutContacts = [];
     renderFlyoutContacts();
     document.getElementById('flyout_contact_name').value = '';
+    document.getElementById('flyout_contact_title').value = '';
     document.getElementById('flyout_contact_email').value = '';
     partnerDropdown.style.display = 'none';
     offcanvas.show();
     flyout.addEventListener('shown.bs.offcanvas', function handler() {
+        _flyoutCleanState = _getFlyoutState();
         document.getElementById('flyout_partner_name').focus();
         flyout.removeEventListener('shown.bs.offcanvas', handler);
     });
+}
+
+function openPartnerFlyoutForEdit(partnerId) {
+    const flyout = document.getElementById('partnerFlyout');
+    const instance = bootstrap.Offcanvas.getInstance(flyout);
+    // Toggle: if already editing this partner, close the flyout
+    if (instance && flyout.classList.contains('show') && _flyoutEditPartnerId === partnerId) {
+        instance.hide();
+        return;
+    }
+    if (!_confirmFlyoutSwitch()) return;
+    _flyoutEditPartnerId = partnerId;
+    const offcanvas = bootstrap.Offcanvas.getOrCreateInstance(flyout);
+    document.getElementById('partnerFlyoutLabel').innerHTML = '<i class="bi bi-building"></i> Edit Partner';
+    document.getElementById('flyout_partner_save_text').textContent = 'Save Changes';
+    // Clear fields while loading
+    document.getElementById('flyout_partner_name').value = '';
+    document.getElementById('flyout_partner_website').value = '';
+    document.getElementById('flyout_partner_overview').value = '';
+    document.getElementById('flyout_partner_rating_value').value = '';
+    flyoutRatingValue = 0;
+    restoreFlyoutRating();
+    flyoutSpecialtyIds = [];
+    flyoutSpecContainer.innerHTML = '';
+    flyoutSpecSearch.value = '';
+    flyoutSpecDropdown.style.display = 'none';
+    flyoutContacts = [];
+    renderFlyoutContacts();
+    document.getElementById('flyout_contact_name').value = '';
+    document.getElementById('flyout_contact_title').value = '';
+    document.getElementById('flyout_contact_email').value = '';
+    partnerDropdown.style.display = 'none';
+    offcanvas.show();
+
+    // Fetch partner data and populate
+    fetch('/api/partners/' + partnerId)
+        .then(r => r.json())
+        .then(data => {
+            document.getElementById('flyout_partner_name').value = data.name;
+            document.getElementById('flyout_partner_website').value = data.website;
+            document.getElementById('flyout_partner_overview').value = data.overview;
+            if (data.rating) {
+                flyoutRatingValue = data.rating;
+                document.getElementById('flyout_partner_rating_value').value = data.rating;
+                restoreFlyoutRating();
+            }
+            // Populate specialties
+            flyoutSpecialtyIds = [];
+            flyoutSpecContainer.innerHTML = '';
+            (data.specialties || []).forEach(s => addFlyoutSpecialty(s.id, s.name));
+            // Populate contacts (preserve IDs for update)
+            flyoutContacts = (data.contacts || []).map(c => ({
+                id: c.id, name: c.name, title: c.title, email: c.email, is_primary: c.is_primary
+            }));
+            renderFlyoutContacts();
+            _flyoutCleanState = _getFlyoutState();
+        });
 }
 
 function savePartnerFromFlyout() {
@@ -2805,11 +2986,17 @@ function savePartnerFromFlyout() {
     const overview = document.getElementById('flyout_partner_overview').value.trim();
     const rating = document.getElementById('flyout_partner_rating_value').value;
     const saveBtn = document.getElementById('flyout_partner_save');
+    const saveText = document.getElementById('flyout_partner_save_text');
     saveBtn.disabled = true;
-    saveBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Creating...';
+    const originalText = saveText.textContent;
+    saveText.textContent = _flyoutEditPartnerId ? 'Saving...' : 'Creating...';
+
+    const isEdit = !!_flyoutEditPartnerId;
+    const url = isEdit ? '/api/partners/' + _flyoutEditPartnerId : '/api/partners/create';
+    const method = isEdit ? 'PUT' : 'POST';
     
-    fetch('/api/partners/create', {
-        method: 'POST',
+    fetch(url, {
+        method: method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
             name, website, overview,
@@ -2821,26 +3008,68 @@ function savePartnerFromFlyout() {
     .then(r => r.json())
     .then(data => {
         if (data.id) {
-            if (!allPartners.find(p => p.id === data.id)) {
-                allPartners.push({ id: data.id, name: data.name });
+            if (isEdit) {
+                // Update the badge text for the edited partner
+                const badge = selectedPartnersContainer.querySelector(`span[data-partner-id="${data.id}"]`);
+                if (badge) {
+                    const link = badge.querySelector('a');
+                    if (link) link.innerHTML = `<i class="bi bi-building me-1"></i> ${data.name}`;
+                }
+                // Update allPartners cache
+                const cached = allPartners.find(p => p.id === data.id);
+                if (cached) cached.name = data.name;
+            } else {
+                if (!allPartners.find(p => p.id === data.id)) {
+                    allPartners.push({ id: data.id, name: data.name });
+                }
+                addPartner(data.id, data.name);
             }
-            addPartner(data.id, data.name);
+            _flyoutCleanState = _getFlyoutState();
             bootstrap.Offcanvas.getInstance(document.getElementById('partnerFlyout')).hide();
             partnerSearch.value = '';
         }
     })
     .catch(err => {
-        console.error('Error creating partner:', err);
-        alert('Failed to create partner.');
+        console.error('Error saving partner:', err);
+        alert('Failed to save partner.');
     })
     .finally(() => {
         saveBtn.disabled = false;
-        saveBtn.innerHTML = '<i class="bi bi-check-circle"></i> Create Partner';
+        saveText.textContent = originalText;
     });
 }
 
+// Guard the partner flyout close (X button or backdrop click)
+document.getElementById('partnerFlyout').addEventListener('hide.bs.offcanvas', function(e) {
+    if (isPartnerFlyoutDirty()) {
+        if (!confirm('You have unsaved changes in the partner flyout. Discard them?')) {
+            e.preventDefault();
+        }
+    }
+});
+
 // Track flyout mode: null = create, engagement ID = edit
 var _flyoutEditEngagementId = null;
+var _engFlyoutCleanState = null;
+
+function _getEngFlyoutState() {
+    return JSON.stringify({
+        title: document.getElementById('flyout_eng_title').value.trim(),
+        status: document.getElementById('flyout_eng_status').value,
+        key_individuals: document.getElementById('flyout_eng_key_individuals').value.trim(),
+        technical_problem: document.getElementById('flyout_eng_technical_problem').value.trim(),
+        business_impact: document.getElementById('flyout_eng_business_impact').value.trim(),
+        solution_resources: document.getElementById('flyout_eng_solution_resources').value.trim(),
+        estimated_acr: document.getElementById('flyout_eng_estimated_acr').value.trim(),
+        target_date: document.getElementById('flyout_eng_target_date').value
+    });
+}
+
+function isEngFlyoutDirty() {
+    var flyout = document.getElementById('engagementFlyout');
+    if (!flyout || !flyout.classList.contains('show')) return false;
+    return _engFlyoutCleanState !== _getEngFlyoutState();
+}
 
 function openEngagementFlyout() {
     _flyoutEditEngagementId = null;
@@ -2862,6 +3091,7 @@ function openEngagementFlyout() {
     offcanvas.show();
     flyout.addEventListener('shown.bs.offcanvas', function handler() {
         document.getElementById('flyout_eng_title').focus();
+        _engFlyoutCleanState = _getEngFlyoutState();
         flyout.removeEventListener('shown.bs.offcanvas', handler);
     });
 }
@@ -2915,12 +3145,22 @@ function openEngagementEditFlyout() {
             document.getElementById('flyout_eng_target_date').value = data.target_date || '';
             saveBtn.innerHTML = '<i class="bi bi-check-circle"></i> Save Changes';
             saveBtn.disabled = false;
+            _engFlyoutCleanState = _getEngFlyoutState();
         })
         .catch(err => {
             console.error('Error loading engagement:', err);
             saveBtn.innerHTML = '<i class="bi bi-exclamation-triangle"></i> Load Failed';
         });
 }
+
+// Guard the engagement flyout close
+document.getElementById('engagementFlyout').addEventListener('hide.bs.offcanvas', function(e) {
+    if (isEngFlyoutDirty()) {
+        if (!confirm('You have unsaved changes in the engagement flyout. Discard them?')) {
+            e.preventDefault();
+        }
+    }
+});
 
 function saveEngagementFromFlyout() {
     const title = document.getElementById('flyout_eng_title').value.trim();

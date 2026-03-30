@@ -81,24 +81,33 @@
                                 {% if contact.is_primary %}
                                 <span class="badge bg-primary ms-1">Primary</span>
                                 {% endif %}
+                                {% if contact.title %}
+                                <br><small class="text-muted">{{ contact.title }}</small>
+                                {% endif %}
                                 {% if contact.email %}
                                 <br><small class="text-muted"><a href="mailto:{{ contact.email }}">{{ contact.email }}</a></small>
                                 {% endif %}
                             </div>
                             <div class="btn-group btn-group-sm">
+                                <button type="button" class="btn btn-outline-secondary" title="Edit"
+                                        onclick="openEditContact({{ contact.id }}, '{{ contact.name|e }}', '{{ contact.title|default('', true)|e }}', '{{ contact.email|default('', true)|e }}', {{ 'true' if contact.is_primary else 'false' }})">
+                                    <i class="bi bi-pencil"></i>
+                                </button>
                                 {% if not contact.is_primary %}
-                                <form action="{{ url_for('partners.contact_set_primary', partner_id=partner.id, contact_id=contact.id) }}" method="post" class="d-inline">
-                                    <button type="submit" class="btn btn-outline-primary" title="Set as primary">
-                                        <i class="bi bi-star"></i>
-                                    </button>
-                                </form>
+                                <button type="button" class="btn btn-outline-primary" title="Set as primary"
+                                        onclick="document.getElementById('primaryForm{{ contact.id }}').submit()">
+                                    <i class="bi bi-star"></i>
+                                </button>
                                 {% endif %}
-                                <form action="{{ url_for('partners.contact_delete', partner_id=partner.id, contact_id=contact.id) }}" method="post" class="d-inline" onsubmit="return confirm('Delete this contact?')">
-                                    <button type="submit" class="btn btn-outline-danger" title="Delete">
-                                        <i class="bi bi-trash"></i>
-                                    </button>
-                                </form>
+                                <button type="button" class="btn btn-outline-danger" title="Delete"
+                                        onclick="if(confirm('Delete this contact?')) document.getElementById('deleteForm{{ contact.id }}').submit()">
+                                    <i class="bi bi-trash"></i>
+                                </button>
                             </div>
+                            {% if not contact.is_primary %}
+                            <form id="primaryForm{{ contact.id }}" action="{{ url_for('partners.contact_set_primary', partner_id=partner.id, contact_id=contact.id) }}" method="post" class="d-none"></form>
+                            {% endif %}
+                            <form id="deleteForm{{ contact.id }}" action="{{ url_for('partners.contact_delete', partner_id=partner.id, contact_id=contact.id) }}" method="post" class="d-none"></form>
                         </li>
                         {% endfor %}
                     </ul>
@@ -146,19 +155,23 @@
     </div>
 </div>
 
-<!-- Add Contact Modal -->
+<!-- Add/Edit Contact Modal -->
 <div class="modal fade" id="addContactModal" tabindex="-1">
     <div class="modal-dialog">
         <div class="modal-content">
-            <form action="{{ url_for('partners.contact_new', partner_id=partner.id) }}" method="post">
+            <form id="contactForm" action="{{ url_for('partners.contact_new', partner_id=partner.id) }}" method="post">
                 <div class="modal-header">
-                    <h5 class="modal-title">Add Contact</h5>
+                    <h5 class="modal-title" id="contactModalTitle">Add Contact</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
                 <div class="modal-body">
                     <div class="mb-3">
                         <label for="contact_name" class="form-label">Name <span class="text-danger">*</span></label>
                         <input type="text" class="form-control" id="contact_name" name="contact_name" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="contact_title" class="form-label">Title</label>
+                        <input type="text" class="form-control" id="contact_title" name="contact_title" placeholder="e.g. Solutions Architect">
                     </div>
                     <div class="mb-3">
                         <label for="contact_email" class="form-label">Email</label>
@@ -171,7 +184,7 @@
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="submit" class="btn btn-primary">Add Contact</button>
+                    <button type="submit" class="btn btn-primary" id="contactSubmitBtn">Add Contact</button>
                 </div>
             </form>
         </div>
@@ -199,4 +212,35 @@
         </div>
     </div>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+var addContactUrl = "{{ url_for('partners.contact_new', partner_id=partner.id) }}";
+var editContactUrlBase = "/partners/{{ partner.id }}/contacts/";
+
+function openEditContact(contactId, name, title, email, isPrimary) {
+    document.getElementById('contactModalTitle').textContent = 'Edit Contact';
+    document.getElementById('contactSubmitBtn').textContent = 'Save Changes';
+    document.getElementById('contactForm').action = editContactUrlBase + contactId + '/edit';
+    document.getElementById('contact_name').value = name;
+    document.getElementById('contact_title').value = title;
+    document.getElementById('contact_email').value = email;
+    document.getElementById('is_primary').checked = isPrimary;
+    new bootstrap.Modal(document.getElementById('addContactModal')).show();
+}
+
+// Reset to "Add" mode when opening via the Add button
+document.getElementById('addContactModal').addEventListener('show.bs.modal', function(e) {
+    if (e.relatedTarget) {
+        document.getElementById('contactModalTitle').textContent = 'Add Contact';
+        document.getElementById('contactSubmitBtn').textContent = 'Add Contact';
+        document.getElementById('contactForm').action = addContactUrl;
+        document.getElementById('contact_name').value = '';
+        document.getElementById('contact_title').value = '';
+        document.getElementById('contact_email').value = '';
+        document.getElementById('is_primary').checked = false;
+    }
+});
+</script>
 {% endblock %}

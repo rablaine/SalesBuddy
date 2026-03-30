@@ -159,6 +159,7 @@ def contact_new(partner_id):
     partner = Partner.query.get_or_404(partner_id)
     
     name = request.form.get('contact_name', '').strip()
+    title = request.form.get('contact_title', '').strip()
     email = request.form.get('contact_email', '').strip()
     is_primary = request.form.get('is_primary') == 'on'
     
@@ -174,6 +175,7 @@ def contact_new(partner_id):
     contact = PartnerContact(
         partner_id=partner_id,
         name=name,
+        title=title or None,
         email=email or None,
         is_primary=is_primary,
     )
@@ -207,6 +209,38 @@ def contact_set_primary(partner_id, contact_id):
     backup_partner(partner_id)
     
     flash(f'"{contact.name}" set as primary contact', 'success')
+    return redirect(url_for('partners.partner_view', id=partner_id))
+
+
+@partners_bp.route('/partners/<int:partner_id>/contacts/<int:contact_id>/edit', methods=['POST'])
+def contact_edit(partner_id, contact_id):
+    """Edit a contact's name and email."""
+    partner = Partner.query.get_or_404(partner_id)
+    contact = PartnerContact.query.get_or_404(contact_id)
+
+    if contact.partner_id != partner_id:
+        flash('Contact does not belong to this partner', 'error')
+        return redirect(url_for('partners.partner_view', id=partner_id))
+
+    name = request.form.get('contact_name', '').strip()
+    if not name:
+        flash('Contact name is required', 'error')
+        return redirect(url_for('partners.partner_view', id=partner_id))
+
+    contact.name = name
+    contact.title = request.form.get('contact_title', '').strip() or None
+    contact.email = request.form.get('contact_email', '').strip() or None
+
+    is_primary = request.form.get('is_primary') == 'on'
+    if is_primary and not contact.is_primary:
+        for c in partner.contacts:
+            c.is_primary = False
+        contact.is_primary = True
+
+    db.session.commit()
+    backup_partner(partner_id)
+
+    flash(f'Contact "{name}" updated', 'success')
     return redirect(url_for('partners.partner_view', id=partner_id))
 
 
@@ -397,6 +431,7 @@ def api_partner_create():
         contact = PartnerContact(
             partner_id=partner.id,
             name=contact_name,
+            title=c.get('title', '').strip() or None,
             email=c.get('email', '').strip() or None,
             is_primary=(i == 0),
         )
@@ -405,6 +440,99 @@ def api_partner_create():
     db.session.commit()
     
     return jsonify({'id': partner.id, 'name': partner.name, 'existing': False})
+
+
+@partners_bp.route('/api/partners/<int:id>')
+def api_partner_get(id):
+    """Get partner data for inline editing."""
+    partner = Partner.query.get_or_404(id)
+    return jsonify({
+        'id': partner.id,
+        'name': partner.name,
+        'website': partner.website or '',
+        'overview': partner.overview or '',
+        'rating': partner.rating,
+        'specialty_ids': [s.id for s in partner.specialties],
+        'specialties': [{'id': s.id, 'name': s.name} for s in partner.specialties],
+        'contacts': [
+            {'id': c.id, 'name': c.name, 'title': c.title or '', 'email': c.email or '', 'is_primary': c.is_primary}
+            for c in partner.contacts
+        ],
+    })
+
+
+@partners_bp.route('/api/partners/<int:id>', methods=['PUT'])
+def api_partner_update(id):
+    """Update a partner via API (for inline editing from note form flyout)."""
+    partner = Partner.query.get_or_404(id)
+    data = request.get_json()
+
+    name = data.get('name', '').strip()
+    if not name:
+        return jsonify({'error': 'Partner name is required'}), 400
+
+    partner.name = name
+
+    website = data.get('website', '').strip()
+    if website:
+        new_domain = _extract_domain(website)
+        if new_domain != partner.website:
+            partner.website = new_domain
+            partner.favicon_b64 = fetch_favicon_for_domain(new_domain)
+    else:
+        partner.website = None
+        partner.favicon_b64 = None
+
+    partner.overview = data.get('overview', '').strip() or None
+
+    rating = data.get('rating')
+    partner.rating = int(rating) if rating is not None else None
+
+    # Specialties
+    specialty_ids = data.get('specialty_ids', [])
+    if specialty_ids:
+        partner.specialties = Specialty.query.filter(
+            Specialty.id.in_(specialty_ids)
+        ).all()
+    else:
+        partner.specialties = []
+
+    # Contacts: full replace strategy - delete old, add new
+    incoming_contacts = data.get('contacts', [])
+    # Build set of incoming IDs that already exist
+    incoming_ids = {c.get('id') for c in incoming_contacts if c.get('id')}
+    # Delete contacts not in the incoming set
+    for existing in list(partner.contacts):
+        if existing.id not in incoming_ids:
+            db.session.delete(existing)
+    # Update existing and add new
+    for i, c in enumerate(incoming_contacts):
+        contact_name = c.get('name', '').strip()
+        if not contact_name:
+            continue
+        cid = c.get('id')
+        if cid:
+            existing = PartnerContact.query.get(cid)
+            if existing and existing.partner_id == partner.id:
+                existing.name = contact_name
+                existing.title = c.get('title', '').strip() or None
+                existing.email = c.get('email', '').strip() or None
+                existing.is_primary = c.get('is_primary', i == 0)
+                continue
+        # New contact
+        contact = PartnerContact(
+            partner_id=partner.id,
+            name=contact_name,
+            title=c.get('title', '').strip() or None,
+            email=c.get('email', '').strip() or None,
+            is_primary=c.get('is_primary', i == 0),
+        )
+        db.session.add(contact)
+
+    db.session.commit()
+    backup_partner(partner.id)
+
+    return jsonify({'id': partner.id, 'name': partner.name})
 
 
 @partners_bp.route('/api/specialties/search')

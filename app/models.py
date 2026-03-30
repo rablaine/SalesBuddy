@@ -567,6 +567,7 @@ class PartnerContact(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     partner_id = db.Column(db.Integer, db.ForeignKey('partners.id'), nullable=False)
     name = db.Column(db.String(200), nullable=False)
+    title = db.Column(db.String(200), nullable=True)
     email = db.Column(db.String(255), nullable=True)
     is_primary = db.Column(db.Boolean, default=False, nullable=False)
     created_at = db.Column(db.DateTime, default=utc_now, nullable=False)

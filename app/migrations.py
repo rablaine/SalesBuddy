@@ -268,6 +268,9 @@ def run_migrations(db):
     _add_column_if_not_exists(db, inspector, 'user_preferences',
                               'last_milestone_sync', "DATETIME")
 
+    # Migration: Add title column to partner_contacts
+    _add_column_if_not_exists(db, inspector, 'partner_contacts', 'title', 'VARCHAR(200)')
+
     # =========================================================================
     # End migrations
     # =========================================================================
