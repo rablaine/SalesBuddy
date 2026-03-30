@@ -115,9 +115,28 @@
 
         <!-- Updated milestones -->
         <div class="col-md-6">
-            <div class="card">
+            <div class="card" style="overflow: visible;">
                 <div class="card-header py-2 d-flex justify-content-between align-items-center">
                     <h6 class="mb-0"><i class="bi bi-pencil-square text-primary"></i> Updated <span class="badge bg-primary ms-1" id="updatedCount">{{ updated_milestones|length }}</span></h6>
+                    {% if change_types %}
+                    <div class="dropdown">
+                        <button class="btn btn-sm btn-outline-secondary dropdown-toggle py-0" type="button" id="changeTypeBtn" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false" style="font-size: 0.8em;">
+                            All Changes
+                        </button>
+                        <ul class="dropdown-menu dropdown-menu-end" style="min-width: 200px; max-height: 320px; overflow-y: auto; font-size: 0.85em;" id="changeTypeMenu">
+                            <li><a class="dropdown-item py-1" href="#" onclick="toggleAllChangeTypes(event)"><strong>Select / Deselect All</strong></a></li>
+                            <li><hr class="dropdown-divider my-1"></li>
+                            {% for ct in change_types %}
+                            <li>
+                                <label class="dropdown-item py-1 d-flex align-items-center gap-2" style="cursor: pointer;">
+                                    <input type="checkbox" class="form-check-input mt-0 change-type-cb" value="{{ ct }}" checked onchange="applyFilters()">
+                                    {{ ct }}
+                                </label>
+                            </li>
+                            {% endfor %}
+                        </ul>
+                    </div>
+                    {% endif %}
                 </div>
                 <div class="card-body p-0">
                     {% if updated_milestones %}
@@ -135,12 +154,14 @@
                             <tbody id="updatedBody">
                                 {% for ms in updated_milestones %}
                                 {% set wl_area = ms.workload.split(':', 1)[0].strip() if ms.workload and ':' in ms.workload else (ms.workload.strip() if ms.workload else '') %}
+                                {% set changes = audit_changes.get(ms.id, []) %}
                                 <tr data-seller-id="{{ ms.customer.seller.id if ms.customer and ms.customer.seller else '' }}"
                                     data-seller-name="{{ ms.customer.seller.name if ms.customer and ms.customer.seller else '' }}"
                                     data-customer-name="{{ ms.customer.name if ms.customer else '' }}"
                                     data-area="{{ wl_area }}"
                                     data-on-my-team="{{ 'true' if ms.on_my_team else 'false' }}"
                                     data-milestone-id="{{ ms.id }}"
+                                    data-change-types="{{ changes|join('|') }}"
                                     class="data-row">
                                     <td class="ps-3">
                                         <small class="text-muted">{{ ms.customer.name if ms.customer else '' }}</small>
@@ -155,6 +176,9 @@
                                             style="font-size: 0.8em;">{{ ms.msx_status }}</span>
                                         {% endif %}
                                         {% if ms.workload %}<br><small class="text-muted">{{ ms.workload }}</small>{% endif %}
+                                        {% if changes %}
+                                        <br>{% for ch in changes %}<span class="badge bg-info text-dark me-1" style="font-size: 0.7em;">{{ ch }}</span>{% endfor %}
+                                        {% endif %}
                                     </td>
                                     <td><small>{{ ms.customer.seller.name if ms.customer and ms.customer.seller else '' }}</small></td>
                                     <td class="text-end">
@@ -162,9 +186,9 @@
                                         <small class="text-success">${{ '{:,.0f}'.format(ms.monthly_usage) }}/mo</small>
                                         {% endif %}
                                     </td>
-                                    <td class="text-end pe-3">
+                                    <td class="text-end pe-3 updated-date-cell">
                                         {% set display_date = ms.msx_modified_on or ms.updated_at %}
-                                        <span class="badge border text-body-secondary d-block" style="font-size: 0.8em; font-weight: normal;">{{ display_date.strftime('%b %d') }}</span>
+                                        <span class="badge border text-body-secondary d-block" data-original-date="{{ display_date.strftime('%b %d') }}" style="font-size: 0.8em; font-weight: normal;">{{ display_date.strftime('%b %d') }}</span>
                                     </td>
                                     <td class="text-center">
                                         {% if ms.on_my_team %}
@@ -194,13 +218,62 @@ var STORAGE_KEY = 'whats_new_filters';
 var COLLAPSE_KEY = 'whats_new_collapsed';
 var grouped = true;
 var collapsedGroups = {};
+var auditDates = {{ audit_dates | tojson }};
+
+function getCheckedChangeTypes() {
+    var cbs = document.querySelectorAll('.change-type-cb');
+    if (!cbs.length) return null;  // no checkboxes = no filter
+    var checked = [];
+    cbs.forEach(function(cb) { if (cb.checked) checked.push(cb.value); });
+    return checked;
+}
+
+function allChangeTypesChecked() {
+    var cbs = document.querySelectorAll('.change-type-cb');
+    if (!cbs.length) return true;
+    return Array.from(cbs).every(function(cb) { return cb.checked; });
+}
+
+function toggleAllChangeTypes(e) {
+    e.preventDefault();
+    var cbs = document.querySelectorAll('.change-type-cb');
+    var allChecked = Array.from(cbs).every(function(cb) { return cb.checked; });
+    cbs.forEach(function(cb) { cb.checked = !allChecked; });
+    applyFilters();
+}
+
+function updateChangeTypeButtonStyle() {
+    var btn = document.getElementById('changeTypeBtn');
+    if (!btn) return;
+    var cbs = document.querySelectorAll('.change-type-cb');
+    var checked = Array.from(cbs).filter(function(cb) { return cb.checked; });
+    if (checked.length === cbs.length) {
+        btn.classList.remove('btn-secondary');
+        btn.classList.add('btn-outline-secondary');
+        btn.textContent = 'All Changes';
+    } else if (checked.length === 1) {
+        btn.classList.remove('btn-outline-secondary');
+        btn.classList.add('btn-secondary');
+        btn.textContent = checked[0].value;
+    } else if (checked.length === 0) {
+        btn.classList.remove('btn-outline-secondary');
+        btn.classList.add('btn-secondary');
+        btn.textContent = 'No Changes';
+    } else {
+        btn.classList.remove('btn-outline-secondary');
+        btn.classList.add('btn-secondary');
+        btn.textContent = checked[0].value + ' +' + (checked.length - 1);
+    }
+}
 
 function saveFilters() {
     var sellerEl = document.getElementById('sellerFilter');
+    var checkedTypes = getCheckedChangeTypes();
     var state = {
         seller: sellerEl ? sellerEl.value : '',
         area: document.getElementById('areaFilter').value,
         team: document.getElementById('teamFilter').value,
+        changeTypes: checkedTypes,
         grouped: grouped,
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
@@ -218,6 +291,12 @@ function loadFilters() {
         if (saved.seller && sellerEl) sellerEl.value = saved.seller;
         if (saved.area) document.getElementById('areaFilter').value = saved.area;
         if (saved.team) document.getElementById('teamFilter').value = saved.team;
+        if (saved.changeTypes && Array.isArray(saved.changeTypes)) {
+            var cbs = document.querySelectorAll('.change-type-cb');
+            cbs.forEach(function(cb) {
+                cb.checked = saved.changeTypes.indexOf(cb.value) !== -1;
+            });
+        }
         if (saved.grouped) grouped = true;
     } catch(e) {}
     try {
@@ -292,11 +371,47 @@ function applyGroupVisibility(section) {
     });
 }
 
+function formatShortDate(isoStr) {
+    var d = new Date(isoStr);
+    var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    return months[d.getMonth()] + ' ' + d.getDate();
+}
+
+function updateAuditDates(dataRows, checkedTypes, filterByChangeType) {
+    dataRows.forEach(function(row) {
+        var dateSpan = row.querySelector('.updated-date-cell span[data-original-date]');
+        if (!dateSpan) return;
+        var originalDate = dateSpan.dataset.originalDate;
+        if (!filterByChangeType) {
+            dateSpan.textContent = originalDate;
+            return;
+        }
+        var msId = row.dataset.milestoneId;
+        var msDates = auditDates[msId];
+        if (!msDates) {
+            dateSpan.textContent = originalDate;
+            return;
+        }
+        // Find the most recent ISO date among the selected change types
+        var bestIso = null;
+        checkedTypes.forEach(function(ct) {
+            if (msDates[ct] && (!bestIso || msDates[ct] > bestIso)) {
+                bestIso = msDates[ct];
+            }
+        });
+        dateSpan.textContent = bestIso ? formatShortDate(bestIso) : originalDate;
+    });
+}
+
 function applyFilters() {
     var sellerEl = document.getElementById('sellerFilter');
     var sellerId = sellerEl ? sellerEl.value : '';
     var area = document.getElementById('areaFilter').value;
     var team = document.getElementById('teamFilter').value;
+    var checkedTypes = getCheckedChangeTypes();
+    var filterByChangeType = checkedTypes !== null && !allChangeTypesChecked();
+
+    updateChangeTypeButtonStyle();
 
     // Update group button style
     var btn = document.getElementById('groupByBtn');
@@ -324,11 +439,21 @@ function applyFilters() {
             if (area && row.dataset.area !== area) show = false;
             if (team === 'on' && row.dataset.onMyTeam !== 'true') show = false;
             if (team === 'off' && row.dataset.onMyTeam !== 'false') show = false;
+            if (filterByChangeType && section === 'updated') {
+                var types = (row.dataset.changeTypes || '').split('|').filter(Boolean);
+                var hasMatch = types.some(function(t) { return checkedTypes.indexOf(t) !== -1; });
+                if (!hasMatch) show = false;
+            }
             row.style.display = show ? '' : 'none';
             row.dataset._filtered = show ? 'false' : 'true';
             if (show) visible++;
         });
         document.getElementById(section + 'Count').textContent = visible;
+
+        // Update the Updated column dates based on selected change types
+        if (section === 'updated') {
+            updateAuditDates(dataRows, checkedTypes, filterByChangeType);
+        }
 
         if (grouped) {
             // Get visible rows

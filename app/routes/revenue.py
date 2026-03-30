@@ -1066,6 +1066,17 @@ def reports_list():
 @revenue_bp.route('/revenue/reports/new-synapse-users')
 def report_new_synapse_users():
     """Report: Customers who recently started using Azure Synapse Analytics."""
+    has_revenue_data = SyncStatus.is_complete('revenue_import')
+    if not has_revenue_data:
+        return render_template(
+            'revenue_report_new_synapse_users.html',
+            has_revenue_data=False,
+            sellers={},
+            new_users=[],
+            total_count=0,
+            lookback_months=[],
+            product_name='Azure Synapse Analytics',
+        )
     from app.services.revenue_import import get_new_product_users, get_months_in_database
     
     # Get new users for Azure Synapse Analytics
@@ -1085,6 +1096,7 @@ def report_new_synapse_users():
     
     return render_template(
         'revenue_report_new_synapse_users.html',
+        has_revenue_data=True,
         sellers=sellers,
         new_users=new_users,
         total_count=len(new_users),

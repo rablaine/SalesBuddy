@@ -3,7 +3,8 @@ import logging
 from datetime import datetime, timedelta, timezone, date
 from flask import Blueprint, render_template, url_for, jsonify, request
 from app.models import (
-    db, Customer, Engagement, Note, Milestone, Seller, SolutionEngineer,
+    db, Customer, Engagement, Note, Milestone, MilestoneAudit, Seller,
+    SolutionEngineer, SyncStatus,
     Topic, RevenueAnalysis, HygieneNote, CustomerRevenueData, ProductRevenueData,
     notes_engagements, notes_milestones, notes_topics,
 )
@@ -19,18 +20,39 @@ def reports_hub():
     """Reports hub - lists all available reports grouped by goal."""
     report_groups = [
         {
-            'title': 'Meeting Prep',
-            'icon': 'bi-people',
+            'title': 'Data Hygiene',
+            'icon': 'bi-clipboard-check',
             'reports': [
                 {
-                    'id': 'one-on-one',
-                    'name': '1:1 Manager / SE Report',
+                    'id': 'milestone-tracker',
+                    'name': 'Milestone Tracker',
                     'description': (
-                        'Active engagements and recent notes for 1:1 meeting prep. '
-                        'Shows what you have been working on and where milestones stand.'
+                        'Surface milestones across all accounts. Find milestones '
+                        'you are not aligned to yet and get on the team.'
                     ),
-                    'icon': 'bi-chat-left-text',
-                    'url': url_for('reports.report_one_on_one'),
+                    'icon': 'bi-flag-fill',
+                    'url': url_for('milestones.milestone_tracker'),
+                },
+                {
+                    'id': 'whats-new',
+                    'name': "What's New",
+                    'description': (
+                        'Milestones created or updated in the last 2 weeks. '
+                        'Filter by seller to see what changed on your accounts.'
+                    ),
+                    'icon': 'bi-megaphone',
+                    'url': url_for('reports.report_whats_new'),
+                },
+                {
+                    'id': 'hygiene-report',
+                    'name': 'Engagement / Milestone Hygiene',
+                    'description': (
+                        'Engagements without milestones and milestones without '
+                        'engagements. Add notes explaining why so you can report '
+                        'on gaps quickly.'
+                    ),
+                    'icon': 'bi-link-45deg',
+                    'url': url_for('reports.report_hygiene'),
                 },
             ],
         },
@@ -72,6 +94,22 @@ def reports_hub():
             ],
         },
         {
+            'title': 'Meeting Prep',
+            'icon': 'bi-people',
+            'reports': [
+                {
+                    'id': 'one-on-one',
+                    'name': '1:1 Manager / SE Report',
+                    'description': (
+                        'Active engagements and recent notes for 1:1 meeting prep. '
+                        'Shows what you have been working on and where milestones stand.'
+                    ),
+                    'icon': 'bi-chat-left-text',
+                    'url': url_for('reports.report_one_on_one'),
+                },
+            ],
+        },
+        {
             'title': 'Workload Coverage',
             'icon': 'bi-diagram-3',
             'reports': [
@@ -84,43 +122,6 @@ def reports_hub():
                     ),
                     'icon': 'bi-tag',
                     'url': url_for('reports.report_workload'),
-                },
-            ],
-        },
-        {
-            'title': 'Data Hygiene',
-            'icon': 'bi-clipboard-check',
-            'reports': [
-                {
-                    'id': 'milestone-tracker',
-                    'name': 'Milestone Tracker',
-                    'description': (
-                        'Surface milestones across all accounts. Find milestones '
-                        'you are not aligned to yet and get on the team.'
-                    ),
-                    'icon': 'bi-flag-fill',
-                    'url': url_for('milestones.milestone_tracker'),
-                },
-                {
-                    'id': 'whats-new',
-                    'name': "What's New",
-                    'description': (
-                        'Milestones created or updated in the last 2 weeks. '
-                        'Filter by seller to see what changed on your accounts.'
-                    ),
-                    'icon': 'bi-megaphone',
-                    'url': url_for('reports.report_whats_new'),
-                },
-                {
-                    'id': 'hygiene-report',
-                    'name': 'Engagement / Milestone Hygiene',
-                    'description': (
-                        'Engagements without milestones and milestones without '
-                        'engagements. Add notes explaining why so you can report '
-                        'on gaps quickly.'
-                    ),
-                    'icon': 'bi-link-45deg',
-                    'url': url_for('reports.report_hygiene'),
                 },
             ],
         },
@@ -706,6 +707,31 @@ def report_whats_new():
     sellers.sort(key=lambda s: s.name)
     areas = sorted(areas_seen)
 
+    # Build audit change-type data for updated milestones
+    audit_changes = {}  # milestone_id -> set of field labels
+    audit_dates = {}    # milestone_id -> {label: latest_changed_on as ISO string}
+    change_types_seen = set()
+    if updated_milestones:
+        updated_ids = [ms.id for ms in updated_milestones]
+        audits = (
+            MilestoneAudit.query
+            .filter(MilestoneAudit.milestone_id.in_(updated_ids))
+            .order_by(desc(MilestoneAudit.changed_on))
+            .all()
+        )
+        for a in audits:
+            label = a.field_label
+            audit_changes.setdefault(a.milestone_id, set()).add(label)
+            change_types_seen.add(label)
+            # Track the most recent date per milestone per label
+            ms_dates = audit_dates.setdefault(a.milestone_id, {})
+            if label not in ms_dates and a.changed_on:
+                ms_dates[label] = a.changed_on.strftime('%Y-%m-%dT%H:%M:%S')
+
+    # Convert sets to sorted lists for template
+    audit_changes = {k: sorted(v) for k, v in audit_changes.items()}
+    change_types = sorted(change_types_seen)
+
     return render_template(
         'report_whats_new.html',
         created_milestones=created_milestones,
@@ -713,6 +739,9 @@ def report_whats_new():
         sellers=sellers,
         areas=areas,
         seller_mode_sid=seller_mode_sid,
+        audit_changes=audit_changes,
+        audit_dates=audit_dates,
+        change_types=change_types,
     )
 
 
@@ -723,7 +752,8 @@ def report_whats_new():
 @bp.route('/reports/whitespace')
 def report_whitespace():
     """Whitespace report: find gaps in customer technology adoption."""
-    return render_template('report_whitespace.html')
+    has_revenue_data = SyncStatus.is_complete('revenue_import')
+    return render_template('report_whitespace.html', has_revenue_data=has_revenue_data)
 
 
 @bp.route('/api/reports/whitespace')

@@ -11,13 +11,14 @@ import math
 import queue
 import time as _time
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, List, Optional, Generator, Tuple
 
-from app.models import db, Customer, Milestone, MsxTask, Opportunity, User, SyncStatus
+from app.models import db, Customer, Milestone, MilestoneAudit, MsxTask, Opportunity, User, SyncStatus
 from app.services.msx_api import (
     extract_account_id_from_url,
     get_milestones_by_account,
+    get_milestone_audits,
     get_milestone_comments,
     get_my_milestone_team_ids,
     get_tasks_for_milestones,
@@ -145,6 +146,15 @@ def sync_all_customer_milestones() -> Dict[str, Any]:
     except StopIteration as stop:
         comment_result = stop.value
         results["comments_synced"] = comment_result.get("comments_synced", 0)
+
+    # Sync audit trail for recently-modified milestones
+    audit_gen = _sync_milestone_audits()
+    try:
+        while True:
+            next(audit_gen)
+    except StopIteration as stop:
+        audit_result = stop.value
+        results["audit_fields_saved"] = audit_result.get("fields_saved", 0)
 
     logger.info(
         f"Milestone sync complete: {results['customers_synced']} synced, "
@@ -302,13 +312,13 @@ def sync_all_customer_milestones_stream(
                         'total': total,
                         'customer': result,
                         'status': 'retrying',
-                        'progress': int((fetched / total) * 70),
+                        'progress': int((fetched / total) * 65),
                     })
                 elif evt == 'fetched':
                     fetch_results[cust_id] = result
                     fetched += 1
                     SyncStatus.update_heartbeat('milestones')
-                    pct = int((fetched / total) * 70)  # 0-70%
+                    pct = int((fetched / total) * 65)  # 0-65%
                     yield _sse_event('progress', {
                         'current': fetched,
                         'total': total,
@@ -349,7 +359,7 @@ def sync_all_customer_milestones_stream(
             failed += 1
             err = fetch_data.get('error', 'Fetch failed') if fetch_data else 'No data'
             errors.append(f"{cust_name}: {err}")
-            pct = 70 + int((i / write_count) * 5)  # 70-75%
+            pct = 65 + int((i / write_count) * 5)  # 65-70%
             yield _sse_event('progress', {
                 'current': fetched + i,
                 'total': total,
@@ -371,7 +381,7 @@ def sync_all_customer_milestones_stream(
                 total_deactivated += wr['deactivated']
                 total_opps_created += wr['opportunities_created']
 
-                pct = 70 + int((i / write_count) * 5)  # 70-75%
+                pct = 65 + int((i / write_count) * 5)  # 65-70%
                 yield _sse_event('progress', {
                     'current': fetched + i,
                     'total': total,
@@ -400,13 +410,13 @@ def sync_all_customer_milestones_stream(
         while True:
             batch_num, total_batches, info, status = next(task_gen)
             SyncStatus.update_heartbeat('milestones')
-            pct = 75 + int((batch_num / max(total_batches, 1)) * 21)  # 75-96%
+            pct = 70 + int((batch_num / max(total_batches, 1)) * 17)  # 70-87%
             yield _sse_event('progress', {
                 'current': batch_num,
                 'total': total_batches,
                 'customer': info,
                 'status': status,
-                'progress': min(pct, 96),
+                'progress': min(pct, 87),
             })
     except StopIteration as stop:
         task_result = stop.value
@@ -427,7 +437,7 @@ def sync_all_customer_milestones_stream(
         'total': total,
         'customer': 'Updating team memberships...',
         'status': 'ok',
-        'progress': 97,
+        'progress': 87,
     })
     _update_team_memberships()
 
@@ -446,13 +456,13 @@ def sync_all_customer_milestones_stream(
         while True:
             current_ms, total_ms, ms_title = next(comment_gen)
             SyncStatus.update_heartbeat('milestones')
-            pct = 97 + int((current_ms / max(total_ms, 1)) * 2)  # 97-99%
+            pct = 87 + int((current_ms / max(total_ms, 1)) * 2)  # 87-89%
             yield _sse_event('progress', {
                 'current': current_ms,
                 'total': total_ms,
                 'customer': f'Comments: {ms_title}',
                 'status': 'ok',
-                'progress': min(pct, 99),
+                'progress': min(pct, 89),
             })
     except StopIteration as stop:
         comment_result = stop.value
@@ -463,6 +473,31 @@ def sync_all_customer_milestones_stream(
         'comments_synced': total_comments_synced,
         'comments_skipped': total_comments_skipped,
         'comments_failed': total_comments_failed,
+    })
+
+    # Sync audit trail for recently-modified milestones
+    yield _sse_event('audit_sync_start', {
+        'message': 'Syncing audit trail for recently-modified milestones...',
+    })
+    audit_gen = _sync_milestone_audits()
+    audit_fields_saved = 0
+    try:
+        while True:
+            batch_done, batch_total = next(audit_gen)
+            SyncStatus.update_heartbeat('milestones')
+            pct = 89 + int((batch_done / max(batch_total, 1)) * 10)  # 89-99%
+            yield _sse_event('progress', {
+                'current': batch_done,
+                'total': batch_total,
+                'customer': f'Audit trail batch {batch_done}/{batch_total}',
+                'status': 'ok',
+                'progress': min(pct, 99),
+            })
+    except StopIteration as stop:
+        audit_result = stop.value
+        audit_fields_saved = audit_result.get('fields_saved', 0)
+    yield _sse_event('audit_sync_end', {
+        'audit_fields_saved': audit_fields_saved,
     })
 
     duration = round(_time.time() - start_time, 1)
@@ -1196,6 +1231,144 @@ def _parse_msx_date(date_str: Optional[str]) -> Optional[datetime]:
     except (ValueError, AttributeError):
         logger.warning(f"Could not parse MSX date: {date_str}")
         return None
+
+
+def _sync_milestone_audits() -> Generator:
+    """
+    Fetch audit trail from MSX for milestones modified in the last 2 weeks
+    and save individual field changes to the MilestoneAudit table.
+
+    Yields:
+        Tuples of (batch_completed, total_batches) for progress reporting.
+
+    Returns (via StopIteration.value):
+        Dict with counts: audits_fetched, fields_saved, skipped.
+    """
+    two_weeks_ago = datetime.now(timezone.utc) - timedelta(days=14)
+    stats = {"audits_fetched": 0, "fields_saved": 0, "skipped": 0}
+
+    # Find milestones with MSX IDs that were modified recently.
+    # Only fall back to updated_at when msx_modified_on is NULL (avoids
+    # matching every milestone that was just touched by the sync).
+    milestones = (
+        Milestone.query
+        .filter(
+            Milestone.msx_milestone_id.isnot(None),
+            db.or_(
+                Milestone.msx_modified_on >= two_weeks_ago,
+                db.and_(
+                    Milestone.msx_modified_on.is_(None),
+                    Milestone.updated_at >= two_weeks_ago,
+                ),
+            ),
+        )
+        .all()
+    )
+    if not milestones:
+        logger.info("No recently-modified milestones - skipping audit sync")
+        return stats
+
+    guid_to_id = {
+        ms.msx_milestone_id.lower(): ms.id for ms in milestones
+    }
+    guids = list(guid_to_id.keys())
+    logger.info(f"Fetching audits for {len(guids)} recently-modified milestones")
+
+    # Use a thread-safe queue to relay progress from the parallel workers
+    progress_q = queue.Queue()
+
+    def _on_batch(completed: int, total: int) -> None:
+        progress_q.put((completed, total))
+
+    # Start the parallel fetch in a background thread so we can yield progress
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(get_milestone_audits, guids, 5, _on_batch)
+        # Yield progress as batches complete
+        while not future.done():
+            try:
+                batch_done, batch_total = progress_q.get(timeout=0.5)
+                yield (batch_done, batch_total)
+            except queue.Empty:
+                continue
+        # Drain any remaining progress events
+        while not progress_q.empty():
+            batch_done, batch_total = progress_q.get_nowait()
+            yield (batch_done, batch_total)
+        result = future.result()
+
+    if not result.get("success"):
+        logger.warning(f"Audit fetch failed: {result.get('error')}")
+        return stats
+
+    # Collect existing (audit_id, field_name) pairs so we can skip duplicates
+    existing_pairs = set(
+        (row[0], row[1]) for row in
+        db.session.query(MilestoneAudit.audit_id, MilestoneAudit.field_name).all()
+    )
+
+    new_records = []
+    for guid, audits in result["audits"].items():
+        milestone_id = guid_to_id.get(guid.lower())
+        if not milestone_id:
+            continue
+        for audit in audits:
+            stats["audits_fetched"] += 1
+            audit_id = audit["audit_id"]
+
+            # Parse changedata JSON
+            change_data_str = audit.get("change_data", "")
+            if not change_data_str:
+                continue
+            try:
+                change_data = json.loads(change_data_str)
+            except (json.JSONDecodeError, TypeError):
+                # Relationship changes (N:N links) aren't JSON - skip them
+                continue
+
+            changed_on = _parse_msx_date(audit.get("changed_on"))
+            changed_by = audit.get("changed_by", "")
+            operation = audit.get("operation", 2)
+
+            for attr in change_data.get("changedAttributes", []):
+                field_name = attr.get("logicalName", "")
+                if not field_name:
+                    continue
+                # Only save fields we have a human-readable label for
+                if field_name not in MilestoneAudit.FIELD_LABELS:
+                    continue
+                if (audit_id, field_name) in existing_pairs:
+                    stats["skipped"] += 1
+                    continue
+                new_records.append(MilestoneAudit(
+                    milestone_id=milestone_id,
+                    audit_id=audit_id,
+                    changed_on=changed_on,
+                    changed_by=changed_by,
+                    operation=operation,
+                    field_name=field_name,
+                    old_value=str(attr.get("oldValue", "")) if attr.get("oldValue") is not None else None,
+                    new_value=str(attr.get("newValue", "")) if attr.get("newValue") is not None else None,
+                ))
+                stats["fields_saved"] += 1
+                existing_pairs.add((audit_id, field_name))
+
+    if new_records:
+        try:
+            db.session.add_all(new_records)
+            db.session.commit()
+            logger.info(
+                f"Audit sync: {stats['fields_saved']} field changes saved, "
+                f"{stats['skipped']} audits skipped (already existed)"
+            )
+        except Exception as e:
+            db.session.rollback()
+            logger.exception("Error saving milestone audits")
+            stats["fields_saved"] = 0
+    else:
+        logger.info("No new audit records to save")
+
+    return stats
 
 
 def _update_team_memberships() -> None:

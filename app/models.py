@@ -1039,6 +1039,61 @@ class MilestoneComment(db.Model):
         return f'<MilestoneComment {self.id} on milestone {self.milestone_id} ({self.source_type})>'
 
 
+class MilestoneAudit(db.Model):
+    """Audit trail record from MSX showing what changed on a milestone."""
+    __tablename__ = 'milestone_audits'
+
+    id = db.Column(db.Integer, primary_key=True)
+    milestone_id = db.Column(db.Integer, db.ForeignKey('milestones.id'), nullable=False)
+    audit_id = db.Column(db.String(50), nullable=False)  # MSX audit GUID
+    changed_on = db.Column(db.DateTime, nullable=False)  # When the change happened in MSX
+    changed_by = db.Column(db.String(50), nullable=True)  # MSX user ID who made the change
+    operation = db.Column(db.Integer, nullable=True)  # 1=Create, 2=Update, 3=Delete
+    field_name = db.Column(db.String(100), nullable=False)  # Dataverse logical name (e.g., msp_monthlyuse)
+    old_value = db.Column(db.Text, nullable=True)  # Previous value (as string)
+    new_value = db.Column(db.Text, nullable=True)  # New value (as string)
+
+    __table_args__ = (
+        db.UniqueConstraint('audit_id', 'field_name', name='uq_audit_field'),
+    )
+
+    # Relationships
+    milestone = db.relationship(
+        'Milestone',
+        backref=db.backref('audits', lazy='dynamic', cascade='all, delete-orphan')
+    )
+
+    # Map Dataverse field names to human-readable labels.
+    # Only fields listed here are saved during audit sync - unlisted fields are skipped.
+    FIELD_LABELS = {
+        'msp_monthlyuse': 'Est. ACR/mo',
+        'msp_milestonedate': 'Due Date',
+        'msp_commitmentrecommendation': 'Commitment',
+        'msp_milestonestatus': 'Status',
+        'msp_name': 'Title',
+        'msp_bacvrate': 'BACV',
+        'msp_forecastcommentsjsonfield': 'Forecast Comments',
+        'msp_tags': 'Tags',
+        'ownerid': 'Owner',
+        'msp_workload': 'Workload',
+        'msp_milestonesolutionarea': 'Solution Area',
+        'msp_milestonecategory': 'Category',
+        'msp_milestonestatusreason': 'Status Reason',
+        'msp_helpneeded': 'Help Needed',
+        'msp_completedon': 'Completed On',
+        'msp_completedby': 'Completed By',
+        'msp_riskorblockeddate': 'Risk/Blocked Date',
+    }
+
+    @property
+    def field_label(self) -> str:
+        """Return human-readable label for the changed field."""
+        return self.FIELD_LABELS.get(self.field_name, self.field_name)
+
+    def __repr__(self) -> str:
+        return f'<MilestoneAudit {self.audit_id[:8]} milestone={self.milestone_id} field={self.field_name}>'
+
+
 # =============================================================================
 # User Preferences Model
 # =============================================================================

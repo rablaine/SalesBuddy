@@ -53,7 +53,7 @@
         <button id="syncBtn" class="btn btn-primary" onclick="syncMilestones()">
             <i class="bi bi-arrow-repeat"></i> Sync from MSX
         </button>
-        <p class="text-muted small mb-0 mt-1 text-end">Usually takes about 6 minutes</p>
+        <p class="text-muted small mb-0 mt-1 text-end">Usually takes about 3 minutes</p>
     </div>
 </div>
 
@@ -523,6 +523,11 @@ function syncMilestones() {
                 if (data.comments_skipped > 0) commentInfo += `, ${data.comments_skipped} already cached`;
                 if (data.comments_failed > 0) commentInfo += `, ${data.comments_failed} failed`;
                 detail.innerHTML = `<i class="bi bi-chat-dots-fill text-success"></i> ${commentInfo}`;
+            } else if (type === 'audit_sync_start') {
+                detail.innerHTML = `<i class="bi bi-clock-history text-info"></i> ${data.message || 'Syncing audit trail...'}`;
+            } else if (type === 'audit_sync_end') {
+                let auditInfo = `${data.audit_fields_saved || 0} field changes tracked`;
+                detail.innerHTML = `<i class="bi bi-clock-history text-success"></i> Audit trail: ${auditInfo}`;
             } else if (type === 'complete') {
                 window.removeEventListener('beforeunload', warnOnLeave);
                 progressBar.classList.remove('progress-bar-animated');

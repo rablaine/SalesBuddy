@@ -1816,7 +1816,7 @@ class TestOnMyTeamInTracker:
         response = client.get('/milestone-tracker')
         assert response.status_code == 200
         assert b'myTeamFilter' in response.data
-        assert b'My Team' in response.data
+        assert b'On Team' in response.data
 
     def test_tracker_shows_team_icon(self, client, app, sample_data):
         """Milestones on my team should show the people icon."""

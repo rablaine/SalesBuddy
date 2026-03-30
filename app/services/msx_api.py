@@ -863,6 +863,97 @@ def get_milestones_by_account(
         return {"success": False, "error": str(e)}
 
 
+def get_milestone_audits(
+    milestone_guids: List[str],
+    top_per_milestone: int = 5,
+    on_batch_complete: Optional[callable] = None,
+) -> Dict[str, Any]:
+    """
+    Fetch recent audit trail records for a batch of milestones.
+
+    Uses an OR filter to query multiple milestones in a single request.
+    Batches into groups of 10 and fetches with 3 concurrent workers.
+
+    Args:
+        milestone_guids: List of MSX milestone GUIDs.
+        top_per_milestone: Max audit records per request (applied to whole batch).
+        on_batch_complete: Optional callback(batch_num, total_batches) for progress.
+
+    Returns:
+        Dict with:
+        - success: bool
+        - audits: Dict mapping milestone_guid -> list of audit dicts
+        - error: str if failed
+    """
+    if not milestone_guids:
+        return {"success": True, "audits": {}}
+
+    all_audits: Dict[str, list] = {g: [] for g in milestone_guids}
+    batch_size = 10
+    batches = []
+    for i in range(0, len(milestone_guids), batch_size):
+        batches.append(milestone_guids[i:i + batch_size])
+    total_batches = len(batches)
+
+    def _fetch_batch(batch: List[str]) -> Optional[List[dict]]:
+        """Fetch one batch of audit records. Returns list of raw records or None on auth error."""
+        or_parts = " or ".join(
+            f"_objectid_value eq '{g}'" for g in batch
+        )
+        url = (
+            f"{CRM_BASE_URL}/audits"
+            f"?$filter=({or_parts})"
+            f" and objecttypecode eq 'msp_engagementmilestone'"
+            f"&$top={top_per_milestone * len(batch)}"
+            f"&$orderby=createdon desc"
+        )
+        response = _msx_request('GET', url)
+        if response.status_code == 200:
+            return response.json().get("value", [])
+        elif response.status_code in (401, 403):
+            return None  # Signal auth failure
+        else:
+            logger.warning(
+                f"Audit fetch batch returned {response.status_code}: "
+                f"{response.text[:200]}"
+            )
+            return []
+
+    try:
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        completed = 0
+        with ThreadPoolExecutor(max_workers=3) as pool:
+            futures = {pool.submit(_fetch_batch, b): b for b in batches}
+            for future in as_completed(futures):
+                result = future.result()
+                if result is None:
+                    # Auth failure - cancel remaining
+                    return {"success": False, "error": "Not authenticated or access denied.", "audits": {}}
+                for rec in result:
+                    oid = rec.get("_objectid_value")
+                    if oid in all_audits:
+                        all_audits[oid].append({
+                            "audit_id": rec.get("auditid"),
+                            "changed_on": rec.get("createdon"),
+                            "changed_by": rec.get("_userid_value"),
+                            "operation": rec.get("operation"),
+                            "change_data": rec.get("changedata"),
+                        })
+                completed += 1
+                if on_batch_complete:
+                    on_batch_complete(completed, total_batches)
+
+        return {"success": True, "audits": all_audits}
+
+    except requests.exceptions.Timeout:
+        return {"success": False, "error": "Request timed out.", "audits": {}}
+    except requests.exceptions.ConnectionError as e:
+        return {"success": False, "error": f"Connection error: {str(e)[:100]}", "audits": {}}
+    except Exception as e:
+        logger.exception("Error fetching milestone audits")
+        return {"success": False, "error": str(e), "audits": {}}
+
+
 def get_opportunities_by_account(
     account_id: str,
     open_only: bool = True,
