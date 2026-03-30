@@ -3530,7 +3530,7 @@ function renderSelectedMilestones() {
                         ${number ? '<span class="text-muted small">(' + number + ')</span>' : ''}
                         <span class="badge ${statusClass} ms-1">${status}</span>
                         ${selDateDisplay ? '<span class="text-muted small ms-1"><i class="bi bi-calendar3"></i> ' + selDateDisplay + '</span>' : ''}
-                        ${milestone.on_my_team ? '<span class="badge bg-primary ms-1" title="On my team"><i class="bi bi-people-fill"></i> On Team</span>' : ''}
+                        ${milestone.on_my_team ? '<span class="badge bg-primary ms-1" title="On my team"><i class="bi bi-people-fill"></i> On Team</span>' : '<span class="badge bg-primary bg-opacity-25 text-primary ms-1" style="border: 1px dashed var(--bs-primary);" title="You will be added to the milestone team when you save this note"><i class="bi bi-people"></i> On Team</span>'}
                         ${usageDisplay ? '<span class="badge bg-success ms-1">' + usageDisplay + '</span>' : ''}
                         ${oppName ? '<br><small class="text-muted">' + oppName + '</small>' : ''}
                         ${workload ? '<br><small class="text-info"><i class="bi bi-cpu"></i> ' + workload + '</small>' : ''}
@@ -4252,7 +4252,8 @@ function saveDraft() {
         opportunity_name: m.opportunity_name,
         workload: m.workload,
         monthly_usage: m.monthly_usage,
-        url: m.url
+        url: m.url,
+        on_my_team: m.on_my_team || false
     }));
     
     // Get task form data (only exists for non-DSS users)
