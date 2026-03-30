@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}Sales Buddy{% endblock %}</title>
-    <script>if(window.matchMedia('(display-mode: standalone)').matches){document.title=document.title.replace(/ - Sales Buddy$/,'')}</script>
+    <script>if(window.matchMedia('(display-mode: standalone)').matches){document.title=document.title.replace(/ - Sales Buddy$/,'').replace(/^Sales Buddy - /,'').replace(/^Sales Buddy$/,'Home')}</script>
     <script>
         // Capture PWA install prompt early (fires before DOMContentLoaded)
         window.__pwaInstallPrompt = null;
@@ -1414,7 +1414,7 @@
     <!-- PWA: strip redundant app name from title, hide navbar brand, set telemetry cookie -->
     <script>
     if (window.matchMedia('(display-mode: standalone)').matches) {
-        document.title = document.title.replace(/ - Sales Buddy$/, '');
+        document.title = document.title.replace(/ - Sales Buddy$/, '').replace(/^Sales Buddy - /, '').replace(/^Sales Buddy$/, 'Home');
         var brand = document.querySelector('.navbar-brand');
         if (brand) brand.style.display = 'none';
         document.cookie = 'sb_app_mode=standalone;path=/;SameSite=Strict';
