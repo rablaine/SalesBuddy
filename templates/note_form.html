@@ -584,6 +584,10 @@
                         <a href="{{ url_for('notes.note_view', id=note.id) }}" class="btn btn-secondary" onclick="cancelNote()">
                             <i class="bi bi-x-circle"></i> Cancel
                         </a>
+                        {% elif referrer %}
+                        <a href="{{ referrer }}" class="btn btn-secondary" onclick="cancelNote()">
+                            <i class="bi bi-x-circle"></i> Cancel
+                        </a>
                         {% else %}
                         <a href="{{ url_for('notes.notes_list') }}" class="btn btn-secondary" onclick="cancelNote()">
                             <i class="bi bi-x-circle"></i> Cancel

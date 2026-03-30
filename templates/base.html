@@ -1412,13 +1412,33 @@
     });
     </script>
 
-    <!-- PWA: strip redundant app name from title, hide navbar brand, set telemetry cookie -->
+    <!-- PWA: strip redundant app name from title, hide navbar brand, set telemetry cookie,
+         and keep all same-origin navigation inside the PWA window -->
     <script>
     if (window.matchMedia('(display-mode: standalone)').matches) {
         document.title = document.title.replace(/ - Sales Buddy$/, '');
         var brand = document.querySelector('.navbar-brand');
         if (brand) brand.style.display = 'none';
         document.cookie = 'sb_app_mode=standalone;path=/;SameSite=Strict';
+
+        // In standalone PWA mode, clicking <a> tags can sometimes open the
+        // default browser instead of navigating inside the PWA window.
+        // Intercept clicks on same-origin links and force in-app navigation.
+        document.addEventListener('click', function(e) {
+            var link = e.target.closest('a[href]');
+            if (!link) return;
+            var href = link.getAttribute('href');
+            if (!href || href === '#' || href.startsWith('javascript:')) return;
+            // Skip links that explicitly want a new window
+            if (link.getAttribute('target') === '_blank') return;
+            // Only handle same-origin URLs
+            try {
+                var url = new URL(href, window.location.origin);
+                if (url.origin !== window.location.origin) return;
+            } catch(ex) { return; }
+            e.preventDefault();
+            window.location.href = href;
+        });
     } else if (!document.cookie.includes('sb_app_mode=')) {
         document.cookie = 'sb_app_mode=browser;path=/;SameSite=Strict';
     }
