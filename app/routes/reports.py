@@ -102,6 +102,16 @@ def reports_hub():
                     'url': url_for('milestones.milestone_tracker'),
                 },
                 {
+                    'id': 'whats-new',
+                    'name': "What's New",
+                    'description': (
+                        'Milestones created or updated in the last 2 weeks. '
+                        'Filter by seller to see what changed on your accounts.'
+                    ),
+                    'icon': 'bi-megaphone',
+                    'url': url_for('reports.report_whats_new'),
+                },
+                {
                     'id': 'hygiene-report',
                     'name': 'Engagement / Milestone Hygiene',
                     'description': (
@@ -623,6 +633,87 @@ def save_hygiene_note():
 
     db.session.commit()
     return jsonify(success=True)
+
+
+# =============================================================================
+# What's New Report
+# =============================================================================
+
+@bp.route('/reports/whats-new')
+def report_whats_new():
+    """What's New report - milestones created or updated in the last 2 weeks."""
+    from app.services.seller_mode import get_seller_mode_seller_id
+
+    now = datetime.now(timezone.utc)
+    two_weeks_ago = now - timedelta(days=14)
+    seller_mode_sid = get_seller_mode_seller_id()
+
+    # --- Milestones created in MSX in the last 2 weeks ---
+    # Use msx_created_on (from MSX Dataverse) when available, fall back to local created_at
+    created_q = (
+        Milestone.query
+        .filter(
+            db.or_(
+                Milestone.msx_created_on >= two_weeks_ago,
+                db.and_(Milestone.msx_created_on.is_(None), Milestone.created_at >= two_weeks_ago),
+            )
+        )
+        .options(
+            db.joinedload(Milestone.customer).joinedload(Customer.seller),
+        )
+        .order_by(desc(db.func.coalesce(Milestone.msx_created_on, Milestone.created_at)))
+    )
+    created_milestones = created_q.all()
+
+    # --- Milestones modified in MSX in the last 2 weeks (exclude newly created) ---
+    # Use msx_modified_on when available, fall back to local updated_at
+    updated_q = (
+        Milestone.query
+        .filter(
+            db.or_(
+                db.and_(
+                    Milestone.msx_modified_on >= two_weeks_ago,
+                    db.or_(Milestone.msx_created_on < two_weeks_ago, Milestone.msx_created_on.is_(None)),
+                ),
+                db.and_(
+                    Milestone.msx_modified_on.is_(None),
+                    Milestone.updated_at >= two_weeks_ago,
+                    Milestone.created_at < two_weeks_ago,
+                ),
+            )
+        )
+        .options(
+            db.joinedload(Milestone.customer).joinedload(Customer.seller),
+        )
+        .order_by(desc(db.func.coalesce(Milestone.msx_modified_on, Milestone.updated_at)))
+    )
+    updated_milestones = updated_q.all()
+
+    # Build seller list for filter (union of sellers from both lists)
+    seller_ids_seen = set()
+    sellers = []
+    areas_seen = set()
+    for ms in created_milestones + updated_milestones:
+        if ms.customer and ms.customer.seller:
+            s = ms.customer.seller
+            if s.id not in seller_ids_seen:
+                seller_ids_seen.add(s.id)
+                sellers.append(s)
+        if ms.workload:
+            area = ms.workload.split(':', 1)[0].strip() if ':' in ms.workload else ms.workload.strip()
+            if area:
+                areas_seen.add(area)
+    sellers.sort(key=lambda s: s.name)
+    areas = sorted(areas_seen)
+
+    return render_template(
+        'report_whats_new.html',
+        created_milestones=created_milestones,
+        updated_milestones=updated_milestones,
+        sellers=sellers,
+        areas=areas,
+        seller_mode_sid=seller_mode_sid,
+    )
 
 
 # =============================================================================

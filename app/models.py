@@ -914,6 +914,8 @@ class Milestone(db.Model):
     details_fetched_at = db.Column(db.DateTime, nullable=True)  # When MSX details were last fetched
     committed_at = db.Column(db.DateTime, nullable=True)  # When commitment changed to Committed (detected by sync)
     completed_at = db.Column(db.DateTime, nullable=True)  # When status changed to Completed (detected by sync)
+    msx_created_on = db.Column(db.DateTime, nullable=True)  # When milestone was created in MSX (createdon)
+    msx_modified_on = db.Column(db.DateTime, nullable=True)  # When milestone was last modified in MSX (modifiedon)
     
     # Relationships
     customer_id = db.Column(db.Integer, db.ForeignKey('customers.id'), nullable=True)

@@ -773,7 +773,7 @@ def get_milestones_by_account(
             f"msp_milestonenumber,_msp_opportunityid_value,msp_monthlyuse,"
             f"_msp_workloadlkid_value,msp_milestonedate,msp_bacvrate,"
             f"msp_commitmentrecommendation,msp_committedon,msp_completedon,"
-            f"msp_forecastcommentsjsonfield"
+            f"msp_forecastcommentsjsonfield,createdon,modifiedon"
             f"&$orderby=msp_name"
         )
         
@@ -829,6 +829,8 @@ def get_milestones_by_account(
                     "committed_on": raw.get("msp_committedon"),
                     "completed_on": raw.get("msp_completedon"),
                     "comments_json": raw.get("msp_forecastcommentsjsonfield"),
+                    "created_on": raw.get("createdon"),
+                    "modified_on": raw.get("modifiedon"),
                 })
             
             # Sort by status (active first), then by name

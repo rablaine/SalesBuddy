@@ -153,11 +153,11 @@
                         {% endif %}
                         <li class="list-group-item d-flex justify-content-between">
                             <span class="text-muted">Created</span>
-                            <span>{{ milestone.created_at.strftime('%b %d, %Y') }}</span>
+                            <span>{{ (milestone.msx_created_on or milestone.created_at).strftime('%b %d, %Y') }}</span>
                         </li>
                         <li class="list-group-item d-flex justify-content-between">
                             <span class="text-muted">Last Updated</span>
-                            <span>{{ milestone.updated_at.strftime('%b %d, %Y') }}</span>
+                            <span>{{ (milestone.msx_modified_on or milestone.updated_at).strftime('%b %d, %Y') }}</span>
                         </li>
                     </ul>
                 </div>

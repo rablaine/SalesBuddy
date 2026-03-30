@@ -197,6 +197,8 @@ def run_migrations(db):
         _add_column_if_not_exists(db, inspector, 'milestones', 'owner_name', 'VARCHAR(200)')
         _add_column_if_not_exists(db, inspector, 'milestones', 'committed_at', 'DATETIME')
         _add_column_if_not_exists(db, inspector, 'milestones', 'completed_at', 'DATETIME')
+        _add_column_if_not_exists(db, inspector, 'milestones', 'msx_created_on', 'DATETIME')
+        _add_column_if_not_exists(db, inspector, 'milestones', 'msx_modified_on', 'DATETIME')
 
     # Migration: Add heartbeat_at column to sync_status (detect actively running syncs)
     if _table_exists(inspector, 'sync_status'):
