@@ -281,6 +281,10 @@ def start_copilot_sync_background(app) -> None:
         app: Flask app instance.
     """
     with app.app_context():
+        from app.models import SyncStatus
+        if not SyncStatus.is_complete('accounts'):
+            logger.debug("Skipping copilot sync - first account sync not yet completed")
+            return
         pref = UserPreference.query.first()
         if pref and not pref.copilot_actions_enabled:
             logger.debug("Copilot action items disabled in settings")
@@ -320,6 +324,10 @@ def start_daily_scheduler(app) -> None:
 
                 if now.hour >= SYNC_HOUR and last_sync_date != today:
                     with app.app_context():
+                        from app.models import SyncStatus
+                        if not SyncStatus.is_complete('accounts'):
+                            _time.sleep(300)
+                            continue
                         pref = UserPreference.query.first()
                         if pref and not pref.copilot_actions_enabled:
                             last_sync_date = today

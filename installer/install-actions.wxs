@@ -3,15 +3,17 @@
 <!--
     Custom Action definitions for Sales Buddy MSI.
 
-    Install: runs scripts/install.ps1 with all options enabled
-    Uninstall: runs scripts/uninstall.ps1 -Silent
+    Install: runs run-install.cmd (wrapper that calls install.ps1 with logging)
+    Uninstall: runs run-uninstall.cmd (wrapper that calls uninstall.ps1)
 
-    Both use immediate type 34 (Directory + ExeCommand) custom actions.
-    perUser scope means no elevation, so deferred is unnecessary.
+    Uses type 18 custom actions (FileRef + ExeCommand) with Execute="deferred".
+    Deferred actions run inside the InstallFinalize script alongside file
+    operations, so the files are guaranteed to be on disk. Immediate actions
+    run during the script-building phase BEFORE files are extracted.
 
-    IMPORTANT: MSI type 34 does NOT format [Property] references in
-    ExeCommand. It DOES expand %EnvironmentVariables%. So we use
-    %LOCALAPPDATA% via cmd.exe /c to build the script path.
+    Impersonate="yes" ensures the action runs as the installing user (not
+    SYSTEM), which is needed for perUser installs to access user's PATH,
+    %LOCALAPPDATA%, etc.
 -->
 
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
@@ -19,24 +21,27 @@
     <Fragment>
 
         <!-- ================================================================
-             INSTALL: Run install.ps1 (prereqs, clone, server setup, shortcuts)
-             Scheduled Before InstallFinalize so UI waits and shows progress.
-             Files are on disk (InstallFiles already ran).
+             INSTALL: Run run-install.cmd wrapper (deferred)
+             Scheduled After InstallFiles - files are on disk at this point.
              ================================================================ -->
 
         <CustomAction Id="InstallAction"
-                      Directory="INSTALLFOLDER"
-                      ExeCommand="cmd.exe /c powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File &quot;%LOCALAPPDATA%\SalesBuddy\scripts\install.ps1&quot; -Shortcuts -DesktopShortcut -LaunchBrowser"
-                      Return="check" />
+                      FileRef="RunInstallCmd"
+                      ExeCommand=""
+                      Execute="deferred"
+                      Impersonate="yes"
+                      Return="ignore" />
 
         <!-- ================================================================
-             UNINSTALL: Run uninstall.ps1 -Silent
-             Scheduled Before RemoveFiles so the script still exists on disk.
+             UNINSTALL: Run run-uninstall.cmd wrapper (deferred)
+             Scheduled Before RemoveFiles - files still on disk.
              ================================================================ -->
 
         <CustomAction Id="UninstallAction"
-                      Directory="INSTALLFOLDER"
-                      ExeCommand="cmd.exe /c powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File &quot;%LOCALAPPDATA%\SalesBuddy\scripts\uninstall.ps1&quot; -Silent"
+                      FileRef="RunUninstallCmd"
+                      ExeCommand=""
+                      Execute="deferred"
+                      Impersonate="yes"
                       Return="ignore" />
 
         <!-- ================================================================
@@ -44,7 +49,7 @@
              ================================================================ -->
 
         <InstallExecuteSequence>
-            <Custom Action="InstallAction" Before="InstallFinalize" Condition="NOT REMOVE" />
+            <Custom Action="InstallAction" After="InstallFiles" Condition="NOT REMOVE" />
             <Custom Action="UninstallAction" Before="RemoveFiles" Condition="REMOVE=&quot;ALL&quot;" />
         </InstallExecuteSequence>
 

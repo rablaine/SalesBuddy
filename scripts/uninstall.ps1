@@ -50,7 +50,7 @@ if ($conn) {
 }
 
 # -- Remove scheduled tasks ----------------------------------------------------
-$taskNames = @('SalesBuddy-AutoStart', 'SalesBuddy-DailyBackup', 'SalesBuddy-MilestoneSync')
+$taskNames = @('SalesBuddy-AutoStart', 'SalesBuddy-DailyBackup')
 $removedAny = $false
 
 foreach ($taskName in $taskNames) {
@@ -88,10 +88,30 @@ if (Test-Path $DesktopShortcut) {
 }
 
 # -- Remove app files (optional) -----------------------------------------------
+# When called with -Silent (MSI uninstall), skip file removal entirely.
+# The MSI's RemoveFiles action handles deleting the install directory.
+# We only need to handle the git-cloned repo at %LOCALAPPDATA%\SalesBuddy.
 $removeFiles = $false
 if ($Silent) {
-    # MSI uninstall: remove everything except the database
-    $removeFiles = $true
+    # MSI handles file removal. Backup the database so the user doesn't lose data.
+    $clonedRepo = Join-Path $env:LOCALAPPDATA 'SalesBuddy'
+    $dbFile = Join-Path $clonedRepo 'data\salesbuddy.db'
+    if (Test-Path $dbFile) {
+        $dbBackup = Join-Path $env:TEMP "salesbuddy-uninstall-$(Get-Date -Format 'yyyyMMdd-HHmmss').db"
+        Copy-Item $dbFile $dbBackup -ErrorAction SilentlyContinue
+        Write-Host "  [OK] Database backed up to $dbBackup" -ForegroundColor Green
+    }
+    # Remove the cloned repo (separate from the MSI install directory)
+    # Use cmd rmdir which is orders of magnitude faster than Remove-Item -Recurse
+    if ((Test-Path $clonedRepo) -and ($clonedRepo -ne $RepoRoot)) {
+        Write-Host "  Removing app files (this may take a moment)..." -ForegroundColor Yellow
+        cmd /c "rmdir /s /q `"$clonedRepo`"" 2>$null
+        if (-not (Test-Path $clonedRepo)) {
+            Write-Host "  [OK] Cloned repository removed." -ForegroundColor Green
+        } else {
+            Write-Host "  [WARNING] Some files could not be removed (may be in use)." -ForegroundColor Yellow
+        }
+    }
 } else {
     Write-Host ""
     $response = Read-Host "  Delete app files at $RepoRoot? Your database will be preserved. (y/N)"
@@ -110,8 +130,10 @@ if ($removeFiles) {
     }
 
     # Remove the app directory
+    # Use cmd rmdir which is orders of magnitude faster than Remove-Item -Recurse
     if (Test-Path $RepoRoot) {
-        Remove-Item $RepoRoot -Recurse -Force -ErrorAction SilentlyContinue
+        Write-Host "  Removing app files (this may take a moment)..." -ForegroundColor Yellow
+        cmd /c "rmdir /s /q `"$RepoRoot`"" 2>$null
         if (-not (Test-Path $RepoRoot)) {
             Write-Host "  [OK] App files removed." -ForegroundColor Green
         } else {
@@ -136,7 +158,7 @@ Write-Host "  Uninstall complete." -ForegroundColor Green
 Write-Host ""
 Write-Host "  What was removed:" -ForegroundColor Gray
 Write-Host "    - Server process (stopped)" -ForegroundColor Gray
-Write-Host "    - Scheduled tasks (SalesBuddy-AutoStart, SalesBuddy-DailyBackup, SalesBuddy-MilestoneSync)" -ForegroundColor Gray
+Write-Host "    - Scheduled tasks (SalesBuddy-AutoStart, SalesBuddy-DailyBackup)" -ForegroundColor Gray
 Write-Host "    - Start Menu and desktop shortcuts" -ForegroundColor Gray
 if ($removeFiles) {
     Write-Host "    - App files" -ForegroundColor Gray
@@ -150,7 +172,7 @@ if (-not $removeFiles) {
 Write-Host "    - OneDrive backups" -ForegroundColor Gray
 Write-Host ""
 
-if (-not $Silent) {
+if (-not $Silent -and [Environment]::UserInteractive -and $Host.Name -ne 'Default Host') {
     Write-Host "Press any key to close..." -ForegroundColor Gray
-    $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+    try { $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown") } catch {}
 }

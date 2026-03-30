@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" data-bs-theme="{{ 'dark' if dark_mode else 'light' }}">
+<html lang="en" {% if dark_mode is not none %}data-bs-theme="{{ 'dark' if dark_mode else 'light' }}"{% endif %}>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -2495,6 +2495,26 @@
 
                 // --- Wizard Initialization: detect progress and resume at correct step ---
                 async function initWizard() {
+                    // On first launch, dark_mode is unset in the database.
+                    // Detect the OS theme, apply it, and save it so this only
+                    // runs once. After this, UserPreference.dark_mode is set
+                    // and the server renders the correct theme directly.
+                    {% if dark_mode_unset %}
+                    {
+                        const osPrefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+                        htmlElement.setAttribute('data-bs-theme', osPrefersDark ? 'dark' : 'light');
+                        const toggle = document.getElementById('onboardDarkModeToggle');
+                        if (toggle) toggle.checked = osPrefersDark;
+                        try {
+                            await fetch('/api/preferences/dark-mode', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ dark_mode: osPrefersDark })
+                            });
+                        } catch (err) { /* best effort */ }
+                    }
+                    {% endif %}
+
                     let startStep = 1;
 
                     // Check for step override from URL (used after Step 1 role selection reload)
