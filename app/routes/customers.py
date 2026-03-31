@@ -506,6 +506,24 @@ def api_customer_contact_delete(contact_id):
     return jsonify({'success': True}), 200
 
 
+@customers_bp.route('/api/customer/contact/<int:contact_id>/photo', methods=['POST'])
+def api_customer_contact_photo(contact_id):
+    """Save a photo for a customer contact. Runs face detection server-side."""
+    contact = CustomerContact.query.filter_by(id=contact_id).first_or_404()
+    data = request.get_json()
+    raw_b64 = data.get('photo_b64')
+    if raw_b64:
+        from app.services.contact_photo import process_contact_photo
+        cropped, full = process_contact_photo(raw_b64)
+        contact.photo_b64 = cropped
+        contact.photo_full_b64 = full
+    else:
+        contact.photo_b64 = None
+        contact.photo_full_b64 = None
+    db.session.commit()
+    return jsonify({'success': True, 'photo_b64': contact.photo_b64})
+
+
 @customers_bp.route('/api/customer/<int:customer_id>/info')
 def api_customer_info(customer_id):
     """Return customer details for the note-form customer flyout."""

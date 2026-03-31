@@ -809,16 +809,17 @@
             </div>
         </div>
         <div class="row mb-3">
-            <div class="col-6">
-                <label class="form-label">Rating</label>
-                <div id="flyout_partner_rating" class="d-flex gap-1">
-                    {% for i in range(1, 6) %}
-                    <i class="bi bi-star fs-5 text-muted" data-rating="{{ i }}" style="cursor: pointer;"
-                       onclick="setFlyoutRating(this, {{ i }})"
-                       onmouseenter="previewFlyoutRating({{ i }})"
-                       onmouseleave="restoreFlyoutRating()"></i>
-                    {% endfor %}
-                </div>
+            <div class="col">
+                <label class="form-label d-flex align-items-center gap-2">Rating
+                    <div id="flyout_partner_rating" class="d-flex gap-1">
+                        {% for i in range(1, 6) %}
+                        <i class="bi bi-star fs-5 text-muted" data-rating="{{ i }}" style="cursor: pointer;"
+                           onclick="setFlyoutRating(this, {{ i }})"
+                           onmouseenter="previewFlyoutRating({{ i }})"
+                           onmouseleave="restoreFlyoutRating()"></i>
+                        {% endfor %}
+                    </div>
+                </label>
                 <input type="hidden" id="flyout_partner_rating_value" value="">
             </div>
         </div>
@@ -832,24 +833,23 @@
             <div id="flyout_selected_specialties" class="mt-2 d-flex flex-wrap gap-1"></div>
         </div>
 
-        <!-- Contacts -->
-        <div class="mb-3">
-            <label class="form-label">Contacts</label>
-            <div id="flyout_contacts_list"></div>
-            <div class="input-group input-group-sm mt-1">
-                <input type="text" class="form-control" id="flyout_contact_name" placeholder="Name">
-                <input type="text" class="form-control" id="flyout_contact_title" placeholder="Title">
-                <input type="text" class="form-control" id="flyout_contact_email" placeholder="Email">
-                <button type="button" class="btn btn-outline-secondary" onclick="addFlyoutContact()">
-                    <i class="bi bi-plus"></i>
-                </button>
-            </div>
-        </div>
-
         <div class="mb-3">
             <label for="flyout_partner_overview" class="form-label">Notes</label>
             <textarea class="form-control" id="flyout_partner_overview" rows="2" placeholder="Quick notes about this partner..."></textarea>
         </div>
+
+        <!-- Contacts -->
+        <div class="mb-3">
+            <label class="form-label">Contacts</label>
+            <div id="flyout_contacts_list"></div>
+            <div id="flyoutContactAddZone">
+                <div class="contact-add-ghost" onclick="activateFlyoutContactGhost(this)">
+                    <input type="text" class="form-control form-control-sm bg-transparent border-secondary text-muted"
+                           placeholder="+ Add contact..." onfocus="activateFlyoutContactGhost(this.closest('.contact-add-ghost'))">
+                </div>
+            </div>
+        </div>
+
         <button type="button" class="btn btn-primary w-100" id="flyout_partner_save" onclick="savePartnerFromFlyout()">
             <i class="bi bi-check-circle"></i> <span id="flyout_partner_save_text">Create Partner</span>
         </button>
@@ -3371,6 +3371,8 @@ function isPartnerFlyoutDirty() {
     var flyout = document.getElementById('partnerFlyout');
     var instance = bootstrap.Offcanvas.getInstance(flyout);
     if (!instance || !flyout.classList.contains('show')) return false;
+    // Check for open ghost cards (add-in-progress)
+    if (flyout.querySelector('[id^="flyoutGhost-"]')) return true;
     return _flyoutCleanState !== _getFlyoutState();
 }
 
@@ -3405,25 +3407,120 @@ function removeFlyoutContact(index) {
 function renderFlyoutContacts() {
     const list = document.getElementById('flyout_contacts_list');
     list.innerHTML = flyoutContacts.map((c, i) =>
-        `<div class="d-flex align-items-center gap-2 mb-1">
-            <span class="small flex-grow-1"><i class="bi bi-person"></i> ${c.name}${c.title ? ' <span class="text-muted">- ' + c.title + '</span>' : ''}${c.email ? ' <span class="text-muted">(' + c.email + ')</span>' : ''}${c.is_primary ? ' <span class="badge bg-primary" style="font-size:0.65em">Primary</span>' : ''}</span>
-            <button type="button" class="btn btn-sm btn-outline-danger py-0 px-1" onclick="removeFlyoutContact(${i})">
-                <i class="bi bi-x"></i>
-            </button>
+        `<div class="card mb-2" id="flyoutContact-${i}">
+            <div class="card-body py-2 px-3">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div>
+                        <div class="fw-semibold"><i class="bi bi-person-circle me-1"></i>${escHtmlNote(c.name)}</div>
+                        ${c.title ? '<div class="text-muted small">' + escHtmlNote(c.title) + '</div>' : ''}
+                        ${c.email ? '<div class="small"><a href="mailto:' + escHtmlNote(c.email) + '">' + escHtmlNote(c.email) + '</a></div>' : ''}
+                    </div>
+                    <div class="d-flex gap-1">
+                        <button class="btn btn-sm btn-outline-secondary py-0 px-1" onclick="editFlyoutContact(${i})" title="Edit">
+                            <i class="bi bi-pencil" style="font-size:0.75rem;"></i>
+                        </button>
+                        <button class="btn btn-sm btn-outline-danger py-0 px-1" onclick="removeFlyoutContact(${i})" title="Remove">
+                            <i class="bi bi-trash" style="font-size:0.75rem;"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
         </div>`
     ).join('');
 }
 
-// Enter in contact fields adds the contact
-document.getElementById('flyout_contact_name')?.addEventListener('keydown', function(e) {
-    if (e.key === 'Enter') { e.preventDefault(); addFlyoutContact(); }
-});
-document.getElementById('flyout_contact_title')?.addEventListener('keydown', function(e) {
-    if (e.key === 'Enter') { e.preventDefault(); addFlyoutContact(); }
-});
-document.getElementById('flyout_contact_email')?.addEventListener('keydown', function(e) {
-    if (e.key === 'Enter') { e.preventDefault(); addFlyoutContact(); }
-});
+function editFlyoutContact(index) {
+    var c = flyoutContacts[index];
+    var card = document.getElementById('flyoutContact-' + index);
+    var body = card.querySelector('.card-body');
+    body.dataset.originalHtml = body.innerHTML;
+    body.innerHTML =
+        '<div class="mb-1"><input type="text" class="form-control form-control-sm" id="fcEdit_name_' + index + '" value="' + (c.name || '').replace(/"/g, '&quot;') + '" placeholder="Name *"></div>' +
+        '<div class="mb-1"><input type="text" class="form-control form-control-sm" id="fcEdit_title_' + index + '" value="' + (c.title || '').replace(/"/g, '&quot;') + '" placeholder="Title"></div>' +
+        '<div class="mb-1"><input type="email" class="form-control form-control-sm" id="fcEdit_email_' + index + '" value="' + (c.email || '').replace(/"/g, '&quot;') + '" placeholder="Email"></div>' +
+        '<div class="d-flex gap-2">' +
+            '<button class="btn btn-sm btn-primary" onclick="saveFlyoutContactEdit(' + index + ')"><i class="bi bi-check-lg"></i> Save</button>' +
+            '<button class="btn btn-sm btn-outline-secondary" onclick="cancelFlyoutContactEdit(' + index + ')">Cancel</button>' +
+        '</div>';
+    document.getElementById('fcEdit_name_' + index).focus();
+    // Enter in any field saves
+    card.querySelectorAll('input').forEach(function(inp) {
+        inp.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); saveFlyoutContactEdit(index); }
+        });
+    });
+}
+
+function saveFlyoutContactEdit(index) {
+    var name = document.getElementById('fcEdit_name_' + index).value.trim();
+    if (!name) return;
+    flyoutContacts[index].name = name;
+    flyoutContacts[index].title = document.getElementById('fcEdit_title_' + index).value.trim();
+    flyoutContacts[index].email = document.getElementById('fcEdit_email_' + index).value.trim();
+    renderFlyoutContacts();
+}
+
+function cancelFlyoutContactEdit(index) {
+    var body = document.querySelector('#flyoutContact-' + index + ' .card-body');
+    if (body && body.dataset.originalHtml) {
+        body.innerHTML = body.dataset.originalHtml;
+    }
+}
+
+var _flyoutGhostId = 0;
+function activateFlyoutContactGhost(ghostEl) {
+    var id = 'fg' + (++_flyoutGhostId);
+    var card = document.createElement('div');
+    card.className = 'card mb-2 border-primary';
+    card.id = 'flyoutGhost-' + id;
+    card.innerHTML =
+        '<div class="card-body py-2 px-3">' +
+            '<div class="mb-1"><input type="text" class="form-control form-control-sm" id="fgName' + id + '" placeholder="Name *"></div>' +
+            '<div class="mb-1"><input type="text" class="form-control form-control-sm" id="fgTitle' + id + '" placeholder="Title"></div>' +
+            '<div class="mb-1"><input type="email" class="form-control form-control-sm" id="fgEmail' + id + '" placeholder="Email"></div>' +
+            '<div class="d-flex gap-2">' +
+                '<button class="btn btn-sm btn-primary flex-grow-1" onclick="saveFlyoutGhost(\'' + id + '\')">' +
+                    '<i class="bi bi-check-lg"></i> Save</button>' +
+                '<button class="btn btn-sm btn-outline-secondary" onclick="cancelFlyoutGhost(\'' + id + '\')">' +
+                    '<i class="bi bi-x"></i></button>' +
+            '</div>' +
+        '</div>';
+    ghostEl.parentNode.insertBefore(card, ghostEl);
+    card.querySelectorAll('input').forEach(function(inp) {
+        inp.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); saveFlyoutGhost(id); }
+        });
+    });
+    document.getElementById('fgName' + id).focus();
+}
+
+function saveFlyoutGhost(id) {
+    var name = document.getElementById('fgName' + id).value.trim();
+    if (!name) { document.getElementById('fgName' + id).classList.add('is-invalid'); return; }
+    var title = document.getElementById('fgTitle' + id).value.trim();
+    var email = document.getElementById('fgEmail' + id).value.trim();
+    flyoutContacts.push({ name: name, title: title, email: email });
+    renderFlyoutContacts();
+    var ghost = document.getElementById('flyoutGhost-' + id);
+    if (ghost) ghost.remove();
+}
+
+function cancelFlyoutGhost(id) {
+    var ghost = document.getElementById('flyoutGhost-' + id);
+    if (ghost) ghost.remove();
+}
+
+// Legacy: keep addFlyoutContact for backward compat but it's no longer in the UI
+function addFlyoutContact() {
+    const nameInput = document.getElementById('flyout_contact_name');
+    if (!nameInput) return;
+    const name = nameInput.value.trim();
+    if (!name) { nameInput.focus(); return; }
+    const title = (document.getElementById('flyout_contact_title')?.value || '').trim();
+    const email = (document.getElementById('flyout_contact_email')?.value || '').trim();
+    flyoutContacts.push({ name, title, email });
+    renderFlyoutContacts();
+}
 
 function openPartnerFlyout() {
     if (!_confirmFlyoutSwitch()) return;
@@ -3447,9 +3544,8 @@ function openPartnerFlyout() {
     // Clear contacts
     flyoutContacts = [];
     renderFlyoutContacts();
-    document.getElementById('flyout_contact_name').value = '';
-    document.getElementById('flyout_contact_title').value = '';
-    document.getElementById('flyout_contact_email').value = '';
+    // Clear any ghost cards
+    document.querySelectorAll('[id^="flyoutGhost-"]').forEach(function(g) { g.remove(); });
     partnerDropdown.style.display = 'none';
     offcanvas.show();
     flyout.addEventListener('shown.bs.offcanvas', function handler() {
@@ -3485,9 +3581,7 @@ function openPartnerFlyoutForEdit(partnerId) {
     flyoutSpecDropdown.style.display = 'none';
     flyoutContacts = [];
     renderFlyoutContacts();
-    document.getElementById('flyout_contact_name').value = '';
-    document.getElementById('flyout_contact_title').value = '';
-    document.getElementById('flyout_contact_email').value = '';
+    document.querySelectorAll('[id^="flyoutGhost-"]').forEach(function(g) { g.remove(); });
     partnerDropdown.style.display = 'none';
     offcanvas.show();
 

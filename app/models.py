@@ -470,6 +470,8 @@ class CustomerContact(db.Model):
     name = db.Column(db.String(200), nullable=False)
     email = db.Column(db.String(255), nullable=True)
     title = db.Column(db.String(200), nullable=True)
+    photo_b64 = db.Column(db.Text, nullable=True)  # Base64-encoded cropped face thumbnail
+    photo_full_b64 = db.Column(db.Text, nullable=True)  # Base64-encoded full pasted image
     created_at = db.Column(db.DateTime, default=utc_now, nullable=False)
 
     # Relationships
@@ -570,6 +572,8 @@ class PartnerContact(db.Model):
     title = db.Column(db.String(200), nullable=True)
     email = db.Column(db.String(255), nullable=True)
     is_primary = db.Column(db.Boolean, default=False, nullable=False)
+    photo_b64 = db.Column(db.Text, nullable=True)  # Base64-encoded cropped face thumbnail
+    photo_full_b64 = db.Column(db.Text, nullable=True)  # Base64-encoded full pasted image
     created_at = db.Column(db.DateTime, default=utc_now, nullable=False)
     
     # Relationships

@@ -292,6 +292,12 @@ def run_migrations(db):
         db.session.commit()
         print("  Created note_attendees table")
 
+    # Migration: Add photo_b64 column to customer_contacts and partner_contacts
+    _add_column_if_not_exists(db, inspector, 'customer_contacts', 'photo_b64', 'TEXT')
+    _add_column_if_not_exists(db, inspector, 'partner_contacts', 'photo_b64', 'TEXT')
+    _add_column_if_not_exists(db, inspector, 'customer_contacts', 'photo_full_b64', 'TEXT')
+    _add_column_if_not_exists(db, inspector, 'partner_contacts', 'photo_full_b64', 'TEXT')
+
     # =========================================================================
     # End migrations
     # =========================================================================
