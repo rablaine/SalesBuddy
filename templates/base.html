@@ -169,9 +169,14 @@
             color: #0F766E !important;
         }
         /* Light mode: partner purple badges */
-        [data-bs-theme="light"] .badge[style*="6f42c1"] {
+        [data-bs-theme="light"] .badge[style*="6f42c1"],
+        [data-bs-theme="light"] .badge.bg-purple {
             background-color: #EDE9FE !important;
             color: #5B21B6 !important;
+        }
+        .badge.bg-purple {
+            background-color: #6f42c1 !important;
+            color: #fff !important;
         }
         [data-bs-theme="light"] .badge.bg-warning.text-dark {
             color: #92400E !important;

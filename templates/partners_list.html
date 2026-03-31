@@ -32,11 +32,11 @@
                 <table class="table table-hover mb-0">
                     <thead class="table-dark">
                         <tr>
-                            <th>Partner</th>
-                            <th>Rating</th>
+                            <th style="width: 15%;">Partner</th>
+                            <th style="width: 8%;">Rating</th>
                             <th>Specialties</th>
-                            <th>Contacts</th>
-                            <th>Notes</th>
+                            <th style="width: 10%;">Contacts</th>
+                            <th style="width: 7%;">Notes</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -57,13 +57,15 @@
                                 {% endif %}
                             </td>
                             <td>
+                                <div class="d-flex flex-wrap gap-1" style="max-height: 4.5rem; overflow: hidden;">
                                 {% for specialty in partner.specialties %}
-                                <a href="{{ url_for('partners.specialty_view', id=specialty.id) }}" class="badge bg-warning text-dark text-decoration-none me-1">
+                                <a href="{{ url_for('partners.specialty_view', id=specialty.id) }}" class="badge bg-warning text-dark text-decoration-none" style="font-size: 0.75em;">
                                     <i class="bi bi-star"></i> {{ specialty.name }}
                                 </a>
                                 {% else %}
                                 <span class="text-muted">-</span>
                                 {% endfor %}
+                                </div>
                             </td>
                             <td>
                                 {% if partner.contacts %}

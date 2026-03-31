@@ -483,7 +483,7 @@ def api_partner_update(id):
         partner.website = None
         partner.favicon_b64 = None
 
-    partner.overview = data.get('overview', '').strip() or None
+    partner.overview = (data.get('overview') or '').strip() or None
 
     rating = data.get('rating')
     partner.rating = int(rating) if rating is not None else None
@@ -644,3 +644,49 @@ def api_share_receive():
 
     results = upsert_partners(partners_data, sender_name)
     return jsonify({'success': True, **results})
+
+
+# =============================================================================
+# Partner Data Scraping (WorkIQ)
+# =============================================================================
+
+@partners_bp.route('/api/partners/<int:partner_id>/scrape', methods=['POST'])
+def api_partner_scrape(partner_id):
+    """Scrape partner data from WorkIQ meetings.
+
+    Returns structured contacts, specialties, and overview for user review.
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+    partner = Partner.query.get_or_404(partner_id)
+    try:
+        from app.services.partner_scrape import scrape_partner_data
+        result = scrape_partner_data(partner)
+        return jsonify({'success': True, **result})
+    except TimeoutError:
+        return jsonify({'success': False, 'error': 'WorkIQ query timed out. Try again.'}), 504
+    except Exception as e:
+        logger.exception(f"Partner scrape failed for {partner.name}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@partners_bp.route('/api/partners/<int:partner_id>/scrape/apply', methods=['POST'])
+def api_partner_scrape_apply(partner_id):
+    """Apply user-selected scrape results to the partner."""
+    partner = Partner.query.get_or_404(partner_id)
+    data = request.get_json()
+    if not data:
+        return jsonify({'success': False, 'error': 'No data'}), 400
+
+    from app.services.partner_scrape import apply_scrape_results
+    try:
+        summary = apply_scrape_results(
+            partner,
+            contacts=data.get('contacts', []),
+            specialties=data.get('specialties', []),
+            overview=data.get('overview'),
+        )
+        return jsonify({'success': True, **summary})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)}), 500

@@ -87,6 +87,38 @@
                 </p>
                 {% endif %}
                 
+                {% if note.attendees|length > 0 %}
+                <p><strong>Attendees:</strong><br>
+                    {% for att in note.attendees %}
+                        {% if att.person_type == 'customer_contact' and att.customer_contact %}
+                            <a href="{{ url_for('customers.customer_view', id=att.customer_contact.customer_id) }}" class="badge bg-success text-decoration-none" title="{{ att.email or '' }}{% if att.customer_contact.title %} - {{ att.customer_contact.title }}{% endif %}">
+                                <i class="bi bi-person-circle me-1"></i> {{ att.display_name }}
+                            </a>
+                        {% elif att.person_type == 'partner_contact' and att.partner_contact %}
+                            <a href="{{ url_for('partners.partner_view', id=att.partner_contact.partner_id) }}" class="badge bg-purple text-decoration-none" title="{{ att.email or '' }}{% if att.partner_contact.title %} - {{ att.partner_contact.title }}{% endif %}">
+                                <i class="bi bi-building me-1"></i> {{ att.display_name }}
+                            </a>
+                        {% elif att.person_type == 'se' and att.solution_engineer %}
+                            <a href="{{ url_for('solution_engineers.solution_engineer_view', id=att.solution_engineer.id) }}" class="badge bg-info text-decoration-none" title="{{ att.email or '' }}{% if att.solution_engineer.specialty %} - {{ att.solution_engineer.specialty }}{% endif %}">
+                                <i class="bi bi-tools me-1"></i> {{ att.display_name }}
+                            </a>
+                        {% elif att.person_type == 'seller' and att.seller %}
+                            <a href="{{ url_for('sellers.seller_view', id=att.seller.id) }}" class="badge bg-primary text-decoration-none" title="{{ att.email or '' }}">
+                                <i class="bi bi-person me-1"></i> {{ att.display_name }}
+                            </a>
+                        {% elif att.email %}
+                            <a href="mailto:{{ att.email }}" class="badge bg-secondary text-decoration-none" title="{{ att.email }}">
+                                <i class="bi bi-person-dash me-1"></i> {{ att.display_name }}
+                            </a>
+                        {% else %}
+                            <span class="badge bg-secondary">
+                                <i class="bi bi-person-dash me-1"></i> {{ att.display_name }}
+                            </span>
+                        {% endif %}
+                    {% endfor %}
+                </p>
+                {% endif %}
+
                 {% if note.engagements|length > 0 %}
                 <p><strong>Engagements:</strong><br>
                     {% for eng in note.engagements %}

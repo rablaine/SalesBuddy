@@ -379,7 +379,7 @@ class TestWorkiqUIElements:
         assert 'autoFillBtn' in html
 
     def test_new_note_shows_import_meeting_button(self, client, app, sample_data):
-        """New call log form should show the Import from Meeting button."""
+        """New call log form should show the Import Summary button."""
         with app.app_context():
             from app.models import Customer
             customer = Customer.query.first()
@@ -387,7 +387,7 @@ class TestWorkiqUIElements:
 
         response = client.get(f'/note/new?customer_id={customer_id}')
         html = response.data.decode()
-        assert 'Import from Meeting' in html
+        assert 'Import Summary' in html
         assert 'importMeetingBtn' in html
 
     def test_new_note_shows_prompt_customization(self, client, app, sample_data):
@@ -403,7 +403,7 @@ class TestWorkiqUIElements:
         assert 'Customize summary prompt' in html
 
     def test_edit_note_hides_autofill_but_shows_import(self, client, app, sample_data):
-        """Edit call log form hides auto-fill but keeps Import from Meeting."""
+        """Edit call log form hides auto-fill but keeps Import Summary."""
         with app.app_context():
             from app.models import Note
             note = Note.query.first()

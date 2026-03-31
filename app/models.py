@@ -630,6 +630,8 @@ class Note(db.Model):
         lazy='select'
     )
     action_items = db.relationship('ActionItem', back_populates='note', lazy='select')
+    attendees = db.relationship('NoteAttendee', back_populates='note', lazy='select',
+                                cascade='all, delete-orphan')
     
     @property
     def seller(self):
@@ -644,6 +646,91 @@ class Note(db.Model):
     def __repr__(self) -> str:
         name = self.customer.name if self.customer else 'General'
         return f'<Note {self.id} for {name}>'
+
+
+class NoteAttendee(db.Model):
+    """Person who attended a call. Polymorphic - links to one person type."""
+    __tablename__ = 'note_attendees'
+
+    id = db.Column(db.Integer, primary_key=True)
+    note_id = db.Column(db.Integer, db.ForeignKey('notes.id'), nullable=False)
+
+    # Exactly one of these should be set (or none for external)
+    customer_contact_id = db.Column(db.Integer, db.ForeignKey('customer_contacts.id'), nullable=True)
+    partner_contact_id = db.Column(db.Integer, db.ForeignKey('partner_contacts.id'), nullable=True)
+    solution_engineer_id = db.Column(db.Integer, db.ForeignKey('solution_engineers.id'), nullable=True)
+    seller_id = db.Column(db.Integer, db.ForeignKey('sellers.id'), nullable=True)
+
+    # For ad-hoc attendees not in any contact list
+    external_name = db.Column(db.String(200), nullable=True)
+    external_email = db.Column(db.String(255), nullable=True)
+
+    created_at = db.Column(db.DateTime, default=utc_now, nullable=False)
+
+    # Relationships
+    note = db.relationship('Note', back_populates='attendees')
+    customer_contact = db.relationship('CustomerContact', lazy='select')
+    partner_contact = db.relationship('PartnerContact', lazy='select')
+    solution_engineer = db.relationship('SolutionEngineer', lazy='select')
+    seller = db.relationship('Seller', lazy='select')
+
+    @property
+    def person_type(self) -> str:
+        """Return the type of person this attendee represents."""
+        if self.customer_contact_id:
+            return 'customer_contact'
+        elif self.partner_contact_id:
+            return 'partner_contact'
+        elif self.solution_engineer_id:
+            return 'se'
+        elif self.seller_id:
+            return 'seller'
+        return 'external'
+
+    @property
+    def display_name(self) -> str:
+        """Return the display name for this attendee."""
+        if self.customer_contact_id and self.customer_contact:
+            return self.customer_contact.name
+        elif self.partner_contact_id and self.partner_contact:
+            return self.partner_contact.name
+        elif self.solution_engineer_id and self.solution_engineer:
+            return self.solution_engineer.name
+        elif self.seller_id and self.seller:
+            return self.seller.name
+        return self.external_name or 'Unknown'
+
+    @property
+    def email(self) -> Optional[str]:
+        """Return the email for this attendee."""
+        if self.customer_contact_id and self.customer_contact:
+            return self.customer_contact.email
+        elif self.partner_contact_id and self.partner_contact:
+            return self.partner_contact.email
+        elif self.solution_engineer_id and self.solution_engineer:
+            return self.solution_engineer.get_email()
+        elif self.seller_id and self.seller:
+            return self.seller.get_email()
+        return self.external_email
+
+    @property
+    def ref_id(self) -> Optional[int]:
+        """Return the FK id for this attendee's person type."""
+        return (self.customer_contact_id or self.partner_contact_id
+                or self.solution_engineer_id or self.seller_id)
+
+    def to_dict(self) -> dict:
+        """Serialize for API responses."""
+        return {
+            'id': self.id,
+            'person_type': self.person_type,
+            'display_name': self.display_name,
+            'email': self.email,
+            'ref_id': self.ref_id,
+        }
+
+    def __repr__(self) -> str:
+        return f'<NoteAttendee {self.id}: {self.display_name}>'
 
 
 class Engagement(db.Model):

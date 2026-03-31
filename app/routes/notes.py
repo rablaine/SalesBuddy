@@ -6,7 +6,7 @@ from flask import Blueprint, render_template, request, redirect, url_for, flash,
 from datetime import datetime
 import logging
 
-from app.models import db, Note, Customer, Seller, Territory, Topic, Partner, Milestone, Opportunity, MsxTask, UserPreference, NoteTemplate
+from app.models import db, Note, Customer, Seller, Territory, Topic, Partner, Milestone, Opportunity, MsxTask, UserPreference, NoteTemplate, NoteAttendee, SolutionEngineer, CustomerContact, PartnerContact
 from app.services.msx_api import TASK_CATEGORIES, add_user_to_milestone_team
 from app.services.seller_mode import get_seller_mode_seller_id as _get_seller_mode_seller_id
 from app.services.backup import backup_customer as _backup_customer
@@ -371,6 +371,25 @@ def note_create():
         
         db.session.add(note)
         
+        # Add attendees
+        attendee_types = request.form.getlist('attendee_types')
+        attendee_ref_ids = request.form.getlist('attendee_ref_ids')
+        ext_names = request.form.getlist('attendee_ext_names')
+        ext_emails = request.form.getlist('attendee_ext_emails')
+        ext_idx = 0
+        for atype, ref_id in zip(attendee_types, attendee_ref_ids):
+            if atype == 'external':
+                att = NoteAttendee(
+                    external_name=ext_names[ext_idx] if ext_idx < len(ext_names) else None,
+                    external_email=ext_emails[ext_idx] if ext_idx < len(ext_emails) else None,
+                )
+                note.attendees.append(att)
+                ext_idx += 1
+            else:
+                attendee = _make_attendee(atype, ref_id)
+                if attendee:
+                    note.attendees.append(attendee)
+
         # Handle milestone and optional task creation (only for customer-linked notes)
         if customer_id:
             try:
@@ -638,6 +657,26 @@ def note_edit(id):
             proj = db.session.get(Project, int(project_id))
             if proj:
                 note.projects.append(proj)
+
+        # Update attendees
+        note.attendees = []
+        attendee_types = request.form.getlist('attendee_types')
+        attendee_ref_ids = request.form.getlist('attendee_ref_ids')
+        ext_names = request.form.getlist('attendee_ext_names')
+        ext_emails = request.form.getlist('attendee_ext_emails')
+        ext_idx = 0
+        for atype, ref_id in zip(attendee_types, attendee_ref_ids):
+            if atype == 'external':
+                att = NoteAttendee(
+                    external_name=ext_names[ext_idx] if ext_idx < len(ext_names) else None,
+                    external_email=ext_emails[ext_idx] if ext_idx < len(ext_emails) else None,
+                )
+                note.attendees.append(att)
+                ext_idx += 1
+            else:
+                attendee = _make_attendee(atype, ref_id)
+                if attendee:
+                    note.attendees.append(attendee)
         
         # Handle milestone and optional task creation (only for customer-linked notes)
         if customer_id:
@@ -1293,3 +1332,304 @@ def api_share_receive_note():
         db.session.rollback()
         logger.error(f"Note share import error: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# =============================================================================
+# Attendee helpers and API
+# =============================================================================
+
+def _make_attendee(atype: str, ref_id: str) -> 'NoteAttendee | None':
+    """Create a NoteAttendee from a type string and reference ID."""
+    try:
+        rid = int(ref_id)
+    except (ValueError, TypeError):
+        return None
+    if atype == 'customer_contact':
+        return NoteAttendee(customer_contact_id=rid)
+    elif atype == 'partner_contact':
+        return NoteAttendee(partner_contact_id=rid)
+    elif atype == 'se':
+        return NoteAttendee(solution_engineer_id=rid)
+    elif atype == 'seller':
+        return NoteAttendee(seller_id=rid)
+    return None
+
+
+@notes_bp.route('/api/note/<int:note_id>/attendees')
+def api_note_attendees(note_id):
+    """List attendees for a note."""
+    note = Note.query.get_or_404(note_id)
+    return jsonify([a.to_dict() for a in note.attendees])
+
+
+@notes_bp.route('/api/note/<int:note_id>/attendees', methods=['POST'])
+def api_add_attendee(note_id):
+    """Add an attendee to a note."""
+    note = Note.query.get_or_404(note_id)
+    data = request.get_json()
+    if not data:
+        return jsonify({'success': False, 'error': 'No data'}), 400
+
+    atype = data.get('type', '')
+    ref_id = data.get('id')
+
+    if atype == 'external':
+        attendee = NoteAttendee(
+            note_id=note.id,
+            external_name=data.get('name', '').strip() or None,
+            external_email=data.get('email', '').strip() or None,
+        )
+    else:
+        attendee = _make_attendee(atype, ref_id)
+        if not attendee:
+            return jsonify({'success': False, 'error': 'Invalid attendee'}), 400
+        attendee.note_id = note.id
+
+    db.session.add(attendee)
+    db.session.commit()
+    return jsonify({'success': True, 'attendee': attendee.to_dict()})
+
+
+@notes_bp.route('/api/note/<int:note_id>/attendees/<int:attendee_id>', methods=['DELETE'])
+def api_remove_attendee(note_id, attendee_id):
+    """Remove an attendee from a note."""
+    attendee = NoteAttendee.query.filter_by(id=attendee_id, note_id=note_id).first_or_404()
+    db.session.delete(attendee)
+    db.session.commit()
+    return jsonify({'success': True})
+
+
+@notes_bp.route('/api/attendee-search')
+def api_attendee_search():
+    """Search across all person types for the attendee picker.
+
+    Query params:
+        q: search string (required)
+        customer_id: filter customer contacts to this customer
+        partner_ids: comma-separated partner IDs for partner contact filtering
+    """
+    q = request.args.get('q', '').strip().lower()
+    if len(q) < 1:
+        return jsonify({'results': []})
+
+    customer_id = request.args.get('customer_id', type=int)
+    partner_ids_str = request.args.get('partner_ids', '')
+    partner_ids = [int(x) for x in partner_ids_str.split(',') if x.strip().isdigit()]
+
+    results = []
+
+    # Customer contacts (filtered to note's customer)
+    if customer_id:
+        contacts = CustomerContact.query.filter(
+            CustomerContact.customer_id == customer_id,
+            db.or_(
+                db.func.lower(CustomerContact.name).contains(q),
+                db.func.lower(CustomerContact.email).contains(q),
+            )
+        ).limit(10).all()
+        for c in contacts:
+            results.append({
+                'type': 'customer_contact', 'id': c.id,
+                'name': c.name, 'email': c.email, 'detail': c.title,
+                'icon': 'bi-person-circle', 'color': 'success',
+            })
+
+    # Partner contacts (filtered to tagged partners)
+    if partner_ids:
+        pcontacts = PartnerContact.query.filter(
+            PartnerContact.partner_id.in_(partner_ids),
+            db.or_(
+                db.func.lower(PartnerContact.name).contains(q),
+                db.func.lower(PartnerContact.email).contains(q),
+            )
+        ).limit(10).all()
+        for c in pcontacts:
+            results.append({
+                'type': 'partner_contact', 'id': c.id,
+                'name': c.name, 'email': c.email,
+                'detail': c.partner.name if c.partner else None,
+                'icon': 'bi-building', 'color': 'purple',
+            })
+
+    # Solution engineers
+    ses = SolutionEngineer.query.filter(
+        db.or_(
+            db.func.lower(SolutionEngineer.name).contains(q),
+            db.func.lower(SolutionEngineer.alias).contains(q),
+        )
+    ).limit(10).all()
+    for se in ses:
+        results.append({
+            'type': 'se', 'id': se.id,
+            'name': se.name, 'email': se.get_email(),
+            'detail': se.specialty,
+            'icon': 'bi-tools', 'color': 'info',
+        })
+
+    # Sellers
+    sellers = Seller.query.filter(
+        db.or_(
+            db.func.lower(Seller.name).contains(q),
+            db.func.lower(Seller.alias).contains(q),
+        )
+    ).limit(10).all()
+    for s in sellers:
+        results.append({
+            'type': 'seller', 'id': s.id,
+            'name': s.name, 'email': s.get_email(),
+            'detail': s.seller_type,
+            'icon': 'bi-person', 'color': 'primary',
+        })
+
+    return jsonify({'results': results})
+
+
+# =============================================================================
+# Meeting Attendee Scraping
+# =============================================================================
+
+@notes_bp.route('/api/meeting-attendees/scrape', methods=['POST'])
+def api_scrape_meeting_attendees():
+    """Scrape and categorize attendees from a specific meeting.
+
+    Body: {meeting_title, meeting_date, customer_id?, partner_ids?}
+    """
+    data = request.get_json()
+    if not data or not data.get('meeting_title') or not data.get('meeting_date'):
+        return jsonify({'success': False, 'error': 'meeting_title and meeting_date required'}), 400
+
+    try:
+        from app.services.meeting_attendee_scrape import scrape_meeting_attendees
+        result = scrape_meeting_attendees(
+            meeting_title=data['meeting_title'],
+            meeting_date=data['meeting_date'],
+            customer_id=data.get('customer_id'),
+            partner_ids=data.get('partner_ids', []),
+        )
+        return jsonify({'success': True, **result})
+    except TimeoutError:
+        return jsonify({'success': False, 'error': 'WorkIQ query timed out. Try again.'}), 504
+    except Exception as e:
+        logger.exception("Meeting attendee scrape failed")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@notes_bp.route('/api/meeting-attendees/apply', methods=['POST'])
+def api_apply_meeting_attendees():
+    """Apply selected meeting attendees - create contacts, partners, return attendee list.
+
+    Body: {customer_id, attendees: [{category, name, email, ref_type, ref_id,
+           partner_id, new_partner_domain, new_partner_name, checked}]}
+    """
+    data = request.get_json()
+    if not data:
+        return jsonify({'success': False, 'error': 'No data'}), 400
+
+    customer_id = data.get('customer_id')
+    attendees = data.get('attendees', [])
+    created_contacts = 0
+    new_partners = []
+    attendee_results = []  # {type, id} for adding to NoteAttendee
+
+    # Group new_partner attendees by domain
+    new_partner_groups = {}
+    for att in attendees:
+        if not att.get('checked', True):
+            continue
+        cat = att.get('category')
+
+        if cat == 'microsoft':
+            ref_type = att.get('ref_type')
+            ref_id = att.get('ref_id')
+            if ref_type and ref_id:
+                attendee_results.append({'type': ref_type, 'id': ref_id, 'name': att['name']})
+            elif ref_type == 'external':
+                # Unknown MS employee - add as external attendee
+                attendee_results.append({
+                    'type': 'external',
+                    'name': att.get('name', ''),
+                    'email': att.get('email', ''),
+                })
+
+        elif cat == 'customer_contact':
+            if att.get('is_new_contact') and customer_id:
+                contact = CustomerContact(
+                    customer_id=customer_id,
+                    name=(att.get('name') or '').strip(),
+                    email=(att.get('email') or '').strip() or None,
+                    title=(att.get('title') or '').strip() or None,
+                )
+                db.session.add(contact)
+                db.session.flush()
+                created_contacts += 1
+                attendee_results.append({'type': 'customer_contact', 'id': contact.id, 'name': contact.name})
+            elif att.get('ref_id'):
+                # Update title if available
+                if att.get('has_updates') and att.get('title'):
+                    existing = db.session.get(CustomerContact, att['ref_id'])
+                    if existing:
+                        existing.title = att['title']
+                attendee_results.append({'type': 'customer_contact', 'id': att['ref_id'], 'name': att['name']})
+
+        elif cat == 'partner_contact':
+            partner_id = att.get('partner_id')
+            if att.get('is_new_contact') and partner_id:
+                contact = PartnerContact(
+                    partner_id=partner_id,
+                    name=(att.get('name') or '').strip(),
+                    email=(att.get('email') or '').strip() or None,
+                    title=(att.get('title') or '').strip() or None,
+                )
+                db.session.add(contact)
+                db.session.flush()
+                created_contacts += 1
+                attendee_results.append({'type': 'partner_contact', 'id': contact.id, 'name': contact.name})
+            elif att.get('ref_id'):
+                # Update title if available
+                if att.get('has_updates') and att.get('title'):
+                    existing = db.session.get(PartnerContact, att['ref_id'])
+                    if existing:
+                        existing.title = att['title']
+                attendee_results.append({'type': 'partner_contact', 'id': att['ref_id'], 'name': att['name']})
+
+        elif cat == 'new_partner':
+            domain = att.get('new_partner_domain', '')
+            if domain not in new_partner_groups:
+                new_partner_groups[domain] = {
+                    'name': att.get('new_partner_name', domain),
+                    'contacts': [],
+                }
+            new_partner_groups[domain]['contacts'].append(att)
+
+    # Create new partners and their contacts
+    from app.routes.admin import fetch_favicon_for_domain
+    for domain, group in new_partner_groups.items():
+        partner = Partner(
+            name=group['name'],
+            website=domain,
+            favicon_b64=fetch_favicon_for_domain(domain),
+        )
+        db.session.add(partner)
+        db.session.flush()
+        new_partners.append({'id': partner.id, 'name': partner.name})
+
+        for att in group['contacts']:
+            contact = PartnerContact(
+                partner_id=partner.id,
+                name=(att.get('name') or '').strip(),
+                email=(att.get('email') or '').strip() or None,
+                title=(att.get('title') or '').strip() or None,
+            )
+            db.session.add(contact)
+            db.session.flush()
+            created_contacts += 1
+            attendee_results.append({'type': 'partner_contact', 'id': contact.id, 'name': contact.name})
+
+    db.session.commit()
+
+    return jsonify({
+        'success': True,
+        'attendee_results': attendee_results,
+        'new_partners': new_partners,
+        'contacts_created': created_contacts,
+    })

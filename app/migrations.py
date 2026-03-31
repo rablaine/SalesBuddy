@@ -271,6 +271,27 @@ def run_migrations(db):
     # Migration: Add title column to partner_contacts
     _add_column_if_not_exists(db, inspector, 'partner_contacts', 'title', 'VARCHAR(200)')
 
+    # Migration: Create note_attendees table
+    if 'note_attendees' not in inspector.get_table_names():
+        db.session.execute(db.text('''
+            CREATE TABLE note_attendees (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                note_id INTEGER NOT NULL REFERENCES notes(id),
+                customer_contact_id INTEGER REFERENCES customer_contacts(id),
+                partner_contact_id INTEGER REFERENCES partner_contacts(id),
+                solution_engineer_id INTEGER REFERENCES solution_engineers(id),
+                seller_id INTEGER REFERENCES sellers(id),
+                external_name VARCHAR(200),
+                external_email VARCHAR(255),
+                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        '''))
+        db.session.execute(db.text(
+            'CREATE INDEX idx_note_attendees_note_id ON note_attendees(note_id)'
+        ))
+        db.session.commit()
+        print("  Created note_attendees table")
+
     # =========================================================================
     # End migrations
     # =========================================================================

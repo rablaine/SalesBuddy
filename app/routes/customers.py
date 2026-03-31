@@ -796,3 +796,59 @@ def api_tpid_import():
         db.session.rollback()
         logger.exception("Error importing customer by TPID %s", tpid_str)
         return jsonify({"success": False, "error": str(e)}), 500
+
+
+# =============================================================================
+# Customer Contact Scraping (WorkIQ)
+# =============================================================================
+
+@customers_bp.route('/api/customer/<int:customer_id>/scrape-contacts', methods=['POST'])
+def api_customer_scrape_contacts(customer_id):
+    """Scrape customer contacts from WorkIQ meetings."""
+    customer = Customer.query.get_or_404(customer_id)
+    try:
+        from app.services.customer_scrape import scrape_customer_contacts
+        result = scrape_customer_contacts(customer)
+        return jsonify({'success': True, **result})
+    except ValueError as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
+    except TimeoutError:
+        return jsonify({'success': False, 'error': 'WorkIQ query timed out. Try again.'}), 504
+    except Exception as e:
+        logger.exception(f"Customer contact scrape failed for {customer.name}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@customers_bp.route('/api/customer/<int:customer_id>/scrape-contacts/apply', methods=['POST'])
+def api_customer_scrape_apply(customer_id):
+    """Apply user-selected scraped contacts to the customer."""
+    customer = Customer.query.get_or_404(customer_id)
+    data = request.get_json()
+    if not data:
+        return jsonify({'success': False, 'error': 'No data'}), 400
+
+    from app.services.customer_scrape import apply_customer_contacts
+    try:
+        summary = apply_customer_contacts(customer, contacts=data.get('contacts', []))
+        return jsonify({'success': True, **summary})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@customers_bp.route('/api/customer/<int:customer_id>/update-website', methods=['POST'])
+def api_customer_update_website(customer_id):
+    """Save a website domain to the customer and fetch its favicon."""
+    customer = Customer.query.get_or_404(customer_id)
+    data = request.get_json()
+    website = (data.get('website') or '').strip()
+    if not website:
+        return jsonify({'success': False, 'error': 'No domain provided'}), 400
+
+    from app.routes.msx import _extract_domain
+    from app.routes.admin import fetch_favicon_for_domain
+    domain = _extract_domain(website)
+    customer.website = domain
+    customer.favicon_b64 = fetch_favicon_for_domain(domain)
+    db.session.commit()
+    return jsonify({'success': True, 'domain': domain})

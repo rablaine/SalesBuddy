@@ -112,13 +112,15 @@
         <div class="card mb-3">
             <div class="card-header d-flex justify-content-between align-items-center">
                 <h5 class="mb-0"><i class="bi bi-people"></i> Contacts</h5>
-                <div id="editContactsBtn">
+                <div id="editContactsBtn" class="d-flex gap-1">
+                    <button type="button" class="btn btn-sm btn-outline-info" id="scrapeContactsBtn" onclick="startContactScrape()">
+                        <i class="bi bi-magic"></i> Auto-fill
+                    </button>
                     <button type="button" class="btn btn-sm btn-outline-primary" onclick="toggleContactEdit()">
                         <i class="bi bi-pencil"></i> Edit
                     </button>
                 </div>
-                <div id="editContactsDone" class="d-none gap-2">
-                    <button type="button" class="btn btn-sm btn-outline-secondary" onclick="cancelContactEdit()">Cancel</button>
+                <div id="editContactsDone" class="d-none gap-2">                    <button type="button" class="btn btn-sm btn-outline-secondary" onclick="cancelContactEdit()">Cancel</button>
                     <button type="button" class="btn btn-sm btn-primary" onclick="saveAllContacts()">
                         <i class="bi bi-check-lg"></i> Done
                     </button>
@@ -630,7 +632,8 @@ let editRowCounter = 0;
 function toggleContactEdit() {
     document.getElementById('contactsDisplay').style.display = 'none';
     document.getElementById('contactsEditMode').style.display = 'block';
-    document.getElementById('editContactsBtn').style.display = 'none';
+    document.getElementById('editContactsBtn').classList.remove('d-flex');
+    document.getElementById('editContactsBtn').classList.add('d-none');
     document.getElementById('editContactsDone').classList.remove('d-none');
     document.getElementById('editContactsDone').classList.add('d-flex');
     contactsToDelete = [];
@@ -647,7 +650,8 @@ function cancelContactEdit() {
     contactsToDelete = [];
     document.getElementById('contactsDisplay').style.display = '';
     document.getElementById('contactsEditMode').style.display = 'none';
-    document.getElementById('editContactsBtn').style.display = '';
+    document.getElementById('editContactsBtn').classList.remove('d-none');
+    document.getElementById('editContactsBtn').classList.add('d-flex');
     document.getElementById('editContactsDone').classList.remove('d-flex');
     document.getElementById('editContactsDone').classList.add('d-none');
     document.getElementById('contactsNewRows').innerHTML = '';
@@ -726,7 +730,246 @@ async function saveAllContacts() {
     // Reload page to show updated contacts
     location.reload();
 }
+
+// ---- Customer Contact Scrape (WorkIQ) ----
+var _custScrapeData = null;
+var _customerWebsite = {{ customer.website|tojson }};
+var _customerContactEmails = [{% for c in customer.contacts %}{% if c.email %}'{{ c.email }}'{{ ', ' if not loop.last }}{% endif %}{% endfor %}];
+
+function _getCustDomain() {
+    if (_customerWebsite) return _customerWebsite;
+    for (var i = 0; i < _customerContactEmails.length; i++) {
+        var e = _customerContactEmails[i];
+        if (e && e.indexOf('@') >= 0) return e.split('@')[1].toLowerCase();
+    }
+    return '';
+}
+
+function startContactScrape() {
+    var domain = _getCustDomain();
+    if (!domain) {
+        // Show domain prompt
+        document.getElementById('custScrapeDomainInput').value = '';
+        document.getElementById('custScrapeDomainError').style.display = 'none';
+        var modal = new bootstrap.Modal(document.getElementById('custScrapeDomainModal'));
+        document.getElementById('custScrapeDomainModal').addEventListener('shown.bs.modal', function handler() {
+            document.getElementById('custScrapeDomainInput').focus();
+            document.getElementById('custScrapeDomainModal').removeEventListener('shown.bs.modal', handler);
+        });
+        modal.show();
+        return;
+    }
+    runContactScrape();
+}
+
+function confirmCustDomainAndScrape() {
+    var domain = document.getElementById('custScrapeDomainInput').value.trim().toLowerCase();
+    if (!domain) {
+        document.getElementById('custScrapeDomainError').textContent = 'Please enter a domain (e.g. contoso.com)';
+        document.getElementById('custScrapeDomainError').style.display = '';
+        return;
+    }
+    domain = domain.replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0];
+
+    var btn = document.getElementById('custScrapeDomainConfirmBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Saving...';
+
+    // Save domain to customer
+    fetch('/api/customer/{{ customer.id }}/update-website', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ website: domain })
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        if (!data.success) {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-search"></i> Search Meetings';
+            document.getElementById('custScrapeDomainError').textContent = data.error || 'Failed to save';
+            document.getElementById('custScrapeDomainError').style.display = '';
+            return;
+        }
+        _customerWebsite = domain;
+        bootstrap.Modal.getInstance(document.getElementById('custScrapeDomainModal')).hide();
+        runContactScrape();
+    })
+    .catch(function(err) {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-search"></i> Search Meetings';
+        document.getElementById('custScrapeDomainError').textContent = err.message;
+        document.getElementById('custScrapeDomainError').style.display = '';
+    });
+}
+
+function runContactScrape() {
+    var btn = document.getElementById('scrapeContactsBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Scanning...';
+
+    fetch('/api/customer/{{ customer.id }}/scrape-contacts', { method: 'POST' })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-magic"></i> Auto-fill';
+            if (!data.success) { alert(data.error || 'Scrape failed'); return; }
+            _custScrapeData = data;
+            showContactScrapeReview(data);
+        })
+        .catch(function(err) {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-magic"></i> Auto-fill';
+            alert('Error: ' + err.message);
+        });
+}
+
+function _esc(s) { var d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+function showContactScrapeReview(data) {
+    var body = document.getElementById('custScrapeReviewBody');
+    var html = '';
+
+    html += '<p class="text-muted small mb-3"><i class="bi bi-info-circle"></i> Found data from ' +
+        (data.meetings_found || 0) + ' meeting(s). Uncheck contacts you don\'t want to import.</p>';
+
+    if (data.contacts && data.contacts.length > 0) {
+        html += '<div class="list-group mb-3">';
+        data.contacts.forEach(function(c, i) {
+            var checked = c.is_new || c.has_updates;
+            var disabled = !c.is_new && !c.has_updates;
+            html += '<label class="list-group-item d-flex align-items-start gap-2" style="cursor:pointer;">';
+            html += '<input type="checkbox" class="form-check-input mt-1 flex-shrink-0 cust-scrape-contact" data-idx="' + i + '" ' +
+                (checked ? 'checked' : '') + (disabled ? ' disabled' : '') + '>';
+            html += '<div class="flex-grow-1">';
+            html += '<strong>' + _esc(c.name) + '</strong>';
+            if (c.title) html += ' <small class="text-muted">- ' + _esc(c.title) + '</small>';
+            if (c.email) html += '<br><small class="text-muted">' + _esc(c.email) + '</small>';
+            if (!c.is_new && !c.has_updates) {
+                html += '<br><small class="text-muted">(already exists, no new data)</small>';
+            } else if (!c.is_new && c.has_updates) {
+                html += '<br><small class="text-success"><i class="bi bi-arrow-up-circle"></i> ' + c.updates.join(', ') + '</small>';
+            } else {
+                html += '<br><small class="text-success"><i class="bi bi-plus-circle"></i> New contact</small>';
+            }
+            html += '</div></label>';
+        });
+        html += '</div>';
+    }
+
+    if (!data.contacts || data.contacts.length === 0) {
+        html += '<div class="text-center py-4"><i class="bi bi-inbox display-4 text-muted"></i>';
+        html += '<p class="mt-2 text-muted">No results came back this time. WorkIQ can be inconsistent - it may return results on a second attempt.</p>';
+        html += '<button type="button" class="btn btn-primary" onclick="retryContactScrape()"><i class="bi bi-arrow-clockwise"></i> Try Again</button></div>';
+    }
+
+    body.innerHTML = html;
+    new bootstrap.Modal(document.getElementById('custScrapeReviewModal')).show();
+}
+
+function retryContactScrape() {
+    var body = document.getElementById('custScrapeReviewBody');
+    body.innerHTML = '<div class="text-center py-4"><div class="spinner-border text-primary"></div><p class="mt-2 text-muted">Scanning meetings again...</p></div>';
+    fetch('/api/customer/{{ customer.id }}/scrape-contacts', { method: 'POST' })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (!data.success) { alert(data.error || 'Scrape failed'); return; }
+            _custScrapeData = data;
+            showContactScrapeReview(data);
+        })
+        .catch(function(err) { alert('Error: ' + err.message); });
+}
+
+function applyContactScrapeResults() {
+    if (!_custScrapeData) return;
+    var payload = { contacts: [] };
+    document.querySelectorAll('.cust-scrape-contact:checked:not(:disabled)').forEach(function(cb) {
+        var idx = parseInt(cb.dataset.idx);
+        payload.contacts.push(_custScrapeData.contacts[idx]);
+    });
+
+    var btn = document.getElementById('custScrapeApplyBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Saving...';
+
+    fetch('/api/customer/{{ customer.id }}/scrape-contacts/apply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        if (data.success) {
+            bootstrap.Modal.getInstance(document.getElementById('custScrapeReviewModal')).hide();
+            window.location.reload();
+        } else {
+            alert(data.error || 'Failed to save');
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-check-circle"></i> Import Selected';
+        }
+    })
+    .catch(function(err) {
+        alert('Error: ' + err.message);
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-check-circle"></i> Import Selected';
+    });
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    var domainInput = document.getElementById('custScrapeDomainInput');
+    if (domainInput) {
+        domainInput.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') { e.preventDefault(); confirmCustDomainAndScrape(); }
+        });
+    }
+});
 </script>
+
+<!-- Customer Domain Prompt Modal -->
+<div class="modal fade" id="custScrapeDomainModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-globe"></i> Customer Domain</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted small">We'll search your meetings for attendees with this email domain.</p>
+                <div class="mb-2">
+                    <label for="custScrapeDomainInput" class="form-label">Email Domain</label>
+                    <input type="text" class="form-control" id="custScrapeDomainInput" placeholder="e.g. contoso.com">
+                    <small class="text-danger" id="custScrapeDomainError" style="display:none;"></small>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="custScrapeDomainConfirmBtn" onclick="confirmCustDomainAndScrape()">
+                    <i class="bi bi-search"></i> Search Meetings
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Customer Contact Scrape Review Modal -->
+<div class="modal fade" id="custScrapeReviewModal" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-magic"></i> Contacts from Meetings - {{ customer.name }}</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="custScrapeReviewBody">
+                <div class="text-center py-4"><div class="spinner-border text-primary"></div></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="custScrapeApplyBtn" onclick="applyContactScrapeResults()">
+                    <i class="bi bi-check-circle"></i> Import Selected
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 
