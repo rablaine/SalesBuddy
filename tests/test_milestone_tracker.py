@@ -866,8 +866,8 @@ class TestMilestoneTrackerData:
             db.session.commit()
             return [ms1.id, ms2.id, ms3.id, ms4.id]
     
-    def test_tracker_data_excludes_completed(self, app, sample_data):
-        """Tracker should only show active milestones."""
+    def test_tracker_data_includes_all_statuses(self, app, sample_data):
+        """Tracker should include milestones of all statuses."""
         ids = self._create_tracker_milestones(app, sample_data)
         
         with app.app_context():
@@ -877,7 +877,7 @@ class TestMilestoneTrackerData:
             data = get_milestone_tracker_data()
             
             titles = [m["title"] for m in data["milestones"]]
-            assert "Completed One" not in titles
+            assert "Completed One" in titles
             assert "High Value Past Due" in titles
             assert "Low Value This Week" in titles
             assert "No Dollar Value" in titles
@@ -900,12 +900,14 @@ class TestMilestoneTrackerData:
             data = get_milestone_tracker_data()
             milestones = data["milestones"]
             
-            # Sorted by monthly_usage desc: 50k, 1k, None(0)
+            # Sorted by monthly_usage desc: 50k, 10k, 1k, None(0)
             assert milestones[0]["title"] == "High Value Past Due"
             assert milestones[0]["monthly_usage"] == 50000.0
-            assert milestones[1]["title"] == "Low Value This Week"
-            assert milestones[1]["monthly_usage"] == 1000.0
-            assert milestones[2]["monthly_usage"] is None
+            assert milestones[1]["title"] == "Completed One"
+            assert milestones[1]["monthly_usage"] == 10000.0
+            assert milestones[2]["title"] == "Low Value This Week"
+            assert milestones[2]["monthly_usage"] == 1000.0
+            assert milestones[3]["monthly_usage"] is None
             
             # Cleanup
             for mid in ids:
@@ -925,8 +927,8 @@ class TestMilestoneTrackerData:
             data = get_milestone_tracker_data()
             summary = data["summary"]
             
-            assert summary["total_count"] == 3  # 3 active milestones
-            assert summary["total_monthly_usage"] == 51000.0  # 50k + 1k
+            assert summary["total_count"] == 4  # all milestones including completed
+            assert summary["total_monthly_usage"] == 61000.0  # 50k + 10k + 1k
             assert summary["past_due_count"] == 1
             assert summary["this_week_count"] == 1
             
@@ -1456,8 +1458,8 @@ class TestMilestoneCalendarAPI:
                 db.session.delete(ms)
                 db.session.commit()
 
-    def test_calendar_excludes_completed_milestones(self, client, app, sample_data):
-        """Completed milestones should not appear on the calendar."""
+    def test_calendar_includes_completed_milestones(self, client, app, sample_data):
+        """Completed milestones should appear on the calendar."""
         with app.app_context():
             from app.models import db, Milestone, User
             user = User.query.first()
@@ -1476,7 +1478,7 @@ class TestMilestoneCalendarAPI:
         data = response.get_json()
         day_entries = data['days'].get('20', data['days'].get(20, []))
         titles = [e['title'] for e in day_entries]
-        assert 'Completed Milestone' not in titles
+        assert 'Completed Milestone' in titles
 
         with app.app_context():
             from app.models import db, Milestone

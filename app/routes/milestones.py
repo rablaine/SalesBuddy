@@ -628,7 +628,6 @@ def milestones_calendar_api():
     milestones_q = (
         Milestone.query
         .filter(
-            Milestone.msx_status.in_(ACTIVE_STATUSES),
             Milestone.due_date >= first_day,
             Milestone.due_date <= last_day,
         )

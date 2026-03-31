@@ -1428,10 +1428,9 @@ def get_milestone_tracker_data() -> Dict[str, Any]:
         - summary: dict with totals and counts
         - last_sync: datetime of most recent sync, or None
     """
-    # Query active milestones with eager-loaded relationships
+    # Query all milestones with eager-loaded relationships
     milestones = (
         Milestone.query
-        .filter(Milestone.msx_status.in_(ACTIVE_STATUSES))
         .options(
             db.joinedload(Milestone.customer).joinedload(Customer.seller),
             db.joinedload(Milestone.customer).joinedload(Customer.territory),
@@ -1614,12 +1613,11 @@ def get_milestone_tracker_data_for_seller(seller_id: int) -> Dict[str, Any]:
             "quarters": [],
         }
     
-    # Query active milestones for this seller's customers (only ones we're on the team for)
+    # Query milestones for this seller's customers (only ones we're on the team for)
     milestones = (
         Milestone.query
         .filter(
             Milestone.customer_id.in_(customer_ids),
-            Milestone.msx_status.in_(ACTIVE_STATUSES),
             Milestone.on_my_team == True,
         )
         .options(

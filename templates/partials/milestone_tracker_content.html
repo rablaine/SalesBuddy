@@ -11,7 +11,7 @@
         <div class="card text-center border-0 shadow-sm">
             <div class="card-body py-3">
                 <h3 class="mb-0" data-role="totalCount" style="color: #0d6efd;">{{ summary.total_count }}</h3>
-                <p class="text-muted mb-0 small">Active Milestones</p>
+                <p class="text-muted mb-0 small">Milestones</p>
             </div>
         </div>
     </div>
@@ -91,6 +91,8 @@
                     <option value="On Track">On Track</option>
                     <option value="At Risk">At Risk</option>
                     <option value="Blocked">Blocked</option>
+                    <option value="Completed">Completed</option>
+                    <option value="Cancelled">Cancelled</option>
                 </select>
             </div>
             <div class="col-md">
@@ -227,6 +229,10 @@
                         <span class="badge bg-warning text-dark">{{ ms.status }}</span>
                     {% elif ms.status == 'Blocked' %}
                         <span class="badge bg-danger">{{ ms.status }}</span>
+                    {% elif ms.status == 'Completed' %}
+                        <span class="badge bg-info">{{ ms.status }}</span>
+                    {% elif ms.status == 'Cancelled' %}
+                        <span class="badge bg-secondary">{{ ms.status }}</span>
                     {% else %}
                         <span class="badge bg-secondary">{{ ms.status }}</span>
                     {% endif %}
