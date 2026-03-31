@@ -63,7 +63,7 @@
                 <div class="flex-grow-1 ms-1">
                     <div class="d-flex align-items-center justify-content-between">
                         <div class="flex-grow-1">
-                            <a href="{{ url_for('sellers.seller_view', id=seller.id) }}" class="fw-semibold text-decoration-none text-white" onclick="event.stopPropagation();">{{ seller.name }}</a>
+                            <a href="{{ url_for('sellers.seller_view', id=seller.id) }}" class="fw-semibold text-decoration-none" onclick="event.stopPropagation();" style="color: inherit;">{{ seller.name }}</a>
                             <div class="d-flex align-items-center flex-wrap gap-1 mt-1">
                                 {% if seller.alias %}
                                     <small class="text-muted me-1" style="font-size: 0.75rem;">{{ seller.alias }}@microsoft.com</small>

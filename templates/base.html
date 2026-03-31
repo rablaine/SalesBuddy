@@ -16,7 +16,7 @@
     <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}">
     <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='favicon.png') }}">
     <link rel="manifest" href="/manifest.json">
-    <meta name="theme-color" content="#0E1A2B">
+    <meta name="theme-color" content="{{ '#0E1A2B' if dark_mode else '#F6F8FA' }}">
     
     <!-- DNS Prefetch and Preconnect for faster CDN loading -->
     <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
@@ -37,10 +37,10 @@
         :root,
         [data-bs-theme="light"] {
             --sb-navbar-height: 56px;
-            --sb-bg: #F0F2F5;
+            --sb-bg: #FFFFFF;
             --sb-card: #FFFFFF;
-            --sb-navbar: #FFFFFF;
-            --sb-border: #E2E8F0;
+            --sb-navbar: #F6F8FA;
+            --sb-border: #D1D9E0;
             --sb-text: #1a202c;
             --sb-text-muted: #64748b;
             --sb-primary: #2A86D1;
@@ -56,7 +56,7 @@
             --bs-link-color-rgb: 42, 134, 209;
             --bs-link-hover-color: #2272B5;
             --bs-link-hover-color-rgb: 34, 114, 181;
-            --bs-body-bg: #F0F2F5;
+            --bs-body-bg: #FFFFFF;
             --bs-body-color: #1a202c;
         }
         [data-bs-theme="dark"] {
@@ -136,6 +136,46 @@
         /* --- Badge & progress overrides --- */
         .badge.bg-primary { background-color: #2A86D1 !important; }
         [data-bs-theme="dark"] .badge.bg-primary { background-color: #1C5F99 !important; color: #fff !important; }
+        /* Light mode: soft pastel badges instead of loud solid blocks */
+        [data-bs-theme="light"] .badge {
+            font-weight: 500;
+        }
+        [data-bs-theme="light"] .badge.bg-primary {
+            background-color: #DBEAFE !important;
+            color: #1E40AF !important;
+        }
+        [data-bs-theme="light"] .badge.bg-info {
+            background-color: #CCFBF1 !important;
+            color: #0F766E !important;
+        }
+        [data-bs-theme="light"] .badge.bg-warning {
+            background-color: #FEF3C7 !important;
+            color: #92400E !important;
+        }
+        [data-bs-theme="light"] .badge.bg-success {
+            background-color: #DCFCE7 !important;
+            color: #166534 !important;
+        }
+        [data-bs-theme="light"] .badge.bg-danger {
+            background-color: #FEE2E2 !important;
+            color: #991B1B !important;
+        }
+        [data-bs-theme="light"] .badge.bg-secondary {
+            background-color: #F1F5F9 !important;
+            color: #475569 !important;
+        }
+        /* Light mode: override text-dark on badges so pastel colors apply */
+        [data-bs-theme="light"] .badge.bg-info.text-dark {
+            color: #0F766E !important;
+        }
+        /* Light mode: partner purple badges */
+        [data-bs-theme="light"] .badge[style*="6f42c1"] {
+            background-color: #EDE9FE !important;
+            color: #5B21B6 !important;
+        }
+        [data-bs-theme="light"] .badge.bg-warning.text-dark {
+            color: #92400E !important;
+        }
         .progress-bar.bg-primary { background-color: #2A86D1 !important; }
 
         /* --- Nav pills --- */
@@ -430,6 +470,18 @@
         .badge.seller-color-8 { background-color: #ea580c !important; color: #fff !important; } /* Orange */
         .badge.seller-color-9 { background-color: #64748b !important; color: #fff !important; } /* Slate */
         .badge.seller-color-10 { background-color: #7c2d12 !important; color: #fff !important; } /* Brown */
+
+        /* Light mode seller colors - soft tinted backgrounds */
+        [data-bs-theme="light"] .badge.seller-color-1 { background-color: #EDE9FE !important; color: #5B21B6 !important; }
+        [data-bs-theme="light"] .badge.seller-color-2 { background-color: #CCFBF1 !important; color: #0E7490 !important; }
+        [data-bs-theme="light"] .badge.seller-color-3 { background-color: #FEE2E2 !important; color: #991B1B !important; }
+        [data-bs-theme="light"] .badge.seller-color-4 { background-color: #FCE7F3 !important; color: #9D174D !important; }
+        [data-bs-theme="light"] .badge.seller-color-5 { background-color: #DBEAFE !important; color: #1E40AF !important; }
+        [data-bs-theme="light"] .badge.seller-color-6 { background-color: #D1FAE5 !important; color: #065F46 !important; }
+        [data-bs-theme="light"] .badge.seller-color-7 { background-color: #FEF3C7 !important; color: #92400E !important; }
+        [data-bs-theme="light"] .badge.seller-color-8 { background-color: #FFEDD5 !important; color: #9A3412 !important; }
+        [data-bs-theme="light"] .badge.seller-color-9 { background-color: #F1F5F9 !important; color: #475569 !important; }
+        [data-bs-theme="light"] .badge.seller-color-10 { background-color: #FEF3C7 !important; color: #78350F !important; }
 
         /* Dark mode seller colors - slightly lighter for contrast */
         [data-bs-theme="dark"] .badge.seller-color-1 { background-color: #8b5cf6 !important; }
@@ -2850,6 +2902,10 @@
             htmlElement.setAttribute('data-bs-theme', newTheme);
             darkModeIcon.className = newTheme === 'dark' ? 'bi bi-moon-fill' : 'bi bi-sun-fill';
             darkModeLabel.textContent = newTheme === 'dark' ? 'Light Mode' : 'Dark Mode';
+            
+            // Update PWA title bar color
+            var metaTheme = document.querySelector('meta[name="theme-color"]');
+            if (metaTheme) metaTheme.content = newTheme === 'dark' ? '#0E1A2B' : '#F6F8FA';
             
             // Save preference to server
             try {
