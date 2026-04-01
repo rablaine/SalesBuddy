@@ -41,6 +41,9 @@
             <button type="button" class="btn btn-sm btn-outline-secondary" id="groupByBtn" onclick="toggleGroupBy()" title="Group by seller/customer">
                 <i class="bi bi-list-nested"></i> Group
             </button>
+            {% set export_table_id = 'table.table' %}
+            {% set export_filename = 'whats-new-report' %}
+            {% include 'partials/_report_export.html' %}
             <a href="{{ url_for('reports.reports_hub') }}" class="btn btn-outline-secondary btn-sm">
                 <i class="bi bi-arrow-left"></i> All Reports
             </a>
