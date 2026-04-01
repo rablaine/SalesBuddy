@@ -19,7 +19,7 @@
                         <h5 class="mb-1">{{ territory.name }}</h5>
                         <p class="mb-1" onclick="event.stopPropagation();">
                             {% if territory.pod %}
-                                <span class="badge bg-info text-dark" style="cursor: pointer;" onclick="event.preventDefault(); event.stopPropagation(); window.location='{{ url_for('pods.pod_view', id=territory.pod.id) }}';">                                    <i class="bi bi-diagram-3"></i> {{ territory.pod.name }}
+                                <span class="badge bg-info text-dark" style="cursor: pointer;" onclick="event.preventDefault(); event.stopPropagation(); window.location='{{ url_for('pods.pod_view', id=territory.pod.id) }}';">                                    <i class="bi bi-diagram-2"></i> {{ territory.pod.name }}
                                 </span>
                             {% endif %}
                             {% if territory.sellers %}

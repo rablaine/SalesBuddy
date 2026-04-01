@@ -655,7 +655,7 @@ function buildMilestoneCard(idx, milestone) {
                     </button>
                 </div>
                 ${milestone.number ? `<small class="text-muted d-block">Milestone #${escapeHtml(String(milestone.number))}</small>` : ''}
-                ${milestone.opportunity_name ? `<small class="text-muted d-block"><i class="bi bi-briefcase me-1"></i>${escapeHtml(milestone.opportunity_name)}</small>` : ''}
+                ${milestone.opportunity_name ? `<small class="text-muted d-block"><i class="bi bi-cash-stack me-1"></i>${escapeHtml(milestone.opportunity_name)}</small>` : ''}
                 ${milestone.workload ? `<small class="text-muted d-block"><i class="bi bi-gear me-1"></i>${escapeHtml(milestone.workload)}</small>` : ''}
                 ${milestone.monthly_usage ? `<small class="text-muted d-block"><i class="bi bi-graph-up me-1"></i>${escapeHtml(milestone.monthly_usage)}</small>` : ''}
             </div>

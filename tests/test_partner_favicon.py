@@ -268,8 +268,8 @@ class TestPartnerFaviconMacro:
         assert 'data:image/png;base64,dGVzdA==' in html
         assert 'partner-favicon' in html or 'class="partner-favicon"' in html or 'class=' in html
 
-    def test_macro_renders_building_icon_when_no_favicon(self, app, client):
-        """partner_favicon macro should render building icon when no favicon."""
+    def test_macro_renders_handshake_when_no_favicon(self, app, client):
+        """partner_favicon macro should render handshake icon when no favicon."""
         with app.app_context():
             from app.models import Partner, db
             partner = Partner(name='No Favicon Test')
@@ -281,8 +281,8 @@ class TestPartnerFaviconMacro:
         assert response.status_code == 200
         html = response.data.decode('utf-8')
         
-        # Should have building icon somewhere in the page for the partner title
-        assert 'bi-building' in html
+        # Should have briefcase icon somewhere in the page for the partner title
+        assert 'bi-briefcase' in html
 
     def test_partners_list_shows_favicon(self, app, client):
         """Partners list should show favicon for partners that have one."""

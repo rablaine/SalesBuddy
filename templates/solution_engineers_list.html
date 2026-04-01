@@ -25,7 +25,7 @@
                             {% endif %}
                             {% if se.pods %}
                                 {% for pod in se.pods|sort(attribute='name') %}
-                                    <span class="badge bg-primary"><i class="bi bi-diagram-3"></i> {{ pod.name }}</span>
+                                    <span class="badge bg-primary"><i class="bi bi-diagram-2"></i> {{ pod.name }}</span>
                                 {% endfor %}
                             {% else %}
                                 <span class="badge bg-secondary">No POD assigned</span>

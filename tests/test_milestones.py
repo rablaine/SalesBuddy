@@ -460,7 +460,7 @@ class TestMilestoneViewOverhaul:
         resp = client.get(f'/milestone/{ms_id}')
         assert resp.status_code == 200
         assert b'Fabric Migration' in resp.data
-        assert b'bi-lightning-charge' in resp.data
+        assert b'bi-diagram-3' in resp.data
 
     def test_view_shows_cached_comments(self, client, app, db_session, sample_user):
         """Cached comments render immediately in the template."""

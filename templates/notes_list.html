@@ -70,7 +70,7 @@
                     {% endfor %}
                     {% for opp in call.opportunities %}
                         <a href="{{ url_for('opportunities.opportunity_view', id=opp.id) }}" class="badge bg-info text-dark text-decoration-none" onclick="event.stopPropagation();" title="{{ opp.name }}">
-                            <i class="bi bi-briefcase"></i> {{ opp.name[:30] }}{% if opp.name|length > 30 %}...{% endif %}
+                            <i class="bi bi-cash-stack"></i> {{ opp.name[:30] }}{% if opp.name|length > 30 %}...{% endif %}
                             {% if opp.state %}<small>({{ opp.state }})</small>{% endif %}
                         </a>
                     {% endfor %}

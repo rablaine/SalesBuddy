@@ -238,7 +238,7 @@
         {% if customer.opportunities.count() > 0 %}
         <div class="card mb-3">
             <div class="card-header">
-                <h5 class="mb-0"><i class="bi bi-briefcase"></i> Opportunities</h5>
+                <h5 class="mb-0"><i class="bi bi-cash-stack"></i> Opportunities</h5>
             </div>
             <div class="card-body p-2">
                 {% set opportunities = sorted_opps %}
@@ -416,7 +416,7 @@
                                 <div class="d-flex gap-3 text-muted" style="font-size: 0.8rem;">
                                     <span><i class="bi bi-journal-text"></i> {{ eng.linked_note_count }} note{{ 's' if eng.linked_note_count != 1 else '' }}</span>
                                     {% if eng.opportunities|length > 0 %}
-                                    <span><i class="bi bi-briefcase"></i> {{ eng.opportunities|length }}</span>
+                                    <span><i class="bi bi-cash-stack"></i> {{ eng.opportunities|length }}</span>
                                     {% endif %}
                                     {% if eng.milestones|length > 0 %}
                                     <span><i class="bi bi-flag"></i> {{ eng.milestones|length }}</span>

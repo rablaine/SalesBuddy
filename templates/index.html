@@ -423,7 +423,7 @@
                 {% if has_engagements %}
                 <li class="nav-item" role="presentation">
                     <button class="nav-link" id="engagements-tab" data-bs-toggle="pill" data-bs-target="#engagements-view" type="button" role="tab" aria-controls="engagements-view" aria-selected="false">
-                        <i class="bi bi-kanban"></i> Engagements <span class="fw-normal" id="engagements-count" style="font-size:0.8em; opacity:0.85;">({{ engagement_count }})</span>
+                        <i class="bi bi-diagram-3"></i> Engagements <span class="fw-normal" id="engagements-count" style="font-size:0.8em; opacity:0.85;">({{ engagement_count }})</span>
                     </button>
                 </li>
                 {% endif %}
@@ -597,7 +597,7 @@
                         <div class="d-flex w-100 justify-content-between align-items-start">
                             <div>
                                 <h6 class="mb-1">
-                                    <i class="bi bi-building"></i> ${draft.customerName}
+                                    ${draft.data.customer_favicon ? '<img src="data:image/png;base64,' + draft.data.customer_favicon + '" width="16" height="16" alt="" style="vertical-align: middle;">' : '<i class="bi bi-building"></i>'} ${draft.customerName}
                                     <span class="badge bg-warning text-dark ms-2"><i class="bi bi-pencil"></i> Draft</span>
                                 </h6>
                                 <small class="text-muted">

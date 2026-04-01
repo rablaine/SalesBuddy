@@ -15,7 +15,7 @@
 
 <div class="card mb-3">
     <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
-        <h4 class="mb-0"><i class="bi bi-kanban"></i> Engagements <span class="badge bg-secondary" id="{{ count_id }}" style="display:none;"></span></h4>
+        <h4 class="mb-0"><i class="bi bi-diagram-3"></i> Engagements <span class="badge bg-secondary" id="{{ count_id }}" style="display:none;"></span></h4>
         <div class="d-flex align-items-center gap-2">
             <div class="btn-group btn-group-sm" id="{{ body_id }}_statusFilter" role="group" aria-label="Status filter">
                 <button type="button" class="btn btn-outline-secondary active" data-status="">All</button>
@@ -182,7 +182,7 @@
         const stats = [];
         if (eng.open_action_item_count > 0) stats.push('<i class="bi bi-check2-square text-warning"></i> ' + eng.open_action_item_count);
         if (eng.linked_note_count > 0) stats.push('<i class="bi bi-journal-text"></i> ' + eng.linked_note_count);
-        if (eng.opportunity_count > 0) stats.push('<i class="bi bi-briefcase"></i> ' + eng.opportunity_count);
+        if (eng.opportunity_count > 0) stats.push('<i class="bi bi-cash-stack"></i> ' + eng.opportunity_count);
         if (eng.milestone_count > 0) stats.push('<i class="bi bi-flag"></i> ' + eng.milestone_count);
 
         // Context line: seller and/or customer when not grouped

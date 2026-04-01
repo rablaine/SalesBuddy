@@ -3066,7 +3066,7 @@ function renderCustomerNode(c, sellerId, f) {
         for (const e of c.engagements) {
             if (f && !e.title.toLowerCase().includes(f) && !c.name.toLowerCase().includes(f)) continue;
             html += `<div class="archive-node" data-type="engagement" data-id="${e.id}" data-customer="${c.id}" onclick="archiveNodeClick(this, 'engagement', ${e.id})">
-                <span style="width:1em;display:inline-block"></span> <i class="bi bi-briefcase"></i> ${escArchive(e.title)}
+                <span style="width:1em;display:inline-block"></span> <i class="bi bi-diagram-3"></i> ${escArchive(e.title)}
             </div>`;
         }
         html += '</div>';
@@ -3267,7 +3267,7 @@ function showCustomerDetail(customerId) {
                 html += `<h6 class="mt-3"><i class="bi bi-handshake"></i> Engagements</h6><div class="list-group list-group-flush">`;
                 for (const e of data.engagements) {
                     html += `<a href="#" class="list-group-item list-group-item-action py-1 archive-detail-link" onclick="event.preventDefault(); navigateToItem('engagement', ${e.id}, ${customerId})">
-                        <i class="bi bi-briefcase"></i> ${escArchive(e.title)} <span class="badge bg-secondary">${escArchive(e.status || '')}</span>
+                        <i class="bi bi-diagram-3"></i> ${escArchive(e.title)} <span class="badge bg-secondary">${escArchive(e.status || '')}</span>
                     </a>`;
                 }
                 html += '</div>';
@@ -3302,10 +3302,10 @@ function showCategoryDetail(customerId, category) {
     const panel = document.getElementById('archiveDetailPanel');
     let items, icon, label;
     if (category === 'notes') { items = customer.notes; icon = 'bi-file-text'; label = 'Notes'; }
-    else if (category === 'engagements') { items = customer.engagements; icon = 'bi-briefcase'; label = 'Engagements'; }
+    else if (category === 'engagements') { items = customer.engagements; icon = 'bi-diagram-3'; label = 'Engagements'; }
     else { items = customer.milestones; icon = 'bi-trophy'; label = 'Milestones'; }
 
-    let html = `<h5><i class="bi ${icon === 'bi-file-text' ? 'bi-journal-text' : icon === 'bi-briefcase' ? 'bi-handshake' : 'bi-flag'}"></i> ${label} for ${escArchive(customer.name)}</h5><hr>`;
+    let html = `<h5><i class="bi ${icon === 'bi-file-text' ? 'bi-journal-text' : icon === 'bi-diagram-3' ? 'bi-diagram-3' : 'bi-flag'}"></i> ${label} for ${escArchive(customer.name)}</h5><hr>`;
     html += '<div class="list-group list-group-flush">';
     for (const item of items) {
         const type = category === 'notes' ? 'note' : category === 'engagements' ? 'engagement' : 'milestone';
