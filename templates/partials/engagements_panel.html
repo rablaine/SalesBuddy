@@ -35,6 +35,9 @@
             <button type="button" class="btn btn-sm btn-outline-secondary" id="{{ body_id }}_groupToggle" title="{% if eng_show_seller | default(false) %}Group by seller{% else %}Group by customer{% endif %}">
                 <i class="bi bi-{% if eng_show_seller | default(false) %}people{% else %}building{% endif %}"></i>
             </button>
+            <button type="button" class="btn btn-sm btn-outline-warning" id="{{ body_id }}_favoritesBtn" title="Show favorites only">
+                <i class="bi bi-star"></i>
+            </button>
         </div>
     </div>
     <div class="card-body p-2" id="{{ body_id }}">
@@ -56,6 +59,7 @@
     let statusFilter = '';
     let sortBy = 'updated';
     let groupBySeller = SHOW_SELLER_DEFAULT;
+    let favoritesOnly = false;
 
     const STORAGE_KEY = 'eng_panel_' + BODY_ID;
 
@@ -65,6 +69,7 @@
         if (saved.filter != null) statusFilter = saved.filter;
         if (saved.sort) sortBy = saved.sort;
         if (saved.group != null) groupBySeller = saved.group;
+        if (saved.favoritesOnly != null) favoritesOnly = saved.favoritesOnly;
     } catch(e) {}
 
     // Apply restored state to controls
@@ -75,6 +80,11 @@
     }
     if (sortBy) {
         document.getElementById(BODY_ID + '_sortSelect').value = sortBy;
+    }
+    const favoritesBtn = document.getElementById(BODY_ID + '_favoritesBtn');
+    if (favoritesBtn && favoritesOnly) {
+        favoritesBtn.classList.remove('btn-outline-warning');
+        favoritesBtn.classList.add('btn-warning');
     }
     const groupToggle = document.getElementById(BODY_ID + '_groupToggle');
     if (groupToggle) {
@@ -87,8 +97,18 @@
         });
     }
 
+    if (favoritesBtn) {
+        favoritesBtn.addEventListener('click', function() {
+            favoritesOnly = !favoritesOnly;
+            this.classList.toggle('btn-warning', favoritesOnly);
+            this.classList.toggle('btn-outline-warning', !favoritesOnly);
+            saveSelections();
+            if (rawData) render();
+        });
+    }
+
     function saveSelections() {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify({ filter: statusFilter, sort: sortBy, group: groupBySeller }));
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({ filter: statusFilter, sort: sortBy, group: groupBySeller, favoritesOnly: favoritesOnly }));
     }
 
     // Filter buttons
@@ -145,6 +165,8 @@
         const statusClass = eng.status === 'Active' ? 'bg-success' : 'bg-warning text-dark';
         const completeness = eng.story_completeness || 0;
         const barClass = completeness >= 80 ? 'bg-success' : completeness >= 40 ? 'bg-warning' : 'bg-danger';
+        const starClass = eng.is_favorited ? 'bi-star-fill text-warning' : 'bi-star text-muted';
+        const starTitle = eng.is_favorited ? 'Remove from favorites' : 'Add to favorites';
 
         let targetDisplay = '';
         if (eng.target_date) {
@@ -178,7 +200,7 @@
             if (parts.length) contextHtml = '<div class="text-muted text-truncate mb-1" style="font-size:0.75rem;">' + parts.join(' <span class="mx-1">|</span> ') + '</div>';
         }
 
-        return `<div style="width:300px; flex-shrink:0;"><div class="card h-100 border" style="cursor:pointer;" onclick="if(!event.target.closest('a')){window.location='/engagement/${eng.id}'}">
+        return `<div style="width:300px; flex-shrink:0;"><div class="card h-100 border" style="cursor:pointer;" onclick="if(!event.target.closest('a, button')){window.location='/engagement/${eng.id}'}">
             <div class="card-body p-2">
                 ${contextHtml}
                 <div class="d-flex justify-content-between align-items-start mb-1">
@@ -186,6 +208,7 @@
                         <strong class="text-truncate" style="font-size:0.9rem;">${escapeHtml(eng.title)}</strong>
                         <span class="badge ${statusClass} flex-shrink-0" style="font-size:0.65rem;">${escapeHtml(eng.status)}</span>
                     </div>
+                    <button class="btn btn-sm p-0 border-0 bg-transparent flex-shrink-0 ms-1" style="line-height:1;" title="${starTitle}" onclick="event.stopPropagation(); window['engToggleFav_${BODY_ID}'](this, ${eng.id})"><i class="bi ${starClass}"></i></button>
                     ${updatedDisplay ? '<span class="text-muted text-nowrap flex-shrink-0 ms-2" style="font-size:0.7rem;"><i class="bi bi-clock"></i> ' + updatedDisplay + '</span>' : ''}
                 </div>
                 <div class="d-flex align-items-center gap-2 mb-1">
@@ -245,14 +268,36 @@
             items = items.filter(e => e.status === statusFilter);
         }
 
+        if (favoritesOnly) {
+            items = items.filter(e => e.is_favorited);
+        }
+
+        // Sort favorites to top
+        items.sort((a, b) => {
+            if (a.is_favorited === b.is_favorited) return 0;
+            return a.is_favorited ? -1 : 1;
+        });
+
         if (sortBy === 'updated') {
-            items.sort((a, b) => (b.updated_at || '').localeCompare(a.updated_at || ''));
+            items.sort((a, b) => {
+                if (a.is_favorited !== b.is_favorited) return a.is_favorited ? -1 : 1;
+                return (b.updated_at || '').localeCompare(a.updated_at || '');
+            });
         } else if (sortBy === 'story-asc') {
-            items.sort((a, b) => (a.story_completeness || 0) - (b.story_completeness || 0));
+            items.sort((a, b) => {
+                if (a.is_favorited !== b.is_favorited) return a.is_favorited ? -1 : 1;
+                return (a.story_completeness || 0) - (b.story_completeness || 0);
+            });
         } else if (sortBy === 'story-desc') {
-            items.sort((a, b) => (b.story_completeness || 0) - (a.story_completeness || 0));
+            items.sort((a, b) => {
+                if (a.is_favorited !== b.is_favorited) return a.is_favorited ? -1 : 1;
+                return (b.story_completeness || 0) - (a.story_completeness || 0);
+            });
         } else if (sortBy === 'target') {
-            items.sort((a, b) => (a.target_date || '9999').localeCompare(b.target_date || '9999'));
+            items.sort((a, b) => {
+                if (a.is_favorited !== b.is_favorited) return a.is_favorited ? -1 : 1;
+                return (a.target_date || '9999').localeCompare(b.target_date || '9999');
+            });
         }
 
         if (items.length === 0) {
@@ -296,8 +341,31 @@
         }
     }
 
-    // Expose load function globally so callers can trigger it
+    function toggleEngFavorite(btn, engId) {
+        fetch('/api/engagement/' + engId + '/favorite', { method: 'POST' })
+            .then(r => r.json())
+            .then(data => {
+                if (!data.success) return;
+                const icon = btn.querySelector('i');
+                if (data.is_favorited) {
+                    icon.className = 'bi bi-star-fill text-warning';
+                    btn.title = 'Remove from favorites';
+                } else {
+                    icon.className = 'bi bi-star text-muted';
+                    btn.title = 'Add to favorites';
+                }
+                // Update rawData so subsequent renders reflect the new state
+                const eng = rawData && rawData.find(e => e.id === engId);
+                if (eng) eng.is_favorited = data.is_favorited;
+                // Re-render if favorites-only filter is active and item was un-favorited
+                if (favoritesOnly && !data.is_favorited) render();
+            })
+            .catch(err => console.error('Error toggling engagement favorite:', err));
+    }
+
+    // Expose load and favorite-toggle functions globally
     window['engLoad_' + BODY_ID] = load;
+    window['engToggleFav_' + BODY_ID] = toggleEngFavorite;
 
     {% if eng_auto_load | default(false) %}
     document.addEventListener('DOMContentLoaded', load);

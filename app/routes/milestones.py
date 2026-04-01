@@ -480,6 +480,7 @@ def milestone_tracker():
         tracker_data = get_milestone_tracker_data()
     
     sync_status = SyncStatus.get_status('milestones')
+    favorited_ms_ids = {f.object_id for f in Favorite.query.filter_by(object_type='milestone').all()}
     return render_template(
         'milestone_tracker.html',
         milestones=tracker_data["milestones"],
@@ -490,6 +491,7 @@ def milestone_tracker():
         quarters=tracker_data["quarters"],
         sync_status=sync_status,
         locked_seller=locked_seller,
+        favorited_ms_ids=favorited_ms_ids,
     )
 
 

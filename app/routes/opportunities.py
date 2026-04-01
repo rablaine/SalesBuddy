@@ -56,6 +56,7 @@ def opportunity_view(id: int):
         milestones=milestones,
         msx_url=msx_url,
         cached_comments=cached_comments,
+        is_favorited=Favorite.is_favorited('opportunity', opportunity.id),
     )
 
 

@@ -241,7 +241,7 @@
                 <h5 class="mb-0"><i class="bi bi-briefcase"></i> Opportunities</h5>
             </div>
             <div class="card-body p-2">
-                {% set opportunities = customer.opportunities.order_by(None).all()|sort(attribute='name') %}
+                {% set opportunities = sorted_opps %}
                 {% include 'partials/_customer_opportunities.html' %}
             </div>
         </div>

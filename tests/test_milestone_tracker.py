@@ -1088,8 +1088,8 @@ class TestMilestoneTrackerRoutes:
         response = client.get('/milestone-tracker')
         assert response.status_code == 200
         assert b'sellerFilter' in response.data
-        assert b'statusFilter' in response.data
-        assert b'areaFilter' in response.data
+        assert b'statusDropdownBtn' in response.data
+        assert b'areaDropdownBtn' in response.data
     
     def test_tracker_page_has_sortable_columns(self, client, app, sample_data):
         """Tracker page should have sortable column headers."""
@@ -1335,7 +1335,7 @@ class TestSSESync:
         """Tracker page should have the area filter dropdown."""
         response = client.get('/milestone-tracker')
         assert response.status_code == 200
-        assert b'areaFilter' in response.data
+        assert b'areaDropdownBtn' in response.data
 
 
 class TestFiscalYearFilter:

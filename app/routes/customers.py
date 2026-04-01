@@ -236,6 +236,14 @@ def customer_view(id):
     # Opportunity count
     opportunity_count = customer.opportunities.count()
 
+    # Pass favorited opportunity IDs and pre-sort opportunities (favorites first)
+    from app.models import Favorite
+    favorited_opp_ids = {f.object_id for f in Favorite.query.filter_by(object_type='opportunity').all()}
+    sorted_opps = sorted(
+        customer.opportunities.order_by(None).all(),
+        key=lambda o: (0 if o.id in favorited_opp_ids else 1, (o.name or '').lower())
+    )
+
     return render_template('customer_view.html', 
                           customer=customer, 
                           notes=notes,
@@ -245,7 +253,9 @@ def customer_view(id):
                           revenue_analyses=revenue_analyses,
                           last_contact=last_contact,
                           active_milestone_count=active_milestones,
-                          opportunity_count=opportunity_count)
+                          opportunity_count=opportunity_count,
+                          favorited_opp_ids=favorited_opp_ids,
+                          sorted_opps=sorted_opps)
 
 
 @customers_bp.route('/customer/<int:id>/edit', methods=['GET', 'POST'])

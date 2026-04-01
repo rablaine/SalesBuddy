@@ -96,6 +96,8 @@ def api_all_engagements():
 
     engagements = query.order_by(Engagement.updated_at.desc()).all()
 
+    favorited_ids = {f.object_id for f in Favorite.query.filter_by(object_type='engagement').all()}
+
     results = []
     for eng in engagements:
         results.append({
@@ -118,6 +120,7 @@ def api_all_engagements():
             'milestone_count': len(eng.milestones),
             'open_action_item_count': eng.open_action_item_count,
             'latest_note_date': max((n.call_date for n in eng.notes), default=None).isoformat() if eng.notes else None,
+            'is_favorited': eng.id in favorited_ids,
         })
 
     return jsonify({'success': True, 'engagements': results, 'count': len(results)})
@@ -158,6 +161,7 @@ def engagement_view(id: int):
         linked_notes=linked_notes,
         unassigned_notes=unassigned_notes,
         customer_milestones=customer_milestones,
+        is_favorited=Favorite.is_favorited('engagement', engagement.id),
     )
 
 
