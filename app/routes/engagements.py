@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify
 
 from app.models import (
-    db, Engagement, ActionItem, Customer, Note, Opportunity, Milestone, Topic
+    db, Engagement, ActionItem, Customer, Note, Opportunity, Milestone, Topic, Favorite
 )
 from app.services.milestone_tracking import track_engagement_on_milestones
 from app.services.seller_mode import get_seller_mode_seller_id
@@ -734,3 +734,19 @@ def _action_item_to_dict(task: ActionItem) -> dict:
         'created_at': task.created_at.isoformat() if task.created_at else None,
         'sort_order': task.sort_order,
     }
+
+
+# =============================================================================
+# Favorites
+# =============================================================================
+
+@engagements_bp.route('/api/engagement/<int:id>/favorite', methods=['POST'])
+def api_toggle_engagement_favorite(id: int):
+    """Toggle the favorite state of an engagement.
+
+    Returns the new is_favorited value. Creates or deletes a Favorite row -
+    no changes made to the Engagement model itself.
+    """
+    Engagement.query.get_or_404(id)
+    is_favorited = Favorite.toggle('engagement', id)
+    return jsonify(success=True, is_favorited=is_favorited)

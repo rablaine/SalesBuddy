@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, g
 
-from app.models import db, Opportunity, Milestone
+from app.models import db, Opportunity, Milestone, Favorite
 from app.services.msx_api import (
     get_opportunity,
     add_opportunity_comment,
@@ -184,3 +184,19 @@ def api_opportunity_delete_comment(id: int):
         data['userId'],
     )
     return jsonify(result)
+
+
+# =============================================================================
+# Favorites
+# =============================================================================
+
+@opportunities_bp.route('/api/opportunity/<int:id>/favorite', methods=['POST'])
+def api_toggle_opportunity_favorite(id: int):
+    """Toggle the favorite state of an opportunity.
+
+    Returns the new is_favorited value. Creates or deletes a Favorite row -
+    no changes made to the Opportunity model itself.
+    """
+    Opportunity.query.get_or_404(id)
+    is_favorited = Favorite.toggle('opportunity', id)
+    return jsonify(success=True, is_favorited=is_favorited)

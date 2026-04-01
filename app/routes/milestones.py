@@ -12,7 +12,7 @@ from flask import (
     Blueprint, render_template, request, redirect, url_for,
     flash, g, jsonify, Response, stream_with_context, current_app,
 )
-from app.models import db, Milestone, MsxTask, Note, Customer, Seller, SolutionEngineer
+from app.models import db, Milestone, MsxTask, Note, Customer, Seller, SolutionEngineer, Favorite
 from app.services.seller_mode import get_seller_mode_seller_id
 
 logger = logging.getLogger(__name__)
@@ -725,4 +725,20 @@ def milestones_calendar_api():
         'days_in_month': cal.monthrange(year, month)[1],
         'today_day': today.day if today.year == year and today.month == month else None,
     })
+
+
+# =============================================================================
+# Favorites
+# =============================================================================
+
+@bp.route('/api/milestone/<int:id>/favorite', methods=['POST'])
+def api_toggle_milestone_favorite(id: int):
+    """Toggle the favorite state of a milestone.
+
+    Returns the new is_favorited value. Creates or deletes a Favorite row -
+    no changes made to the Milestone model itself.
+    """
+    Milestone.query.get_or_404(id)
+    is_favorited = Favorite.toggle('milestone', id)
+    return jsonify(success=True, is_favorited=is_favorited)
 

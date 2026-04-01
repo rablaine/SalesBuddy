@@ -1788,6 +1788,48 @@ class DailyFeatureStats(db.Model):
         return f'<DailyFeatureStats {self.date} {self.category} {self.endpoint} ({self.event_count})>'
 
 
+class Favorite(db.Model):
+    """Favorited items - polymorphic table covering milestones, engagements, and opportunities.
+
+    Uses (object_type, object_id) as a composite unique key. No columns are
+    added to the source models - toggling favorite just inserts/deletes a row here.
+    """
+    __tablename__ = 'favorites'
+    __table_args__ = (
+        db.UniqueConstraint('object_type', 'object_id', name='uq_favorite'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    object_type = db.Column(db.String(50), nullable=False)   # 'milestone', 'engagement', 'opportunity'
+    object_id = db.Column(db.Integer, nullable=False)
+    created_at = db.Column(db.DateTime, default=utc_now, nullable=False)
+
+    @staticmethod
+    def is_favorited(object_type: str, object_id: int) -> bool:
+        """Return True if the given object is currently favorited."""
+        return Favorite.query.filter_by(
+            object_type=object_type, object_id=object_id
+        ).first() is not None
+
+    @staticmethod
+    def toggle(object_type: str, object_id: int) -> bool:
+        """Toggle favorite state. Returns the new is_favorited value."""
+        existing = Favorite.query.filter_by(
+            object_type=object_type, object_id=object_id
+        ).first()
+        if existing:
+            db.session.delete(existing)
+            db.session.commit()
+            return False
+        else:
+            db.session.add(Favorite(object_type=object_type, object_id=object_id))
+            db.session.commit()
+            return True
+
+    def __repr__(self) -> str:
+        return f'<Favorite {self.object_type}:{self.object_id}>'
+
+
 class HygieneNote(db.Model):
     """Free-text reason note for hygiene report items.
 
