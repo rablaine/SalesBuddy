@@ -98,7 +98,7 @@
                 </thead>
                 <tbody>
                     {% for cd in group.customers %}
-                    <tr class="workload-row" data-note-date="{{ cd.latest_note_iso }}" data-acr="{{ cd.acr }}">
+                    <tr class="workload-row" data-note-date="{{ cd.latest_note_iso }}" data-acr="{{ cd.acr }}" data-milestone-ids="{{ cd.milestone_ids | join(',') }}">
                         <td class="ps-3">
                             {{ customer_favicon(cd.customer) }}
                             <a href="{{ url_for('customers.customer_view', id=cd.customer.id) }}" class="text-decoration-none">{{ cd.customer.name }}</a>
@@ -151,6 +151,9 @@
             if (chevron) chevron.style.transform = chevron.style.transform === 'rotate(90deg)' ? '' : 'rotate(90deg)';
         });
     });
+    // Milestone ACR map for deduplicated grand total (milestone_id -> monthly_usage)
+    var milestoneAcr = {{ milestone_acr_map | tojson }};
+
     var dateFrom = document.getElementById('dateFrom');
     var dateTo = document.getElementById('dateTo');
     var presets = {
@@ -175,8 +178,10 @@
         var to = dateTo.value;
         var visibleGroups = 0;
         var totalCustomers = 0;
-        var totalAcr = 0;
         var uniqueCustomerNames = new Set();
+        // Track unique milestone IDs across all groups to avoid double-counting
+        var seenMilestoneIds = new Set();
+        var totalAcr = 0;
 
         document.querySelectorAll('.workload-group').forEach(function(group) {
             var rows = group.querySelectorAll('.workload-row');
@@ -194,6 +199,14 @@
                     groupAcr += parseFloat(row.dataset.acr) || 0;
                     var name = row.querySelector('a');
                     if (name) uniqueCustomerNames.add(name.textContent.trim());
+                    // Accumulate deduplicated grand total by unique milestone ID
+                    var ids = row.dataset.milestoneIds ? row.dataset.milestoneIds.split(',').filter(Boolean) : [];
+                    ids.forEach(function(id) {
+                        if (!seenMilestoneIds.has(id)) {
+                            seenMilestoneIds.add(id);
+                            totalAcr += milestoneAcr[id] || 0;
+                        }
+                    });
                 }
             });
 
@@ -206,7 +219,6 @@
             group.style.display = visibleRows > 0 ? '' : 'none';
             if (visibleRows > 0) visibleGroups++;
             totalCustomers += visibleRows;
-            totalAcr += groupAcr;
         });
 
         document.getElementById('statWorkloads').textContent = visibleGroups;
