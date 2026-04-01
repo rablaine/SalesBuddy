@@ -636,9 +636,13 @@ def milestones_calendar_api():
         )
     )
 
-    # Status filter (server-side)
+    # Status filter (server-side) - supports comma-separated for multi-select
     if status_filter:
-        milestones_q = milestones_q.filter(Milestone.msx_status == status_filter)
+        status_values = [s.strip() for s in status_filter.split(',') if s.strip()]
+        if len(status_values) == 1:
+            milestones_q = milestones_q.filter(Milestone.msx_status == status_values[0])
+        elif len(status_values) > 1:
+            milestones_q = milestones_q.filter(Milestone.msx_status.in_(status_values))
 
     # Seller filter: seller mode takes priority, then explicit param
     seller_mode_sid = get_seller_mode_seller_id()
@@ -664,14 +668,15 @@ def milestones_calendar_api():
     )
     filtered = []
     for ms in milestones:
-        # Area filter
+        # Area filter - supports comma-separated for multi-select
         if area_filter:
+            area_values = [a.strip() for a in area_filter.split(',') if a.strip()]
             wl_area = ''
             if ms.workload and ':' in ms.workload:
                 wl_area = ms.workload.split(':', 1)[0].strip()
             elif ms.workload:
                 wl_area = ms.workload.strip()
-            if wl_area != area_filter:
+            if wl_area not in area_values:
                 continue
 
         # Quarters filter

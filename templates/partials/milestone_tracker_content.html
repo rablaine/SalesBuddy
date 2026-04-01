@@ -86,24 +86,42 @@
             </div>
             {% endif %}
             <div class="col-md">
-                <select data-role="statusFilter" class="form-select form-select-sm">
-                    <option value="">All Statuses</option>
-                    <option value="On Track">On Track</option>
-                    <option value="At Risk">At Risk</option>
-                    <option value="Blocked">Blocked</option>
-                    <option value="Completed">Completed</option>
-                    <option value="Cancelled">Cancelled</option>
-                    <option value="Lost to Competitor">Lost to Competitor</option>
-                    <option value="Hygiene/Duplicate">Hygiene/Duplicate</option>
-                </select>
+                <div class="dropdown" style="width: 100%;">
+                    <button class="btn btn-outline-secondary btn-sm dropdown-toggle w-100 text-start" type="button" data-role="statusDropdownBtn" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false" style="font-size: 0.875rem;">All Statuses</button>
+                    <ul class="dropdown-menu" style="min-width: 200px; z-index: 1060;">
+                        <li><button class="dropdown-item small" type="button" data-role="statusSelectAll">Select All</button></li>
+                        <li><button class="dropdown-item small" type="button" data-role="statusClear">Clear All</button></li>
+                        <li><hr class="dropdown-divider my-1"></li>
+                        {% for sv in ['On Track', 'At Risk', 'Blocked', 'Completed', 'Cancelled', 'Lost to Competitor', 'Hygiene/Duplicate'] %}
+                        <li>
+                            <label class="dropdown-item small py-1 d-flex align-items-center gap-2" style="cursor: pointer;">
+                                <input class="form-check-input m-0 status-checkbox" type="checkbox" value="{{ sv }}">
+                                {{ sv }}
+                            </label>
+                        </li>
+                        {% endfor %}
+                    </ul>
+                </div>
             </div>
             <div class="col-md">
-                <select data-role="areaFilter" class="form-select form-select-sm">
-                    <option value="">All Areas</option>
-                    {% for area in areas %}
-                        <option value="{{ area }}">{{ area }}</option>
-                    {% endfor %}
-                </select>
+                {% if areas %}
+                <div class="dropdown" style="width: 100%;">
+                    <button class="btn btn-outline-secondary btn-sm dropdown-toggle w-100 text-start" type="button" data-role="areaDropdownBtn" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false" style="font-size: 0.875rem;">All Areas</button>
+                    <ul class="dropdown-menu" style="min-width: 180px; z-index: 1060;">
+                        <li><button class="dropdown-item small" type="button" data-role="areaSelectAll">Select All</button></li>
+                        <li><button class="dropdown-item small" type="button" data-role="areaClear">Clear All</button></li>
+                        <li><hr class="dropdown-divider my-1"></li>
+                        {% for area in areas %}
+                        <li>
+                            <label class="dropdown-item small py-1 d-flex align-items-center gap-2" style="cursor: pointer;">
+                                <input class="form-check-input m-0 area-checkbox" type="checkbox" value="{{ area }}">
+                                {{ area }}
+                            </label>
+                        </li>
+                        {% endfor %}
+                    </ul>
+                </div>
+                {% endif %}
             </div>
             <div class="col-md">
                 <select data-role="urgencyFilter" class="form-select form-select-sm">
@@ -339,8 +357,8 @@
     function qa(sel) { return container.querySelectorAll(sel); }
 
     var sellerFilter = q('sellerFilter');
-    var statusFilter = q('statusFilter');
-    var areaFilter = q('areaFilter');
+    var statusDropdownBtn = q('statusDropdownBtn');
+    var areaDropdownBtn = q('areaDropdownBtn');
     var urgencyFilter = q('urgencyFilter');
     var myTeamFilter = q('myTeamFilter');
     var filteredCount = q('filteredCount');
@@ -370,8 +388,8 @@
         var state = {
             quarters: selectedQuarters,
             seller: sellerFilter ? sellerFilter.value : '',
-            status: statusFilter.value,
-            area: areaFilter.value,
+            status: Array.from(qa('.status-checkbox:checked')).map(function(cb) { return cb.value; }),
+            area: Array.from(qa('.area-checkbox:checked')).map(function(cb) { return cb.value; }),
             urgency: urgencyFilter.value,
             myTeam: myTeamFilter.value,
             allQuarters: allQuarters
@@ -391,8 +409,11 @@
                 });
             }
             if (state.seller && sellerFilter) sellerFilter.value = state.seller;
-            if (state.status) statusFilter.value = state.status;
-            if (state.area) areaFilter.value = state.area;
+            // Handle backward compat: status/area used to be a string, now an array
+            var savedStatuses = state.status ? (Array.isArray(state.status) ? state.status : [state.status]) : [];
+            qa('.status-checkbox').forEach(function(cb) { cb.checked = savedStatuses.includes(cb.value); });
+            var savedAreas = state.area ? (Array.isArray(state.area) ? state.area : [state.area]) : [];
+            qa('.area-checkbox').forEach(function(cb) { cb.checked = savedAreas.includes(cb.value); });
             if (state.urgency) urgencyFilter.value = state.urgency;
             if (state.myTeam) myTeamFilter.value = state.myTeam;
         } catch (e) {
@@ -404,7 +425,8 @@
         var allChecked = qa('.quarter-checkbox').length === qa('.quarter-checkbox:checked').length;
         return allChecked &&
             (!sellerFilter || sellerFilter.value === '') &&
-            statusFilter.value === '' &&
+            qa('.status-checkbox:checked').length === 0 &&
+            qa('.area-checkbox:checked').length === 0 &&
             urgencyFilter.value === '' &&
             myTeamFilter.value === '';
     }
@@ -416,7 +438,8 @@
     function resetFilters() {
         qa('.quarter-checkbox').forEach(function(cb) { cb.checked = true; });
         if (sellerFilter) sellerFilter.value = '';
-        statusFilter.value = '';
+        qa('.status-checkbox').forEach(function(cb) { cb.checked = false; });
+        qa('.area-checkbox').forEach(function(cb) { cb.checked = false; });
         urgencyFilter.value = '';
         myTeamFilter.value = '';
         saveFilters();
@@ -427,8 +450,8 @@
     function applyFilters() {
         var selectedQuarters = Array.from(qa('.quarter-checkbox:checked')).map(function(cb) { return cb.value; });
         var sv = sellerFilter ? sellerFilter.value : '';
-        var stv = statusFilter.value;
-        var av = areaFilter.value;
+        var selectedStatuses = Array.from(qa('.status-checkbox:checked')).map(function(cb) { return cb.value; });
+        var selectedAreas = Array.from(qa('.area-checkbox:checked')).map(function(cb) { return cb.value; });
         var uv = urgencyFilter.value;
         var myTeam = myTeamFilter.value;
 
@@ -441,8 +464,8 @@
             if (selectedQuarters.length > 0 && row.dataset.quarter && !selectedQuarters.includes(row.dataset.quarter)) visible = false;
             if (selectedQuarters.length > 0 && !row.dataset.quarter && selectedQuarters.length < totalQuarters) visible = false;
             if (sv && row.dataset.sellerId !== sv) visible = false;
-            if (stv && row.dataset.status !== stv) visible = false;
-            if (av && row.dataset.area !== av) visible = false;
+            if (selectedStatuses.length > 0 && !selectedStatuses.includes(row.dataset.status)) visible = false;
+            if (selectedAreas.length > 0 && !selectedAreas.includes(row.dataset.area)) visible = false;
             if (uv && row.dataset.urgency !== uv) visible = false;
             if (myTeam === 'on' && row.dataset.onMyTeam !== 'true') visible = false;
             if (myTeam === 'off' && row.dataset.onMyTeam !== 'false') visible = false;
@@ -464,6 +487,8 @@
         pastDueCountEl.textContent = visiblePastDue;
         thisWeekCountEl.textContent = visibleThisWeek;
         updateQuarterButtonText();
+        updateStatusButtonText();
+        updateAreaButtonText();
         saveFilters();
         updateResetButton();
 
@@ -473,8 +498,8 @@
             detail: {
                 quarters: selectedQuarters,
                 seller: sv,
-                status: stv,
-                area: av,
+                status: selectedStatuses,
+                area: selectedAreas,
                 urgency: uv,
                 myTeam: myTeam
             }
@@ -491,6 +516,30 @@
         } else {
             var selected = Array.from(qa('.quarter-checkbox:checked')).map(function(cb) { return cb.value; });
             quarterDropdown.innerHTML = '<i class="bi bi-calendar3"></i> ' + selected.join(', ');
+        }
+    }
+
+    function updateStatusButtonText() {
+        if (!statusDropdownBtn) return;
+        var checked = qa('.status-checkbox:checked');
+        if (checked.length === 0) {
+            statusDropdownBtn.textContent = 'All Statuses';
+        } else if (checked.length === 1) {
+            statusDropdownBtn.textContent = checked[0].value;
+        } else {
+            statusDropdownBtn.textContent = checked.length + ' Statuses';
+        }
+    }
+
+    function updateAreaButtonText() {
+        if (!areaDropdownBtn) return;
+        var checked = qa('.area-checkbox:checked');
+        if (checked.length === 0) {
+            areaDropdownBtn.textContent = 'All Areas';
+        } else if (checked.length === 1) {
+            areaDropdownBtn.textContent = checked[0].value;
+        } else {
+            areaDropdownBtn.textContent = checked.length + ' Areas';
         }
     }
 
@@ -547,8 +596,28 @@
         applyFilters();
     });
     if (sellerFilter) sellerFilter.addEventListener('change', applyFilters);
-    statusFilter.addEventListener('change', applyFilters);
-    areaFilter.addEventListener('change', applyFilters);
+    qa('.status-checkbox').forEach(function(cb) { cb.addEventListener('change', applyFilters); });
+    qa('.area-checkbox').forEach(function(cb) { cb.addEventListener('change', applyFilters); });
+    var statusSelectAll = q('statusSelectAll');
+    var statusClear = q('statusClear');
+    var areaSelectAll = q('areaSelectAll');
+    var areaClear = q('areaClear');
+    if (statusSelectAll) statusSelectAll.addEventListener('click', function() {
+        qa('.status-checkbox').forEach(function(cb) { cb.checked = true; });
+        applyFilters();
+    });
+    if (statusClear) statusClear.addEventListener('click', function() {
+        qa('.status-checkbox').forEach(function(cb) { cb.checked = false; });
+        applyFilters();
+    });
+    if (areaSelectAll) areaSelectAll.addEventListener('click', function() {
+        qa('.area-checkbox').forEach(function(cb) { cb.checked = true; });
+        applyFilters();
+    });
+    if (areaClear) areaClear.addEventListener('click', function() {
+        qa('.area-checkbox').forEach(function(cb) { cb.checked = false; });
+        applyFilters();
+    });
     urgencyFilter.addEventListener('change', applyFilters);
     myTeamFilter.addEventListener('change', applyFilters);
     resetBtn.addEventListener('click', resetFilters);

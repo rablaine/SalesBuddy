@@ -211,14 +211,14 @@
     function getFilterParams() {
         var params = '';
         var seller = instance.querySelector('[data-role="sellerFilter"]');
-        var status = instance.querySelector('[data-role="statusFilter"]');
-        var area = instance.querySelector('[data-role="areaFilter"]');
         var urgency = instance.querySelector('[data-role="urgencyFilter"]');
         var myTeam = instance.querySelector('[data-role="myTeamFilter"]');
+        var checkedStatuses = Array.from(instance.querySelectorAll('.status-checkbox:checked')).map(function(cb) { return cb.value; });
+        var checkedAreas = Array.from(instance.querySelectorAll('.area-checkbox:checked')).map(function(cb) { return cb.value; });
 
         if (seller && seller.value) params += '&seller_id=' + seller.value;
-        if (status && status.value) params += '&status=' + encodeURIComponent(status.value);
-        if (area && area.value) params += '&area=' + encodeURIComponent(area.value);
+        if (checkedStatuses.length > 0) params += '&status=' + encodeURIComponent(checkedStatuses.join(','));
+        if (checkedAreas.length > 0) params += '&area=' + encodeURIComponent(checkedAreas.join(','));
         if (urgency && urgency.value) params += '&urgency=' + encodeURIComponent(urgency.value);
         if (myTeam && myTeam.checked) params += '&team_only=1';
 
