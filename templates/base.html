@@ -691,6 +691,9 @@
                     <button class="btn btn-success" id="navNewNote" data-bs-toggle="modal" data-bs-target="#quickNoteModal" title="Create new note (Ctrl+K)" aria-label="Create new note">
                         <i class="bi bi-plus-circle"></i> <span class="d-none d-md-inline">New Note</span>
                     </button>
+                    <button class="btn btn-light" type="button" data-bs-toggle="modal" data-bs-target="#keyboardShortcutsModal" title="Help & Keyboard Shortcuts (?)" aria-label="Help and keyboard shortcuts">
+                        <i class="bi bi-question-circle"></i>
+                    </button>
                     <div class="dropdown">
                         <button class="btn btn-light position-relative" type="button" id="gearMenuDropdown" data-bs-toggle="dropdown" aria-expanded="false" title="Settings & Admin" aria-label="Settings and Admin menu">
                             <i class="bi bi-gear"></i>
@@ -1388,6 +1391,10 @@
                     <table class="table table-sm mb-0">
                         <tbody>
                             <tr>
+                                <td><span class="kbd">F1</span></td>
+                                <td>Page help</td>
+                            </tr>
+                            <tr>
                                 <td><span class="kbd">/</span></td>
                                 <td>Customer search</td>
                             </tr>
@@ -1400,16 +1407,12 @@
                                 <td>Submit form</td>
                             </tr>
                             <tr>
-                                <td><span class="kbd">F1</span></td>
-                                <td>Page help</td>
+                                <td><span class="kbd">Esc</span></td>
+                                <td>Close modal / go back</td>
                             </tr>
                             <tr>
                                 <td><span class="kbd">?</span></td>
                                 <td>Show this help</td>
-                            </tr>
-                            <tr>
-                                <td><span class="kbd">Esc</span></td>
-                                <td>Close modal / go back</td>
                             </tr>
                         </tbody>
                     </table>
