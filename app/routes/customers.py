@@ -454,7 +454,8 @@ def api_customers_autocomplete():
 def api_customer_contacts(customer_id):
     """Get all contacts for a customer."""
     customer = Customer.query.filter_by(id=customer_id).first_or_404()
-    contacts = [{'id': c.id, 'name': c.name, 'email': c.email or '', 'title': c.title or ''}
+    contacts = [{'id': c.id, 'name': c.name, 'email': c.email or '', 'title': c.title or '',
+                 'photo_b64': c.photo_b64 or '', 'photo_full_b64': c.photo_full_b64 or ''}
                 for c in customer.contacts]
     return jsonify(contacts), 200
 
@@ -504,6 +505,24 @@ def api_customer_contact_delete(contact_id):
     db.session.delete(contact)
     db.session.commit()
     return jsonify({'success': True}), 200
+
+
+@customers_bp.route('/api/customer/contact/<int:contact_id>/photo', methods=['POST'])
+def api_customer_contact_photo(contact_id):
+    """Save a photo for a customer contact. Runs face detection server-side."""
+    contact = CustomerContact.query.filter_by(id=contact_id).first_or_404()
+    data = request.get_json()
+    raw_b64 = data.get('photo_b64')
+    if raw_b64:
+        from app.services.contact_photo import process_contact_photo
+        cropped, full = process_contact_photo(raw_b64)
+        contact.photo_b64 = cropped
+        contact.photo_full_b64 = full
+    else:
+        contact.photo_b64 = None
+        contact.photo_full_b64 = None
+    db.session.commit()
+    return jsonify({'success': True, 'photo_b64': contact.photo_b64})
 
 
 @customers_bp.route('/api/customer/<int:customer_id>/info')

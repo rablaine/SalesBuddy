@@ -263,6 +263,24 @@ def contact_delete(partner_id, contact_id):
     return redirect(url_for('partners.partner_view', id=partner_id))
 
 
+@partners_bp.route('/api/partner/contact/<int:contact_id>/photo', methods=['POST'])
+def api_partner_contact_photo(contact_id):
+    """Save a photo for a partner contact. Runs face detection server-side."""
+    contact = PartnerContact.query.get_or_404(contact_id)
+    data = request.get_json()
+    raw_b64 = data.get('photo_b64')
+    if raw_b64:
+        from app.services.contact_photo import process_contact_photo
+        cropped, full = process_contact_photo(raw_b64)
+        contact.photo_b64 = cropped
+        contact.photo_full_b64 = full
+    else:
+        contact.photo_b64 = None
+        contact.photo_full_b64 = None
+    db.session.commit()
+    return jsonify({'success': True, 'photo_b64': contact.photo_b64})
+
+
 # =============================================================================
 # Specialty Routes
 # =============================================================================
@@ -455,7 +473,8 @@ def api_partner_get(id):
         'specialty_ids': [s.id for s in partner.specialties],
         'specialties': [{'id': s.id, 'name': s.name} for s in partner.specialties],
         'contacts': [
-            {'id': c.id, 'name': c.name, 'title': c.title or '', 'email': c.email or '', 'is_primary': c.is_primary}
+            {'id': c.id, 'name': c.name, 'title': c.title or '', 'email': c.email or '',
+             'is_primary': c.is_primary, 'photo_b64': c.photo_b64 or ''}
             for c in partner.contacts
         ],
     })

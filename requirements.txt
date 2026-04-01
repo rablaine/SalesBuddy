@@ -21,6 +21,9 @@ pytest-xdist==3.8.0
 # AI Gateway authentication
 azure-identity==1.25.2
 
+# Image Processing
+opencv-python-headless
+
 # Production Server
 waitress
 

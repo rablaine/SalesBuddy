@@ -131,8 +131,22 @@
                 <div id="contactsDisplay">
                     {% if customer.contacts %}
                         {% for contact in customer.contacts %}
-                        <div class="{% if not loop.last %}mb-1{% endif %}">
-                            <i class="bi bi-person-circle me-1"></i>{% if contact.email %}<a href="mailto:{{ contact.email }}" class="text-decoration-none">{{ contact.name }}</a>{% else %}{{ contact.name }}{% endif %}{% if contact.title %} <span class="text-muted">- {{ contact.title }}</span>{% endif %}
+                        <div class="d-flex align-items-center gap-2 {% if not loop.last %}mb-2{% endif %}">
+                            <div class="contact-photo-wrap" data-contact-id="{{ contact.id }}" data-contact-type="customer"
+                                 {% if contact.photo_full_b64 %}data-full-src="data:image/png;base64,{{ contact.photo_full_b64 }}"{% endif %}
+                                 onclick="openContactPhotoModal(this)" title="Click to add/view photo"
+                                 style="width: 48px; height: 48px; min-width: 48px; border-radius: 50%; overflow: hidden; cursor: pointer; background: var(--sb-border); display: flex; align-items: center; justify-content: center;">
+                                {% if contact.photo_b64 %}
+                                    <img src="data:image/png;base64,{{ contact.photo_b64 }}" style="width: 100%; height: 100%; object-fit: cover;">
+                                {% else %}
+                                    <i class="bi bi-person-circle text-muted" style="font-size: 1.5rem;"></i>
+                                {% endif %}
+                            </div>
+                            <div>
+                                <div>{% if contact.email %}<a href="mailto:{{ contact.email }}" class="text-decoration-none fw-semibold">{{ contact.name }}</a>{% else %}<span class="fw-semibold">{{ contact.name }}</span>{% endif %}</div>
+                                {% if contact.title %}<div class="text-muted small">{{ contact.title }}</div>{% endif %}
+                                {% if contact.email %}<div class="text-muted small">{{ contact.email }}</div>{% endif %}
+                            </div>
                         </div>
                         {% endfor %}
                     {% else %}
@@ -625,6 +639,131 @@ function cancelContextEdit() {
     applyFilterSort();
 })();
 
+// --- Contact Photo Paste & View ---
+var _photoContactId = null;
+var _photoContactType = null;
+
+function openContactPhotoModal(el) {
+    _photoContactId = el.dataset.contactId;
+    _photoContactType = el.dataset.contactType;
+    var img = el.querySelector('img');
+    var fullView = document.getElementById('contactPhotoFull');
+    var pasteZone = document.getElementById('contactPhotoPaste');
+    var removeBtn = document.getElementById('contactPhotoRemoveBtn');
+
+    if (img && img.src) {
+        // Show full version if available, otherwise show cropped
+        var fullSrc = el.dataset.fullSrc;
+        fullView.src = fullSrc || img.src;
+        fullView.style.display = 'block';
+        pasteZone.style.display = 'none';
+        removeBtn.style.display = '';
+    } else {
+        fullView.style.display = 'none';
+        pasteZone.style.display = 'flex';
+        removeBtn.style.display = 'none';
+    }
+    document.getElementById('contactPhotoStatus').textContent = '';
+    var modal = new bootstrap.Modal(document.getElementById('contactPhotoModal'));
+    document.getElementById('contactPhotoModal').addEventListener('shown.bs.modal', function handler() {
+        document.getElementById('contactPhotoPaste').focus();
+        document.getElementById('contactPhotoModal').removeEventListener('shown.bs.modal', handler);
+    });
+    modal.show();
+}
+
+// Handle paste - listen on document level when photo modal is open
+var _photoModalOpen = false;
+(function() {
+    var modal = document.getElementById('contactPhotoModal');
+    if (!modal) return;
+    modal.addEventListener('shown.bs.modal', function() { _photoModalOpen = true; });
+    modal.addEventListener('hidden.bs.modal', function() { _photoModalOpen = false; });
+    document.addEventListener('paste', function(e) {
+        if (!_photoModalOpen) return;
+        var items = (e.clipboardData || e.originalEvent.clipboardData).items;
+        for (var i = 0; i < items.length; i++) {
+            if (items[i].type.indexOf('image') !== -1) {
+                e.preventDefault();
+                var blob = items[i].getAsFile();
+                processContactPhoto(blob);
+                return;
+            }
+        }
+    });
+})();
+
+function processContactPhoto(blob) {
+    var status = document.getElementById('contactPhotoStatus');
+    status.textContent = 'Processing...';
+
+    var reader = new FileReader();
+    reader.onload = function(e) {
+        // Strip the data:image/...;base64, prefix
+        var b64 = e.target.result.split(',')[1];
+        saveContactPhoto(b64);
+    };
+    reader.readAsDataURL(blob);
+}
+
+function saveContactPhoto(b64) {
+    var status = document.getElementById('contactPhotoStatus');
+    var url = _photoContactType === 'customer'
+        ? '/api/customer/contact/' + _photoContactId + '/photo'
+        : '/api/partner/contact/' + _photoContactId + '/photo';
+
+    fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ photo_b64: b64 })
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        if (data.success) {
+            status.textContent = 'Saved!';
+            var croppedB64 = data.photo_b64;
+            // Show the full image in the modal
+            var fullView = document.getElementById('contactPhotoFull');
+            fullView.src = 'data:image/png;base64,' + b64;
+            fullView.style.display = 'block';
+            document.getElementById('contactPhotoPaste').style.display = 'none';
+            document.getElementById('contactPhotoRemoveBtn').style.display = '';
+            // Update the thumbnail on the page with the cropped version
+            var wrap = document.querySelector('.contact-photo-wrap[data-contact-id="' + _photoContactId + '"][data-contact-type="' + _photoContactType + '"]');
+            if (wrap) {
+                wrap.innerHTML = '<img src="data:image/png;base64,' + croppedB64 + '" style="width: 100%; height: 100%; object-fit: cover;">';
+                wrap.dataset.fullSrc = 'data:image/png;base64,' + b64;
+            }
+            setTimeout(function() { status.textContent = ''; }, 2000);
+        } else {
+            status.textContent = 'Failed to save';
+        }
+    })
+    .catch(function() { status.textContent = 'Error saving photo'; });
+}
+
+function removeContactPhoto() {
+    var url = _photoContactType === 'customer'
+        ? '/api/customer/contact/' + _photoContactId + '/photo'
+        : '/api/partner/contact/' + _photoContactId + '/photo';
+
+    fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ photo_b64: null })
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        if (data.success) {
+            var wrap = document.querySelector('.contact-photo-wrap[data-contact-id="' + _photoContactId + '"][data-contact-type="' + _photoContactType + '"]');
+            if (wrap) {
+                wrap.innerHTML = '<i class="bi bi-person-circle text-muted" style="font-size: 1.5rem;"></i>';
+            }
+            bootstrap.Modal.getInstance(document.getElementById('contactPhotoModal')).hide();
+        }
+    });
+}
+
 // --- Contact editing ---
 let contactsToDelete = [];
 let editRowCounter = 0;
@@ -923,6 +1062,32 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 });
 </script>
+
+<!-- Contact Photo Modal -->
+<div class="modal fade" id="contactPhotoModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered modal-sm">
+        <div class="modal-content">
+            <div class="modal-header py-2">
+                <h6 class="modal-title"><i class="bi bi-camera"></i> Contact Photo</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body text-center">
+                <img id="contactPhotoFull" src="" style="max-width: 100%; max-height: 300px; border-radius: 8px; display: none;">
+                <div id="contactPhotoPaste" class="border rounded p-4 text-muted" tabindex="0" style="display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 120px; cursor: pointer; outline: none;">
+                    <i class="bi bi-clipboard-plus" style="font-size: 2rem;"></i>
+                    <div class="small mt-2">Click here, then Ctrl+V to paste a screenshot</div>
+                </div>
+                <div id="contactPhotoStatus" class="small text-success mt-2"></div>
+            </div>
+            <div class="modal-footer py-1">
+                <button type="button" class="btn btn-sm btn-outline-danger" id="contactPhotoRemoveBtn" onclick="removeContactPhoto()" style="display: none;">
+                    <i class="bi bi-trash"></i> Remove
+                </button>
+                <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
 
 <!-- Customer Domain Prompt Modal -->
 <div class="modal fade" id="custScrapeDomainModal" tabindex="-1">

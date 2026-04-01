@@ -78,8 +78,18 @@
                     {% if partner.contacts %}
                     <ul class="list-group list-group-flush">
                         {% for contact in partner.contacts %}
-                        <li class="list-group-item d-flex justify-content-between align-items-center">
-                            <div>
+                        <li class="list-group-item d-flex align-items-center gap-2">
+                            <div class="contact-photo-wrap" data-contact-id="{{ contact.id }}" data-contact-type="partner"
+                                 {% if contact.photo_full_b64 %}data-full-src="data:image/png;base64,{{ contact.photo_full_b64 }}"{% endif %}
+                                 onclick="openContactPhotoModal(this)" title="Click to add/view photo"
+                                 style="width: 48px; height: 48px; min-width: 48px; border-radius: 50%; overflow: hidden; cursor: pointer; background: var(--sb-border); display: flex; align-items: center; justify-content: center;">
+                                {% if contact.photo_b64 %}
+                                    <img src="data:image/png;base64,{{ contact.photo_b64 }}" style="width: 100%; height: 100%; object-fit: cover;">
+                                {% else %}
+                                    <i class="bi bi-person-circle text-muted" style="font-size: 1.5rem;"></i>
+                                {% endif %}
+                            </div>
+                            <div class="flex-grow-1">
                                 <strong>{{ contact.name }}</strong>
                                 {% if contact.is_primary %}
                                 <span class="badge bg-primary ms-1">Primary</span>
@@ -91,18 +101,18 @@
                                 <br><small class="text-muted"><a href="mailto:{{ contact.email }}">{{ contact.email }}</a></small>
                                 {% endif %}
                             </div>
-                            <div class="btn-group btn-group-sm">
-                                <button type="button" class="btn btn-outline-secondary" title="Edit"
+                            <div class="d-flex gap-1">
+                                <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-1" title="Edit"
                                         onclick="openEditContact({{ contact.id }}, '{{ contact.name|e }}', '{{ contact.title|default('', true)|e }}', '{{ contact.email|default('', true)|e }}', {{ 'true' if contact.is_primary else 'false' }})">
-                                    <i class="bi bi-pencil"></i>
+                                    <i class="bi bi-pencil" style="font-size:0.75rem;"></i>
                                 </button>
                                 {% if not contact.is_primary %}
-                                <button type="button" class="btn btn-outline-primary" title="Set as primary"
+                                <button type="button" class="btn btn-sm btn-outline-primary py-0 px-1" title="Set as primary"
                                         onclick="document.getElementById('primaryForm{{ contact.id }}').submit()">
-                                    <i class="bi bi-star"></i>
+                                    <i class="bi bi-star" style="font-size:0.75rem;"></i>
                                 </button>
                                 {% endif %}
-                                <button type="button" class="btn btn-outline-danger" title="Delete"
+                                <button type="button" class="btn btn-sm btn-outline-danger py-0 px-1" title="Delete"
                                         onclick="if(confirm('Delete this contact?')) document.getElementById('deleteForm{{ contact.id }}').submit()">
                                     <i class="bi bi-trash"></i>
                                 </button>
@@ -219,6 +229,108 @@
 
 {% block extra_js %}
 <script>
+// --- Contact Photo Paste & View ---
+var _photoContactId = null;
+var _photoContactType = null;
+
+function openContactPhotoModal(el) {
+    _photoContactId = el.dataset.contactId;
+    _photoContactType = el.dataset.contactType;
+    var img = el.querySelector('img');
+    var fullView = document.getElementById('contactPhotoFull');
+    var pasteZone = document.getElementById('contactPhotoPaste');
+    var removeBtn = document.getElementById('contactPhotoRemoveBtn');
+    if (img && img.src) {
+        var fullSrc = el.dataset.fullSrc;
+        fullView.src = fullSrc || img.src;
+        fullView.style.display = 'block';
+        pasteZone.style.display = 'none';
+        removeBtn.style.display = '';
+    } else {
+        fullView.style.display = 'none';
+        pasteZone.style.display = 'flex';
+        removeBtn.style.display = 'none';
+    }
+    document.getElementById('contactPhotoStatus').textContent = '';
+    var modal = new bootstrap.Modal(document.getElementById('contactPhotoModal'));
+    document.getElementById('contactPhotoModal').addEventListener('shown.bs.modal', function handler() {
+        document.getElementById('contactPhotoPaste').focus();
+        document.getElementById('contactPhotoModal').removeEventListener('shown.bs.modal', handler);
+    });
+    modal.show();
+}
+
+var _photoModalOpen = false;
+(function() {
+    var modal = document.getElementById('contactPhotoModal');
+    if (!modal) return;
+    modal.addEventListener('shown.bs.modal', function() { _photoModalOpen = true; });
+    modal.addEventListener('hidden.bs.modal', function() { _photoModalOpen = false; });
+    document.addEventListener('paste', function(e) {
+        if (!_photoModalOpen) return;
+        var items = (e.clipboardData || e.originalEvent.clipboardData).items;
+        for (var i = 0; i < items.length; i++) {
+            if (items[i].type.indexOf('image') !== -1) {
+                e.preventDefault();
+                processContactPhoto(items[i].getAsFile());
+                return;
+            }
+        }
+    });
+})();
+
+function processContactPhoto(blob) {
+    var status = document.getElementById('contactPhotoStatus');
+    status.textContent = 'Processing...';
+    var reader = new FileReader();
+    reader.onload = function(e) {
+        saveContactPhoto(e.target.result.split(',')[1]);
+    };
+    reader.readAsDataURL(blob);
+}
+
+function saveContactPhoto(b64) {
+    var status = document.getElementById('contactPhotoStatus');
+    var url = '/api/' + _photoContactType.replace('customer', 'customer/contact/').replace('partner', 'partner/contact/') + _photoContactId + '/photo';
+    if (_photoContactType === 'customer') url = '/api/customer/contact/' + _photoContactId + '/photo';
+    else url = '/api/partner/contact/' + _photoContactId + '/photo';
+
+    fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ photo_b64: b64 }) })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        if (data.success) {
+            status.textContent = 'Saved!';
+            var fullView = document.getElementById('contactPhotoFull');
+            fullView.src = 'data:image/png;base64,' + b64;
+            fullView.style.display = 'block';
+            document.getElementById('contactPhotoPaste').style.display = 'none';
+            document.getElementById('contactPhotoRemoveBtn').style.display = '';
+            var wrap = document.querySelector('.contact-photo-wrap[data-contact-id="' + _photoContactId + '"]');
+            if (wrap) {
+                wrap.innerHTML = '<img src="data:image/png;base64,' + data.photo_b64 + '" style="width: 100%; height: 100%; object-fit: cover;">';
+                wrap.dataset.fullSrc = 'data:image/png;base64,' + b64;
+            }
+            setTimeout(function() { status.textContent = ''; }, 2000);
+        } else { status.textContent = 'Failed to save'; }
+    })
+    .catch(function() { status.textContent = 'Error saving photo'; });
+}
+
+function removeContactPhoto() {
+    var url = _photoContactType === 'customer'
+        ? '/api/customer/contact/' + _photoContactId + '/photo'
+        : '/api/partner/contact/' + _photoContactId + '/photo';
+    fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ photo_b64: null }) })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        if (data.success) {
+            var wrap = document.querySelector('.contact-photo-wrap[data-contact-id="' + _photoContactId + '"]');
+            if (wrap) wrap.innerHTML = '<i class="bi bi-person-circle text-muted" style="font-size: 1.5rem;"></i>';
+            bootstrap.Modal.getInstance(document.getElementById('contactPhotoModal')).hide();
+        }
+    });
+}
+
 var addContactUrl = "{{ url_for('partners.contact_new', partner_id=partner.id) }}";
 var editContactUrlBase = "/partners/{{ partner.id }}/contacts/";
 
@@ -542,6 +654,32 @@ function applyScrapeResults() {
     });
 }
 </script>
+
+<!-- Contact Photo Modal -->
+<div class="modal fade" id="contactPhotoModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered modal-sm">
+        <div class="modal-content">
+            <div class="modal-header py-2">
+                <h6 class="modal-title"><i class="bi bi-camera"></i> Contact Photo</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body text-center">
+                <img id="contactPhotoFull" src="" style="max-width: 100%; max-height: 300px; border-radius: 8px; display: none;">
+                <div id="contactPhotoPaste" class="border rounded p-4 text-muted" tabindex="0" style="display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 120px; cursor: pointer; outline: none;">
+                    <i class="bi bi-clipboard-plus" style="font-size: 2rem;"></i>
+                    <div class="small mt-2">Click here, then Ctrl+V to paste a screenshot</div>
+                </div>
+                <div id="contactPhotoStatus" class="small text-success mt-2"></div>
+            </div>
+            <div class="modal-footer py-1">
+                <button type="button" class="btn btn-sm btn-outline-danger" id="contactPhotoRemoveBtn" onclick="removeContactPhoto()" style="display: none;">
+                    <i class="bi bi-trash"></i> Remove
+                </button>
+                <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
 
 <!-- Domain Prompt Modal -->
 <div class="modal fade" id="scrapeDomainModal" tabindex="-1">
