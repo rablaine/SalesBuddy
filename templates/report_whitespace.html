@@ -243,7 +243,8 @@ function renderGrid(data, buckets) {
     let customers = data.customers;
 
     // If not showing all, filter to only those with gaps
-    if (!showAll) {
+    // With 1 bucket, every returned customer has spend - show them all
+    if (!showAll && buckets.length > 1) {
         customers = customers.filter(c => {
             const hasBuckets = Object.keys(c.buckets).length;
             return hasBuckets > 0 && hasBuckets < buckets.length;
@@ -534,8 +535,9 @@ async function loadPenetration() {
         const barColor = row.penetration_pct >= 75 ? 'bg-success' :
                          row.penetration_pct >= 50 ? 'bg-info' :
                          row.penetration_pct >= 25 ? 'bg-warning' : 'bg-danger';
+        const escapedBucket = row.bucket.replace(/'/g, "\\'");
 
-        html += `<tr>
+        html += `<tr style="cursor: pointer;" onclick="showPenetrationCustomers('${escapedBucket}')" title="Click to see customers">
             <td><strong>${row.bucket}</strong></td>
             <td class="text-center">${row.customers_with_spend} / ${row.total_customers}</td>
             <td>
@@ -555,6 +557,89 @@ async function loadPenetration() {
 
     document.getElementById('penetrationResults').innerHTML = html;
     document.getElementById('penetrationResults').style.display = '';
+}
+
+async function showPenetrationCustomers(bucket) {
+    const modal = new bootstrap.Modal(document.getElementById('bucketDetailModal'));
+    document.getElementById('bucketDetailTitle').textContent = `${bucket} - Customer Breakdown`;
+    document.getElementById('bucketDetailBody').innerHTML = `
+        <div class="text-center py-3">
+            <div class="spinner-border text-primary" role="status"></div>
+        </div>`;
+    modal.show();
+
+    try {
+        const resp = await fetch(`/api/reports/whitespace/penetration/customers?bucket=${encodeURIComponent(bucket)}`);
+        const data = await resp.json();
+
+        if (data.error) {
+            document.getElementById('bucketDetailBody').innerHTML =
+                `<div class="alert alert-danger">${data.error}</div>`;
+            return;
+        }
+
+        let html = `<style>
+            .collapse-chevron { transition: transform 0.2s; display: inline-block; }
+            .collapse-chevron.collapsed { transform: rotate(-90deg); }
+        </style>`;
+
+        // Customers WITH spend (collapsible, starts expanded)
+        html += `<h6 class="mb-2">
+            <a class="text-decoration-none" data-bs-toggle="collapse" href="#withSpendList" role="button" aria-expanded="true">
+                <i class="bi bi-check-circle text-success"></i> Customers with Spend
+                <span class="badge bg-success ms-1">${data.with_spend.length}</span>
+                <i class="bi bi-chevron-down small ms-1 collapse-chevron" id="withSpendChevron"></i>
+            </a>
+        </h6>`;
+        html += `<div class="collapse show" id="withSpendList">`;
+        if (data.with_spend.length) {
+            html += `<div class="list-group mb-3">`;
+            for (const c of data.with_spend) {
+                const display = c.nickname ? `${c.name} <span class="text-muted small">(${c.nickname})</span>` : c.name;
+                html += `<a href="/customer/${c.id}/revenue" class="list-group-item list-group-item-action py-2">${display}</a>`;
+            }
+            html += `</div>`;
+        } else {
+            html += `<p class="text-muted mb-3">None</p>`;
+        }
+        html += `</div>`;
+
+        // Customers WITHOUT spend (collapsed by default)
+        html += `<h6 class="mb-2">
+            <a class="text-decoration-none" data-bs-toggle="collapse" href="#noSpendList" role="button" aria-expanded="false">
+                <i class="bi bi-x-circle text-danger"></i> Customers without Spend
+                <span class="badge bg-danger ms-1">${data.without_spend.length}</span>
+                <i class="bi bi-chevron-down small ms-1 collapse-chevron collapsed" id="noSpendChevron"></i>
+            </a>
+        </h6>`;
+        html += `<div class="collapse" id="noSpendList">`;
+        if (data.without_spend.length) {
+            html += `<div class="list-group">`;
+            for (const c of data.without_spend) {
+                const display = c.nickname ? `${c.name} <span class="text-muted small">(${c.nickname})</span>` : c.name;
+                html += `<a href="/customer/${c.id}/revenue" class="list-group-item list-group-item-action py-2">${display}</a>`;
+            }
+            html += `</div>`;
+        } else {
+            html += `<p class="text-muted">None</p>`;
+        }
+        html += `</div>`;
+
+        document.getElementById('bucketDetailBody').innerHTML = html;
+
+        // Wire up chevron rotation on collapse/expand events
+        for (const [collapseId, chevronId] of [['withSpendList', 'withSpendChevron'], ['noSpendList', 'noSpendChevron']]) {
+            const el = document.getElementById(collapseId);
+            const chevron = document.getElementById(chevronId);
+            if (el && chevron) {
+                el.addEventListener('show.bs.collapse', () => chevron.classList.remove('collapsed'));
+                el.addEventListener('hide.bs.collapse', () => chevron.classList.add('collapsed'));
+            }
+        }
+    } catch (e) {
+        document.getElementById('bucketDetailBody').innerHTML =
+            '<div class="alert alert-danger">Failed to load customer details.</div>';
+    }
 }
 
 // ============================================================================

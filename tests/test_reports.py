@@ -3,7 +3,10 @@ import json
 import pytest
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
-from app.models import db, Customer, Engagement, Note, Territory, Milestone, Topic
+from app.models import (
+    db, Customer, Engagement, Note, Territory, Milestone, Topic,
+    CustomerRevenueData, RevenueImport,
+)
 
 
 class TestReportsHub:
@@ -590,3 +593,75 @@ class TestMilestoneAuditSync:
                 # committed_at should be cleared
                 assert ms.committed_at is None
                 assert result['dates_cleared'] >= 1
+
+
+class TestWhitespacePenetrationCustomers:
+    """Tests for /api/reports/whitespace/penetration/customers endpoint."""
+
+    def _seed_revenue(self, customers_buckets):
+        """Seed revenue data for given customer/bucket combos.
+
+        Args:
+            customers_buckets: list of (customer_id, bucket, revenue) tuples
+        Must be called inside an app context.
+        """
+        from datetime import date
+        imp = RevenueImport(filename='test.csv', record_count=len(customers_buckets))
+        db.session.add(imp)
+        db.session.flush()
+        for cid, bucket, revenue in customers_buckets:
+            db.session.add(CustomerRevenueData(
+                customer_name=f'Customer {cid}',
+                tpid=str(cid),
+                bucket=bucket,
+                customer_id=cid,
+                fiscal_month='FY26-Jan',
+                month_date=date(2026, 1, 1),
+                revenue=revenue,
+                last_import_id=imp.id,
+            ))
+        db.session.commit()
+
+    def test_missing_bucket_param(self, client, app):
+        """Should return 400 when bucket param is missing."""
+        with app.app_context():
+            resp = client.get('/api/reports/whitespace/penetration/customers')
+            assert resp.status_code == 400
+            assert b'required' in resp.data.lower()
+
+    def test_returns_customers_with_and_without_spend(self, client, app, sample_data):
+        """Should split customers into with_spend and without_spend lists."""
+        with app.app_context():
+            c2 = Customer(name='No Spend Corp', tpid=999999)
+            db.session.add(c2)
+            db.session.flush()
+
+            self._seed_revenue([
+                (sample_data['customer1_id'], 'SAP', 5000.0),
+                (c2.id, 'Analytics', 3000.0),
+            ])
+
+            resp = client.get('/api/reports/whitespace/penetration/customers?bucket=SAP')
+            assert resp.status_code == 200
+            data = json.loads(resp.data)
+
+            assert data['bucket'] == 'SAP'
+            with_ids = {c['id'] for c in data['with_spend']}
+            without_ids = {c['id'] for c in data['without_spend']}
+
+            assert sample_data['customer1_id'] in with_ids
+            assert c2.id in without_ids
+            assert c2.id not in with_ids
+
+    def test_empty_bucket_returns_all_without(self, client, app, sample_data):
+        """If no one has spend in a bucket, all customers are in without_spend."""
+        with app.app_context():
+            self._seed_revenue([
+                (sample_data['customer1_id'], 'Analytics', 1000.0),
+            ])
+
+            resp = client.get('/api/reports/whitespace/penetration/customers?bucket=SAP')
+            data = json.loads(resp.data)
+
+            assert len(data['with_spend']) == 0
+            assert len(data['without_spend']) == 1

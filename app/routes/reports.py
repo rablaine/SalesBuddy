@@ -995,3 +995,62 @@ def api_whitespace_penetration():
         })
 
     return jsonify(result)
+
+
+@bp.route('/api/reports/whitespace/penetration/customers')
+def api_whitespace_penetration_customers():
+    """Return customers with and without spend in a specific bucket.
+
+    Query params:
+        bucket: bucket name (required)
+
+    Returns JSON:
+        {bucket, with_spend: [{id, name, nickname}], without_spend: [{id, name, nickname}]}
+    """
+    bucket = request.args.get('bucket', '').strip()
+    if not bucket:
+        return jsonify(error='Bucket name is required'), 400
+
+    # All customer IDs with any revenue data
+    all_customer_ids = {
+        r[0] for r in
+        db.session.query(func.distinct(CustomerRevenueData.customer_id))
+        .filter(CustomerRevenueData.customer_id.isnot(None))
+        .all()
+    }
+
+    # Customer IDs with spend > 0 in this bucket
+    with_spend_ids = {
+        r[0] for r in
+        db.session.query(func.distinct(CustomerRevenueData.customer_id))
+        .filter(
+            CustomerRevenueData.customer_id.isnot(None),
+            CustomerRevenueData.bucket == bucket,
+            CustomerRevenueData.revenue > 0,
+        )
+        .all()
+    }
+
+    without_spend_ids = all_customer_ids - with_spend_ids
+
+    # Fetch customer details
+    with_spend = (
+        Customer.query.filter(Customer.id.in_(with_spend_ids))
+        .order_by(Customer.name).all()
+    ) if with_spend_ids else []
+    without_spend = (
+        Customer.query.filter(Customer.id.in_(without_spend_ids))
+        .order_by(Customer.name).all()
+    ) if without_spend_ids else []
+
+    return jsonify(
+        bucket=bucket,
+        with_spend=[
+            {'id': c.id, 'name': c.name, 'nickname': c.nickname}
+            for c in with_spend
+        ],
+        without_spend=[
+            {'id': c.id, 'name': c.name, 'nickname': c.nickname}
+            for c in without_spend
+        ],
+    )
