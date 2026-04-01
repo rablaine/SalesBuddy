@@ -132,6 +132,13 @@
                 </select>
             </div>
             <div class="col-md-auto">
+                <select class="form-select form-select-sm" data-role="commitmentFilter">
+                    <option value="">All Commitment</option>
+                    <option value="Committed">Committed</option>
+                    <option value="Uncommitted">Uncommitted</option>
+                </select>
+            </div>
+            <div class="col-md-auto">
                 <select class="form-select form-select-sm" data-role="myTeamFilter">
                     <option value="">All Team</option>
                     <option value="on">On Team</option>
@@ -189,6 +196,7 @@
                 data-due-date="{{ ms.due_date.strftime('%Y-%m-%d') if ms.due_date else '9999-12-31' }}"
                 data-monthly="{{ ms.monthly_usage or 0 }}"
                 data-favorited="{{ 'true' if ms.id in favorited_ms_ids else 'false' }}"
+                data-commitment="{{ ms.customer_commitment or '' }}"
                 data-search="{{ ms.title|lower }} {{ ms.opportunity_name|lower if ms.opportunity_name else '' }} {{ ms.customer.name|lower if ms.customer else '' }} {{ ms.seller.name|lower if ms.seller else '' }} {{ ms.workload|lower if ms.workload else '' }}">
                 
                 <!-- Milestone Info -->
@@ -262,6 +270,9 @@
                         <span class="badge bg-secondary">{{ ms.status }}</span>
                     {% else %}
                         <span class="badge bg-secondary">{{ ms.status }}</span>
+                    {% endif %}
+                    {% if ms.customer_commitment == 'Committed' %}
+                        <i class="bi bi-check-circle-fill text-success small" title="Committed"></i>
                     {% endif %}
                 </td>
                 
@@ -377,6 +388,7 @@
     var areaDropdownBtn = q('areaDropdownBtn');
     var urgencyFilter = q('urgencyFilter');
     var myTeamFilter = q('myTeamFilter');
+    var commitmentFilter = q('commitmentFilter');
     var filteredCount = q('filteredCount');
     var resetBtn = q('resetFiltersBtn');
     var quarterDropdown = q('quarterDropdown');
@@ -410,6 +422,7 @@
             area: Array.from(qa('.area-checkbox:checked')).map(function(cb) { return cb.value; }),
             urgency: urgencyFilter.value,
             myTeam: myTeamFilter.value,
+            commitment: commitmentFilter ? commitmentFilter.value : '',
             allQuarters: allQuarters,
             favoritesOnly: favoritesOnly
         };
@@ -435,6 +448,7 @@
             qa('.area-checkbox').forEach(function(cb) { cb.checked = savedAreas.includes(cb.value); });
             if (state.urgency) urgencyFilter.value = state.urgency;
             if (state.myTeam) myTeamFilter.value = state.myTeam;
+            if (state.commitment && commitmentFilter) commitmentFilter.value = state.commitment;
             if (state.favoritesOnly) {
                 favoritesOnly = true;
                 if (favoritesOnlyBtn) {
@@ -455,6 +469,7 @@
             qa('.area-checkbox:checked').length === 0 &&
             urgencyFilter.value === '' &&
             myTeamFilter.value === '' &&
+            (!commitmentFilter || commitmentFilter.value === '') &&
             !favoritesOnly;
     }
 
@@ -469,6 +484,7 @@
         qa('.area-checkbox').forEach(function(cb) { cb.checked = false; });
         urgencyFilter.value = '';
         myTeamFilter.value = '';
+        if (commitmentFilter) commitmentFilter.value = '';
         favoritesOnly = false;
         if (favoritesOnlyBtn) {
             favoritesOnlyBtn.classList.remove('btn-warning');
@@ -486,6 +502,7 @@
         var selectedAreas = Array.from(qa('.area-checkbox:checked')).map(function(cb) { return cb.value; });
         var uv = urgencyFilter.value;
         var myTeam = myTeamFilter.value;
+        var cv = commitmentFilter ? commitmentFilter.value : '';
 
         var rows = qa('.milestone-row');
         var visibleCount = 0, visibleMonthly = 0, visiblePastDue = 0, visibleThisWeek = 0;
@@ -501,6 +518,7 @@
             if (uv && row.dataset.urgency !== uv) visible = false;
             if (myTeam === 'on' && row.dataset.onMyTeam !== 'true') visible = false;
             if (myTeam === 'off' && row.dataset.onMyTeam !== 'false') visible = false;
+            if (cv && row.dataset.commitment !== cv) visible = false;
             if (favoritesOnly && row.dataset.favorited !== 'true') visible = false;
 
             row.style.display = visible ? '' : 'none';
@@ -653,6 +671,7 @@
     });
     urgencyFilter.addEventListener('change', applyFilters);
     myTeamFilter.addEventListener('change', applyFilters);
+    if (commitmentFilter) commitmentFilter.addEventListener('change', applyFilters);
     resetBtn.addEventListener('click', resetFilters);
     if (favoritesOnlyBtn) {
         favoritesOnlyBtn.addEventListener('click', function() {

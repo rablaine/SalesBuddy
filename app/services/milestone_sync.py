@@ -1504,6 +1504,7 @@ def get_milestone_tracker_data() -> Dict[str, Any]:
             "msx_milestone_id": ms.msx_milestone_id,
             "last_synced_at": ms.last_synced_at,
             "on_my_team": ms.on_my_team,
+            "customer_commitment": ms.customer_commitment or "",
             "customer": {
                 "id": ms.customer.id if ms.customer else None,
                 "name": ms.customer.get_display_name() if ms.customer else "Unknown",
@@ -1688,6 +1689,7 @@ def get_milestone_tracker_data_for_seller(seller_id: int) -> Dict[str, Any]:
             "url": ms.url,
             "msx_milestone_id": ms.msx_milestone_id,
             "on_my_team": ms.on_my_team,
+            "customer_commitment": ms.customer_commitment or "",
             "customer": {
                 "id": ms.customer.id if ms.customer else None,
                 "name": ms.customer.get_display_name() if ms.customer else "Unknown",
