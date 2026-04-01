@@ -87,7 +87,7 @@ function renderComments(entity) {
 
     // AJAX comment form
     let html = `
-        <form id="commentFormMsx" class="mb-4" onsubmit="return postComment(event)">
+        <form id="commentFormMsx" class="mb-4">
             <div class="input-group">
                 <textarea class="form-control" id="commentText" rows="2" placeholder="Add a forecast comment..." required></textarea>
                 <button type="submit" class="btn btn-primary" id="postCommentBtn">
@@ -144,6 +144,12 @@ function renderComments(entity) {
                 newTextarea.selectionStart = newTextarea.selectionEnd = newTextarea.value.length;
             }
         }
+    }
+
+    // Bind form submit handler (addEventListener avoids global scope issues in modal IIFEs)
+    const commentForm = document.getElementById('commentFormMsx');
+    if (commentForm) {
+        commentForm.addEventListener('submit', postComment);
     }
 
     // Bind edit/delete handlers via event delegation

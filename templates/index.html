@@ -1008,7 +1008,7 @@
 
 {% include 'partials/_action_item_detail_modal.html' %}
 
-{% if upcoming_milestones %}
+{% if upcoming_milestones or stale_milestones %}
 <!-- Milestone Detail Modal -->
 <div class="modal fade" id="homeMilestoneDetailModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-dialog-scrollable" style="max-width: min(1100px, calc(100vw - 3rem)); width: calc(100vw - 3rem);">
