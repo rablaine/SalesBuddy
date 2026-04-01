@@ -701,6 +701,42 @@ def action_item_save(id: int):
     return jsonify(success=True, task=_action_item_to_dict(task))
 
 
+@engagements_bp.route('/action-item/<int:id>/dismiss', methods=['POST'])
+def action_item_dismiss(id: int):
+    """Dismiss a copilot task without marking it completed.
+
+    Stores the title in DismissedCopilotTask so it won't be regenerated,
+    then deletes the action item.
+    """
+    task = ActionItem.query.get_or_404(id)
+    if task.source != 'copilot':
+        return jsonify(success=False, error='Only copilot tasks can be dismissed'), 400
+
+    from app.models import DismissedCopilotTask
+    db.session.add(DismissedCopilotTask(title=task.title, reason='dismissed'))
+    db.session.delete(task)
+    db.session.commit()
+    return jsonify(success=True)
+
+
+@engagements_bp.route('/action-item/<int:id>/not-useful', methods=['POST'])
+def action_item_not_useful(id: int):
+    """Mark a copilot suggestion as not useful.
+
+    Stores the title in CopilotTaskFeedback so future prompts can exclude
+    similar suggestions. Also dismisses (deletes) the task.
+    """
+    task = ActionItem.query.get_or_404(id)
+    if task.source != 'copilot':
+        return jsonify(success=False, error='Only copilot tasks can be marked as not useful'), 400
+
+    from app.models import DismissedCopilotTask
+    db.session.add(DismissedCopilotTask(title=task.title, reason='not_useful'))
+    db.session.delete(task)
+    db.session.commit()
+    return jsonify(success=True)
+
+
 @engagements_bp.route('/engagement/<int:id>/action-items/reorder', methods=['POST'])
 def action_item_reorder(id: int):
     """Persist new sort order for action items on an engagement."""

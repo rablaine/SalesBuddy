@@ -14,7 +14,7 @@ import re
 import threading
 from datetime import datetime, date, time, timedelta, timezone
 
-from app.models import db, ActionItem, UserPreference, Project
+from app.models import db, ActionItem, UserPreference, Project, DismissedCopilotTask
 
 logger = logging.getLogger(__name__)
 
@@ -58,11 +58,14 @@ _sync_lock = threading.Lock()
 
 
 def _build_prompt() -> str:
-    """Build the Copilot prompt, excluding completed and saved items.
+    """Build the Copilot prompt, excluding completed, saved, and dismissed items.
 
     Excludes:
     - Copilot tasks completed in the last 7 days
     - Tasks saved to the copilot_saved project (user chose to keep them)
+    - Dismissed tasks (user didn't want to act on them)
+
+    Also includes negative feedback examples so the AI avoids similar suggestions.
     """
     exclusions = ""
     try:
@@ -86,13 +89,26 @@ def _build_prompt() -> str:
             ).all()
             exclude_titles.extend(item.title for item in saved)
 
+        # Dismissed tasks (don't resurface)
+        dismissed_all = DismissedCopilotTask.query.all()
+        exclude_titles.extend(item.title for item in dismissed_all)
+
         if exclude_titles:
             exclusions = (
-                "Do NOT include these items because I already completed or saved them: "
+                "Do NOT include these items because I already completed, saved, or dismissed them: "
                 + "; ".join(exclude_titles) + ". "
             )
+
+        # Negative feedback - tell the AI what kinds of suggestions aren't useful
+        not_useful = [item for item in dismissed_all if item.reason == 'not_useful']
+        if not_useful:
+            exclusions += (
+                "The user marked these suggestions as not useful, "
+                "so do not generate suggestions like these: "
+                + "; ".join(item.title for item in not_useful) + ". "
+            )
     except Exception:
-        logger.debug("Could not query completed items for exclusion", exc_info=True)
+        logger.debug("Could not query exclusion items for prompt", exc_info=True)
 
     return _COPILOT_PROMPT_BASE.format(exclusions=exclusions)
 

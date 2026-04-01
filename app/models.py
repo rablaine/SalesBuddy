@@ -868,6 +868,26 @@ class ActionItem(db.Model):
         return f'<ActionItem {self.id}: {self.title[:50]}>'
 
 
+class DismissedCopilotTask(db.Model):
+    """Copilot task dismissed or rejected by the user.
+
+    Reason tracks why it was dismissed so the prompt builder can
+    handle each type differently (e.g. 'not_useful' items get
+    included as negative examples in the prompt).
+    """
+    __tablename__ = 'dismissed_copilot_tasks'
+
+    REASONS = ['dismissed', 'not_useful']
+
+    id = db.Column(db.Integer, primary_key=True)
+    title = db.Column(db.String(300), nullable=False)
+    reason = db.Column(db.String(20), nullable=False, default='dismissed')
+    created_at = db.Column(db.DateTime, default=utc_now, nullable=False)
+
+    def __repr__(self) -> str:
+        return f'<DismissedCopilotTask {self.id}: {self.reason} - {self.title[:50]}>'
+
+
 class Project(db.Model):
     """Internal project for tracking non-customer work.
 

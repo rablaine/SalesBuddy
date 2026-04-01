@@ -286,3 +286,113 @@ class TestDashboardCopilotItems:
 
         resp = client.get('/')
         assert b'Copilot Suggestions' in resp.data
+
+
+class TestDismissAndFeedback:
+    """Tests for dismiss and not-useful endpoints."""
+
+    def test_dismiss_copilot_task(self, client, app):
+        """Dismiss should delete the task and store the title."""
+        with app.app_context():
+            from app.models import ActionItem, DismissedCopilotTask, db
+            item = ActionItem(
+                title='Annoying Task',
+                source='copilot',
+                status='open',
+            )
+            db.session.add(item)
+            db.session.commit()
+            item_id = item.id
+
+        resp = client.post(f'/action-item/{item_id}/dismiss')
+        assert resp.status_code == 200
+        data = json.loads(resp.data)
+        assert data['success'] is True
+
+        with app.app_context():
+            from app.models import ActionItem, DismissedCopilotTask, db
+            assert ActionItem.query.get(item_id) is None
+            dismissed = DismissedCopilotTask.query.filter_by(title='Annoying Task').first()
+            assert dismissed is not None
+            assert dismissed.reason == 'dismissed'
+
+    def test_dismiss_rejects_non_copilot(self, client, app):
+        """Dismiss should reject non-copilot tasks."""
+        with app.app_context():
+            from app.models import ActionItem, db
+            item = ActionItem(
+                title='Engagement Task',
+                source='engagement',
+                status='open',
+            )
+            db.session.add(item)
+            db.session.commit()
+            item_id = item.id
+
+        resp = client.post(f'/action-item/{item_id}/dismiss')
+        assert resp.status_code == 400
+
+    def test_not_useful_stores_feedback_and_dismisses(self, client, app):
+        """Not-useful should store feedback, dismiss the task, and delete it."""
+        with app.app_context():
+            from app.models import ActionItem, DismissedCopilotTask, db
+            item = ActionItem(
+                title='Useless Suggestion',
+                source='copilot',
+                status='open',
+            )
+            db.session.add(item)
+            db.session.commit()
+            item_id = item.id
+
+        resp = client.post(f'/action-item/{item_id}/not-useful')
+        assert resp.status_code == 200
+
+        with app.app_context():
+            from app.models import ActionItem, DismissedCopilotTask, db
+            assert ActionItem.query.get(item_id) is None
+            dismissed = DismissedCopilotTask.query.filter_by(title='Useless Suggestion').first()
+            assert dismissed is not None
+            assert dismissed.reason == 'not_useful'
+
+    def test_not_useful_rejects_non_copilot(self, client, app):
+        """Not-useful should reject non-copilot tasks."""
+        with app.app_context():
+            from app.models import ActionItem, db
+            item = ActionItem(
+                title='Engagement Task',
+                source='engagement',
+                status='open',
+            )
+            db.session.add(item)
+            db.session.commit()
+            item_id = item.id
+
+        resp = client.post(f'/action-item/{item_id}/not-useful')
+        assert resp.status_code == 400
+
+    def test_prompt_includes_dismissed_titles(self, app):
+        """Build prompt should include dismissed task titles in exclusions."""
+        with app.app_context():
+            from app.models import DismissedCopilotTask, UserPreference, db
+            from app.services.copilot_actions import _build_prompt
+            db.session.add(DismissedCopilotTask(title='Old Boring Task'))
+            db.session.add(UserPreference())
+            db.session.commit()
+
+            prompt = _build_prompt()
+            assert 'Old Boring Task' in prompt
+            assert 'dismissed' in prompt.lower()
+
+    def test_prompt_includes_feedback_titles(self, app):
+        """Build prompt should include feedback titles as negative examples."""
+        with app.app_context():
+            from app.models import DismissedCopilotTask, UserPreference, db
+            from app.services.copilot_actions import _build_prompt
+            db.session.add(DismissedCopilotTask(title='Terrible Suggestion', reason='not_useful'))
+            db.session.add(UserPreference())
+            db.session.commit()
+
+            prompt = _build_prompt()
+            assert 'Terrible Suggestion' in prompt
+            assert 'not useful' in prompt.lower()

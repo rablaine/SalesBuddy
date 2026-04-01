@@ -19,8 +19,15 @@
                 <div id="aiDetailDesc"></div>
             </div>
             <div class="modal-footer">
+                <button type="button" class="btn btn-outline-danger btn-sm" id="aiDetailNotUsefulBtn" style="display: none;" onclick="notUsefulCopilotTask()" title="Stop suggesting tasks like this one">
+                    <i class="bi bi-hand-thumbs-down"></i> Not Useful
+                </button>
+                <div class="flex-grow-1"></div>
                 <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
-                <button type="button" class="btn btn-outline-info" id="aiDetailSaveBtn" style="display: none;" onclick="saveCopilotTask()">
+                <button type="button" class="btn btn-outline-warning" id="aiDetailDismissBtn" style="display: none;" onclick="dismissCopilotTask()" title="Hide this task without completing it">
+                    <i class="bi bi-x-lg"></i> Dismiss
+                </button>
+                <button type="button" class="btn btn-outline-info" id="aiDetailSaveBtn" style="display: none;" onclick="saveCopilotTask()" title="Pin this task so it survives the daily refresh">
                     <i class="bi bi-pin-angle"></i> Save Task
                 </button>
                 <a href="#" class="btn btn-primary" id="aiDetailEngLink" style="display: none;">
@@ -100,11 +107,19 @@ function viewActionItem(taskId, opts) {
 
         // Save button (copilot tasks only)
         var saveBtn = document.getElementById('aiDetailSaveBtn');
+        var dismissBtn = document.getElementById('aiDetailDismissBtn');
+        var notUsefulBtn = document.getElementById('aiDetailNotUsefulBtn');
         if (t.source === 'copilot') {
             saveBtn.style.display = '';
             saveBtn.dataset.taskId = taskId;
+            dismissBtn.style.display = '';
+            dismissBtn.dataset.taskId = taskId;
+            notUsefulBtn.style.display = '';
+            notUsefulBtn.dataset.taskId = taskId;
         } else {
             saveBtn.style.display = 'none';
+            dismissBtn.style.display = 'none';
+            notUsefulBtn.style.display = 'none';
         }
 
         // Engagement link
@@ -153,6 +168,58 @@ function saveCopilotTask() {
     })
     .catch(function() {
         btn.innerHTML = '<i class="bi bi-pin-angle"></i> Save Task';
+        btn.disabled = false;
+    });
+}
+
+function dismissCopilotTask() {
+    var btn = document.getElementById('aiDetailDismissBtn');
+    var taskId = btn.dataset.taskId;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Dismissing...';
+    fetch('/action-item/' + taskId + '/dismiss', { method: 'POST' })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        if (data.success) {
+            btn.innerHTML = '<i class="bi bi-check-circle"></i> Dismissed';
+            btn.classList.replace('btn-outline-warning', 'btn-secondary');
+            window._aiDetailChanged = true;
+            setTimeout(function() {
+                bootstrap.Modal.getInstance(document.getElementById('actionItemDetailModal')).hide();
+            }, 800);
+        } else {
+            btn.innerHTML = '<i class="bi bi-x-lg"></i> Dismiss';
+            btn.disabled = false;
+        }
+    })
+    .catch(function() {
+        btn.innerHTML = '<i class="bi bi-x-lg"></i> Dismiss';
+        btn.disabled = false;
+    });
+}
+
+function notUsefulCopilotTask() {
+    var btn = document.getElementById('aiDetailNotUsefulBtn');
+    var taskId = btn.dataset.taskId;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+    fetch('/action-item/' + taskId + '/not-useful', { method: 'POST' })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        if (data.success) {
+            btn.innerHTML = '<i class="bi bi-check-circle"></i> Noted';
+            btn.classList.replace('btn-outline-danger', 'btn-secondary');
+            window._aiDetailChanged = true;
+            setTimeout(function() {
+                bootstrap.Modal.getInstance(document.getElementById('actionItemDetailModal')).hide();
+            }, 800);
+        } else {
+            btn.innerHTML = '<i class="bi bi-hand-thumbs-down"></i> Not Useful';
+            btn.disabled = false;
+        }
+    })
+    .catch(function() {
+        btn.innerHTML = '<i class="bi bi-hand-thumbs-down"></i> Not Useful';
         btn.disabled = false;
     });
 }
