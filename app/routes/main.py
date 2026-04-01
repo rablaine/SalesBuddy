@@ -362,7 +362,8 @@ def index():
         Project.project_type != 'copilot_saved',
     ).count()
 
-    # Revenue import reminder: check if user has imported since this month started
+    # Revenue import reminder: show after the 10th of each month
+    # (finalized revenue data typically available ~1 week into the new month)
     show_revenue_reminder = False
     if pref and pref.revenue_import_reminder:
         from app.models import RevenueImport
@@ -370,11 +371,12 @@ def index():
             RevenueImport.imported_at.desc()
         ).first()
         if last_import:
-            # User has imported before - remind if no import this month
+            # User has imported before - remind if no import since the 10th
             today = date.today()
-            first_of_this_month = datetime(today.year, today.month, 1, tzinfo=timezone.utc)
-            if last_import.imported_at.replace(tzinfo=timezone.utc) < first_of_this_month:
-                show_revenue_reminder = True
+            if today.day >= 10:
+                reminder_date = datetime(today.year, today.month, 10, tzinfo=timezone.utc)
+                if last_import.imported_at.replace(tzinfo=timezone.utc) < reminder_date:
+                    show_revenue_reminder = True
 
     return render_template(
         'index.html',
