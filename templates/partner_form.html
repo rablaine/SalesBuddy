@@ -154,49 +154,51 @@ specialtySearch.addEventListener('input', function() {
         !isSpecialtySelected(specialty.id)
     );
     
-    if (currentMatches.length > 0) {
-        selectedIndex = 0; // Auto-select first item
-        renderDropdown();
-        specialtyDropdown.style.display = 'block';
-        specialtyDropdown.style.width = specialtySearch.offsetWidth + 'px';
-    } else {
-        specialtyDropdown.style.display = 'none';
-        currentMatches = [];
-        selectedIndex = -1;
-    }
+    selectedIndex = currentMatches.length > 0 ? 0 : currentMatches.length; // First match or "+ Create"
+    renderDropdown();
+    specialtyDropdown.style.display = 'block';
+    specialtyDropdown.style.width = specialtySearch.offsetWidth + 'px';
 });
 
 // Keyboard navigation
 specialtySearch.addEventListener('keydown', function(e) {
-    if (e.key === 'ArrowDown' && currentMatches.length > 0) {
+    const rawTerm = specialtySearch.value.trim();
+    const totalItems = currentMatches.length + (rawTerm.length > 0 ? 1 : 0);
+    if (e.key === 'ArrowDown' && totalItems > 0) {
         e.preventDefault();
-        selectedIndex = (selectedIndex + 1) % currentMatches.length;
+        selectedIndex = (selectedIndex + 1) % totalItems;
         renderDropdown();
-    } else if (e.key === 'ArrowUp' && currentMatches.length > 0) {
+    } else if (e.key === 'ArrowUp' && totalItems > 0) {
         e.preventDefault();
-        selectedIndex = selectedIndex <= 0 ? currentMatches.length - 1 : selectedIndex - 1;
+        selectedIndex = selectedIndex <= 0 ? totalItems - 1 : selectedIndex - 1;
         renderDropdown();
     } else if (e.key === 'Tab') {
-        e.preventDefault();
-        
-        if (currentMatches.length > 0 && selectedIndex >= 0 && selectedIndex < currentMatches.length) {
-            // Select existing specialty from search results
-            const specialty = currentMatches[selectedIndex];
-            addSpecialty(specialty.id, specialty.name);
+        // Empty input - let default Tab behavior move to next field
+        if (rawTerm.length === 0) return;
+
+        if (totalItems > 0) {
+            e.preventDefault();
+            // Cycle through suggestions (Shift+Tab goes backwards)
+            if (e.shiftKey) {
+                selectedIndex = selectedIndex <= 0 ? totalItems - 1 : selectedIndex - 1;
+            } else {
+                selectedIndex = (selectedIndex + 1) % totalItems;
+            }
+            renderDropdown();
         }
     } else if (e.key === 'Enter') {
         e.preventDefault();
         
-        // Only create new specialty on Enter if there are no matches
-        if (currentMatches.length === 0) {
+        if (selectedIndex >= 0 && selectedIndex < currentMatches.length) {
+            // Select the highlighted specialty
+            const specialty = currentMatches[selectedIndex];
+            addSpecialty(specialty.id, specialty.name);
+        } else {
+            // Selected the "+ Create" entry or no matches - create new
             const searchTerm = specialtySearch.value.trim();
             if (searchTerm.length > 0) {
                 createNewSpecialty(searchTerm);
             }
-        } else if (selectedIndex >= 0 && selectedIndex < currentMatches.length) {
-            // Select the highlighted specialty
-            const specialty = currentMatches[selectedIndex];
-            addSpecialty(specialty.id, specialty.name);
         }
     } else if (e.key === 'Escape') {
         specialtyDropdown.style.display = 'none';
@@ -206,7 +208,11 @@ specialtySearch.addEventListener('keydown', function(e) {
 });
 
 function renderDropdown() {
-    specialtyDropdown.innerHTML = currentMatches.map((specialty, index) => 
+    const searchTerm = specialtySearch.value.trim();
+    const escaped = searchTerm.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const createIndex = currentMatches.length;
+
+    let html = currentMatches.map((specialty, index) => 
         `<button type="button" class="list-group-item list-group-item-action ${index === selectedIndex ? 'active' : ''}" 
             data-specialty-id="${specialty.id}" 
             data-specialty-name="${specialty.name.replace(/"/g, '&quot;')}"
@@ -217,6 +223,18 @@ function renderDropdown() {
             ${specialty.description ? '<br><small class="text-muted">' + specialty.description + '</small>' : ''}
         </button>`
     ).join('');
+
+    // Always show "+ Create" option when there's a search term
+    if (searchTerm.length > 0) {
+        html += `<button type="button" class="list-group-item list-group-item-action ${selectedIndex === createIndex ? 'active' : ''}"
+            data-create-new="true"
+            onmouseenter="handleSpecialtyHover(${createIndex})"
+            onclick="createNewSpecialty('${searchTerm.replace(/'/g, "\\'")}')">
+            <i class="bi bi-plus-circle text-success"></i> Create <strong>${escaped}</strong>
+        </button>`;
+    }
+
+    specialtyDropdown.innerHTML = html;
 }
 
 function handleSpecialtyHover(index) {
