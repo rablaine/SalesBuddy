@@ -410,6 +410,7 @@ def report_workload():
 
         customer_data = []
         total_acr = 0
+        milestone_acr_entries = {}  # accumulate id->monthly_usage across customers
         for cust in customers:
             active_engs = [e for e in cust.engagements if e.status == 'Active']
 
@@ -429,6 +430,9 @@ def report_workload():
             )
             cust_acr = sum(m.monthly_usage or 0 for m in topic_milestones)
             total_acr += cust_acr
+            milestone_ids = [m.id for m in topic_milestones]
+            for m in topic_milestones:
+                milestone_acr_entries[m.id] = m.monthly_usage or 0
 
             latest_note = (
                 Note.query
@@ -451,6 +455,7 @@ def report_workload():
                 'committed': any(
                     m.customer_commitment == 'Committed' for m in topic_milestones
                 ),
+                'milestone_ids': milestone_ids,
             })
 
         customer_data.sort(key=lambda c: c['acr'], reverse=True)
@@ -460,9 +465,18 @@ def report_workload():
             'customer_count': len(customer_data),
             'total_acr': total_acr,
             'customers': customer_data,
+            'milestone_acr_entries': milestone_acr_entries,
         })
 
     workload_groups.sort(key=lambda g: g['customer_count'], reverse=True)
+
+    # Build a deduplicated map of milestone_id -> monthly_usage for the grand total
+    # Each milestone may appear in multiple groups (when tagged with multiple topics)
+    # so we merge all per-group maps - last write wins, but values are identical since
+    # monthly_usage is a property of the milestone, not the topic relationship.
+    milestone_acr_map: dict = {}
+    for group in workload_groups:
+        milestone_acr_map.update(group['milestone_acr_entries'])
 
     # Compute fiscal quarter boundaries for preset buttons
     _today = date.today()
@@ -492,6 +506,7 @@ def report_workload():
     return render_template(
         'report_workload.html',
         workload_groups=workload_groups,
+        milestone_acr_map=milestone_acr_map,
         fq_start=fq_start.isoformat(),
         fq_end=fq_end.isoformat(),
         fq_label=f'FQ{fq_num}',
