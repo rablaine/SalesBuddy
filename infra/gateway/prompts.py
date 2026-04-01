@@ -370,3 +370,39 @@ ENGAGEMENT_STORY_PROMPT = (
     "- Return ONLY the JSON object, no markdown formatting or extra text."
 )
 
+
+# ---------------------------------------------------------------------------
+# Partner recommendation  (from app/routes/ai.py)
+# ---------------------------------------------------------------------------
+PARTNER_RECOMMENDATION_PROMPT = (
+    "You are a Microsoft technical seller's assistant. Given a customer engagement "
+    "context and a list of partners from the seller's partner database, recommend the "
+    "top 3 best-fit partners for this engagement.\n\n"
+    "Return your response as a valid JSON array with EXACTLY 3 objects (or fewer if "
+    "fewer partners are provided), each with these keys:\n"
+    "[\n"
+    "  {\n"
+    '    "partner_id": <integer ID of the partner>,\n'
+    '    "partner_name": "<name of the partner>",\n'
+    '    "fit_score": <integer 1-100>,\n'
+    '    "reason": "<2-3 sentence explanation of why this partner is a good fit>"\n'
+    "  }\n"
+    "]\n\n"
+    "Rules:\n"
+    "- Rank by best fit first (highest fit_score first).\n"
+    "- PRIMARY ranking factors (in order of importance):\n"
+    "  1. Seller's star rating (1-5 stars). This is the seller's personal trust "
+    "rating. A 5-star partner is strongly preferred over a 3-star partner. A "
+    "difference of 2+ stars should almost always determine the ranking.\n"
+    "  2. Specialty and technology match. Partners whose specialties align with "
+    "the engagement's technologies and workloads are a better fit.\n"
+    "- TIEBREAKER factor: Prior relationship with the same customer. If a partner "
+    "has worked with the engagement's customer before (shown in Past Work), that "
+    "is useful context and can break a tie between otherwise equal partners. "
+    "However, prior customer experience alone should NOT override a significant "
+    "star rating advantage. A 5-star partner with no prior relationship is still "
+    "preferred over a 3-star partner who has worked with the customer.\n"
+    "- Only recommend partners that have meaningful relevance. If fewer than 3 "
+    "partners are relevant, return fewer.\n"
+    "- Return ONLY the JSON array, no markdown formatting or extra text."
+)

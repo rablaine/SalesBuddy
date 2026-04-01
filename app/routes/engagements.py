@@ -154,6 +154,15 @@ def engagement_view(id: int):
         .all()
     )
 
+    # Load saved partner recommendations (most recent batch)
+    from app.models import PartnerRecommendation
+    saved_recs = (
+        PartnerRecommendation.query
+        .filter_by(engagement_id=engagement.id)
+        .order_by(PartnerRecommendation.rank)
+        .all()
+    )
+
     return render_template(
         'engagement_view.html',
         engagement=engagement,
@@ -162,6 +171,7 @@ def engagement_view(id: int):
         unassigned_notes=unassigned_notes,
         customer_milestones=customer_milestones,
         is_favorited=Favorite.is_favorited('engagement', engagement.id),
+        saved_partner_recs=saved_recs,
     )
 
 

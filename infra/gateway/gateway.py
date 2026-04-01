@@ -31,6 +31,7 @@ from prompts import (
     CONNECT_USER_PROMPT_CHUNK,
     CONNECT_USER_PROMPT_SYNTHESIS,
     ENGAGEMENT_STORY_PROMPT,
+    PARTNER_RECOMMENDATION_PROMPT,
 )
 
 # ---------------------------------------------------------------------------
@@ -450,6 +451,40 @@ def engagement_story():
         return _error("AI returned invalid response format", 502)
     except Exception as exc:
         logger.exception("engagement-story error")
+        return _error(f"Internal error: {exc}", 500)
+
+
+# ---------------------------------------------------------------------------
+# POST /v1/recommend-partners
+# ---------------------------------------------------------------------------
+@app.route("/v1/recommend-partners", methods=["POST"])
+def recommend_partners():
+    """Recommend top partners for a customer engagement."""
+    try:
+        body = request.get_json(force=True)
+        user_message = (body.get("user_message") or "").strip()
+
+        if not user_message:
+            return _error("user_message is required")
+
+        result = chat_completion(
+            PARTNER_RECOMMENDATION_PROMPT, user_message, max_tokens=1500,
+        )
+
+        # Parse JSON array from response
+        parsed = _parse_json_array(result["text"])
+
+        return jsonify({
+            "success": True,
+            "recommendations": parsed,
+            "usage": result["usage"],
+        })
+
+    except json.JSONDecodeError:
+        logger.warning("recommend-partners: could not parse AI response as JSON")
+        return _error("AI returned invalid response format", 502)
+    except Exception as exc:
+        logger.exception("recommend-partners error")
         return _error(f"Internal error: {exc}", 500)
 
 

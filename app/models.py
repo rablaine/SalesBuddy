@@ -1290,6 +1290,39 @@ class AIQueryLog(db.Model):
 
 
 # =============================================================================
+
+class PartnerRecommendation(db.Model):
+    """Persisted AI partner recommendation for an engagement."""
+    __tablename__ = 'partner_recommendations'
+
+    id = db.Column(db.Integer, primary_key=True)
+    engagement_id = db.Column(
+        db.Integer, db.ForeignKey('engagements.id', ondelete='CASCADE'),
+        nullable=False,
+    )
+    partner_id = db.Column(
+        db.Integer, db.ForeignKey('partners.id', ondelete='CASCADE'),
+        nullable=False,
+    )
+    rank = db.Column(db.Integer, nullable=False)  # 1, 2, 3
+    fit_score = db.Column(db.Integer, nullable=False)
+    reason = db.Column(db.Text, nullable=False)
+    generated_at = db.Column(db.DateTime, default=utc_now, nullable=False)
+
+    engagement = db.relationship('Engagement', backref=db.backref(
+        'partner_recommendations', cascade='all, delete-orphan',
+        order_by='PartnerRecommendation.rank',
+    ))
+    partner = db.relationship('Partner')
+
+    def __repr__(self) -> str:
+        return (
+            f'<PartnerRecommendation eng={self.engagement_id} '
+            f'partner={self.partner_id} rank={self.rank}>'
+        )
+
+
+# =============================================================================
 # Revenue Integration Models
 # =============================================================================
 

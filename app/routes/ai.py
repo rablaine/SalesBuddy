@@ -534,3 +534,202 @@ def api_ai_apply_engagement_story():
 
     return jsonify({'success': True})
 
+
+# =============================================================================
+# Partner Recommendations
+# =============================================================================
+
+@ai_bp.route('/api/ai/recommend-partners', methods=['POST'])
+def api_ai_recommend_partners():
+    """Recommend top partners for a specific engagement using AI.
+
+    Gathers engagement context (story fields, topics, milestones) and builds
+    compact partner profiles (specialties, overview, rating, past work summary)
+    to send to the AI for ranking.
+    """
+    data = request.get_json()
+    engagement_id = data.get('engagement_id') if data else None
+    if not engagement_id:
+        return jsonify({'success': False, 'error': 'engagement_id is required'}), 400
+
+    from app.models import Engagement, Partner
+    engagement = Engagement.query.get(engagement_id)
+    if not engagement:
+        return jsonify({'success': False, 'error': 'Engagement not found'}), 404
+
+    partners = Partner.query.all()
+    if not partners:
+        return jsonify({
+            'success': False,
+            'error': 'No partners in your database. Add partners first.'
+        }), 400
+
+    import re as _re
+    customer = engagement.customer
+
+    # -- Build engagement context --
+    eng_context_parts = [
+        f"Customer: {customer.name}",
+        f"Engagement: {engagement.title}",
+        f"Status: {engagement.status}",
+    ]
+    if engagement.technical_problem:
+        eng_context_parts.append(
+            f"Technical Problem: {engagement.technical_problem}"
+        )
+    if engagement.business_impact:
+        eng_context_parts.append(
+            f"Business Impact: {engagement.business_impact}"
+        )
+    if engagement.solution_resources:
+        eng_context_parts.append(
+            f"Solution/Resources: {engagement.solution_resources}"
+        )
+    if engagement.estimated_acr:
+        eng_context_parts.append(
+            f"Estimated ACR: ${engagement.estimated_acr:,}/mo"
+        )
+
+    # Engagement topics (from linked notes)
+    topic_names = set()
+    for note in engagement.notes:
+        for topic in note.topics:
+            topic_names.add(topic.name)
+    if topic_names:
+        eng_context_parts.append(
+            f"Technologies/Topics: {', '.join(sorted(topic_names))}"
+        )
+
+    # Engagement milestones
+    if engagement.milestones:
+        ms_parts = []
+        for m in engagement.milestones:
+            part = m.display_text
+            if m.workload:
+                part += f" (Workload: {m.workload})"
+            if m.monthly_usage:
+                part += f" [${m.monthly_usage:,.0f}/mo]"
+            ms_parts.append(part)
+        eng_context_parts.append(f"Milestones: {'; '.join(ms_parts)}")
+
+    engagement_context = '\n'.join(eng_context_parts)
+
+    # -- Build compact partner profiles --
+    partner_profiles = []
+    for p in partners:
+        profile_parts = [f"Partner ID: {p.id}", f"Name: {p.name}"]
+
+        # Star rating
+        if p.rating is not None:
+            profile_parts.append(f"Seller Rating: {p.rating}/5 stars")
+        else:
+            profile_parts.append("Seller Rating: Not rated")
+
+        # Specialties
+        if p.specialties:
+            specs = [s.name for s in p.specialties]
+            profile_parts.append(f"Specialties: {', '.join(specs)}")
+
+        # Overview (truncate to 500 chars)
+        if p.overview:
+            overview = _re.sub(r'<[^>]+>', '', p.overview).strip()
+            if len(overview) > 500:
+                overview = overview[:500] + '...'
+            profile_parts.append(f"Overview: {overview}")
+
+        # Past work summary from linked notes
+        if p.notes:
+            work_items = []
+            for note in sorted(p.notes, key=lambda n: n.call_date,
+                               reverse=True)[:10]:
+                note_topics = ', '.join(
+                    t.name for t in note.topics
+                ) if note.topics else 'General'
+                cust_name = (
+                    note.customer.name if note.customer else 'Unknown'
+                )
+                work_items.append(
+                    f"{cust_name} ({note_topics})"
+                )
+            profile_parts.append(
+                f"Past Work: {'; '.join(work_items)}"
+            )
+
+        partner_profiles.append('\n'.join(profile_parts))
+
+    partners_context = '\n\n---\n\n'.join(partner_profiles)
+
+    user_message = (
+        f"=== ENGAGEMENT ===\n{engagement_context}\n\n"
+        f"=== PARTNERS ({len(partners)}) ===\n{partners_context}"
+    )
+
+    # Truncate if extremely large
+    MAX_CHARS = 30000
+    if len(user_message) > MAX_CHARS:
+        user_message = (
+            user_message[:MAX_CHARS]
+            + '\n\n[... additional partners truncated ...]'
+        )
+
+    try:
+        result = gateway_call("/v1/recommend-partners", {
+            "user_message": user_message,
+        })
+        recommendations = result.get("recommendations", [])
+        usage = result.get("usage", {})
+
+        log_entry = AIQueryLog(
+            request_text=(
+                f"Partner recommendations for engagement "
+                f"'{engagement.title}' ({len(partners)} partners)"
+            ),
+            response_text=json.dumps(recommendations)[:1000],
+            success=True,
+            model=usage.get('model', ''),
+            prompt_tokens=usage.get('prompt_tokens', 0),
+            completion_tokens=usage.get('completion_tokens', 0),
+            total_tokens=usage.get('total_tokens', 0),
+        )
+        db.session.add(log_entry)
+
+        # Persist recommendations - clear old ones, save new batch
+        from app.models import PartnerRecommendation
+        PartnerRecommendation.query.filter_by(
+            engagement_id=engagement.id
+        ).delete()
+        for idx, rec in enumerate(recommendations):
+            partner_id = rec.get('partner_id')
+            # Only save if the partner actually exists in our DB
+            if partner_id and Partner.query.get(partner_id):
+                db.session.add(PartnerRecommendation(
+                    engagement_id=engagement.id,
+                    partner_id=partner_id,
+                    rank=idx + 1,
+                    fit_score=rec.get('fit_score', 0),
+                    reason=rec.get('reason', ''),
+                ))
+
+        db.session.commit()
+
+        return jsonify({
+            'success': True,
+            'recommendations': recommendations,
+            'usage': usage,
+        })
+
+    except GatewayError as e:
+        log_entry = AIQueryLog(
+            request_text=(
+                f"Partner recommendations for engagement "
+                f"'{engagement.title}'"
+            ),
+            response_text='',
+            success=False,
+            error_message=str(e)[:500],
+        )
+        db.session.add(log_entry)
+        db.session.commit()
+        logger.error(f"Partner recommendation gateway error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 502
+

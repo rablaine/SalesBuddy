@@ -119,7 +119,7 @@ def _get_domain_hint(customer: Customer) -> Optional[str]:
 def _build_scrape_prompt(customer_name: str, domain_hint: str) -> str:
     """Build the WorkIQ question for customer contact extraction."""
     return (
-        f"Search my meetings and emails from the last 6 months where someone "
+        f"Search my meetings and emails from the last 12 months where someone "
         f"with an @{domain_hint} email was an attendee or participant. "
         f"Return ONLY a valid JSON object with keys: "
         f"contacts (array of objects with name, email, title), "

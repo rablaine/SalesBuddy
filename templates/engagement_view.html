@@ -219,6 +219,37 @@ function toggleEngagementFavorite(btn, engId) {
                 </div>
             </div>
         </div>
+
+        <!-- Partner Recommendations -->
+        <div class="card mb-3">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-people"></i> Partner Recommendations</h5>
+                <button type="button" class="btn btn-sm btn-outline-success" id="recommendPartnersBtn" onclick="recommendPartners()">
+                    <i class="bi bi-stars"></i> {% if saved_partner_recs %}Refresh{% else %}Recommend{% endif %}
+                </button>
+            </div>
+            <div class="card-body" id="partnerRecsBody">
+                {% if saved_partner_recs %}
+                    {% for rec in saved_partner_recs %}
+                    <div class="{% if not loop.first %}mt-3 pt-3 border-top{% endif %}">
+                        <div class="d-flex justify-content-between align-items-center mb-1">
+                            <div>
+                                <span class="me-1">{% if loop.index == 1 %}🥇{% elif loop.index == 2 %}🥈{% elif loop.index == 3 %}🥉{% endif %}</span>
+                                <a href="{{ url_for('partners.partner_view', id=rec.partner.id) }}" class="fw-semibold text-decoration-none">{{ rec.partner.name }}</a>
+                            </div>
+                            <span class="badge bg-{% if rec.fit_score >= 70 %}success{% elif rec.fit_score >= 40 %}warning{% else %}secondary{% endif %}">{{ rec.fit_score }}% fit</span>
+                        </div>
+                        <p class="small text-muted mb-0">{{ rec.reason }}</p>
+                    </div>
+                    {% endfor %}
+                    <div class="text-muted mt-2 pt-2 border-top" style="font-size: 0.7em;" id="recTimestamp">
+                        Generated <span class="local-datetime" data-utc="{{ saved_partner_recs[0].generated_at.isoformat() }}" data-fmt="short"></span>
+                    </div>
+                {% else %}
+                    <p class="text-muted fst-italic small mb-0">Click <strong>Recommend</strong> to find the best-fit partners for this engagement using AI.</p>
+                {% endif %}
+            </div>
+        </div>
     </div>
 
     <div class="col-md-7">
@@ -365,6 +396,62 @@ function toggleEngagementFavorite(btn, engId) {
         {% endif %}
     </div>
 </div>
+
+<script>
+function _escHtml(text) {
+    const d = document.createElement('div');
+    d.textContent = text;
+    return d.innerHTML;
+}
+function recommendPartners() {
+    const btn = document.getElementById('recommendPartnersBtn');
+    const body = document.getElementById('partnerRecsBody');
+    const origHTML = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Finding...';
+    body.innerHTML = '<div class="text-center py-3"><span class="spinner-border spinner-border-sm"></span> Analyzing engagement and partner data...</div>';
+
+    fetch('/api/ai/recommend-partners', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({engagement_id: {{ engagement.id }}})
+    })
+    .then(r => r.json())
+    .then(data => {
+        btn.disabled = false;
+        btn.innerHTML = origHTML;
+        if (data.success && data.recommendations && data.recommendations.length > 0) {
+            let html = '';
+            data.recommendations.forEach((rec, idx) => {
+                const medals = ['🥇', '🥈', '🥉'];
+                const medal = medals[idx] || '';
+                const scoreColor = rec.fit_score >= 70 ? 'success' : (rec.fit_score >= 40 ? 'warning' : 'secondary');
+                html += `
+                    <div class="${idx > 0 ? 'mt-3 pt-3 border-top' : ''}">
+                        <div class="d-flex justify-content-between align-items-center mb-1">
+                            <div>
+                                <span class="me-1">${medal}</span>
+                                <a href="/partners/${rec.partner_id}" class="fw-semibold text-decoration-none">${_escHtml(rec.partner_name)}</a>
+                            </div>
+                            <span class="badge bg-${scoreColor}">${rec.fit_score}% fit</span>
+                        </div>
+                        <p class="small text-muted mb-0">${_escHtml(rec.reason)}</p>
+                    </div>`;
+            });
+            body.innerHTML = html;
+        } else if (data.success) {
+            body.innerHTML = '<p class="text-muted fst-italic small mb-0">No relevant partners found for this engagement.</p>';
+        } else {
+            body.innerHTML = '<p class="text-danger small mb-0"><i class="bi bi-exclamation-triangle"></i> ' + _escHtml(data.error || 'Failed to get recommendations.') + '</p>';
+        }
+    })
+    .catch(err => {
+        btn.disabled = false;
+        btn.innerHTML = origHTML;
+        body.innerHTML = '<p class="text-danger small mb-0"><i class="bi bi-exclamation-triangle"></i> Request failed: ' + _escHtml(err.message) + '</p>';
+    });
+}
+</script>
 
 {% if linked_notes %}
 <!-- Review Modal -->

@@ -455,7 +455,7 @@ class TestNoteViewOpportunities:
         assert resp.status_code == 200
         html = resp.data.decode()
         assert 'Visible Opportunity' in html
-        assert b'bi-cash-stack' in html
+        assert 'bi-cash-stack' in html
         assert 'border-info' in html  # card style
         assert 'Open' in html  # state badge
         assert '$75,000' in html  # estimated value

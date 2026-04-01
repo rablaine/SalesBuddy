@@ -256,14 +256,20 @@ def report_one_on_one():
         date(end_year, end_month, 1) - timedelta(days=1), _time(23, 59, 59)
     )
 
+    today_dt = datetime.combine(today, _time.min)
     quarter_milestones = (
         Milestone.query
         .filter(
             Milestone.on_my_team == True,  # noqa: E712
             Milestone.msx_status.in_(['On Track', 'At Risk', 'Blocked']),
             Milestone.due_date.isnot(None),
-            Milestone.due_date >= quarter_start,
-            Milestone.due_date <= quarter_end,
+            db.or_(
+                # Due this quarter
+                db.and_(Milestone.due_date >= quarter_start,
+                        Milestone.due_date <= quarter_end),
+                # Overdue from before the quarter (still active)
+                Milestone.due_date < today_dt,
+            ),
         )
         .options(
             db.joinedload(Milestone.customer).joinedload(Customer.seller),

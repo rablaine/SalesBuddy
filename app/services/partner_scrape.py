@@ -159,7 +159,7 @@ def _build_scrape_prompt(partner_name: str, domain_hint: Optional[str]) -> str:
     """Build the WorkIQ question for partner data extraction."""
     if not domain_hint:
         return (
-            f"Search my meetings and emails from the last 6 months involving "
+            f"Search my meetings and emails from the last 12 months involving "
             f'people from "{partner_name}". '
             f"Return ONLY a valid JSON object with keys: "
             f"contacts (array of objects with name, email, title), "
@@ -172,7 +172,7 @@ def _build_scrape_prompt(partner_name: str, domain_hint: Optional[str]) -> str:
         )
 
     return (
-        f"Search my meetings and emails from the last 6 months where someone "
+        f"Search my meetings and emails from the last 12 months where someone "
         f"with an @{domain_hint} email was an attendee or participant. "
         f"Return ONLY a valid JSON object with keys: "
         f"contacts (array of objects with name, email, title), "
