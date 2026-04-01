@@ -4,7 +4,7 @@
 {% for opp in opportunities %}
     <div class="opp-mini-card rounded p-2 {% if not loop.last %}mb-2{% endif %}">
         <a href="{{ url_for('opportunities.opportunity_view', id=opp.id) }}" class="fw-bold text-decoration-none d-block{% if opp.milestones.count() > 0 %} mb-1{% endif %}" title="{{ opp.name }}">
-            <i class="bi bi-briefcase"></i> {{ opp.name }}
+            {% if favorited_opp_ids is defined and opp.id in favorited_opp_ids %}<i class="bi bi-star-fill text-warning me-1" title="Favorited"></i>{% endif %}<i class="bi bi-briefcase"></i> {{ opp.name }}
         </a>
         {% set opp_milestones = opp.milestones.all() %}
         {% if opp_milestones %}

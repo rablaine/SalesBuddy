@@ -16,6 +16,12 @@
         </h1>
     </div>
     <div class="flex-shrink-0 d-flex gap-2">
+        <button type="button" id="oppFavoriteBtn"
+                class="btn {% if is_favorited %}btn-warning{% else %}btn-outline-secondary{% endif %}"
+                onclick="toggleOpportunityFavorite(this, {{ opportunity.id }})"
+                title="{% if is_favorited %}Remove from favorites{% else %}Add to favorites{% endif %}">
+            <i class="bi {% if is_favorited %}bi-star-fill{% else %}bi-star{% endif %}"></i>
+        </button>
         {% if opportunity.customer %}
             <a href="{{ url_for('customers.customer_view', id=opportunity.customer.id) }}" class="btn btn-outline-secondary text-nowrap">
                 {{ customer_favicon(opportunity.customer) }} {{ opportunity.customer.get_display_name() }}
@@ -26,6 +32,27 @@
         </a>
     </div>
 </div>
+
+<script>
+function toggleOpportunityFavorite(btn, oppId) {
+    fetch('/api/opportunity/' + oppId + '/favorite', { method: 'POST' })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (!data.success) return;
+            var icon = btn.querySelector('i');
+            if (data.is_favorited) {
+                btn.className = btn.className.replace('btn-outline-secondary', 'btn-warning');
+                icon.className = 'bi bi-star-fill';
+                btn.title = 'Remove from favorites';
+            } else {
+                btn.className = btn.className.replace('btn-warning', 'btn-outline-secondary');
+                icon.className = 'bi bi-star';
+                btn.title = 'Add to favorites';
+            }
+        })
+        .catch(function(err) { console.error('Error toggling favorite:', err); });
+}
+</script>
 
 <div class="row">
     <!-- Left column: Details + Milestones -->

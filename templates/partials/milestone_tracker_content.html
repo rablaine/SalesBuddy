@@ -138,6 +138,11 @@
                     <option value="off">Off Team</option>
                 </select>
             </div>
+            <div class="col-md-auto">
+                <button type="button" class="btn btn-sm btn-outline-warning" data-role="favoritesOnlyBtn" title="Show favorites only">
+                    <i class="bi bi-star"></i>
+                </button>
+            </div>
             <div class="col-md-auto text-end">
                 <span data-role="filteredCount" class="text-muted small">{{ milestones|length }} milestones</span>
                 <button type="button" class="btn btn-sm btn-outline-secondary ms-1" data-role="resetFiltersBtn" title="Reset all filters" style="display: none;">
@@ -164,6 +169,7 @@
                 <th style="width: 11%; cursor: pointer;" class="sortable" data-sort="due-date">Due Date <i class="bi bi-arrow-down-up text-muted small"></i></th>
                 <th style="width: 11%; cursor: pointer;" class="sortable text-end" data-sort="monthly">$ACR/mo <i class="bi bi-arrow-down-up text-muted small"></i></th>
                 <th style="width: 9%;">Workload</th>
+                <th style="width: 3%;" class="text-center" title="Favorites"><i class="bi bi-star text-muted small"></i></th>
                 <th style="width: 5%;" class="text-center">MSX</th>
             </tr>
         </thead>
@@ -182,6 +188,7 @@
                 data-status-sort="{{ ms.status_sort }}"
                 data-due-date="{{ ms.due_date.strftime('%Y-%m-%d') if ms.due_date else '9999-12-31' }}"
                 data-monthly="{{ ms.monthly_usage or 0 }}"
+                data-favorited="{{ 'true' if ms.id in favorited_ms_ids else 'false' }}"
                 data-search="{{ ms.title|lower }} {{ ms.opportunity_name|lower if ms.opportunity_name else '' }} {{ ms.customer.name|lower if ms.customer else '' }} {{ ms.seller.name|lower if ms.seller else '' }} {{ ms.workload|lower if ms.workload else '' }}">
                 
                 <!-- Milestone Info -->
@@ -300,6 +307,15 @@
                     {% endif %}
                 </td>
                 
+                <!-- Favorite -->
+                <td class="text-center" onclick="event.stopPropagation();">
+                    <button class="btn btn-sm p-0 border-0 bg-transparent"
+                            onclick="toggleMilestoneFavorite(this, {{ ms.id }})"
+                            title="{% if ms.id in favorited_ms_ids %}Remove from favorites{% else %}Add to favorites{% endif %}">
+                        <i class="bi {% if ms.id in favorited_ms_ids %}bi-star-fill text-warning{% else %}bi-star text-muted{% endif %}"></i>
+                    </button>
+                </td>
+                
                 <!-- MSX Link -->
                 <td class="text-center">
                     {% if ms.url %}
@@ -367,6 +383,8 @@
     var quarterSelectAll = q('quarterSelectAll');
     var quarterSelectNone = q('quarterSelectNone');
     var table = q('milestonesTable');
+    var favoritesOnlyBtn = q('favoritesOnlyBtn');
+    var favoritesOnly = false;
 
     // Summary card elements
     var totalCountEl = q('totalCount');
@@ -392,7 +410,8 @@
             area: Array.from(qa('.area-checkbox:checked')).map(function(cb) { return cb.value; }),
             urgency: urgencyFilter.value,
             myTeam: myTeamFilter.value,
-            allQuarters: allQuarters
+            allQuarters: allQuarters,
+            favoritesOnly: favoritesOnly
         };
         localStorage.setItem(FILTER_KEY, JSON.stringify(state));
     }
@@ -416,6 +435,13 @@
             qa('.area-checkbox').forEach(function(cb) { cb.checked = savedAreas.includes(cb.value); });
             if (state.urgency) urgencyFilter.value = state.urgency;
             if (state.myTeam) myTeamFilter.value = state.myTeam;
+            if (state.favoritesOnly) {
+                favoritesOnly = true;
+                if (favoritesOnlyBtn) {
+                    favoritesOnlyBtn.classList.remove('btn-outline-warning');
+                    favoritesOnlyBtn.classList.add('btn-warning');
+                }
+            }
         } catch (e) {
             localStorage.removeItem(FILTER_KEY);
         }
@@ -428,7 +454,8 @@
             qa('.status-checkbox:checked').length === 0 &&
             qa('.area-checkbox:checked').length === 0 &&
             urgencyFilter.value === '' &&
-            myTeamFilter.value === '';
+            myTeamFilter.value === '' &&
+            !favoritesOnly;
     }
 
     function updateResetButton() {
@@ -442,6 +469,11 @@
         qa('.area-checkbox').forEach(function(cb) { cb.checked = false; });
         urgencyFilter.value = '';
         myTeamFilter.value = '';
+        favoritesOnly = false;
+        if (favoritesOnlyBtn) {
+            favoritesOnlyBtn.classList.remove('btn-warning');
+            favoritesOnlyBtn.classList.add('btn-outline-warning');
+        }
         saveFilters();
         applyFilters();
     }
@@ -469,6 +501,7 @@
             if (uv && row.dataset.urgency !== uv) visible = false;
             if (myTeam === 'on' && row.dataset.onMyTeam !== 'true') visible = false;
             if (myTeam === 'off' && row.dataset.onMyTeam !== 'false') visible = false;
+            if (favoritesOnly && row.dataset.favorited !== 'true') visible = false;
 
             row.style.display = visible ? '' : 'none';
             if (visible) {
@@ -621,6 +654,14 @@
     urgencyFilter.addEventListener('change', applyFilters);
     myTeamFilter.addEventListener('change', applyFilters);
     resetBtn.addEventListener('click', resetFilters);
+    if (favoritesOnlyBtn) {
+        favoritesOnlyBtn.addEventListener('click', function() {
+            favoritesOnly = !favoritesOnly;
+            this.classList.toggle('btn-warning', favoritesOnly);
+            this.classList.toggle('btn-outline-warning', !favoritesOnly);
+            applyFilters();
+        });
+    }
 
     // Sortable header clicks (delegated)
     qa('.sortable[data-sort]').forEach(function(th) {
@@ -639,6 +680,26 @@
     applyFilters();
     updateSortIndicators();
 })();
+
+function toggleMilestoneFavorite(btn, milestoneId) {
+    fetch('/api/milestone/' + milestoneId + '/favorite', { method: 'POST' })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (!data.success) return;
+            var icon = btn.querySelector('i');
+            var row = btn.closest('tr');
+            if (data.is_favorited) {
+                icon.className = 'bi bi-star-fill text-warning';
+                btn.title = 'Remove from favorites';
+                if (row) row.dataset.favorited = 'true';
+            } else {
+                icon.className = 'bi bi-star text-muted';
+                btn.title = 'Add to favorites';
+                if (row) row.dataset.favorited = 'false';
+            }
+        })
+        .catch(function(err) { console.error('Error toggling milestone favorite:', err); });
+}
 </script>
 
 <!-- Milestone Detail Modal -->
