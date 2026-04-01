@@ -663,21 +663,23 @@ def save_hygiene_note():
 
 @bp.route('/reports/whats-new')
 def report_whats_new():
-    """What's New report - milestones created or updated in the last 2 weeks."""
+    """What's New report - milestones created or updated in a configurable window."""
     from app.services.seller_mode import get_seller_mode_seller_id
 
     now = datetime.now(timezone.utc)
-    two_weeks_ago = now - timedelta(days=14)
+    days = request.args.get('days', 14, type=int)
+    days = max(1, min(days, 90))  # Clamp to 1-90
+    cutoff = now - timedelta(days=days)
     seller_mode_sid = get_seller_mode_seller_id()
 
-    # --- Milestones created in MSX in the last 2 weeks ---
+    # --- Milestones created in MSX in the window ---
     # Use msx_created_on (from MSX Dataverse) when available, fall back to local created_at
     created_q = (
         Milestone.query
         .filter(
             db.or_(
-                Milestone.msx_created_on >= two_weeks_ago,
-                db.and_(Milestone.msx_created_on.is_(None), Milestone.created_at >= two_weeks_ago),
+                Milestone.msx_created_on >= cutoff,
+                db.and_(Milestone.msx_created_on.is_(None), Milestone.created_at >= cutoff),
             )
         )
         .options(
@@ -687,20 +689,20 @@ def report_whats_new():
     )
     created_milestones = created_q.all()
 
-    # --- Milestones modified in MSX in the last 2 weeks (exclude newly created) ---
+    # --- Milestones modified in MSX in the window (exclude newly created) ---
     # Use msx_modified_on when available, fall back to local updated_at
     updated_q = (
         Milestone.query
         .filter(
             db.or_(
                 db.and_(
-                    Milestone.msx_modified_on >= two_weeks_ago,
-                    db.or_(Milestone.msx_created_on < two_weeks_ago, Milestone.msx_created_on.is_(None)),
+                    Milestone.msx_modified_on >= cutoff,
+                    db.or_(Milestone.msx_created_on < cutoff, Milestone.msx_created_on.is_(None)),
                 ),
                 db.and_(
                     Milestone.msx_modified_on.is_(None),
-                    Milestone.updated_at >= two_weeks_ago,
-                    Milestone.created_at < two_weeks_ago,
+                    Milestone.updated_at >= cutoff,
+                    Milestone.created_at < cutoff,
                 ),
             )
         )
@@ -763,6 +765,7 @@ def report_whats_new():
         audit_changes=audit_changes,
         audit_dates=audit_dates,
         change_types=change_types,
+        days=days,
     )
 
 

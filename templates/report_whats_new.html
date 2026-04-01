@@ -6,10 +6,19 @@
     <div class="d-flex justify-content-between align-items-center mb-3">
         <div>
             <h2><i class="bi bi-megaphone"></i> What's New</h2>
-            <p class="text-muted mb-0">Milestones created or updated in the last 2 weeks.</p>
+            <p class="text-muted mb-0">Milestones created or updated in the last {{ days }} days.</p>
         </div>
         <div class="d-flex align-items-center gap-2">
             <label class="form-label mb-0 text-nowrap"><i class="bi bi-funnel"></i></label>
+            <select class="form-select form-select-sm" id="daysFilter" style="width: auto;" onchange="changeDays(this.value)">
+                <option value="1" {% if days == 1 %}selected{% endif %}>Today</option>
+                <option value="3" {% if days == 3 %}selected{% endif %}>3 days</option>
+                <option value="7" {% if days == 7 %}selected{% endif %}>7 days</option>
+                <option value="14" {% if days == 14 %}selected{% endif %}>14 days</option>
+                <option value="30" {% if days == 30 %}selected{% endif %}>30 days</option>
+                <option value="60" {% if days == 60 %}selected{% endif %}>60 days</option>
+                <option value="90" {% if days == 90 %}selected{% endif %}>90 days</option>
+            </select>
             {% if user_role != 'dss' %}
             <select class="form-select form-select-sm" id="sellerFilter" style="width: auto;" onchange="applyFilters()">
                 <option value="">All Sellers</option>
@@ -403,6 +412,13 @@ function updateAuditDates(dataRows, checkedTypes, filterByChangeType) {
     });
 }
 
+function changeDays(value) {
+    localStorage.setItem('whats_new_days', value);
+    var url = new URL(window.location.href);
+    url.searchParams.set('days', value);
+    window.location.href = url.toString();
+}
+
 function applyFilters() {
     var sellerEl = document.getElementById('sellerFilter');
     var sellerId = sellerEl ? sellerEl.value : '';
@@ -550,6 +566,15 @@ function escapeHtml(str) {
 }
 
 document.addEventListener('DOMContentLoaded', function() {
+    // Redirect to saved days preference if no explicit ?days= in URL
+    var urlParams = new URLSearchParams(window.location.search);
+    if (!urlParams.has('days')) {
+        var savedDays = localStorage.getItem('whats_new_days');
+        if (savedDays && savedDays !== '14') {
+            changeDays(savedDays);
+            return;
+        }
+    }
     loadFilters();
     applyFilters();
 });
