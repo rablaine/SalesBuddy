@@ -315,7 +315,7 @@ class TestFeatureHealth:
         self._cleanup(app)
         now = datetime.now(timezone.utc)
         _seed_events(app, [
-            {'endpoint': '/revenue', 'method': 'GET', 'category': 'Revenue',
+            {'endpoint': '/reports/revenue', 'method': 'GET', 'category': 'Revenue',
              'status_code': 200, 'response_time_ms': 15.0, 'timestamp': now,
              'is_api': False, 'blueprint': 'revenue'},
         ])

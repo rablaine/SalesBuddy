@@ -457,7 +457,13 @@ def api_find_or_create_milestone():
 # Milestone Tracker
 # =============================================================================
 
+# Redirect from old URL
 @bp.route('/milestone-tracker')
+def _redirect_milestone_tracker():
+    return redirect(url_for('milestones.milestone_tracker'), code=301)
+
+
+@bp.route('/reports/milestone-tracker')
 def milestone_tracker():
     """
     Milestone Tracker page.

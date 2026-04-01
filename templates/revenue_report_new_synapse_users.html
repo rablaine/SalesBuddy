@@ -3,13 +3,6 @@
 
 {% block content %}
 <div class="container-fluid py-4">
-    <nav aria-label="breadcrumb" class="mb-3">
-        <ol class="breadcrumb">
-            <li class="breadcrumb-item"><a href="{{ url_for('revenue.revenue_dashboard') }}">Revenue Analyzer</a></li>
-            <li class="breadcrumb-item"><a href="{{ url_for('reports.reports_hub') }}">Reports</a></li>
-            <li class="breadcrumb-item active">New {{ product_name }} Users</li>
-        </ol>
-    </nav>
 
     <div class="row mb-4">
         <div class="col">
@@ -21,10 +14,10 @@
                 {% endif %}
             </p>
         </div>
-        <div class="col-auto">
-            <a href="{{ url_for('reports.reports_hub') }}" class="btn btn-outline-secondary">
-                <i class="bi bi-arrow-left"></i> Back to Reports
-            </a>
+        <div class="col-auto d-flex gap-2">
+            {% set export_table_id = 'table.table' %}
+            {% set export_filename = 'new-synapse-users' %}
+            {% include 'partials/_report_export.html' %}
         </div>
     </div>
 

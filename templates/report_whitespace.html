@@ -3,12 +3,6 @@
 
 {% block content %}
 <div class="container-fluid py-4">
-    <nav aria-label="breadcrumb" class="mb-3">
-        <ol class="breadcrumb">
-            <li class="breadcrumb-item"><a href="{{ url_for('reports.reports_hub') }}">Reports</a></li>
-            <li class="breadcrumb-item active">Whitespace Analysis</li>
-        </ol>
-    </nav>
 
     <div class="row mb-4">
         <div class="col">
@@ -19,9 +13,6 @@
             {% set export_table_id = '#gridTable' %}
             {% set export_filename = 'whitespace-analysis' %}
             {% include 'partials/_report_export.html' %}
-            <a href="{{ url_for('reports.reports_hub') }}" class="btn btn-outline-secondary">
-                <i class="bi bi-arrow-left"></i> Back to Reports
-            </a>
         </div>
     </div>
 

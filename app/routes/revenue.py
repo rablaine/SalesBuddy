@@ -33,7 +33,23 @@ from app.services.seller_mode import get_seller_mode_seller_id
 revenue_bp = Blueprint('revenue', __name__)
 
 
+# Redirects from old URLs (bookmarks, external links)
 @revenue_bp.route('/revenue')
+def _redirect_revenue_dashboard():
+    return redirect(url_for('revenue.revenue_dashboard'), code=301)
+
+
+@revenue_bp.route('/revenue/reports/new-synapse-users')
+def _redirect_new_synapse_users():
+    return redirect(url_for('revenue.report_new_synapse_users'), code=301)
+
+
+@revenue_bp.route('/revenue/reports')
+def _redirect_reports_list():
+    return redirect(url_for('revenue.reports_list'), code=301)
+
+
+@revenue_bp.route('/reports/revenue')
 def revenue_dashboard():
     """Main revenue attention dashboard."""
     seller_mode_sid = get_seller_mode_seller_id()
@@ -1047,7 +1063,7 @@ def api_delete_engagement(engagement_id: int):
 # BESPOKE REPORTS
 # =============================================================================
 
-@revenue_bp.route('/revenue/reports')
+@revenue_bp.route('/reports/revenue-reports')
 def reports_list():
     """List of available bespoke reports."""
     reports = [
@@ -1063,7 +1079,7 @@ def reports_list():
     return render_template('revenue_reports_list.html', reports=reports)
 
 
-@revenue_bp.route('/revenue/reports/new-synapse-users')
+@revenue_bp.route('/reports/new-synapse-users')
 def report_new_synapse_users():
     """Report: Customers who recently started using Azure Synapse Analytics."""
     has_revenue_data = SyncStatus.is_complete('revenue_import')
