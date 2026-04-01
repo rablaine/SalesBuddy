@@ -1488,9 +1488,9 @@ def import_stream():
                     name_parts = terr_name.split(".")
                     if len(name_parts) >= 4:
                         region = name_parts[0]
-                        suffix = name_parts[-1]
-                        if len(suffix) >= 2:
-                            pod_num = suffix[:2]
+                        territory_num = name_parts[3]
+                        if len(territory_num) >= 2:
+                            pod_num = territory_num[:2]
                             pod_name = f"{region} POD {pod_num}"
                     territory_info = {
                         "id": territory_id,

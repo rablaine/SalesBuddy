@@ -199,3 +199,55 @@ class TestGetAccountDetailsPodDerivation:
         result = get_account_details("acct-1")
         assert result["success"]
         assert result["pod"] == "East POD 06"
+
+
+class TestBulkImportPodParsing:
+    """Test the territory-to-POD parsing logic used in the bulk import route.
+
+    The import route in msx.py parses territory names inline (not via a shared
+    helper). These tests verify the same algorithm handles suffix variants.
+    """
+
+    @staticmethod
+    def _parse_pod_name(terr_name: str) -> str | None:
+        """Replicate the inline parsing logic from the bulk import route."""
+        name_parts = terr_name.split(".")
+        if len(name_parts) >= 4:
+            region = name_parts[0]
+            territory_num = name_parts[3]
+            if len(territory_num) >= 2:
+                pod_num = territory_num[:2]
+                return f"{region} POD {pod_num}"
+        return None
+
+    def test_standard_four_segment(self):
+        """East.SMECC.MAA.0601 -> East POD 06"""
+        assert self._parse_pod_name("East.SMECC.MAA.0601") == "East POD 06"
+
+    def test_five_segment_with_a_suffix(self):
+        """East.SMECC.HLA.0507.A -> East POD 05"""
+        assert self._parse_pod_name("East.SMECC.HLA.0507.A") == "East POD 05"
+
+    def test_five_segment_with_b_suffix(self):
+        """West.SMECC.XYZ.1201.B -> West POD 12"""
+        assert self._parse_pod_name("West.SMECC.XYZ.1201.B") == "West POD 12"
+
+    def test_five_segment_with_numeric_suffix(self):
+        """East.SMECC.ABC.0301.2 -> East POD 03"""
+        assert self._parse_pod_name("East.SMECC.ABC.0301.2") == "East POD 03"
+
+    def test_different_region(self):
+        """West.SMECC.DEF.0901 -> West POD 09"""
+        assert self._parse_pod_name("West.SMECC.DEF.0901") == "West POD 09"
+
+    def test_too_few_segments(self):
+        """East.SMECC.MAA -> None (fewer than 4 segments)"""
+        assert self._parse_pod_name("East.SMECC.MAA") is None
+
+    def test_short_territory_number(self):
+        """East.SMECC.MAA.5 -> None (territory num < 2 chars)"""
+        assert self._parse_pod_name("East.SMECC.MAA.5") is None
+
+    def test_issue_104_exact_case(self):
+        """East.SMECC.HLA.0507 -> East POD 05 (from issue #104)"""
+        assert self._parse_pod_name("East.SMECC.HLA.0507") == "East POD 05"
