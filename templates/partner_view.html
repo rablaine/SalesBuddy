@@ -522,17 +522,16 @@ function showScrapeReview(data) {
     // Notes
     if (data.overview) {
         var existingNotes = {{ partner.overview|tojson }};
+        var combinedText = existingNotes ? (existingNotes.trim() + '\n\n---\n\n' + data.overview) : data.overview;
         html += '<div class="card mb-3"><div class="card-body py-2">';
         html += '<div class="d-flex align-items-start gap-2">';
         html += '<input type="checkbox" class="form-check-input mt-1 flex-shrink-0" id="scrapeOverview" checked style="min-width: 1em;">';
         html += '<div class="flex-grow-1">';
         html += '<strong>Notes</strong>';
         if (existingNotes) {
-            html += '<div class="mb-2"><small class="text-muted">Current:</small>';
-            html += '<div class="small text-muted border rounded p-2" style="white-space: pre-wrap; max-height: 100px; overflow-y: auto;">' + esc(existingNotes) + '</div></div>';
-            html += '<small class="text-muted">New (editable - will replace current):</small>';
+            html += '<small class="text-muted d-block mb-1">Your existing notes are preserved above the separator. Edit as needed.</small>';
         }
-        html += '<textarea class="form-control form-control-sm mt-1" id="scrapeOverviewText" rows="3">' + esc(data.overview) + '</textarea>';
+        html += '<textarea class="form-control form-control-sm mt-1" id="scrapeOverviewText" rows="6">' + esc(combinedText) + '</textarea>';
         html += '</div></div></div></div>';
     }
 

@@ -337,6 +337,16 @@ def query_workiq(question: str, timeout: int = 120) -> str:
                 raise RuntimeError(f"WorkIQ query failed after EULA acceptance: {result.stderr}")
         
         logger.info(f"WorkIQ response received ({len(result.stdout)} chars)")
+
+        # Detect WorkIQ server errors returned as stdout with exit code 0
+        output = result.stdout.strip()
+        if output.startswith('Error:') or 'Server error:' in output:
+            logger.error(f"WorkIQ returned a server error: {output[:200]}")
+            raise RuntimeError(
+                "WorkIQ is experiencing server issues. Retrying now likely "
+                "won't help - try again later."
+            )
+
         return result.stdout
         
     except subprocess.TimeoutExpired:
