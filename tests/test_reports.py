@@ -30,7 +30,7 @@ class TestReportsHub:
         """Reports hub should link to revenue reports."""
         with app.app_context():
             resp = client.get('/reports')
-            assert b'Synapse Analytics' in resp.data
+            assert b'New Synapse Customers' in resp.data
 
 
 class TestOneOnOneReport:
@@ -665,3 +665,149 @@ class TestWhitespacePenetrationCustomers:
 
             assert len(data['with_spend']) == 0
             assert len(data['without_spend']) == 1
+
+
+class TestReportRoutes:
+    """Tests for report page routes and redirects."""
+
+    def test_hygiene_report_loads(self, client, app):
+        """Hygiene report should return 200."""
+        with app.app_context():
+            resp = client.get('/reports/hygiene')
+            assert resp.status_code == 200
+            assert b'Hygiene' in resp.data
+
+    def test_workload_report_loads(self, client, app):
+        """Workload report should return 200."""
+        with app.app_context():
+            resp = client.get('/reports/workload')
+            assert resp.status_code == 200
+            assert b'Workload' in resp.data
+
+    def test_whats_new_report_loads(self, client, app):
+        """What's New report should return 200."""
+        with app.app_context():
+            resp = client.get('/reports/whats-new')
+            assert resp.status_code == 200
+            assert b"What" in resp.data
+
+    def test_whitespace_report_loads(self, client, app):
+        """Whitespace report should return 200."""
+        with app.app_context():
+            resp = client.get('/reports/whitespace')
+            assert resp.status_code == 200
+            assert b'Whitespace' in resp.data
+
+    def test_milestone_tracker_loads(self, client, app):
+        """Milestone tracker should return 200 at /reports/milestone-tracker."""
+        with app.app_context():
+            resp = client.get('/reports/milestone-tracker')
+            assert resp.status_code == 200
+            assert b'Milestone Tracker' in resp.data
+
+    def test_revenue_dashboard_loads(self, client, app):
+        """Revenue dashboard should return 200 at /reports/revenue."""
+        with app.app_context():
+            resp = client.get('/reports/revenue')
+            assert resp.status_code == 200
+            assert b'Revenue Analyzer' in resp.data
+
+    def test_new_synapse_customers_loads(self, client, app):
+        """New Synapse Customers report should return 200."""
+        with app.app_context():
+            resp = client.get('/reports/new-synapse-users')
+            assert resp.status_code == 200
+            assert b'New Synapse Customers' in resp.data
+
+
+class TestReportRedirects:
+    """Tests for 301 redirects from old report URLs."""
+
+    def test_old_milestone_tracker_redirects(self, client, app):
+        """Old /milestone-tracker should 301 to /reports/milestone-tracker."""
+        with app.app_context():
+            resp = client.get('/milestone-tracker')
+            assert resp.status_code == 301
+            assert '/reports/milestone-tracker' in resp.headers['Location']
+
+    def test_old_revenue_redirects(self, client, app):
+        """Old /revenue should 301 to /reports/revenue."""
+        with app.app_context():
+            resp = client.get('/revenue')
+            assert resp.status_code == 301
+            assert '/reports/revenue' in resp.headers['Location']
+
+    def test_old_synapse_report_redirects(self, client, app):
+        """Old /revenue/reports/new-synapse-users should 301."""
+        with app.app_context():
+            resp = client.get('/revenue/reports/new-synapse-users')
+            assert resp.status_code == 301
+            assert '/reports/new-synapse-users' in resp.headers['Location']
+
+
+class TestReportExportPartial:
+    """Tests that report pages include the export buttons."""
+
+    def test_hygiene_has_export_buttons(self, client, app):
+        """Hygiene report should have CSV, Copy to Clipboard, and Email buttons."""
+        with app.app_context():
+            resp = client.get('/reports/hygiene')
+            assert b'exportReportCSV' in resp.data
+            assert b'copyReportForEmail' in resp.data
+            assert b'downloadReportEmail' in resp.data
+
+    def test_one_on_one_has_export_buttons(self, client, app):
+        """1:1 report should have export buttons."""
+        with app.app_context():
+            resp = client.get('/reports/one-on-one')
+            assert b'exportReportCSV' in resp.data
+            assert b'downloadReportEmail' in resp.data
+
+    def test_milestone_tracker_has_export_buttons(self, client, app):
+        """Milestone tracker should have export buttons."""
+        with app.app_context():
+            resp = client.get('/reports/milestone-tracker')
+            assert b'exportReportCSV' in resp.data
+            assert b'downloadReportEmail' in resp.data
+
+    def test_revenue_dashboard_has_export_buttons(self, client, app):
+        """Revenue dashboard should have export buttons."""
+        with app.app_context():
+            resp = client.get('/reports/revenue')
+            assert b'exportReportCSV' in resp.data
+            assert b'downloadReportEmail' in resp.data
+
+    def test_milestone_tracker_has_data_export_attributes(self, client, app, sample_data):
+        """Milestone tracker list should render data-export-url and data-export-bool."""
+        with app.app_context():
+            ms = Milestone(
+                title='Test Export MS',
+                url='https://msx.example.com/ms/123',
+                customer_id=sample_data['customer1_id'],
+                msx_status='On Track',
+                on_my_team=True,
+                due_date=datetime.now(timezone.utc) + timedelta(days=30),
+            )
+            db.session.add(ms)
+            db.session.commit()
+
+            resp = client.get('/reports/milestone-tracker')
+            assert b'data-export-url="https://msx.example.com/ms/123"' in resp.data
+            assert b'data-export-bool="true"' in resp.data
+
+    def test_milestone_tracker_has_skip_attributes(self, client, app, sample_data):
+        """Milestone tracker should mark favorites and MSX columns as export-skip."""
+        with app.app_context():
+            ms = Milestone(
+                title='Test Skip MS',
+                url='https://msx.example.com/ms/456',
+                customer_id=sample_data['customer1_id'],
+                on_my_team=False,
+                due_date=datetime.now(timezone.utc) + timedelta(days=10),
+            )
+            db.session.add(ms)
+            db.session.commit()
+
+            resp = client.get('/reports/milestone-tracker')
+            assert b'data-export-skip="always"' in resp.data
+            assert b'data-export-skip="if-links"' in resp.data
