@@ -15,6 +15,7 @@ import logging
 
 from app.models import db, AIQueryLog, Topic
 from app.gateway_client import gateway_call, GatewayError
+from app.services.copilot_tools import get_openai_tools, execute_tool
 
 logger = logging.getLogger(__name__)
 
@@ -732,4 +733,166 @@ def api_ai_recommend_partners():
         db.session.commit()
         logger.error(f"Partner recommendation gateway error: {e}")
         return jsonify({'success': False, 'error': str(e)}), 502
+
+
+# ---------------------------------------------------------------------------
+# POST /api/ai/chat — Copilot chat with tool calling
+# ---------------------------------------------------------------------------
+MAX_TOOL_ROUNDS = 3
+
+
+@ai_bp.route('/api/ai/chat', methods=['POST'])
+def api_ai_chat():
+    """Copilot chat endpoint.
+
+    Orchestrates a multi-turn conversation with tool calling:
+    1. Send user message + tool definitions to the gateway.
+    2. If the model requests tool calls, execute them locally.
+    3. Send tool results back for a final response.
+    4. Cap at MAX_TOOL_ROUNDS to prevent runaway chains.
+
+    Request body:
+        message (str): The user's message (max 2000 chars).
+        history (list): Previous messages [{role, content}, ...].
+        context (dict): Page context with required ``page`` field.
+
+    Returns:
+        reply (str): The assistant's final text response.
+        tools_used (list): Names of tools that were called.
+    """
+    data = request.get_json()
+    if not data:
+        return jsonify({'success': False, 'error': 'Request body is required'}), 400
+
+    message = (data.get('message') or '').strip()
+    if not message:
+        return jsonify({'success': False, 'error': 'message is required'}), 400
+    if len(message) > 2000:
+        return jsonify({
+            'success': False,
+            'error': 'Message too long (max 2000 characters)',
+        }), 400
+
+    context = data.get('context')
+    if not context or not isinstance(context, dict) or not context.get('page'):
+        return jsonify({
+            'success': False,
+            'error': 'context with page field is required',
+        }), 400
+
+    history = data.get('history') or []
+    if not isinstance(history, list):
+        history = []
+    # Truncate history to last 20 messages
+    history = history[-20:]
+
+    # Build messages array for the gateway
+    messages = list(history) + [{"role": "user", "content": message}]
+
+    tools = get_openai_tools()
+    tools_used = []
+    total_usage = {
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+    }
+
+    try:
+        for _round in range(MAX_TOOL_ROUNDS + 1):
+            result = gateway_call("/v1/chat", {
+                "messages": messages,
+                "tools": tools,
+                "context": context,
+            })
+
+            if not result.get("success"):
+                return jsonify({
+                    'success': False,
+                    'error': result.get('error', 'Gateway error'),
+                }), 502
+
+            # Accumulate token usage
+            usage = result.get("usage", {})
+            for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
+                total_usage[key] += usage.get(key, 0)
+            model = usage.get("model", "gateway")
+
+            assistant_msg = result.get("message", {})
+            tool_calls = assistant_msg.get("tool_calls")
+
+            if not tool_calls:
+                # No tool calls - we have the final response
+                reply = assistant_msg.get("content", "")
+                break
+            else:
+                # Execute tool calls locally
+                messages.append(assistant_msg)
+
+                for tc in tool_calls:
+                    func = tc.get("function", {})
+                    tool_name = func.get("name", "")
+                    try:
+                        tool_args = json.loads(func.get("arguments", "{}"))
+                    except json.JSONDecodeError:
+                        tool_args = {}
+
+                    tools_used.append(tool_name)
+
+                    try:
+                        tool_result = execute_tool(tool_name, tool_args)
+                        tool_content = json.dumps(
+                            tool_result, default=str
+                        )[:8000]
+                    except Exception as tool_exc:
+                        logger.warning(
+                            f"Tool {tool_name} failed: {tool_exc}"
+                        )
+                        tool_content = json.dumps({
+                            "error": f"Tool failed: {tool_exc}"
+                        })
+
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": tc.get("id", ""),
+                        "content": tool_content,
+                    })
+        else:
+            # Exhausted all rounds without a final response
+            reply = assistant_msg.get("content", "") or (
+                "I needed too many steps to answer that. "
+                "Could you try a more specific question?"
+            )
+
+        # Log the interaction
+        log_entry = AIQueryLog(
+            request_text=message[:1000],
+            response_text=(reply or "")[:1000],
+            success=True,
+            model=model,
+            prompt_tokens=total_usage.get("prompt_tokens"),
+            completion_tokens=total_usage.get("completion_tokens"),
+            total_tokens=total_usage.get("total_tokens"),
+        )
+        db.session.add(log_entry)
+        db.session.commit()
+
+        return jsonify({
+            'success': True,
+            'reply': reply,
+            'tools_used': tools_used,
+            'usage': total_usage,
+        })
+
+    except GatewayError as e:
+        log_entry = AIQueryLog(
+            request_text=message[:1000],
+            response_text='',
+            success=False,
+            error_message=str(e)[:500],
+        )
+        db.session.add(log_entry)
+        db.session.commit()
+        logger.error(f"Chat gateway error: {e}")
+        status = getattr(e, 'status_code', None) or 502
+        return jsonify({'success': False, 'error': str(e)}), status
 
