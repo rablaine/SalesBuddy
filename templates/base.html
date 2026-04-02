@@ -779,8 +779,9 @@
                     </button>
                     {% if config.DEBUG %}
                     <button class="btn btn-light" type="button" id="navCopilotChat"
-                            title="Copilot Chat (Ctrl+Shift+C)" aria-label="Toggle Copilot Chat">
-                        <i class="bi bi-chat-dots"></i>
+                            title="Copilot Chat (Ctrl+Shift+C)" aria-label="Toggle Copilot Chat"
+                            style="padding: 0.3rem 0.5rem;">
+                        <img src="{{ url_for('static', filename='copilot-icon.svg') }}" alt="Copilot" width="20" height="20">
                     </button>
                     {% endif %}
                     <div class="dropdown">
