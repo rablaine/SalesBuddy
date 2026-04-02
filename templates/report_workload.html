@@ -101,7 +101,7 @@
                 <tbody>
                     {% for cd in group.customers %}
                     <tr class="workload-row" data-note-date="{{ cd.latest_note_iso }}" data-acr="{{ cd.acr }}" data-milestone-ids="{{ cd.milestone_ids | join(',') }}">
-                        <td class="ps-3">
+                        <td class="ps-3"{% if cd.customer.tpid_url %} data-export-url="{{ cd.customer.tpid_url }}"{% endif %}>
                             {{ customer_favicon(cd.customer) }}
                             <a href="{{ url_for('customers.customer_view', id=cd.customer.id) }}" class="text-decoration-none">{{ cd.customer.name }}</a>
                             {% if cd.committed %}<span class="badge bg-primary ms-1" style="font-size: 0.7em;">Committed</span>{% endif %}

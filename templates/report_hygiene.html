@@ -97,7 +97,7 @@
                     <td>
                         <a href="{{ url_for('engagements.engagement_view', id=eng.id) }}">{{ eng.title }}</a>
                     </td>
-                    <td>
+                    <td{% if eng.customer and eng.customer.tpid_url %} data-export-url="{{ eng.customer.tpid_url }}"{% endif %}>
                         {% if eng.customer %}
                         <a href="{{ url_for('customers.customer_view', id=eng.customer_id) }}" class="text-decoration-none">{{ eng.customer.nickname or eng.customer.name }}</a>
                         {% endif %}
@@ -167,13 +167,13 @@
                 {% for ms in milestones_no_eng %}
                 <tr class="ms-row" data-on-team="{{ 'true' if ms.on_my_team else 'false' }}"
                     {% if not ms.on_my_team %}style="display: none;"{% endif %}>
-                    <td>
+                    <td data-export-url="{{ ms.url }}">
                         <a href="{{ url_for('milestones.milestone_view', id=ms.id) }}">{{ ms.title }}</a>
                         {% if ms.workload %}
                         <br><small class="text-muted">{{ ms.workload }}</small>
                         {% endif %}
                     </td>
-                    <td>
+                    <td{% if ms.customer and ms.customer.tpid_url %} data-export-url="{{ ms.customer.tpid_url }}"{% endif %}>
                         {% if ms.customer %}
                         <a href="{{ url_for('customers.customer_view', id=ms.customer_id) }}" class="text-decoration-none">{{ ms.customer.nickname or ms.customer.name }}</a>
                         {% endif %}

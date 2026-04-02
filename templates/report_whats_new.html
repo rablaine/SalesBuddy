@@ -81,7 +81,7 @@
                                     data-on-my-team="{{ 'true' if ms.on_my_team else 'false' }}"
                                     data-milestone-id="{{ ms.id }}"
                                     class="data-row">
-                                    <td class="ps-3">
+                                    <td class="ps-3" data-export-url="{{ ms.url }}">
                                         <small class="text-muted">{{ ms.customer.name if ms.customer else '' }}</small>
                                         {% if ms.msx_status %}
                                         <span class="badge ms-1
@@ -105,7 +105,7 @@
                                         {% set display_date = ms.msx_created_on or ms.created_at %}
                                         <span class="badge border text-body-secondary d-block" style="font-size: 0.8em; font-weight: normal;">{{ display_date.strftime('%b %d') }}</span>
                                     </td>
-                                    <td class="text-center">
+                                    <td class="text-center" data-export-bool="{{ 'true' if ms.on_my_team else 'false' }}">
                                         {% if ms.on_my_team %}
                                         <span class="badge bg-success" title="On team"><i class="bi bi-people-fill"></i></span>
                                         {% else %}
@@ -177,6 +177,7 @@
                                     data-change-types="{{ changes|join('|') }}"
                                     class="data-row">
                                     <td class="ps-3">
+                                    <td class="ps-3" data-export-url="{{ ms.url }}">
                                         <small class="text-muted">{{ ms.customer.name if ms.customer else '' }}</small>
                                         <br><a href="{{ url_for('milestones.milestone_view', id=ms.id) }}" class="text-decoration-none">{{ ms.display_text[:50] }}{% if ms.display_text|length > 50 %}...{% endif %}</a>
                                         {% if ms.msx_status %}
@@ -203,7 +204,7 @@
                                         {% set display_date = ms.msx_modified_on or ms.updated_at %}
                                         <span class="badge border text-body-secondary d-block" data-original-date="{{ display_date.strftime('%b %d') }}" style="font-size: 0.8em; font-weight: normal;">{{ display_date.strftime('%b %d') }}</span>
                                     </td>
-                                    <td class="text-center">
+                                    <td class="text-center" data-export-bool="{{ 'true' if ms.on_my_team else 'false' }}">
                                         {% if ms.on_my_team %}
                                         <span class="badge bg-success" title="On team"><i class="bi bi-people-fill"></i></span>
                                         {% else %}

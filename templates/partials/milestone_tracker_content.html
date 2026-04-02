@@ -163,7 +163,7 @@
 <!-- Milestones Table -->
 {% if milestones %}
 <div class="table-responsive">
-    <table class="table table-hover align-middle" data-role="milestonesTable">
+    <table class="table table-hover align-middle" id="msListTable" data-role="milestonesTable">
         <thead>
             <tr>
                 <th style="width: 22%;">Milestone</th>
@@ -176,8 +176,8 @@
                 <th style="width: 11%; cursor: pointer;" class="sortable" data-sort="due-date">Due Date <i class="bi bi-arrow-down-up text-muted small"></i></th>
                 <th style="width: 11%; cursor: pointer;" class="sortable text-end" data-sort="monthly">$ACR/mo <i class="bi bi-arrow-down-up text-muted small"></i></th>
                 <th style="width: 9%;">Workload</th>
-                <th style="width: 3%;" class="text-center" title="Favorites"><i class="bi bi-star text-muted small"></i></th>
-                <th style="width: 5%;" class="text-center">MSX</th>
+                <th style="width: 3%;" class="text-center" title="Favorites" data-export-skip="always"><i class="bi bi-star text-muted small"></i></th>
+                <th style="width: 5%;" class="text-center" data-export-skip="if-links">MSX</th>
             </tr>
         </thead>
         <tbody>
@@ -200,13 +200,18 @@
                 data-search="{{ ms.title|lower }} {{ ms.opportunity_name|lower if ms.opportunity_name else '' }} {{ ms.customer.name|lower if ms.customer else '' }} {{ ms.seller.name|lower if ms.seller else '' }} {{ ms.workload|lower if ms.workload else '' }}">
                 
                 <!-- Milestone Info -->
-                <td>
+                <td data-export-url="{{ ms.url }}">
                     <div class="fw-semibold">
                         {{ ms.title }}
                     </div>
                     {% if ms.opportunity_name %}
                         <div class="text-muted small">
-                            <i class="bi bi-cash-stack"></i> {{ ms.opportunity_name }}
+                            <i class="bi bi-cash-stack"></i>
+                            {% if ms.opportunity and ms.opportunity.msx_url %}
+                            <a href="{{ ms.opportunity.msx_url }}" class="text-muted text-decoration-none" data-export-url="{{ ms.opportunity.msx_url }}" onclick="event.stopPropagation();" target="_blank">{{ ms.opportunity_name }}</a>
+                            {% else %}
+                            {{ ms.opportunity_name }}
+                            {% endif %}
                         </div>
                     {% endif %}
                     {% if ms.milestone_number %}
@@ -217,7 +222,7 @@
                 </td>
                 
                 <!-- Team Status -->
-                <td class="text-center" onclick="event.stopPropagation();">
+                <td class="text-center" data-export-bool="{{ 'true' if ms.on_my_team else 'false' }}" onclick="event.stopPropagation();">
                     {% if ms.on_my_team %}
                     <span class="badge bg-success" title="On my team"><i class="bi bi-people-fill"></i></span>
                     {% elif ms.msx_milestone_id %}
@@ -231,7 +236,7 @@
                 </td>
                 
                 <!-- Customer -->
-                <td>
+                <td{% if ms.customer and ms.customer.tpid_url %} data-export-url="{{ ms.customer.tpid_url }}"{% endif %}>
                     {% if ms.customer %}
                         <a href="{{ url_for('customers.customer_view', id=ms.customer.id) }}" class="text-decoration-none" onclick="event.stopPropagation();">
                             {{ customer_favicon(ms.customer) }} {{ ms.customer.name }}
@@ -319,7 +324,7 @@
                 </td>
                 
                 <!-- Favorite -->
-                <td class="text-center" onclick="event.stopPropagation();">
+                <td class="text-center" data-export-skip="always" onclick="event.stopPropagation();">
                     <button class="btn btn-sm p-0 border-0 bg-transparent"
                             onclick="toggleMilestoneFavorite(this, {{ ms.id }})"
                             title="{% if ms.id in favorited_ms_ids %}Remove from favorites{% else %}Add to favorites{% endif %}">
@@ -328,7 +333,7 @@
                 </td>
                 
                 <!-- MSX Link -->
-                <td class="text-center">
+                <td class="text-center" data-export-skip="if-links">
                     {% if ms.url %}
                         <a href="{{ ms.url }}" target="_blank" class="btn btn-sm btn-external" title="Open in MSX" onclick="event.stopPropagation();">
                             <i class="bi bi-box-arrow-up-right"></i>

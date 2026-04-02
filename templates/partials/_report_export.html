@@ -27,11 +27,30 @@
     const CUSTOM_TITLE = '{{ export_title | default("", true) }}';
 
     /**
-     * Find all target tables. If the selector starts with # it's a single ID,
-     * otherwise treat it as a CSS selector that may match multiple tables.
+     * Find all target tables. Excludes tables inside modals or popovers
+     * (e.g. page-help tooltips) that happen to match the selector.
      */
     function getTables() {
-        return document.querySelectorAll(TABLE_SELECTOR);
+        return Array.from(document.querySelectorAll(TABLE_SELECTOR))
+            .filter(t => !t.closest('.modal, .popover'));
+    }
+
+    /**
+     * Determine which column indices to skip for a given table.
+     * - data-export-skip="always" columns are always excluded (e.g. favorites)
+     * - data-export-skip="if-links" columns are excluded when the table has
+     *   any data-export-url attributes (i.e. links are already inline)
+     */
+    function getSkipColumns(table) {
+        const skip = new Set();
+        const hasLinks = table.querySelector('[data-export-url]') !== null;
+        const headers = table.querySelectorAll('thead th');
+        headers.forEach((th, idx) => {
+            const rule = th.getAttribute('data-export-skip');
+            if (rule === 'always') skip.add(idx);
+            else if (rule === 'if-links' && hasLinks) skip.add(idx);
+        });
+        return skip;
     }
 
     /**
@@ -39,11 +58,12 @@
      * Skips cells that contain only icons or buttons (no meaningful text).
      */
     function tableToRows(table) {
+        const skip = getSkipColumns(table);
         const rows = [];
         // Headers
         const headerRow = [];
-        table.querySelectorAll('thead th').forEach(th => {
-            headerRow.push(cleanCellText(th));
+        table.querySelectorAll('thead th').forEach((th, idx) => {
+            if (!skip.has(idx)) headerRow.push(cleanCellText(th));
         });
         if (headerRow.length > 0) rows.push(headerRow);
 
@@ -53,8 +73,8 @@
             // Skip rows hidden by filters
             if (tr.style.display === 'none') return;
             const cells = [];
-            tr.querySelectorAll('td').forEach(td => {
-                cells.push(cleanCellText(td));
+            tr.querySelectorAll('td').forEach((td, idx) => {
+                if (!skip.has(idx)) cells.push(cleanCellText(td));
             });
             if (cells.length > 0) rows.push(cells);
         });
@@ -66,6 +86,10 @@
      * handle badges/spans, skip icon-only elements.
      */
     function cleanCellText(cell) {
+        // Boolean columns: render as Yes/blank for CSV
+        if (cell.hasAttribute('data-export-bool')) {
+            return cell.getAttribute('data-export-bool') === 'true' ? 'Yes' : '';
+        }
         // Clone to avoid modifying DOM
         const clone = cell.cloneNode(true);
         // Remove icon-only elements (bi-* icons, spinners)
@@ -125,8 +149,41 @@
     };
 
     /**
+     * Extract export-aware data from a cell for HTML export.
+     * Returns { text, url, isBool, boolValue } so the HTML builder
+     * can render links and checkmarks.
+     */
+    function cellExportInfo(cell) {
+        var info = { text: cleanCellText(cell), url: null, isBool: false, boolValue: false };
+
+        // Boolean columns: cell or inner element has data-export-bool
+        if (cell.hasAttribute('data-export-bool')) {
+            info.isBool = true;
+            info.boolValue = cell.getAttribute('data-export-bool') === 'true';
+            info.text = info.boolValue ? '\u2713' : '';
+            return info;
+        }
+
+        // Links: look for data-export-url on the cell itself or on child elements
+        var urlAttr = cell.getAttribute('data-export-url');
+        if (urlAttr) {
+            info.url = urlAttr;
+            return info;
+        }
+        // Check child elements (anchors or spans with data-export-url)
+        var linkedEl = cell.querySelector('[data-export-url]');
+        if (linkedEl) {
+            info.url = linkedEl.getAttribute('data-export-url');
+            // If the linked element has separate text, use what cleanCellText already got
+            return info;
+        }
+
+        return info;
+    }
+
+    /**
      * Copy table as formatted HTML to clipboard for pasting into
-     * Teams or Outlook. Preserves table structure and basic styling.
+     * Teams or Outlook. Preserves table structure, links, and basic styling.
      */
     window.copyReportForEmail = function() {
         const tables = getTables();
@@ -141,18 +198,45 @@
         html += '<p style="font-weight: 600; font-size: 16px; margin-bottom: 8px;">' + escapeHtml(title) + '</p>';
 
         tables.forEach(table => {
-            const rows = tableToRows(table);
-            if (rows.length === 0) return;
+            const headerCells = table.querySelectorAll('thead th');
+            const bodyRows = table.querySelectorAll('tbody tr');
+            if (headerCells.length === 0 && bodyRows.length === 0) return;
 
+            const skip = getSkipColumns(table);
             html += '<table style="border-collapse: collapse; width: 100%; font-size: 13px;">';
-            rows.forEach((row, rowIdx) => {
+
+            // Header row
+            if (headerCells.length > 0) {
                 html += '<tr>';
-                row.forEach(cell => {
-                    const tag = rowIdx === 0 ? 'th' : 'td';
-                    const style = rowIdx === 0
-                        ? 'background: #f0f0f0; font-weight: 600; padding: 6px 10px; border: 1px solid #ddd; text-align: left;'
-                        : 'padding: 5px 10px; border: 1px solid #ddd;';
-                    html += '<' + tag + ' style="' + style + '">' + escapeHtml(cell) + '</' + tag + '>';
+                headerCells.forEach((th, idx) => {
+                    if (skip.has(idx)) return;
+                    const style = 'background: #f0f0f0; font-weight: 600; padding: 6px 10px; border: 1px solid #ddd; text-align: left;';
+                    html += '<th style="' + style + '">' + escapeHtml(cleanCellText(th)) + '</th>';
+                });
+                html += '</tr>';
+            }
+
+            // Body rows (skip hidden)
+            bodyRows.forEach(tr => {
+                if (tr.style.display === 'none') return;
+                const cells = tr.querySelectorAll('td');
+                if (cells.length === 0) return;
+                html += '<tr>';
+                cells.forEach((td, idx) => {
+                    if (skip.has(idx)) return;
+                    const info = cellExportInfo(td);
+                    const style = 'padding: 5px 10px; border: 1px solid #ddd;';
+                    let content;
+                    if (info.isBool) {
+                        content = info.boolValue
+                            ? '<span style="color: #198754; font-weight: bold;">&#10003;</span>'
+                            : '';
+                    } else if (info.url) {
+                        content = '<a href="' + escapeHtml(info.url) + '" style="color: #0563C1; text-decoration: underline;">' + escapeHtml(info.text) + '</a>';
+                    } else {
+                        content = escapeHtml(info.text);
+                    }
+                    html += '<td style="' + style + '">' + content + '</td>';
                 });
                 html += '</tr>';
             });

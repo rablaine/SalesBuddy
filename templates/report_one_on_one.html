@@ -95,7 +95,7 @@
                             <tbody>
                                 {% for ms in milestone_commitments %}
                                 <tr>
-                                    <td class="ps-3">
+                                    <td class="ps-3" data-export-url="{{ ms.url }}">
                                         <small class="text-muted">{{ ms.customer.name if ms.customer else '' }}</small>
                                         <br><a href="{{ url_for('milestones.milestone_view', id=ms.id) }}" class="text-decoration-none">{{ ms.display_text[:45] }}{% if ms.display_text|length > 45 %}...{% endif %}</a>
                                         {% if ms.workload %}<br><small class="text-muted">{{ ms.workload }}</small>{% endif %}
@@ -249,7 +249,7 @@
                             <tbody>
                                 {% for ms in quarter_milestones %}
                                 <tr>
-                                    <td class="ps-3">
+                                    <td class="ps-3" data-export-url="{{ ms.url }}">
                                         <small class="text-muted">{{ ms.customer.name if ms.customer else '' }}</small>
                                         <br><a href="{{ url_for('milestones.milestone_view', id=ms.id) }}" class="text-decoration-none">{{ ms.display_text[:45] }}{% if ms.display_text|length > 45 %}...{% endif %}</a>
                                         {% if ms.workload %}<br><small class="text-muted">{{ ms.workload }}</small>{% endif %}
