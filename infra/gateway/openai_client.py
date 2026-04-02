@@ -85,3 +85,67 @@ def chat_completion(
         "total_tokens": response.usage.total_tokens if response.usage else 0,
     }
     return {"text": text.strip(), "usage": usage}
+
+
+def chat_completion_with_tools(
+    messages: list[dict],
+    tools: list[dict] | None = None,
+    max_tokens: int = 2000,
+    deployment: str | None = None,
+    temperature: float | None = None,
+) -> dict:
+    """Make a chat completion call with tool-calling support.
+
+    Args:
+        messages: Full messages array (system, user, assistant, tool).
+        tools: OpenAI function-calling tool definitions.
+        max_tokens: Maximum tokens for the completion.
+        deployment: Override deployment name.
+        temperature: Override temperature.
+
+    Returns:
+        dict with keys:
+            - ``message``: The assistant's response message dict
+              (content, tool_calls, role).
+            - ``usage``: Token usage dict.
+    """
+    client = get_client()
+    model = deployment or get_deployment()
+
+    kwargs: dict = {
+        "messages": messages,
+        "max_tokens": max_tokens,
+        "model": model,
+    }
+    if tools:
+        kwargs["tools"] = tools
+    if temperature is not None:
+        kwargs["temperature"] = temperature
+
+    response = client.chat.completions.create(**kwargs)
+
+    msg = response.choices[0].message
+    result_message: dict = {"role": "assistant", "content": msg.content or ""}
+
+    if msg.tool_calls:
+        result_message["tool_calls"] = [
+            {
+                "id": tc.id,
+                "type": "function",
+                "function": {
+                    "name": tc.function.name,
+                    "arguments": tc.function.arguments,
+                },
+            }
+            for tc in msg.tool_calls
+        ]
+
+    usage = {
+        "model": response.model or model,
+        "prompt_tokens": response.usage.prompt_tokens if response.usage else 0,
+        "completion_tokens": (
+            response.usage.completion_tokens if response.usage else 0
+        ),
+        "total_tokens": response.usage.total_tokens if response.usage else 0,
+    }
+    return {"message": result_message, "usage": usage}

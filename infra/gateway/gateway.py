@@ -16,7 +16,7 @@ import re
 from flask import Flask, request, jsonify
 from flask_socketio import SocketIO
 
-from openai_client import chat_completion, get_connect_deployment
+from openai_client import chat_completion, chat_completion_with_tools, get_connect_deployment
 from prompts import (
     TOPIC_SUGGESTION_PROMPT,
     AZURE_ABBREVIATION_MAP,
@@ -32,6 +32,7 @@ from prompts import (
     CONNECT_USER_PROMPT_SYNTHESIS,
     ENGAGEMENT_STORY_PROMPT,
     PARTNER_RECOMMENDATION_PROMPT,
+    CHAT_SYSTEM_PROMPT,
 )
 
 # ---------------------------------------------------------------------------
@@ -628,6 +629,105 @@ def connect_summary():
 
     except Exception as exc:
         logger.exception("connect-summary error")
+        return _error(f"Internal error: {exc}", 500)
+
+
+# ---------------------------------------------------------------------------
+# POST /v1/chat — Copilot chat with tool calling
+# ---------------------------------------------------------------------------
+MAX_CHAT_HISTORY = 20
+MAX_MESSAGE_LENGTH = 2000
+MAX_TOOL_ROUNDS = 3
+VALID_PAGES = {
+    "customer_view", "engagement_view", "milestone_view", "milestone_tracker",
+    "note_view", "note_form", "notes_list", "customers_list",
+    "engagements_hub", "opportunity_view", "partner_view", "partners_list",
+    "revenue_dashboard", "revenue_customer_view", "reports_hub",
+    "report_workload", "report_hygiene", "report_whats_new",
+    "report_whitespace", "report_one_on_one", "pods_list", "pod_view",
+    "sellers_list", "seller_view", "index", "analytics",
+    "fill_my_day", "milestones_list",
+}
+
+
+@app.route("/v1/chat", methods=["POST"])
+def chat():
+    """Copilot chat endpoint with tool-calling support.
+
+    The gateway constructs the system prompt server-side (callers cannot
+    override it). Tool definitions are passed through from the Flask app.
+    The gateway does NOT execute tools - it returns tool_calls for the
+    Flask app to execute, then accepts tool results in follow-up requests.
+    """
+    try:
+        body = request.get_json(force=True)
+
+        # --- Validate context (abuse prevention) ---
+        context = body.get("context")
+        if not context or not isinstance(context, dict):
+            return _error("context is required", 400)
+        page = context.get("page", "")
+        if page not in VALID_PAGES:
+            return _error(f"Invalid context page: {page}", 400)
+
+        # --- Validate messages ---
+        messages = body.get("messages")
+        if not messages or not isinstance(messages, list):
+            return _error("messages array is required", 400)
+
+        # Check the last user message length
+        user_msgs = [m for m in messages if m.get("role") == "user"]
+        if user_msgs:
+            last_user = user_msgs[-1].get("content", "")
+            if len(last_user) > MAX_MESSAGE_LENGTH:
+                return _error(
+                    f"Message too long (max {MAX_MESSAGE_LENGTH} chars)", 400
+                )
+
+        # Truncate history (keep system + last N messages)
+        if len(messages) > MAX_CHAT_HISTORY + 1:
+            # Keep first message (system) and last MAX_CHAT_HISTORY
+            messages = [messages[0]] + messages[-(MAX_CHAT_HISTORY):]
+
+        # --- Build system prompt with page context ---
+        context_line = f"The user is currently on the '{page}' page."
+        if context.get("customer_name"):
+            context_line += f" Customer: {context['customer_name']}"
+            if context.get("customer_id"):
+                context_line += f" (ID: {context['customer_id']})"
+        if context.get("engagement_name"):
+            context_line += f" Engagement: {context['engagement_name']}"
+        if context.get("milestone_name"):
+            context_line += f" Milestone: {context['milestone_name']}"
+        if context.get("seller_name"):
+            context_line += f" Seller: {context['seller_name']}"
+
+        system_prompt = CHAT_SYSTEM_PROMPT + "\n" + context_line
+
+        # Prepend server-constructed system prompt (replace any caller-supplied one)
+        messages = [
+            {"role": "system", "content": system_prompt}
+        ] + [m for m in messages if m.get("role") != "system"]
+
+        # --- Tools ---
+        tools = body.get("tools")
+
+        # --- Call Azure OpenAI ---
+        result = chat_completion_with_tools(
+            messages=messages,
+            tools=tools if tools else None,
+            max_tokens=2000,
+            temperature=0.3,
+        )
+
+        return jsonify({
+            "success": True,
+            "message": result["message"],
+            "usage": result["usage"],
+        })
+
+    except Exception as exc:
+        logger.exception("chat error")
         return _error(f"Internal error: {exc}", 500)
 
 
