@@ -257,7 +257,7 @@ class TestQueryScoping:
         seller1_id = sample_data['seller1_id']
         client.post(f'/api/seller-mode/activate/{seller1_id}')
 
-        response = client.get('/revenue')
+        response = client.get('/reports/revenue')
         assert response.status_code == 200
 
 

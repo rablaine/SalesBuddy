@@ -4,14 +4,16 @@
 {% block title %}Workload Report - Sales Buddy{% endblock %}
 
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-3">
+<div class="d-flex justify-content-between align-items-start mb-3">
     <div>
         <h2><i class="bi bi-diagram-3"></i> Workload Report</h2>
         <p class="text-muted mb-0">Customers grouped by workload topic. Click a topic to expand.</p>
     </div>
-    <a href="{{ url_for('reports.reports_hub') }}" class="btn btn-sm btn-outline-secondary">
-        <i class="bi bi-arrow-left"></i> Reports
-    </a>
+    <div class="d-flex gap-2">
+        {% set export_table_id = 'table.table' %}
+        {% set export_filename = 'workload-report' %}
+        {% include 'partials/_report_export.html' %}
+    </div>
 </div>
 
 <!-- Date Filters -->
@@ -99,7 +101,7 @@
                 <tbody>
                     {% for cd in group.customers %}
                     <tr class="workload-row" data-note-date="{{ cd.latest_note_iso }}" data-acr="{{ cd.acr }}" data-milestone-ids="{{ cd.milestone_ids | join(',') }}">
-                        <td class="ps-3">
+                        <td class="ps-3"{% if cd.customer.tpid_url %} data-export-url="{{ cd.customer.tpid_url }}"{% endif %}>
                             {{ customer_favicon(cd.customer) }}
                             <a href="{{ url_for('customers.customer_view', id=cd.customer.id) }}" class="text-decoration-none">{{ cd.customer.name }}</a>
                             {% if cd.committed %}<span class="badge bg-primary ms-1" style="font-size: 0.7em;">Committed</span>{% endif %}

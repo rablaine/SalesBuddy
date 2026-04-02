@@ -39,9 +39,9 @@
     </div>
 </div>
 {% endif %}
-<div class="d-flex justify-content-between align-items-center mb-4">
+<div class="d-flex justify-content-between align-items-start mb-3">
     <div>
-        <h1 class="mb-0"><i class="bi bi-flag-fill text-success"></i> Milestone Tracker</h1>
+        <h2><i class="bi bi-flag-fill text-success"></i> Milestone Tracker</h2>
         <p class="text-muted mb-0">
             Active milestones across all customers
             {% if last_sync %}
@@ -49,11 +49,15 @@
             {% endif %}
         </p>
     </div>
-    <div>
-        <button id="syncBtn" class="btn btn-primary" onclick="syncMilestones()">
+    <div class="d-flex flex-column align-items-end gap-1">
+        <div class="d-flex gap-2">
+            {% set export_table_id = '#msListTable' %}
+            {% set export_filename = 'milestone-tracker' %}
+            {% include 'partials/_report_export.html' %}
+        </div>
+        <button id="syncBtn" class="btn btn-sm btn-primary" onclick="syncMilestones()">
             <i class="bi bi-arrow-repeat"></i> Sync from MSX
         </button>
-        <p class="text-muted small mb-0 mt-1 text-end">Usually takes about 3 minutes</p>
     </div>
 </div>
 

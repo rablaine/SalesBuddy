@@ -3,47 +3,51 @@
 
 {% block content %}
 <div class="container-fluid mt-4">
-    <div class="d-flex justify-content-between align-items-center mb-3">
+    <div class="d-flex justify-content-between align-items-start mb-3">
         <div>
             <h2><i class="bi bi-megaphone"></i> What's New</h2>
             <p class="text-muted mb-0">Milestones created or updated in the last {{ days }} days.</p>
         </div>
-        <div class="d-flex align-items-center gap-2">
-            <label class="form-label mb-0 text-nowrap"><i class="bi bi-funnel"></i></label>
-            <select class="form-select form-select-sm" id="daysFilter" style="width: auto;" onchange="changeDays(this.value)">
-                <option value="1" {% if days == 1 %}selected{% endif %}>Today</option>
-                <option value="3" {% if days == 3 %}selected{% endif %}>3 days</option>
-                <option value="7" {% if days == 7 %}selected{% endif %}>7 days</option>
-                <option value="14" {% if days == 14 %}selected{% endif %}>14 days</option>
-                <option value="30" {% if days == 30 %}selected{% endif %}>30 days</option>
-                <option value="60" {% if days == 60 %}selected{% endif %}>60 days</option>
-                <option value="90" {% if days == 90 %}selected{% endif %}>90 days</option>
-            </select>
-            {% if user_role != 'dss' %}
-            <select class="form-select form-select-sm" id="sellerFilter" style="width: auto;" onchange="applyFilters()">
-                <option value="">All Sellers</option>
-                {% for seller in sellers %}
-                <option value="{{ seller.id }}" {% if seller_mode_sid and seller_mode_sid == seller.id %}selected{% endif %}>{{ seller.name }}</option>
-                {% endfor %}
-            </select>
-            {% endif %}
-            <select class="form-select form-select-sm" id="areaFilter" style="width: auto;" onchange="applyFilters()">
-                <option value="">All Areas</option>
-                {% for area in areas %}
-                <option value="{{ area }}">{{ area }}</option>
-                {% endfor %}
-            </select>
-            <select class="form-select form-select-sm" id="teamFilter" style="width: auto;" onchange="applyFilters()">
-                <option value="">All Team</option>
-                <option value="on">On Team</option>
-                <option value="off">Off Team</option>
-            </select>
-            <button type="button" class="btn btn-sm btn-outline-secondary" id="groupByBtn" onclick="toggleGroupBy()" title="Group by seller/customer">
-                <i class="bi bi-list-nested"></i> Group
-            </button>
-            <a href="{{ url_for('reports.reports_hub') }}" class="btn btn-outline-secondary btn-sm">
-                <i class="bi bi-arrow-left"></i> All Reports
-            </a>
+        <div class="d-flex flex-column align-items-end gap-1">
+            <div class="d-flex gap-2">
+                {% set export_table_id = 'table.table' %}
+                {% set export_filename = 'whats-new-report' %}
+                {% include 'partials/_report_export.html' %}
+            </div>
+            <div class="d-flex align-items-center gap-2">
+                <label class="form-label mb-0 text-nowrap"><i class="bi bi-funnel"></i></label>
+                <select class="form-select form-select-sm" id="daysFilter" style="width: auto;" onchange="changeDays(this.value)">
+                    <option value="1" {% if days == 1 %}selected{% endif %}>Today</option>
+                    <option value="3" {% if days == 3 %}selected{% endif %}>3 days</option>
+                    <option value="7" {% if days == 7 %}selected{% endif %}>7 days</option>
+                    <option value="14" {% if days == 14 %}selected{% endif %}>14 days</option>
+                    <option value="30" {% if days == 30 %}selected{% endif %}>30 days</option>
+                    <option value="60" {% if days == 60 %}selected{% endif %}>60 days</option>
+                    <option value="90" {% if days == 90 %}selected{% endif %}>90 days</option>
+                </select>
+                {% if user_role != 'dss' %}
+                <select class="form-select form-select-sm" id="sellerFilter" style="width: auto;" onchange="applyFilters()">
+                    <option value="">All Sellers</option>
+                    {% for seller in sellers %}
+                    <option value="{{ seller.id }}" {% if seller_mode_sid and seller_mode_sid == seller.id %}selected{% endif %}>{{ seller.name }}</option>
+                    {% endfor %}
+                </select>
+                {% endif %}
+                <select class="form-select form-select-sm" id="areaFilter" style="width: auto;" onchange="applyFilters()">
+                    <option value="">All Areas</option>
+                    {% for area in areas %}
+                    <option value="{{ area }}">{{ area }}</option>
+                    {% endfor %}
+                </select>
+                <select class="form-select form-select-sm" id="teamFilter" style="width: auto;" onchange="applyFilters()">
+                    <option value="">All Team</option>
+                    <option value="on">On Team</option>
+                    <option value="off">Off Team</option>
+                </select>
+                <button type="button" class="btn btn-sm btn-outline-secondary" id="groupByBtn" onclick="toggleGroupBy()" title="Group by seller/customer">
+                    <i class="bi bi-list-nested"></i> Group
+                </button>
+            </div>
         </div>
     </div>
 
@@ -77,7 +81,7 @@
                                     data-on-my-team="{{ 'true' if ms.on_my_team else 'false' }}"
                                     data-milestone-id="{{ ms.id }}"
                                     class="data-row">
-                                    <td class="ps-3">
+                                    <td class="ps-3" data-export-url="{{ ms.url }}">
                                         <small class="text-muted">{{ ms.customer.name if ms.customer else '' }}</small>
                                         {% if ms.msx_status %}
                                         <span class="badge ms-1
@@ -101,7 +105,7 @@
                                         {% set display_date = ms.msx_created_on or ms.created_at %}
                                         <span class="badge border text-body-secondary d-block" style="font-size: 0.8em; font-weight: normal;">{{ display_date.strftime('%b %d') }}</span>
                                     </td>
-                                    <td class="text-center">
+                                    <td class="text-center" data-export-bool="{{ 'true' if ms.on_my_team else 'false' }}">
                                         {% if ms.on_my_team %}
                                         <span class="badge bg-success" title="On team"><i class="bi bi-people-fill"></i></span>
                                         {% else %}
@@ -173,6 +177,7 @@
                                     data-change-types="{{ changes|join('|') }}"
                                     class="data-row">
                                     <td class="ps-3">
+                                    <td class="ps-3" data-export-url="{{ ms.url }}">
                                         <small class="text-muted">{{ ms.customer.name if ms.customer else '' }}</small>
                                         <br><a href="{{ url_for('milestones.milestone_view', id=ms.id) }}" class="text-decoration-none">{{ ms.display_text[:50] }}{% if ms.display_text|length > 50 %}...{% endif %}</a>
                                         {% if ms.msx_status %}
@@ -199,7 +204,7 @@
                                         {% set display_date = ms.msx_modified_on or ms.updated_at %}
                                         <span class="badge border text-body-secondary d-block" data-original-date="{{ display_date.strftime('%b %d') }}" style="font-size: 0.8em; font-weight: normal;">{{ display_date.strftime('%b %d') }}</span>
                                     </td>
-                                    <td class="text-center">
+                                    <td class="text-center" data-export-bool="{{ 'true' if ms.on_my_team else 'false' }}">
                                         {% if ms.on_my_team %}
                                         <span class="badge bg-success" title="On team"><i class="bi bi-people-fill"></i></span>
                                         {% else %}

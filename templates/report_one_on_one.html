@@ -7,14 +7,16 @@
     [aria-expanded="true"] .collapse-chevron { transform: rotate(90deg); }
 </style>
 <div class="container-fluid mt-4">
-    <div class="d-flex justify-content-between align-items-center mb-3">
+    <div class="d-flex justify-content-between align-items-start mb-3">
         <div>
             <h2><i class="bi bi-chat-left-text"></i> 1:1 Manager / SE Report</h2>
             <p class="text-muted mb-0">Meeting prep view showing active engagements and recent activity.</p>
         </div>
-        <a href="{{ url_for('reports.reports_hub') }}" class="btn btn-outline-secondary btn-sm">
-            <i class="bi bi-arrow-left"></i> All Reports
-        </a>
+        <div class="d-flex gap-2">
+            {% set export_table_id = 'table.table' %}
+            {% set export_filename = 'one-on-one-report' %}
+            {% include 'partials/_report_export.html' %}
+        </div>
     </div>
 
     <!-- Stats summary -->
@@ -93,7 +95,7 @@
                             <tbody>
                                 {% for ms in milestone_commitments %}
                                 <tr>
-                                    <td class="ps-3">
+                                    <td class="ps-3" data-export-url="{{ ms.url }}">
                                         <small class="text-muted">{{ ms.customer.name if ms.customer else '' }}</small>
                                         <br><a href="{{ url_for('milestones.milestone_view', id=ms.id) }}" class="text-decoration-none">{{ ms.display_text[:45] }}{% if ms.display_text|length > 45 %}...{% endif %}</a>
                                         {% if ms.workload %}<br><small class="text-muted">{{ ms.workload }}</small>{% endif %}
@@ -247,7 +249,7 @@
                             <tbody>
                                 {% for ms in quarter_milestones %}
                                 <tr>
-                                    <td class="ps-3">
+                                    <td class="ps-3" data-export-url="{{ ms.url }}">
                                         <small class="text-muted">{{ ms.customer.name if ms.customer else '' }}</small>
                                         <br><a href="{{ url_for('milestones.milestone_view', id=ms.id) }}" class="text-decoration-none">{{ ms.display_text[:45] }}{% if ms.display_text|length > 45 %}...{% endif %}</a>
                                         {% if ms.workload %}<br><small class="text-muted">{{ ms.workload }}</small>{% endif %}

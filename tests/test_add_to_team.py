@@ -508,7 +508,7 @@ class TestMilestoneTrackerTeamColumn:
             "areas": [],
             "quarters": [],
         }
-        resp = client.get('/milestone-tracker')
+        resp = client.get('/reports/milestone-tracker')
         assert resp.status_code == 200
         html = resp.data.decode()
         assert '>Team<' in html
@@ -524,7 +524,7 @@ class TestMilestoneTrackerTeamColumn:
             "areas": [],
             "quarters": [],
         }
-        resp = client.get('/milestone-tracker')
+        resp = client.get('/reports/milestone-tracker')
         assert resp.status_code == 200
         html = resp.data.decode()
         assert 'bi-people-fill' in html
@@ -540,7 +540,7 @@ class TestMilestoneTrackerTeamColumn:
             "areas": [],
             "quarters": [],
         }
-        resp = client.get('/milestone-tracker')
+        resp = client.get('/reports/milestone-tracker')
         assert resp.status_code == 200
         html = resp.data.decode()
         assert 'joinTrackerTeam' in html
@@ -556,7 +556,7 @@ class TestMilestoneTrackerTeamColumn:
             "areas": [],
             "quarters": [],
         }
-        resp = client.get('/milestone-tracker')
+        resp = client.get('/reports/milestone-tracker')
         assert resp.status_code == 200
         html = resp.data.decode()
         # Should NOT have a join button in any table cell

@@ -14,7 +14,7 @@ class TestMilestoneTrackerButtons:
 
     def test_top_sync_button_always_enabled(self, client, app):
         """Top Sync from MSX button should always be active."""
-        response = client.get('/milestone-tracker')
+        response = client.get('/reports/milestone-tracker')
         assert response.status_code == 200
         html = response.data.decode()
         assert 'onclick="syncMilestones()"' in html
@@ -22,7 +22,7 @@ class TestMilestoneTrackerButtons:
 
     def test_bottom_sync_button_always_enabled(self, client, app):
         """Bottom Sync from MSX button (empty state) should always be active."""
-        response = client.get('/milestone-tracker')
+        response = client.get('/reports/milestone-tracker')
         assert response.status_code == 200
         html = response.data.decode()
         assert 'id="syncBtnEmpty"' in html
@@ -33,7 +33,7 @@ class TestRevenueDashboardButtons:
 
     def test_top_buttons_always_enabled(self, client, app):
         """Top Import Data and Re-analyze buttons should always be active."""
-        response = client.get('/revenue')
+        response = client.get('/reports/revenue')
         assert response.status_code == 200
         html = response.data.decode()
         assert 'Import accounts</a> first' not in html
@@ -42,7 +42,7 @@ class TestRevenueDashboardButtons:
 
     def test_bottom_import_button_always_enabled(self, client, app):
         """Bottom Import Data button (empty state) should always link to import."""
-        response = client.get('/revenue')
+        response = client.get('/reports/revenue')
         assert response.status_code == 200
         html = response.data.decode()
         assert '/revenue/import' in html

@@ -308,7 +308,7 @@ class TestRevenueRoutes:
     
     def test_revenue_dashboard_empty(self, client):
         """Test dashboard with no data."""
-        response = client.get('/revenue')
+        response = client.get('/reports/revenue')
         assert response.status_code == 200
         assert b'Revenue Analyzer' in response.data
     
@@ -554,7 +554,7 @@ class TestReviewAPI:
 
     def test_dashboard_shows_review_column(self, app, client, test_user):
         """Dashboard table has the Status column header."""
-        resp = client.get('/revenue')
+        resp = client.get('/reports/revenue')
         assert resp.status_code == 200
         assert b'Status' in resp.data
 

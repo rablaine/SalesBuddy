@@ -46,7 +46,7 @@ class TestMsxAuthBannerPresence:
         """Test that Milestone Tracker page includes the MSX auth banner."""
         with app.app_context():
             self._dismiss_onboarding(app)
-            response = client.get('/milestone-tracker')
+            response = client.get('/reports/milestone-tracker')
             assert response.status_code == 200
             soup = BeautifulSoup(response.data, 'html.parser')
             banner = soup.find(id='msxAuthBanner')

@@ -1,0 +1,408 @@
+{#
+    Reusable report export & share component.
+
+    Drop this into any report page to add CSV download and copy-for-Teams/Email buttons.
+
+    Required variable:
+        export_table_id  - the DOM id of the <table> to export (or CSS selector)
+        export_filename  - base filename for CSV download (e.g. "workload-report")
+
+    Optional variables:
+        export_title     - title shown in the copied HTML (defaults to page <h2> text)
+#}
+
+<div class="btn-group btn-group-sm" role="group" id="reportExportBtnGroup">
+    <button type="button" class="btn btn-outline-secondary" onclick="exportReportCSV()" title="Download as CSV">
+        <i class="bi bi-filetype-csv"></i> CSV
+    </button>
+    <button type="button" class="btn btn-outline-secondary" onclick="copyReportForEmail()" title="Copy table for pasting into Teams or Outlook email">
+        <i class="bi bi-clipboard"></i> Copy to Clipboard
+    </button>
+    <button type="button" class="btn btn-outline-secondary" onclick="downloadReportEmail()" title="Download .eml file to open in Outlook as a ready-to-send email">
+        <i class="bi bi-envelope"></i> Email
+    </button>
+</div>
+
+<script>
+(function() {
+    const TABLE_SELECTOR = '{{ export_table_id }}';
+    const FILENAME = '{{ export_filename | default("report", true) }}';
+    const CUSTOM_TITLE = '{{ export_title | default("", true) }}';
+
+    /**
+     * Find all target tables. Excludes tables inside modals or popovers
+     * (e.g. page-help tooltips) that happen to match the selector.
+     */
+    function getTables() {
+        return Array.from(document.querySelectorAll(TABLE_SELECTOR))
+            .filter(t => !t.closest('.modal, .popover'));
+    }
+
+    /**
+     * Determine which column indices to skip for a given table.
+     * - data-export-skip="always" columns are always excluded (e.g. favorites)
+     * - data-export-skip="if-links" columns are excluded when the table has
+     *   any data-export-url attributes (i.e. links are already inline)
+     */
+    function getSkipColumns(table) {
+        const skip = new Set();
+        const hasLinks = table.querySelector('[data-export-url]') !== null;
+        const headers = table.querySelectorAll('thead th');
+        headers.forEach((th, idx) => {
+            const rule = th.getAttribute('data-export-skip');
+            if (rule === 'always') skip.add(idx);
+            else if (rule === 'if-links' && hasLinks) skip.add(idx);
+        });
+        return skip;
+    }
+
+    /**
+     * Extract a 2D array of cell text from a table element.
+     * Skips cells that contain only icons or buttons (no meaningful text).
+     */
+    function tableToRows(table) {
+        const skip = getSkipColumns(table);
+        const rows = [];
+        // Headers
+        const headerRow = [];
+        table.querySelectorAll('thead th').forEach((th, idx) => {
+            if (!skip.has(idx)) headerRow.push(cleanCellText(th));
+        });
+        if (headerRow.length > 0) rows.push(headerRow);
+
+        // Body rows (skip hidden rows)
+        table.querySelectorAll('tbody tr').forEach(tr => {
+            if (tr.offsetParent === null && !tr.closest('.collapse.show') && tr.style.display === 'none') return;
+            // Skip rows hidden by filters
+            if (tr.style.display === 'none') return;
+            const cells = [];
+            tr.querySelectorAll('td').forEach((td, idx) => {
+                if (!skip.has(idx)) cells.push(cleanCellText(td));
+            });
+            if (cells.length > 0) rows.push(cells);
+        });
+        return rows;
+    }
+
+    /**
+     * Clean cell text: strip extra whitespace, pull text content,
+     * handle badges/spans, skip icon-only elements.
+     */
+    function cleanCellText(cell) {
+        // Boolean columns: render as Yes/blank for CSV
+        if (cell.hasAttribute('data-export-bool')) {
+            return cell.getAttribute('data-export-bool') === 'true' ? 'Yes' : '';
+        }
+        // Clone to avoid modifying DOM
+        const clone = cell.cloneNode(true);
+        // Remove icon-only elements (bi-* icons, spinners)
+        clone.querySelectorAll('i.bi, .spinner-border').forEach(el => el.remove());
+        // Remove buttons that aren't text content
+        clone.querySelectorAll('button, .btn-close').forEach(el => el.remove());
+        // Get text, collapse whitespace
+        let text = (clone.textContent || '').replace(/\s+/g, ' ').trim();
+        // Strip currency symbols for cleaner CSV (keep the number)
+        return text;
+    }
+
+    /**
+     * Convert 2D array to CSV string.
+     */
+    function rowsToCSV(rows) {
+        return rows.map(row =>
+            row.map(cell => {
+                // Quote cells that contain commas, quotes, or newlines
+                if (cell.includes(',') || cell.includes('"') || cell.includes('\n')) {
+                    return '"' + cell.replace(/"/g, '""') + '"';
+                }
+                return cell;
+            }).join(',')
+        ).join('\r\n');
+    }
+
+    /**
+     * Download CSV export of all visible report tables.
+     */
+    window.exportReportCSV = function() {
+        const tables = getTables();
+        if (tables.length === 0) {
+            showExportToast('No table data to export.', 'warning');
+            return;
+        }
+        let allRows = [];
+        tables.forEach((table, idx) => {
+            if (idx > 0 && allRows.length > 0) allRows.push([]); // blank line between tables
+            allRows = allRows.concat(tableToRows(table));
+        });
+        if (allRows.length <= 1) {
+            showExportToast('No data rows to export.', 'warning');
+            return;
+        }
+        const csv = rowsToCSV(allRows);
+        const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' }); // BOM for Excel
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = FILENAME + '.csv';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        showExportToast('CSV downloaded.', 'success');
+    };
+
+    /**
+     * Extract export-aware data from a cell for HTML export.
+     * Returns { text, url, isBool, boolValue } so the HTML builder
+     * can render links and checkmarks.
+     */
+    function cellExportInfo(cell) {
+        var info = { text: cleanCellText(cell), url: null, isBool: false, boolValue: false };
+
+        // Boolean columns: cell or inner element has data-export-bool
+        if (cell.hasAttribute('data-export-bool')) {
+            info.isBool = true;
+            info.boolValue = cell.getAttribute('data-export-bool') === 'true';
+            info.text = info.boolValue ? '\u2713' : '';
+            return info;
+        }
+
+        // Links: look for data-export-url on the cell itself or on child elements
+        var urlAttr = cell.getAttribute('data-export-url');
+        if (urlAttr) {
+            info.url = urlAttr;
+            return info;
+        }
+        // Check child elements (anchors or spans with data-export-url)
+        var linkedEl = cell.querySelector('[data-export-url]');
+        if (linkedEl) {
+            info.url = linkedEl.getAttribute('data-export-url');
+            // If the linked element has separate text, use what cleanCellText already got
+            return info;
+        }
+
+        return info;
+    }
+
+    /**
+     * Build styled HTML string from all visible report tables.
+     * Shared by copyReportForEmail and downloadReportEmail.
+     */
+    function buildReportHtml() {
+        const tables = getTables();
+        if (tables.length === 0) return null;
+
+        const title = CUSTOM_TITLE || document.querySelector('h2')?.textContent?.trim() || 'Report';
+
+        let html = '<div style="font-family: Segoe UI, Calibri, Arial, sans-serif; font-size: 14px;">';
+        html += '<p style="font-weight: 600; font-size: 16px; margin-bottom: 8px;">' + escapeHtml(title) + '</p>';
+
+        tables.forEach(table => {
+            const headerCells = table.querySelectorAll('thead th');
+            const bodyRows = table.querySelectorAll('tbody tr');
+            if (headerCells.length === 0 && bodyRows.length === 0) return;
+
+            const skip = getSkipColumns(table);
+            html += '<table style="border-collapse: collapse; width: 100%; font-size: 13px;">';
+
+            if (headerCells.length > 0) {
+                html += '<tr>';
+                headerCells.forEach((th, idx) => {
+                    if (skip.has(idx)) return;
+                    const style = 'background: #f0f0f0; font-weight: 600; padding: 6px 10px; border: 1px solid #ddd; text-align: left;';
+                    html += '<th style="' + style + '">' + escapeHtml(cleanCellText(th)) + '</th>';
+                });
+                html += '</tr>';
+            }
+
+            bodyRows.forEach(tr => {
+                if (tr.style.display === 'none') return;
+                const cells = tr.querySelectorAll('td');
+                if (cells.length === 0) return;
+                html += '<tr>';
+                cells.forEach((td, idx) => {
+                    if (skip.has(idx)) return;
+                    const info = cellExportInfo(td);
+                    const style = 'padding: 5px 10px; border: 1px solid #ddd;';
+                    let content;
+                    if (info.isBool) {
+                        content = info.boolValue
+                            ? '<span style="color: #198754; font-weight: bold;">&#10003;</span>'
+                            : '';
+                    } else if (info.url) {
+                        content = '<a href="' + escapeHtml(info.url) + '" style="color: #0563C1; text-decoration: underline;">' + escapeHtml(info.text) + '</a>';
+                    } else {
+                        content = escapeHtml(info.text);
+                    }
+                    html += '<td style="' + style + '">' + content + '</td>';
+                });
+                html += '</tr>';
+            });
+            html += '</table><br>';
+        });
+
+        html += '<p style="font-size: 11px; color: #888;">Exported from Sales Buddy</p>';
+        html += '</div>';
+        return html;
+    }
+
+    /**
+     * Copy table as formatted HTML to clipboard for pasting into
+     * Teams or Outlook. Preserves table structure, links, and basic styling.
+     */
+    window.copyReportForEmail = function() {
+        const html = buildReportHtml();
+        if (!html) {
+            showExportToast('No table data to copy.', 'warning');
+            return;
+        }
+
+        const blob = new Blob([html], { type: 'text/html' });
+        const tables = getTables();
+        const plainText = tables.length > 0
+            ? tableToRows(tables[0]).map(r => r.join('\t')).join('\n')
+            : '';
+
+        navigator.clipboard.write([
+            new ClipboardItem({
+                'text/html': blob,
+                'text/plain': new Blob([plainText], { type: 'text/plain' }),
+            })
+        ]).then(() => {
+            showExportToast('Copied! Paste into Teams or Outlook.', 'success');
+        }).catch(() => {
+            navigator.clipboard.writeText(plainText).then(() => {
+                showExportToast('Copied as text (HTML copy not supported in this browser).', 'info');
+            }).catch(() => {
+                showExportToast('Copy failed. Try using Ctrl+C.', 'danger');
+            });
+        });
+    };
+
+    /**
+     * Download a .eml file that opens in Outlook as a ready-to-send email
+     * with the HTML report in the body and CSV as an attachment.
+     */
+    window.downloadReportEmail = function() {
+        const html = buildReportHtml();
+        if (!html) {
+            showExportToast('No table data to email.', 'warning');
+            return;
+        }
+
+        // Build CSV attachment
+        const tables = getTables();
+        let allRows = [];
+        tables.forEach((table, idx) => {
+            if (idx > 0 && allRows.length > 0) allRows.push([]);
+            allRows = allRows.concat(tableToRows(table));
+        });
+        const csv = rowsToCSV(allRows);
+        const csvBase64 = btoa(unescape(encodeURIComponent('\ufeff' + csv)));
+
+        const title = CUSTOM_TITLE || document.querySelector('h2')?.textContent?.trim() || 'Report';
+        const today = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+        const subject = title + ' - ' + today;
+        const boundary = 'boundary_' + Date.now();
+        const attachBoundary = 'attach_' + Date.now();
+
+        // Build MIME .eml content
+        const eml = [
+            'MIME-Version: 1.0',
+            'Subject: ' + subject,
+            'X-Unsent: 1',
+            'Content-Type: multipart/mixed; boundary="' + boundary + '"',
+            '',
+            '--' + boundary,
+            'Content-Type: multipart/alternative; boundary="' + attachBoundary + '"',
+            '',
+            '--' + attachBoundary,
+            'Content-Type: text/html; charset="UTF-8"',
+            'Content-Transfer-Encoding: quoted-printable',
+            '',
+            quotedPrintableEncode(html),
+            '',
+            '--' + attachBoundary + '--',
+            '',
+            '--' + boundary,
+            'Content-Type: text/csv; charset="UTF-8"; name="' + FILENAME + '.csv"',
+            'Content-Transfer-Encoding: base64',
+            'Content-Disposition: attachment; filename="' + FILENAME + '.csv"',
+            '',
+            csvBase64.match(/.{1,76}/g).join('\r\n'),
+            '',
+            '--' + boundary + '--',
+        ].join('\r\n');
+
+        const blob = new Blob([eml], { type: 'message/rfc822' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = FILENAME + '.eml';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        showExportToast('Email downloaded. Open it in Outlook to send.', 'success');
+    };
+
+    /**
+     * Encode a string as quoted-printable for MIME email bodies.
+     */
+    function quotedPrintableEncode(str) {
+        const encoded = unescape(encodeURIComponent(str));
+        let result = '';
+        let lineLen = 0;
+        for (let i = 0; i < encoded.length; i++) {
+            const c = encoded.charCodeAt(i);
+            let chunk;
+            if (c === 13 || c === 10) {
+                // Pass through CRLF
+                result += encoded[i];
+                lineLen = 0;
+                continue;
+            } else if (c === 9 || (c >= 32 && c <= 126 && c !== 61)) {
+                chunk = encoded[i];
+            } else {
+                chunk = '=' + ('0' + c.toString(16).toUpperCase()).slice(-2);
+            }
+            if (lineLen + chunk.length > 75) {
+                result += '=\r\n';
+                lineLen = 0;
+            }
+            result += chunk;
+            lineLen += chunk.length;
+        }
+        return result;
+    }
+
+    function escapeHtml(str) {
+        const div = document.createElement('div');
+        div.textContent = str;
+        return div.innerHTML;
+    }
+
+    /**
+     * Show a brief toast notification for export actions.
+     */
+    function showExportToast(message, type) {
+        // Remove existing toast
+        const existing = document.getElementById('exportToast');
+        if (existing) existing.remove();
+
+        const toast = document.createElement('div');
+        toast.id = 'exportToast';
+        toast.className = 'alert alert-' + type + ' position-fixed shadow-sm';
+        toast.style.cssText = 'bottom: 1.5rem; right: 1.5rem; z-index: 9999; min-width: 250px; font-size: 0.9em; padding: 0.6rem 1rem; opacity: 0; transition: opacity 0.3s;';
+        toast.innerHTML = '<i class="bi bi-' + (type === 'success' ? 'check-circle' : type === 'warning' ? 'exclamation-triangle' : 'info-circle') + '"></i> ' + message;
+        document.body.appendChild(toast);
+        // Fade in
+        requestAnimationFrame(() => { toast.style.opacity = '1'; });
+        // Auto-remove after 3 seconds
+        setTimeout(() => {
+            toast.style.opacity = '0';
+            setTimeout(() => toast.remove(), 300);
+        }, 3000);
+    }
+})();
+</script>

@@ -211,7 +211,7 @@ const PageHelp = (function () {
         <li>Use the <strong>Milestone Tracker</strong> for a board view</li>
       </ul>
     `},
-    { pattern: /^\/milestone-tracker/, title: 'Milestone Tracker', content: `
+    { pattern: /^\/reports\/milestone-tracker/, title: 'Milestone Tracker', content: `
       <p>Board view of all milestones across your customers, pulled from MSX.</p>
       <h6>Manual Sync</h6>
       <ul>
@@ -269,10 +269,10 @@ const PageHelp = (function () {
       <h6>Date filter</h6>
       <p>Use the From/To date pickers or preset buttons to scope which notes are considered. Only customers with notes in the selected date range will appear. Filter settings are saved between visits.</p>
     `},
-    { pattern: /^\/revenue\/reports/, title: 'Revenue Reports', content: `
+    { pattern: /^\/reports\/revenue-reports/, title: 'Revenue Reports', content: `
       <p>Pre-built reports for revenue analysis — new users, growth trends, and product adoption.</p>
     `},
-    { pattern: /^\/revenue\/?$/, title: 'Revenue Dashboard', content: `
+    { pattern: /^\/reports\/revenue\/?$/, title: 'Revenue Dashboard', content: `
       <p>Overview of Azure Consumed Revenue across your customers — flagging who needs attention and why.</p>
       <h6>Categories</h6>
       <table class="table table-sm mb-3">

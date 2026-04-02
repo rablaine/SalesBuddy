@@ -1,30 +1,23 @@
 {% extends "base.html" %}
-{% block title %}New {{ product_name }} Users - Sales Buddy{% endblock %}
+{% block title %}New Synapse Customers - Sales Buddy{% endblock %}
 
 {% block content %}
 <div class="container-fluid py-4">
-    <nav aria-label="breadcrumb" class="mb-3">
-        <ol class="breadcrumb">
-            <li class="breadcrumb-item"><a href="{{ url_for('revenue.revenue_dashboard') }}">Revenue Analyzer</a></li>
-            <li class="breadcrumb-item"><a href="{{ url_for('reports.reports_hub') }}">Reports</a></li>
-            <li class="breadcrumb-item active">New {{ product_name }} Users</li>
-        </ol>
-    </nav>
 
-    <div class="row mb-4">
-        <div class="col">
-            <h1><i class="bi bi-database-gear"></i> New {{ product_name }} Users</h1>
-            <p class="text-muted">
+    <div class="d-flex justify-content-between align-items-start mb-3">
+        <div>
+            <h2><i class="bi bi-database-gear"></i> New Synapse Customers</h2>
+            <p class="text-muted mb-0">
                 Customers who started using {{ product_name }} in the last 6 months
                 {% if lookback_months %}
                 <br><small>({{ lookback_months[0].fiscal_month }} through {{ lookback_months[-1].fiscal_month }})</small>
                 {% endif %}
             </p>
         </div>
-        <div class="col-auto">
-            <a href="{{ url_for('reports.reports_hub') }}" class="btn btn-outline-secondary">
-                <i class="bi bi-arrow-left"></i> Back to Reports
-            </a>
+        <div class="d-flex gap-2">
+            {% set export_table_id = 'table.table' %}
+            {% set export_filename = 'new-synapse-customers' %}
+            {% include 'partials/_report_export.html' %}
         </div>
     </div>
 

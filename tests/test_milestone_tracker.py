@@ -995,13 +995,13 @@ class TestMilestoneTrackerRoutes:
     
     def test_tracker_page_loads(self, client, app, sample_data):
         """Milestone tracker page should load successfully."""
-        response = client.get('/milestone-tracker')
+        response = client.get('/reports/milestone-tracker')
         assert response.status_code == 200
         assert b'Milestone Tracker' in response.data
     
     def test_tracker_page_shows_empty_state(self, client, app, sample_data):
         """Tracker should show empty state when no milestones."""
-        response = client.get('/milestone-tracker')
+        response = client.get('/reports/milestone-tracker')
         assert response.status_code == 200
         assert b'No Active Milestones' in response.data or b'Milestone Tracker' in response.data
     
@@ -1024,7 +1024,7 @@ class TestMilestoneTrackerRoutes:
             db.session.add(ms)
             db.session.commit()
         
-        response = client.get('/milestone-tracker')
+        response = client.get('/reports/milestone-tracker')
         assert response.status_code == 200
         assert b'Route Test Milestone' in response.data
         assert b'$7,500' in response.data
@@ -1079,13 +1079,13 @@ class TestMilestoneTrackerRoutes:
     
     def test_tracker_page_has_sync_button(self, client, app, sample_data):
         """Tracker page should have a sync button."""
-        response = client.get('/milestone-tracker')
+        response = client.get('/reports/milestone-tracker')
         assert response.status_code == 200
         assert b'Sync from MSX' in response.data
     
     def test_tracker_page_has_filters(self, client, app, sample_data):
         """Tracker page should have filter controls."""
-        response = client.get('/milestone-tracker')
+        response = client.get('/reports/milestone-tracker')
         assert response.status_code == 200
         assert b'sellerFilter' in response.data
         assert b'statusDropdownBtn' in response.data
@@ -1106,7 +1106,7 @@ class TestMilestoneTrackerRoutes:
             db.session.add(ms)
             db.session.commit()
 
-        response = client.get('/milestone-tracker')
+        response = client.get('/reports/milestone-tracker')
         assert response.status_code == 200
         assert b'sortTable' in response.data
         assert b'data-sort="customer"' in response.data
@@ -1326,14 +1326,14 @@ class TestSSESync:
 
     def test_tracker_page_has_progress_bar_html(self, client, app, sample_data):
         """Tracker page should have the progress bar container."""
-        response = client.get('/milestone-tracker')
+        response = client.get('/reports/milestone-tracker')
         assert response.status_code == 200
         assert b'syncProgressBar' in response.data
         assert b'syncProgressWrap' in response.data
 
     def test_tracker_page_has_area_filter(self, client, app, sample_data):
         """Tracker page should have the area filter dropdown."""
-        response = client.get('/milestone-tracker')
+        response = client.get('/reports/milestone-tracker')
         assert response.status_code == 200
         assert b'areaDropdownBtn' in response.data
 
@@ -1559,7 +1559,7 @@ class TestMilestoneCalendarTab:
     def test_tracker_has_calendar_view(self, client, app, sample_data):
         """Tracker page should have the calendar container."""
         self._mark_milestones_synced(app)
-        response = client.get('/milestone-tracker')
+        response = client.get('/reports/milestone-tracker')
         assert response.status_code == 200
         assert b'msCalendarWrap' in response.data
         assert b'msCalendarTable' in response.data
@@ -1573,7 +1573,7 @@ class TestMilestoneCalendarTab:
     def test_tracker_calendar_has_full_week(self, client, app, sample_data):
         """Milestone calendar should have 7-day week headers (Sun-Sat)."""
         self._mark_milestones_synced(app)
-        response = client.get('/milestone-tracker')
+        response = client.get('/reports/milestone-tracker')
         assert response.status_code == 200
         assert b'msCalendarTable' in response.data
         assert b'<th>Sun</th>' in response.data
@@ -1582,7 +1582,7 @@ class TestMilestoneCalendarTab:
     def test_tracker_has_view_tabs(self, client, app, sample_data):
         """Tracker page JS should set up list/calendar view tabs."""
         self._mark_milestones_synced(app)
-        response = client.get('/milestone-tracker')
+        response = client.get('/reports/milestone-tracker')
         assert response.status_code == 200
         assert b'data-ms-view="list"' in response.data
         assert b'data-ms-view="calendar"' in response.data
@@ -1815,7 +1815,7 @@ class TestOnMyTeamInTracker:
 
     def test_tracker_has_my_team_filter(self, client, app, sample_data):
         """Tracker page should have the My Team filter toggle."""
-        response = client.get('/milestone-tracker')
+        response = client.get('/reports/milestone-tracker')
         assert response.status_code == 200
         assert b'myTeamFilter' in response.data
         assert b'On Team' in response.data
@@ -1838,7 +1838,7 @@ class TestOnMyTeamInTracker:
             db.session.add(ms)
             db.session.commit()
 
-        response = client.get('/milestone-tracker')
+        response = client.get('/reports/milestone-tracker')
         assert response.status_code == 200
         assert b'bi-people-fill' in response.data
         assert b'data-on-my-team="true"' in response.data
@@ -1957,7 +1957,7 @@ class TestSyncStatusHeartbeat:
                 db.session.commit()
             SyncStatus.mark_started('milestones')
             SyncStatus.update_heartbeat('milestones')
-        resp = client.get('/milestone-tracker')
+        resp = client.get('/reports/milestone-tracker')
         assert resp.status_code == 200
         assert b'Milestone sync is running' in resp.data
         assert b'spinner-border' in resp.data
@@ -1974,7 +1974,7 @@ class TestSyncStatusHeartbeat:
             row = SyncStatus.query.filter_by(sync_type='milestones').first()
             row.heartbeat_at = utc_now() - timedelta(seconds=120)
             db.session.commit()
-        resp = client.get('/milestone-tracker')
+        resp = client.get('/reports/milestone-tracker')
         assert resp.status_code == 200
         assert b"didn&#39;t finish" in resp.data or b"didn't finish" in resp.data
 

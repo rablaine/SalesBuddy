@@ -83,7 +83,7 @@ def reports_hub():
                 },
                 {
                     'id': 'new-synapse-users',
-                    'name': 'New Azure Synapse Analytics Users',
+                    'name': 'New Synapse Customers',
                     'description': (
                         'Customers who have started using Azure Synapse Analytics '
                         'in the last 6 months, grouped by seller.'

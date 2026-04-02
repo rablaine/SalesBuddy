@@ -326,6 +326,11 @@ pytest --cov=app tests/  # with coverage
 - If the user says "commit" that does NOT mean "merge to main" - it means commit to the current feature branch only
 - Merging to `main` is a deployment gate - treat it seriously
 
+**CRITICAL - No Amending Commits:**
+- **NEVER use `git commit --amend`** - each change gets its own commit with a descriptive message
+- Amending squashes history and makes it harder to review what changed when
+- If you made a mistake in the last commit, make a NEW commit that fixes it
+
 **CRITICAL - Undoing Commits:**
 - **NEVER use `git revert`** - the user does not want revert commits cluttering history
 - When asked to "revert", "undo", or "reset" a commit, **ALWAYS use `git reset --hard`** to remove it cleanly

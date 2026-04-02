@@ -22,7 +22,7 @@ class TestTelemetryHelpers:
         assert _derive_category('admin', '/admin') == 'Admin'
         assert _derive_category('ai', '/api/ai/suggest') == 'AI'
         assert _derive_category('msx', '/api/msx/status') == 'MSX Integration'
-        assert _derive_category('revenue', '/revenue') == 'Revenue'
+        assert _derive_category('revenue', '/reports/revenue') == 'Revenue'
 
     def test_derive_category_unknown_blueprint(self):
         """Should title-case unknown blueprint names."""

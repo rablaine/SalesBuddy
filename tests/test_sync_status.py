@@ -287,7 +287,7 @@ class TestSyncWarningBanners:
             from app.models import SyncStatus
             SyncStatus.mark_started('milestones')
             SyncStatus.mark_completed('milestones', success=True)
-        response = client.get('/milestone-tracker')
+        response = client.get('/reports/milestone-tracker')
         html = response.data.decode('utf-8')
         assert "Last milestone sync didn&#39;t finish" not in html
         assert 'Last milestone sync failed' not in html
@@ -297,7 +297,7 @@ class TestSyncWarningBanners:
         with app.app_context():
             from app.models import SyncStatus
             SyncStatus.mark_started('milestones')
-        response = client.get('/milestone-tracker')
+        response = client.get('/reports/milestone-tracker')
         html = response.data.decode('utf-8')
         assert "Last milestone sync didn" in html
 
@@ -307,7 +307,7 @@ class TestSyncWarningBanners:
             from app.models import SyncStatus
             SyncStatus.mark_started('milestones')
             SyncStatus.mark_completed('milestones', success=False, details='API timeout')
-        response = client.get('/milestone-tracker')
+        response = client.get('/reports/milestone-tracker')
         html = response.data.decode('utf-8')
         assert 'Last milestone sync failed' in html
 
@@ -319,7 +319,7 @@ class TestSyncWarningBanners:
             SyncStatus.mark_completed('revenue_import', success=True)
             SyncStatus.mark_started('revenue_analysis')
             SyncStatus.mark_completed('revenue_analysis', success=True)
-        response = client.get('/revenue')
+        response = client.get('/reports/revenue')
         html = response.data.decode('utf-8')
         assert "Last revenue import didn" not in html
         assert 'Last revenue import failed' not in html
@@ -331,7 +331,7 @@ class TestSyncWarningBanners:
         with app.app_context():
             from app.models import SyncStatus
             SyncStatus.mark_started('revenue_import')
-        response = client.get('/revenue')
+        response = client.get('/reports/revenue')
         html = response.data.decode('utf-8')
         assert "Last revenue import didn" in html
 
@@ -341,7 +341,7 @@ class TestSyncWarningBanners:
             from app.models import SyncStatus
             SyncStatus.mark_started('revenue_analysis')
             SyncStatus.mark_completed('revenue_analysis', success=False)
-        response = client.get('/revenue')
+        response = client.get('/reports/revenue')
         html = response.data.decode('utf-8')
         assert 'Last revenue analysis failed' in html
 
