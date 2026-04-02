@@ -1497,7 +1497,7 @@ function _showAttendeeReview(attendees) {
         body.innerHTML = '<div class="text-center py-4"><i class="bi bi-inbox display-4 text-muted"></i>' +
             '<p class="mt-2 text-muted">No attendees found. WorkIQ can be inconsistent - try again.</p>' +
             '<button type="button" class="btn btn-primary" onclick="_retryAttendeeScrape()"><i class="bi bi-arrow-clockwise"></i> Try Again</button></div>';
-        new bootstrap.Modal(document.getElementById('attendeeReviewModal')).show();
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('attendeeReviewModal')).show();
         return;
     }
 
@@ -1565,7 +1565,7 @@ function _showAttendeeReview(attendees) {
     }
 
     body.innerHTML = html;
-    new bootstrap.Modal(document.getElementById('attendeeReviewModal')).show();
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('attendeeReviewModal')).show();
 }
 
 function _renderAttendeeRow(a, detail, showTitle) {
