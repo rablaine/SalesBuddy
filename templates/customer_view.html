@@ -512,6 +512,11 @@
 
 {% block extra_js %}
 <script>
+window.copilotContext = {
+    page: 'customer_view',
+    customer_id: {{ customer.id }},
+    customer_name: {{ customer.name|tojson }}
+};
 function toggleContextEdit() {
     document.getElementById('contextDisplay').style.display = 'none';
     document.getElementById('contextEmpty').style.display = 'none';

@@ -1132,6 +1132,14 @@
         transform: translateX(-1197px) !important;
         z-index: 1042 !important;
     }
+    .offcanvas.flyout-shifted-4 {
+        transform: translateX(-1596px) !important;
+        z-index: 1041 !important;
+    }
+    .offcanvas.flyout-shifted-5 {
+        transform: translateX(-1995px) !important;
+        z-index: 1040 !important;
+    }
     .opp-mini-card {
         background-color: rgba(0, 0, 0, 0.03);
         border: 1px solid rgba(0, 0, 0, 0.06);
@@ -1151,14 +1159,14 @@
 
     function adjustStack() {
         const open = flyouts.filter(f => f.classList.contains('show'));
-        flyouts.forEach(f => { f.classList.remove('flyout-shifted', 'flyout-shifted-2', 'flyout-shifted-3'); });
+        flyouts.forEach(f => { f.classList.remove('flyout-shifted', 'flyout-shifted-2', 'flyout-shifted-3', 'flyout-shifted-4', 'flyout-shifted-5'); });
         if (open.length <= 1) return;
         const sorted = open.sort((a, b) => openOrder.indexOf(a) - openOrder.indexOf(b));
         for (let i = 0; i < sorted.length - 1; i++) {
             const shift = sorted.length - 1 - i;
-            if (shift === 1) sorted[i].classList.add('flyout-shifted');
-            else if (shift === 2) sorted[i].classList.add('flyout-shifted-2');
-            else if (shift >= 3) sorted[i].classList.add('flyout-shifted-3');
+            if (shift >= 1 && shift <= 5) {
+                sorted[i].classList.add('flyout-shifted' + (shift === 1 ? '' : '-' + shift));
+            }
         }
     }
 

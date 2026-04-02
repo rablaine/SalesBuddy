@@ -4,4 +4,12 @@
 
 {% block content %}
 {% include 'partials/milestone_view_content.html' %}
+<script>
+window.copilotContext = {
+    page: 'milestone_view',
+    customer_id: {{ milestone.customer_id or 'null' }},
+    customer_name: {{ (milestone.customer.name if milestone.customer else '')|tojson }},
+    milestone_name: {{ milestone.title|tojson }}
+};
+</script>
 {% endblock %}

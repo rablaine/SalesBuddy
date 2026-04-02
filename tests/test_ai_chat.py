@@ -5,6 +5,27 @@ from unittest.mock import patch, MagicMock
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def _enable_debug(app):
+    """Enable debug mode for chat endpoint tests (dev gate)."""
+    app.debug = True
+    yield
+    app.debug = False
+
+
+class TestChatEndpointDevGate:
+    """Test the development-only gate on the chat endpoint."""
+
+    def test_returns_404_when_not_debug(self, app, client):
+        """Chat endpoint returns 404 when debug mode is off."""
+        app.debug = False
+        resp = client.post('/api/ai/chat', json={
+            'message': 'Hello',
+            'context': {'page': 'index'},
+        })
+        assert resp.status_code == 404
+
+
 class TestChatEndpointValidation:
     """Test request validation on the chat endpoint."""
 

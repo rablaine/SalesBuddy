@@ -925,4 +925,12 @@ function saveMilestoneLinks() {
     });
 }
 </script>
+<script>
+window.copilotContext = {
+    page: 'engagement_view',
+    customer_id: {{ customer.id }},
+    customer_name: {{ customer.name|tojson }},
+    engagement_name: {{ engagement.title|tojson }}
+};
+</script>
 {% endblock %}
