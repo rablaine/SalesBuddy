@@ -704,6 +704,10 @@ def _check_scheduled_task(task_name: str) -> dict:
                 result['next_run'] = parts[1]
             if len(parts) >= 3:
                 result['status'] = parts[2]
+        elif proc.returncode != 0 and 'Access is denied' in (proc.stderr or ''):
+            # Task exists but is owned by SYSTEM - not queryable without elevation
+            result['exists'] = True
+            result['status'] = 'Registered (requires admin to query details)'
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
         pass
     return result
