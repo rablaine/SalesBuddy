@@ -21,9 +21,13 @@ Key exports: `get_openai_tools()`, `get_mcp_tools()`, `execute_tool(name, params
 
 ---
 
-### Phase 2: Chat Endpoint (Backend + Gateway)
+### Phase 2: Chat Endpoint (Backend + Gateway) - DONE
 
-**Goal:** `POST /api/ai/chat` - the user sends a message, the backend orchestrates tool calls via Azure OpenAI, returns a final answer.
+**Status:** Complete
+
+Built the full chat pipeline: gateway `POST /v1/chat` endpoint with server-side system prompt construction, page validation (`VALID_PAGES` whitelist), and tool passthrough. Flask `POST /api/ai/chat` with multi-round tool-calling orchestration loop (max 3 rounds), local tool execution via the `copilot_tools` registry, and token usage accumulation across rounds. Added `chat_completion_with_tools()` to `openai_client.py` and `CHAT_SYSTEM_PROMPT` to `prompts.py`. 13 tests in `tests/test_ai_chat.py`. Deployed to APIM staging and verified end-to-end with live tool calls.
+
+**Original goal:** `POST /api/ai/chat` - the user sends a message, the backend orchestrates tool calls via Azure OpenAI, returns a final answer.
 
 #### 2a. Gateway changes (`infra/gateway/`)
 
@@ -83,6 +87,10 @@ Build dynamically per request:
 ---
 
 ### Phase 3: Chat Panel UI (Dev-Only)
+
+**Status:** In Progress
+
+**Detailed spec:** See `backlog/copilot-chat-flyout.md` for the full flyout design, stacking behavior, CSS overrides, and implementation plan.
 
 **Goal:** A working chat panel in the browser, gated behind `FLASK_ENV=development` so it doesn't ship to production yet.
 

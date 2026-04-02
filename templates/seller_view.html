@@ -553,5 +553,11 @@ document.getElementById('revenueModal').addEventListener('shown.bs.modal', funct
     sortCustomers(saved);
 })();
 </script>
+<script>
+window.copilotContext = {
+    page: 'seller_view',
+    seller_name: {{ seller.name|tojson }}
+};
+</script>
 
 {% endblock %}

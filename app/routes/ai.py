@@ -9,7 +9,7 @@ No direct Azure OpenAI credentials are needed locally.
 AI is always enabled -- the onboarding wizard enforces gateway
 consent before users can access the product.
 """
-from flask import Blueprint, request, jsonify, g
+from flask import Blueprint, request, jsonify, g, current_app
 import json
 import logging
 
@@ -751,6 +751,8 @@ def api_ai_chat():
     3. Send tool results back for a final response.
     4. Cap at MAX_TOOL_ROUNDS to prevent runaway chains.
 
+    Gated behind FLASK_DEBUG - returns 404 in production.
+
     Request body:
         message (str): The user's message (max 2000 chars).
         history (list): Previous messages [{role, content}, ...].
@@ -760,6 +762,9 @@ def api_ai_chat():
         reply (str): The assistant's final text response.
         tools_used (list): Names of tools that were called.
     """
+    if not current_app.debug:
+        return jsonify({'error': 'Not found'}), 404
+
     data = request.get_json()
     if not data:
         return jsonify({'success': False, 'error': 'Request body is required'}), 400

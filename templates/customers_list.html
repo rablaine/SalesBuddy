@@ -301,6 +301,7 @@
 
 {% block extra_js %}
 <script>
+window.copilotContext = { page: 'customers_list' };
 // Handle sort button clicks
 document.addEventListener('DOMContentLoaded', function() {
     const sortButtons = document.querySelectorAll('[data-sort]');

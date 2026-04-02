@@ -576,6 +576,82 @@
         .sb-gradient {
             background: linear-gradient(90deg, #27C3B3, #2A86D1);
         }
+
+        /* --- Copilot Chat flyout --- */
+        #copilotChatFlyout {
+            top: var(--sb-navbar-height, 56px) !important;
+            height: calc(100% - var(--sb-navbar-height, 56px)) !important;
+            z-index: 1046 !important;
+        }
+        #copilotChatMessages {
+            font-size: 0.9rem;
+        }
+        .copilot-msg {
+            max-width: 85%;
+            padding: 0.5rem 0.75rem;
+            border-radius: 0.75rem;
+            margin-bottom: 0.5rem;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+        }
+        .copilot-msg-user {
+            background-color: var(--bs-primary);
+            color: #fff;
+            margin-left: auto;
+            border-bottom-right-radius: 0.2rem;
+        }
+        .copilot-msg-assistant {
+            background-color: var(--sb-card, #f8f9fa);
+            border: 1px solid var(--sb-border, #dee2e6);
+            margin-right: auto;
+            border-bottom-left-radius: 0.2rem;
+        }
+        .copilot-msg-assistant p:last-child {
+            margin-bottom: 0;
+        }
+        .copilot-typing {
+            display: flex;
+            gap: 4px;
+            padding: 0.5rem 0.75rem;
+            align-items: center;
+        }
+        .copilot-typing span {
+            width: 8px;
+            height: 8px;
+            background-color: var(--bs-secondary);
+            border-radius: 50%;
+            animation: copilotBounce 1.4s infinite ease-in-out both;
+        }
+        .copilot-typing span:nth-child(1) { animation-delay: -0.32s; }
+        .copilot-typing span:nth-child(2) { animation-delay: -0.16s; }
+        @keyframes copilotBounce {
+            0%, 80%, 100% { transform: scale(0); }
+            40% { transform: scale(1); }
+        }
+        .copilot-tools-badge {
+            font-size: 0.75rem;
+            opacity: 0.7;
+            margin-top: 0.25rem;
+        }
+        /* When copilot chat is open, note flyouts shift an extra 400px left */
+        body.copilot-chat-open .offcanvas.offcanvas-end.show:not(#copilotChatFlyout) {
+            transform: translateX(-400px) !important;
+        }
+        body.copilot-chat-open .offcanvas.flyout-shifted {
+            transform: translateX(-799px) !important;
+        }
+        body.copilot-chat-open .offcanvas.flyout-shifted-2 {
+            transform: translateX(-1198px) !important;
+        }
+        body.copilot-chat-open .offcanvas.flyout-shifted-3 {
+            transform: translateX(-1597px) !important;
+        }
+        body.copilot-chat-open .offcanvas.flyout-shifted-4 {
+            transform: translateX(-1996px) !important;
+        }
+        body.copilot-chat-open .offcanvas.flyout-shifted-5 {
+            transform: translateX(-2395px) !important;
+        }
     </style>
     <style>
         /* Note content images: respect inline width, prevent overflow, clickable */
@@ -701,6 +777,13 @@
                     <button class="btn btn-light" type="button" data-bs-toggle="modal" data-bs-target="#keyboardShortcutsModal" title="Help & Keyboard Shortcuts (?)" aria-label="Help and keyboard shortcuts">
                         <i class="bi bi-question-circle"></i>
                     </button>
+                    {% if config.DEBUG %}
+                    <button class="btn btn-light" type="button" id="navCopilotChat"
+                            title="Copilot Chat (Ctrl+Shift+C)" aria-label="Toggle Copilot Chat"
+                            style="padding: 0.3rem 0.5rem;">
+                        <img src="{{ url_for('static', filename='copilot-icon.svg') }}" alt="Copilot" width="20" height="20">
+                    </button>
+                    {% endif %}
                     <div class="dropdown">
                         <button class="btn btn-light position-relative" type="button" id="gearMenuDropdown" data-bs-toggle="dropdown" aria-expanded="false" title="Settings & Admin" aria-label="Settings and Admin menu">
                             <i class="bi bi-gear"></i>
@@ -1421,12 +1504,57 @@
                                 <td><span class="kbd">?</span></td>
                                 <td>Show this help</td>
                             </tr>
+                            {% if config.DEBUG %}
+                            <tr>
+                                <td><span class="kbd">Ctrl</span> + <span class="kbd">Shift</span> + <span class="kbd">C</span></td>
+                                <td>Toggle Copilot Chat</td>
+                            </tr>
+                            {% endif %}
                         </tbody>
                     </table>
                 </div>
             </div>
         </div>
     </div>
+
+    {% if config.DEBUG %}
+    <!-- Copilot Chat Flyout (dev-only) -->
+    <div class="offcanvas offcanvas-end" tabindex="-1" id="copilotChatFlyout"
+         aria-labelledby="copilotChatFlyoutLabel"
+         data-bs-backdrop="false" data-bs-scroll="true"
+         style="width: 400px;">
+        <div class="offcanvas-header border-bottom py-2">
+            <h6 class="offcanvas-title mb-0" id="copilotChatFlyoutLabel">
+                <i class="bi bi-chat-dots"></i> Copilot Chat
+                <span class="badge bg-warning text-dark ms-1" style="font-size: 0.65rem;">DEV</span>
+            </h6>
+            <div class="d-flex gap-1">
+                <button type="button" class="btn btn-sm btn-outline-secondary" id="copilotChatClear" title="Clear conversation">
+                    <i class="bi bi-trash"></i>
+                </button>
+                <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Close"></button>
+            </div>
+        </div>
+        <div class="offcanvas-body d-flex flex-column p-0">
+            <div id="copilotChatMessages" class="flex-grow-1 overflow-auto p-3">
+                <div class="text-center text-muted small py-4">
+                    <i class="bi bi-chat-dots" style="font-size: 2rem;"></i>
+                    <p class="mt-2 mb-0">Ask me anything about your Sales Buddy data.</p>
+                </div>
+            </div>
+            <div class="border-top p-2">
+                <div class="input-group">
+                    <textarea id="copilotChatInput" class="form-control form-control-sm" rows="1"
+                              placeholder="Ask Copilot..." aria-label="Chat message"
+                              style="resize: none; max-height: 120px;"></textarea>
+                    <button class="btn btn-primary btn-sm" id="copilotChatSend" type="button" title="Send message">
+                        <i class="bi bi-send"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
     
     <!-- Footer -->
     {% if not request.args.get('embed') %}
@@ -3595,6 +3723,265 @@
         navigator.serviceWorker.register('/sw.js');
     }
     </script>
+
+    {% if config.DEBUG %}
+    <!-- Copilot Chat JS (dev-only) -->
+    <script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const chatFlyoutEl = document.getElementById('copilotChatFlyout');
+        const chatBtn = document.getElementById('navCopilotChat');
+        if (!chatFlyoutEl || !chatBtn) return;
+
+        const chatFlyout = new bootstrap.Offcanvas(chatFlyoutEl);
+        const messagesEl = document.getElementById('copilotChatMessages');
+        const inputEl = document.getElementById('copilotChatInput');
+        const sendBtn = document.getElementById('copilotChatSend');
+        const clearBtn = document.getElementById('copilotChatClear');
+
+        // Conversation state
+        let history = [];
+        let isWaiting = false;
+        const HISTORY_KEY = 'copilotChatHistory';
+        const OPEN_KEY = 'copilotChatOpen';
+        const MAX_HISTORY = 20;
+
+        // --- Page context ---
+        function getContext() {
+            if (window.copilotContext) return window.copilotContext;
+            // Auto-detect page from URL path
+            const path = window.location.pathname;
+            const ctx = { page: detectPage(path) };
+            return ctx;
+        }
+
+        function detectPage(path) {
+            // Map URL patterns to VALID_PAGES names
+            const routes = [
+                [/^\/customer\/\d+$/, 'customer_view'],
+                [/^\/customers\/?$/, 'customers_list'],
+                [/^\/engagement\/\d+$/, 'engagement_view'],
+                [/^\/engagements\/?$/, 'engagements_hub'],
+                [/^\/milestone\/\d+$/, 'milestone_view'],
+                [/^\/milestones\/?$/, 'milestones_list'],
+                [/^\/milestone-tracker\/?$/, 'milestone_tracker'],
+                [/^\/note\/\d+$/, 'note_view'],
+                [/^\/note\/(new|edit)/, 'note_form'],
+                [/^\/notes\/?$/, 'notes_list'],
+                [/^\/opportunity\/\d+$/, 'opportunity_view'],
+                [/^\/partner\/\d+$/, 'partner_view'],
+                [/^\/partners\/?$/, 'partners_list'],
+                [/^\/pod\/\d+$/, 'pod_view'],
+                [/^\/pods\/?$/, 'pods_list'],
+                [/^\/seller\/\d+$/, 'seller_view'],
+                [/^\/sellers\/?$/, 'sellers_list'],
+                [/^\/revenue\/dashboard/, 'revenue_dashboard'],
+                [/^\/revenue\/customer\/\d+$/, 'revenue_customer_view'],
+                [/^\/reports\/?$/, 'reports_hub'],
+                [/^\/reports\/workload/, 'report_workload'],
+                [/^\/reports\/hygiene/, 'report_hygiene'],
+                [/^\/reports\/whats-new/, 'report_whats_new'],
+                [/^\/reports\/whitespace/, 'report_whitespace'],
+                [/^\/reports\/one-on-one/, 'report_one_on_one'],
+                [/^\/analytics/, 'analytics'],
+                [/^\/fill-my-day/, 'fill_my_day'],
+                [/^\/$/, 'index'],
+            ];
+            for (const [re, name] of routes) {
+                if (re.test(path)) return name;
+            }
+            return 'index';
+        }
+
+        // --- Markdown rendering (lightweight) ---
+        function renderMarkdown(text) {
+            if (!text) return '';
+            let html = text
+                // Code blocks
+                .replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>')
+                // Inline code
+                .replace(/`([^`]+)`/g, '<code>$1</code>')
+                // Bold
+                .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+                // Italic
+                .replace(/\*(.+?)\*/g, '<em>$1</em>')
+                // Unordered lists
+                .replace(/^\s*[-*]\s+(.+)/gm, '<li>$1</li>')
+                // Wrap consecutive <li> in <ul>
+                .replace(/((?:<li>.*<\/li>\n?)+)/g, '<ul>$1</ul>')
+                // Links
+                .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>')
+                // Line breaks for paragraphs
+                .replace(/\n\n/g, '</p><p>')
+                .replace(/\n/g, '<br>');
+            return '<p>' + html + '</p>';
+        }
+
+        // --- Message rendering ---
+        function clearWelcome() {
+            const welcome = messagesEl.querySelector('.text-center.text-muted');
+            if (welcome) welcome.remove();
+        }
+
+        function addMessage(role, content, toolsUsed) {
+            clearWelcome();
+            const div = document.createElement('div');
+            div.className = 'copilot-msg copilot-msg-' + role;
+            if (role === 'assistant') {
+                div.innerHTML = renderMarkdown(content);
+            } else {
+                div.textContent = content;
+            }
+            messagesEl.appendChild(div);
+            if (toolsUsed && toolsUsed.length > 0) {
+                const badge = document.createElement('div');
+                badge.className = 'copilot-tools-badge text-muted';
+                badge.innerHTML = '<i class="bi bi-tools"></i> ' + toolsUsed.join(', ');
+                messagesEl.appendChild(badge);
+            }
+            messagesEl.scrollTop = messagesEl.scrollHeight;
+        }
+
+        function showTyping() {
+            clearWelcome();
+            const div = document.createElement('div');
+            div.className = 'copilot-msg copilot-msg-assistant copilot-typing';
+            div.id = 'copilotTyping';
+            div.innerHTML = '<span></span><span></span><span></span>';
+            messagesEl.appendChild(div);
+            messagesEl.scrollTop = messagesEl.scrollHeight;
+        }
+
+        function removeTyping() {
+            const el = document.getElementById('copilotTyping');
+            if (el) el.remove();
+        }
+
+        // --- Restore messages from sessionStorage ---
+        function restoreHistory() {
+            try {
+                const saved = sessionStorage.getItem(HISTORY_KEY);
+                if (saved) {
+                    const parsed = JSON.parse(saved);
+                    if (Array.isArray(parsed) && parsed.length > 0) {
+                        history = parsed;
+                        parsed.forEach(msg => {
+                            if (msg.role === 'user' || msg.role === 'assistant') {
+                                addMessage(msg.role, msg.content);
+                            }
+                        });
+                    }
+                }
+            } catch (e) { /* ignore */ }
+        }
+
+        function saveHistory() {
+            try {
+                sessionStorage.setItem(HISTORY_KEY, JSON.stringify(history.slice(-MAX_HISTORY)));
+            } catch (e) { /* ignore */ }
+        }
+
+        // --- Send message ---
+        async function sendMessage() {
+            const text = inputEl.value.trim();
+            if (!text || isWaiting) return;
+
+            addMessage('user', text);
+            history.push({ role: 'user', content: text });
+            saveHistory();
+
+            inputEl.value = '';
+            inputEl.style.height = 'auto';
+            isWaiting = true;
+            sendBtn.disabled = true;
+            showTyping();
+
+            try {
+                const resp = await fetch('/api/ai/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        message: text,
+                        history: history.slice(-(MAX_HISTORY - 1)),
+                        context: getContext(),
+                    }),
+                });
+                const data = await resp.json();
+                removeTyping();
+
+                if (data.success && data.reply) {
+                    addMessage('assistant', data.reply, data.tools_used);
+                    history.push({ role: 'assistant', content: data.reply });
+                    saveHistory();
+                } else {
+                    const errText = data.error || 'Something went wrong. Try again.';
+                    addMessage('assistant', errText);
+                }
+            } catch (err) {
+                removeTyping();
+                addMessage('assistant', 'Network error. Make sure the app is running.');
+            } finally {
+                isWaiting = false;
+                sendBtn.disabled = false;
+                inputEl.focus();
+            }
+        }
+
+        // --- Event listeners ---
+        sendBtn.addEventListener('click', sendMessage);
+        inputEl.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+            }
+        });
+
+        // Auto-resize textarea
+        inputEl.addEventListener('input', function() {
+            this.style.height = 'auto';
+            this.style.height = Math.min(this.scrollHeight, 120) + 'px';
+        });
+
+        // Clear conversation
+        clearBtn.addEventListener('click', function() {
+            history = [];
+            sessionStorage.removeItem(HISTORY_KEY);
+            messagesEl.innerHTML = '<div class="text-center text-muted small py-4">'
+                + '<i class="bi bi-chat-dots" style="font-size: 2rem;"></i>'
+                + '<p class="mt-2 mb-0">Ask me anything about your Sales Buddy data.</p></div>';
+        });
+
+        // Toggle on button click
+        chatBtn.addEventListener('click', function() { chatFlyout.toggle(); });
+
+        // Track open/closed state
+        chatFlyoutEl.addEventListener('shown.bs.offcanvas', function() {
+            document.body.classList.add('copilot-chat-open');
+            chatBtn.classList.add('active');
+            sessionStorage.setItem(OPEN_KEY, '1');
+            inputEl.focus();
+        });
+        chatFlyoutEl.addEventListener('hidden.bs.offcanvas', function() {
+            document.body.classList.remove('copilot-chat-open');
+            chatBtn.classList.remove('active');
+            sessionStorage.setItem(OPEN_KEY, '0');
+        });
+
+        // Keyboard shortcut: Ctrl+Shift+C
+        document.addEventListener('keydown', function(e) {
+            if (e.ctrlKey && e.shiftKey && e.key === 'C') {
+                e.preventDefault();
+                chatFlyout.toggle();
+            }
+        });
+
+        // Restore state on page load
+        restoreHistory();
+        if (sessionStorage.getItem(OPEN_KEY) === '1') {
+            chatFlyout.show();
+        }
+    });
+    </script>
+    {% endif %}
 </body>
 </html>
 
