@@ -62,7 +62,7 @@
                         {{ a.priority_score }}
                     </span>
                 </td>
-                <td>
+                <td{% if a.customer and a.customer.tpid_url %} data-export-url="{{ a.customer.tpid_url }}"{% endif %}>
                     {% if a.customer_id %}
                     <a href="{{ url_for('revenue.revenue_customer_view', customer_id=a.customer_id) }}">
                         {{ a.customer_name }}

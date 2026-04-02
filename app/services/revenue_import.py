@@ -1402,6 +1402,13 @@ def get_new_product_users(consolidated_product: str, months_lookback: int = 6) -
                 first_usage_fiscal = m['fiscal_month']
                 break
         
+        cust_id = customer_id_map.get(customer_name)
+        tpid_url = None
+        if cust_id:
+            cust_obj = Customer.query.get(cust_id)
+            if cust_obj:
+                tpid_url = cust_obj.tpid_url
+
         results.append({
             'customer_name': customer_name,
             'seller_name': seller_name,
@@ -1409,7 +1416,8 @@ def get_new_product_users(consolidated_product: str, months_lookback: int = 6) -
             'first_usage_fiscal': first_usage_fiscal,
             'total_revenue': total_rev,
             'latest_month_revenue': latest_rev,
-            'customer_id': customer_id_map.get(customer_name)
+            'customer_id': cust_id,
+            'tpid_url': tpid_url,
         })
     
     # Sort by seller name (None last), then by customer name

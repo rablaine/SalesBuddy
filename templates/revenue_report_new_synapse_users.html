@@ -96,7 +96,7 @@
                     <tbody>
                         {% for customer in customers %}
                         <tr>
-                            <td>
+                            <td{% if customer.tpid_url %} data-export-url="{{ customer.tpid_url }}"{% endif %}>
                                 {% if customer.customer_id %}
                                 <a href="{{ url_for('revenue.revenue_customer_view', customer_id=customer.customer_id) }}">
                                     {{ customer.customer_name }}
