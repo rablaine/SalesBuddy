@@ -50,8 +50,13 @@ Request body:
 }
 ```
 
+**Validation:**
+- `context` is required. Requests without a valid `page` field are rejected with 400. This prevents use as a generic chat proxy since you'd need to fabricate Sales Buddy page context.
+- `message` max length: 2000 characters.
+- `history` max length: 20 messages (older messages truncated from the front).
+
 Flow:
-1. Build system prompt with persona + page context
+1. Build system prompt with persona + page context (see 2c)
 2. Send messages + `get_openai_tools()` to gateway `/ai/chat`
 3. If response contains `tool_calls`, execute each via `execute_tool()`
 4. Send tool results back to gateway for a final response
@@ -59,12 +64,15 @@ Flow:
 
 Tool execution loop should cap at 3 rounds to prevent runaway chains.
 
-#### 2c. System prompt construction
+#### 2c. System prompt construction (abuse prevention)
+
+The system prompt is the primary guardrail against misuse. The gateway constructs it - callers cannot override it.
 
 Build dynamically per request:
-- Base persona: "You are a helpful assistant for Azure technical sellers using Sales Buddy..."
-- Page context injection: "The user is currently viewing customer Contoso (TPID 12345)..."
-- Behavioral rules: be concise, cite data, don't hallucinate, say when data is missing
+- **Persona + scope lock:** "You are a Sales Buddy assistant for Azure technical sellers. You ONLY answer questions about customers, engagements, milestones, notes, revenue, partners, and seller workload tracked in Sales Buddy. Politely decline any unrelated requests - you are not a general-purpose assistant."
+- **Page context injection:** "The user is currently viewing customer Contoso (TPID 12345)..." - constructed from the `context` field in the request. This grounds the model's responses in the user's current workflow.
+- **Behavioral rules:** Be concise, cite data from tool results, don't hallucinate, say when data is missing, never fabricate customer names or numbers.
+- **Tool-only data access:** "Only reference data returned by tool calls. Do not guess or infer data that wasn't returned."
 
 #### 2d. Testing
 
@@ -124,6 +132,7 @@ The chat JS includes this with every request. Context changes when the user navi
 **Goal:** Fill gaps that become obvious once you can actually chat with the data.
 
 Likely additions based on existing features:
+- `get_milestone_status` enhancement: add `due_within_days` parameter for date-range filtering at the DB level (avoids LLM date math and result truncation)
 - `get_territory_summary` - territory view data (customers, sellers, recent activity)
 - `get_pod_overview` - POD structure with territories and solution engineers
 - `get_analytics_summary` - call volume metrics, top topics, customers needing attention
@@ -214,5 +223,22 @@ Browser (Chat Panel)          VS Code (MCP Client)
 - `app/mcp_server.py` - MCP server for VS Code/external clients
 - `templates/partials/_chat_panel.html` - Chat panel UI partial
 - `static/js/chat-panel.js` - Chat panel client-side logic (optional, could be inline)
+
+## Resume Context
+
+**Last completed:** Phase 1 (tool registry) - merged to main.
+
+**Next up:** Phase 2 (chat endpoint). Start with 2a (gateway `POST /ai/chat`) then 2b (Flask `POST /api/ai/chat` with tool execution loop).
+
+**Key design decisions made:**
+- System prompt is the primary abuse guardrail (scope-locked persona, topic restriction)
+- `context` field is required on all chat requests (prevents generic proxy use)
+- Gateway stays thin (relay only) - tool execution happens in Flask which has DB access
+- Chat panel is dev-gated (`FLASK_ENV=development`) in Phase 3
+
+**Existing gateway pattern to follow:** See `infra/gateway/gateway.py` for current endpoints and `app/gateway_client.py` for how the Flask app calls the gateway. The new `/ai/chat` endpoint follows the same auth pattern (Entra JWT via APIM).
+
+**13 tools already registered in `app/services/copilot_tools.py`:**
+search_customers, get_customer_summary, search_notes, get_engagement_details, get_milestone_status, get_seller_workload, get_opportunity_details, search_partners, list_action_items, report_hygiene, report_workload, report_whats_new, report_revenue_alerts, report_whitespace
 
 ## Architecture Reference

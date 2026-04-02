@@ -593,12 +593,6 @@
         <div class="container-fluid px-4 position-relative">
             <a class="navbar-brand d-flex align-items-center" href="{{ url_for('main.index') }}">
                 <img src="{{ url_for('static', filename='Sales Buddy.png') }}" alt="Sales Buddy" height="28" style="margin-right:2px;position:relative;top:-1px;">
-                {% if is_debug %}
-                    <span class="badge {{ 'bg-warning text-dark' if user_role == 'dss' else 'bg-info text-dark' }} ms-2"
-                          style="font-size: 0.6rem; vertical-align: middle; cursor: pointer;"
-                          onclick="event.preventDefault(); fetch('/api/admin/dev-toggle-role', {method:'POST'}).then(r=>r.json()).then(()=>location.reload());"
-                          title="Click to swap role">{{ 'DSS' if user_role == 'dss' else 'SE' }} MODE</span>
-                {% endif %}
             </a>
             <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
                 <span class="navbar-toggler-icon"></span>
@@ -686,6 +680,14 @@
                             <li><a class="dropdown-item" href="{{ url_for('main.analytics') }}"><i class="bi bi-graph-up"></i> Analytics</a></li>
                         </ul>
                     </li>
+                    {% if is_debug %}
+                    <li class="nav-item d-flex align-items-center ms-1">
+                        <span class="badge {{ 'bg-warning text-dark' if user_role == 'dss' else 'bg-info text-dark' }}"
+                              style="font-size: 0.6rem; cursor: pointer;"
+                              onclick="event.preventDefault(); fetch('/api/admin/dev-toggle-role', {method:'POST'}).then(r=>r.json()).then(()=>location.reload());"
+                              title="Click to swap role">{{ 'DSS' if user_role == 'dss' else 'SE' }} MODE</span>
+                    </li>
+                    {% endif %}
                 </ul>
                 <div class="d-flex align-items-center gap-2">
                     <button class="btn btn-success" id="navNewNote" data-bs-toggle="modal" data-bs-target="#quickNoteModal" title="Create new note (Ctrl+K)" aria-label="Create new note">
