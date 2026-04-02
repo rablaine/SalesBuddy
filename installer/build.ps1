@@ -79,4 +79,27 @@ foreach ($msi in $msiFiles) {
     Write-Host "`nMSI copied to: $(Join-Path $outputDir $msi.Name)" -ForegroundColor Green
 }
 
+# --- Sign MSI ---
+$signtool = "C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x64\signtool.exe"
+$dlib = "$env:LOCALAPPDATA\Microsoft\MicrosoftArtifactSigningClientTools\Azure.CodeSigning.Dlib.dll"
+$metadata = Join-Path $scriptDir "signing-metadata.json"
+
+if ((Test-Path $signtool) -and (Test-Path $dlib) -and (Test-Path $metadata)) {
+    Write-Host "`nSigning MSI with Azure Artifact Signing..." -ForegroundColor Yellow
+    foreach ($msi in $msiFiles) {
+        $target = Join-Path $outputDir $msi.Name
+        & $signtool sign /v /fd SHA256 /tr "http://timestamp.acs.microsoft.com" /td SHA256 /dlib $dlib /dmdf $metadata $target
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "WARNING: Signing failed for $($msi.Name). MSI is unsigned." -ForegroundColor Red
+        } else {
+            Write-Host "  Signed: $($msi.Name)" -ForegroundColor Green
+        }
+    }
+} else {
+    Write-Host "`nSkipping code signing (tools not installed)." -ForegroundColor Yellow
+    if (-not (Test-Path $signtool)) { Write-Host "  Missing: signtool.exe" -ForegroundColor DarkYellow }
+    if (-not (Test-Path $dlib)) { Write-Host "  Missing: Azure.CodeSigning.Dlib.dll" -ForegroundColor DarkYellow }
+    if (-not (Test-Path $metadata)) { Write-Host "  Missing: signing-metadata.json" -ForegroundColor DarkYellow }
+}
+
 Write-Host "`n=== Build complete ===" -ForegroundColor Cyan

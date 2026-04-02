@@ -1,0 +1,15 @@
+{
+  "Endpoint": "https://cus.codesigning.azure.net/",
+  "CodeSigningAccountName": "salesbuddy-signing",
+  "CertificateProfileName": "salesbuddy-public",
+  "ExcludeCredentials": [
+    "ManagedIdentityCredential",
+    "WorkloadIdentityCredential",
+    "SharedTokenCacheCredential",
+    "VisualStudioCredential",
+    "VisualStudioCodeCredential",
+    "AzurePowerShellCredential",
+    "AzureDeveloperCliCredential",
+    "InteractiveBrowserCredential"
+  ]
+}
