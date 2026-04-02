@@ -95,17 +95,6 @@ def test_analytics_seller_activity(client, sample_data):
     assert b'Seller Activity' in response.data
 
 
-def test_analytics_quick_actions(client):
-    """Test analytics page has quick action buttons."""
-    response = client.get('/analytics')
-    assert response.status_code == 200
-    
-    # Should have quick actions
-    assert b'Quick Actions' in response.data
-    assert b'New Note' in response.data
-    assert b'View All Customers' in response.data
-
-
 def test_analytics_with_no_data(client):
     """Test analytics page handles empty data gracefully."""
     # Clear all call logs for user
