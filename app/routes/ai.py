@@ -15,7 +15,7 @@ import logging
 
 from app.models import db, AIQueryLog, Topic
 from app.gateway_client import gateway_call, GatewayError
-from app.services.copilot_tools import get_openai_tools, execute_tool
+from app.services.salesiq_tools import get_openai_tools, execute_tool
 
 logger = logging.getLogger(__name__)
 

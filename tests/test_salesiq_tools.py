@@ -1,6 +1,6 @@
 """Tests for the Copilot tool registry."""
 import pytest
-from app.services.copilot_tools import TOOLS, get_openai_tools, get_mcp_tools, execute_tool
+from app.services.salesiq_tools import TOOLS, get_openai_tools, get_mcp_tools, execute_tool
 
 
 class TestToolRegistry:
@@ -76,56 +76,56 @@ class TestToolCoverage:
         """Customers should have a search or summary tool."""
         names = self._tool_names()
         assert any('customer' in n for n in names), (
-            'No tool covers customers. Add one to copilot_tools.py.'
+            'No tool covers customers. Add one to salesiq_tools.py.'
         )
 
     def test_note_tool_exists(self):
         """Notes should have a search tool."""
         names = self._tool_names()
         assert any('note' in n for n in names), (
-            'No tool covers notes. Add one to copilot_tools.py.'
+            'No tool covers notes. Add one to salesiq_tools.py.'
         )
 
     def test_engagement_tool_exists(self):
         """Engagements should have a details tool."""
         names = self._tool_names()
         assert any('engagement' in n for n in names), (
-            'No tool covers engagements. Add one to copilot_tools.py.'
+            'No tool covers engagements. Add one to salesiq_tools.py.'
         )
 
     def test_milestone_tool_exists(self):
         """Milestones should have a status/search tool."""
         names = self._tool_names()
         assert any('milestone' in n for n in names), (
-            'No tool covers milestones. Add one to copilot_tools.py.'
+            'No tool covers milestones. Add one to salesiq_tools.py.'
         )
 
     def test_seller_tool_exists(self):
         """Sellers should have a workload tool."""
         names = self._tool_names()
         assert any('seller' in n for n in names), (
-            'No tool covers sellers. Add one to copilot_tools.py.'
+            'No tool covers sellers. Add one to salesiq_tools.py.'
         )
 
     def test_opportunity_tool_exists(self):
         """Opportunities should have a details tool."""
         names = self._tool_names()
         assert any('opportunity' in n for n in names), (
-            'No tool covers opportunities. Add one to copilot_tools.py.'
+            'No tool covers opportunities. Add one to salesiq_tools.py.'
         )
 
     def test_partner_tool_exists(self):
         """Partners should have a search tool."""
         names = self._tool_names()
         assert any('partner' in n for n in names), (
-            'No tool covers partners. Add one to copilot_tools.py.'
+            'No tool covers partners. Add one to salesiq_tools.py.'
         )
 
     def test_action_item_tool_exists(self):
         """Action items should have a list tool."""
         names = self._tool_names()
         assert any('action' in n for n in names), (
-            'No tool covers action items. Add one to copilot_tools.py.'
+            'No tool covers action items. Add one to salesiq_tools.py.'
         )
 
     # -- Reports -------------------------------------------------------------
@@ -134,35 +134,35 @@ class TestToolCoverage:
         """Hygiene report should have a tool."""
         names = self._tool_names()
         assert any('hygiene' in n for n in names), (
-            'No tool covers the hygiene report. Add one to copilot_tools.py.'
+            'No tool covers the hygiene report. Add one to salesiq_tools.py.'
         )
 
     def test_workload_report_tool_exists(self):
         """Workload report should have a tool."""
         names = self._tool_names()
         assert any('workload' in n for n in names), (
-            'No tool covers the workload report. Add one to copilot_tools.py.'
+            'No tool covers the workload report. Add one to salesiq_tools.py.'
         )
 
     def test_whats_new_report_tool_exists(self):
         """What's New report should have a tool."""
         names = self._tool_names()
         assert any('whats_new' in n or 'new' in n for n in names), (
-            "No tool covers the what's new report. Add one to copilot_tools.py."
+            "No tool covers the what's new report. Add one to salesiq_tools.py."
         )
 
     def test_revenue_alerts_tool_exists(self):
         """Revenue alerts should have a tool."""
         names = self._tool_names()
         assert any('revenue' in n for n in names), (
-            'No tool covers revenue alerts. Add one to copilot_tools.py.'
+            'No tool covers revenue alerts. Add one to salesiq_tools.py.'
         )
 
     def test_whitespace_report_tool_exists(self):
         """Whitespace report should have a tool."""
         names = self._tool_names()
         assert any('whitespace' in n for n in names), (
-            'No tool covers the whitespace report. Add one to copilot_tools.py.'
+            'No tool covers the whitespace report. Add one to salesiq_tools.py.'
         )
 
     # -- Phase 4 entities/reports -------------------------------------------
@@ -171,42 +171,42 @@ class TestToolCoverage:
         """Territories should have a summary tool."""
         names = self._tool_names()
         assert any('territory' in n for n in names), (
-            'No tool covers territories. Add one to copilot_tools.py.'
+            'No tool covers territories. Add one to salesiq_tools.py.'
         )
 
     def test_pod_tool_exists(self):
         """PODs should have an overview tool."""
         names = self._tool_names()
         assert any('pod' in n for n in names), (
-            'No tool covers PODs. Add one to copilot_tools.py.'
+            'No tool covers PODs. Add one to salesiq_tools.py.'
         )
 
     def test_analytics_tool_exists(self):
         """Analytics summary should have a tool."""
         names = self._tool_names()
         assert any('analytics' in n for n in names), (
-            'No tool covers analytics. Add one to copilot_tools.py.'
+            'No tool covers analytics. Add one to salesiq_tools.py.'
         )
 
     def test_one_on_one_tool_exists(self):
         """1:1 report should have a tool."""
         names = self._tool_names()
         assert any('one_on_one' in n for n in names), (
-            'No tool covers 1:1 report. Add one to copilot_tools.py.'
+            'No tool covers 1:1 report. Add one to salesiq_tools.py.'
         )
 
     def test_contact_tool_exists(self):
         """Contacts should have a search tool."""
         names = self._tool_names()
         assert any('contact' in n for n in names), (
-            'No tool covers contacts. Add one to copilot_tools.py.'
+            'No tool covers contacts. Add one to salesiq_tools.py.'
         )
 
     def test_milestones_due_soon_tool_exists(self):
         """Milestones due soon should have a tool."""
         names = self._tool_names()
         assert any('due' in n for n in names), (
-            'No tool covers milestones due soon. Add one to copilot_tools.py.'
+            'No tool covers milestones due soon. Add one to salesiq_tools.py.'
         )
 
 

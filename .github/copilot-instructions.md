@@ -102,11 +102,11 @@
 - **Reports that use revenue data** (whitespace analysis, synapse users, etc.) belong in the `reports` blueprint (`app/routes/reports.py`) under `/reports/` URLs with APIs under `/api/reports/`.
 - **When in doubt, put it in `reports.py`** - revenue.py is for CRUD and data pipeline, not for analytical views.
 
-### Copilot Tool Registry
-- **When adding a new queryable entity, report, or analytical feature**, add a corresponding read tool to `app/services/copilot_tools.py` using the `@tool` decorator.
+### SalesIQ Tool Registry
+- **When adding a new queryable entity, report, or analytical feature**, add a corresponding read tool to `app/services/salesiq_tools.py` using the `@tool` decorator.
 - Tools are thin wrappers over existing service/query code - never duplicate business logic in a tool handler.
-- The test `test_copilot_tools.py::test_tool_coverage` enforces that every core entity and report has at least one registered tool. If you add a new model or report, update the coverage test.
-- Run `pytest tests/test_copilot_tools.py` after adding or modifying tools.
+- The test `test_salesiq_tools.py::test_tool_coverage` enforces that every core entity and report has at least one registered tool. If you add a new model or report, update the coverage test.
+- Run `pytest tests/test_salesiq_tools.py` after adding or modifying tools.
 
 ### Extracting Template Partials
 **CRITICAL - Read this carefully and follow it exactly.**
