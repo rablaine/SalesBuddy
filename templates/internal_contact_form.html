@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="container py-4">
+    <nav aria-label="breadcrumb" class="mb-3">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="{{ url_for('internal_contacts.internal_contacts_list') }}">Internal Contacts</a></li>
+            {% if contact %}
+            <li class="breadcrumb-item active">Edit {{ contact.name }}</li>
+            {% else %}
+            <li class="breadcrumb-item active">New Contact</li>
+            {% endif %}
+        </ol>
+    </nav>
+
+    <div class="row">
+        <div class="col-lg-6">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">
+                        <i class="bi bi-person-badge"></i> {{ 'Edit' if contact else 'New' }} Internal Contact
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <form method="post">
+                        <div class="mb-3">
+                            <label for="name" class="form-label">
+                                Name <span class="text-danger">*</span>
+                            </label>
+                            <input type="text" class="form-control" id="name" name="name"
+                                   value="{{ contact.name if contact else '' }}"
+                                   required autofocus>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="alias" class="form-label">Alias</label>
+                            <div class="input-group">
+                                <input type="text" class="form-control" id="alias" name="alias"
+                                       placeholder="e.g. johnd"
+                                       value="{{ contact.alias if contact and contact.alias else '' }}">
+                                <span class="input-group-text">@microsoft.com</span>
+                            </div>
+                            <div class="form-text">The part before @microsoft.com. Used for deduplication and email display.</div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="role" class="form-label">Role</label>
+                            <input type="text" class="form-control" id="role" name="role"
+                                   placeholder="e.g. DAE, DSS, DSE - Security"
+                                   value="{{ contact.role if contact and contact.role else '' }}"
+                                   list="role_suggestions">
+                            <datalist id="role_suggestions">
+                                <option value="DAE">
+                                <option value="DSS">
+                                <option value="DSE - Security">
+                                <option value="DSE - Modern Work">
+                                <option value="DSE - Business Applications">
+                                <option value="SSP">
+                                <option value="TSP">
+                                <option value="CSA">
+                            </datalist>
+                            <div class="form-text">Free text - type anything or pick from suggestions.</div>
+                        </div>
+
+                        <div class="d-flex gap-2">
+                            <button type="submit" class="btn btn-primary">
+                                <i class="bi bi-check-lg"></i> {{ 'Save Changes' if contact else 'Create Contact' }}
+                            </button>
+                            <a href="{{ url_for('internal_contacts.internal_contacts_list') }}" class="btn btn-outline-secondary">
+                                Cancel
+                            </a>
+                            {% if contact %}
+                            <form method="post" action="{{ url_for('internal_contacts.internal_contact_delete', id=contact.id) }}" class="ms-auto" onsubmit="return confirm('Delete {{ contact.name }}?');">
+                                <button type="submit" class="btn btn-outline-danger">
+                                    <i class="bi bi-trash"></i> Delete
+                                </button>
+                            </form>
+                            {% endif %}
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

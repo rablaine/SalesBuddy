@@ -107,9 +107,9 @@
                                 <i class="bi bi-person me-1"></i> {{ att.display_name }}
                             </a>
                         {% elif att.person_type == 'internal_contact' and att.internal_contact %}
-                            <span class="badge bg-warning text-dark" title="{{ att.email or '' }}{% if att.internal_contact.role %} - {{ att.internal_contact.role }}{% endif %}">
+                            <a href="{{ url_for('internal_contacts.internal_contact_edit', id=att.internal_contact.id) }}" class="badge bg-warning text-dark text-decoration-none" title="{{ att.email or '' }}{% if att.internal_contact.role %} - {{ att.internal_contact.role }}{% endif %}">
                                 <i class="bi bi-person-badge me-1"></i> {{ att.display_name }}
-                            </span>
+                            </a>
                         {% elif att.email %}
                             <a href="mailto:{{ att.email }}" class="badge bg-secondary text-decoration-none" title="{{ att.email }}">
                                 <i class="bi bi-person-dash me-1"></i> {{ att.display_name }}
