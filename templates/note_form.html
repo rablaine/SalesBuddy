@@ -288,8 +288,8 @@
                             <div id="selected_attendees" class="mt-2 d-flex flex-wrap gap-2">
                                 {% if note and note.attendees %}
                                     {% for att in note.attendees %}
-                                        <span class="badge d-flex align-items-center {% if att.person_type == 'customer_contact' %}bg-success{% elif att.person_type == 'partner_contact' %}bg-purple{% elif att.person_type == 'se' %}bg-info{% elif att.person_type == 'seller' %}bg-primary{% else %}bg-secondary{% endif %}" data-attendee-type="{{ att.person_type }}" data-attendee-id="{{ att.ref_id or '' }}">
-                                            <i class="bi {% if att.person_type == 'customer_contact' %}bi-person-circle{% elif att.person_type == 'partner_contact' %}bi-building{% elif att.person_type == 'se' %}bi-tools{% elif att.person_type == 'seller' %}bi-person{% else %}bi-person-dash{% endif %} me-1"></i>
+                                        <span class="badge d-flex align-items-center {% if att.person_type == 'customer_contact' %}bg-success{% elif att.person_type == 'partner_contact' %}bg-purple{% elif att.person_type == 'se' %}bg-info{% elif att.person_type == 'seller' %}bg-primary{% elif att.person_type == 'internal_contact' %}bg-warning text-dark{% else %}bg-secondary{% endif %}" data-attendee-type="{{ att.person_type }}" data-attendee-id="{{ att.ref_id or '' }}">
+                                            <i class="bi {% if att.person_type == 'customer_contact' %}bi-person-circle{% elif att.person_type == 'partner_contact' %}bi-building{% elif att.person_type == 'se' %}bi-tools{% elif att.person_type == 'seller' %}bi-person{% elif att.person_type == 'internal_contact' %}bi-person-badge{% else %}bi-person-dash{% endif %} me-1"></i>
                                             {{ att.display_name }}
                                             <button type="button" class="btn-close btn-close-white ms-2" style="font-size: 0.6rem;" onclick="removeAttendee(this)"></button>
                                             <input type="hidden" name="attendee_types" value="{{ att.person_type }}">
@@ -1273,6 +1273,7 @@ updateAiButtonState();
         'partner_contact': 'bg-purple',
         'se': 'bg-info',
         'seller': 'bg-primary',
+        'internal_contact': 'bg-warning text-dark',
         'external': 'bg-secondary'
     };
     var iconMap = {
@@ -1280,6 +1281,7 @@ updateAiButtonState();
         'partner_contact': 'bi-building',
         'se': 'bi-tools',
         'seller': 'bi-person',
+        'internal_contact': 'bi-person-badge',
         'external': 'bi-person-dash'
     };
 
@@ -1314,8 +1316,13 @@ updateAiButtonState();
         var filtered = currentResults.filter(function(r) {
             return !isAlreadyAdded(r.type, r.id);
         });
+        var q = searchInput.value.trim();
+        var addNewHtml = q.length >= 2
+            ? '<button type="button" class="list-group-item list-group-item-action small py-1 text-warning-emphasis" data-action="add-internal">' +
+              '<i class="bi bi-person-plus me-1"></i>Add <strong>' + escHtmlNote(q) + '</strong> as internal contact</button>'
+            : '';
         if (filtered.length === 0) {
-            dropdown.innerHTML = '<div class="list-group-item text-muted small">No matches</div>';
+            dropdown.innerHTML = '<div class="list-group-item text-muted small">No matches</div>' + addNewHtml;
             dropdown.style.display = 'block';
             selectedIndex = -1;
             return;
@@ -1331,7 +1338,7 @@ updateAiButtonState();
                 (r.detail ? ' <span class="text-muted">- ' + escHtmlNote(r.detail) + '</span>' : '') +
                 (r.email ? ' <span class="text-muted small">(' + escHtmlNote(r.email) + ')</span>' : '') +
                 '</button>';
-        }).join('');
+        }).join('') + addNewHtml;
         dropdown.style.display = 'block';
         // Store filtered list for selection
         dropdown._filtered = filtered;
@@ -1408,6 +1415,36 @@ updateAiButtonState();
 
     // Click on dropdown item
     dropdown.addEventListener('click', function(e) {
+        // "Add as new internal contact" button
+        var addBtn = e.target.closest('[data-action="add-internal"]');
+        if (addBtn) {
+            e.preventDefault();
+            var q = searchInput.value.trim();
+            if (!q) return;
+            // Detect if input looks like an email alias
+            var isAlias = q.includes('@') || /^[a-z0-9._-]+$/i.test(q);
+            var payload = {};
+            if (isAlias) {
+                payload.alias = q;
+                payload.name = q.split('@')[0];
+            } else {
+                payload.name = q;
+            }
+            fetch('/api/internal-contacts', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(payload),
+            })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.success && data.contact) {
+                    addAttendee('internal_contact', data.contact.id, data.contact.name,
+                                data.contact.alias ? data.contact.alias + '@microsoft.com' : null);
+                }
+            });
+            return;
+        }
+
         var btn = e.target.closest('[data-idx]');
         if (!btn) return;
         e.preventDefault();

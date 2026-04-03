@@ -652,6 +652,29 @@ class Note(db.Model):
         return f'<Note {self.id} for {name}>'
 
 
+class InternalContact(db.Model):
+    """Microsoft internal contact not tracked as a Seller or Solution Engineer.
+
+    Covers DAEs, DSS, DSEs from other solution areas, and other Microsoft
+    employees who show up in meetings but aren't in the user's pod.
+    Reusable across notes (unlike external attendees which are per-note).
+    """
+    __tablename__ = 'internal_contacts'
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(200), nullable=False)
+    alias = db.Column(db.String(100), nullable=True, unique=True)
+    role = db.Column(db.String(100), nullable=True)
+    created_at = db.Column(db.DateTime, default=utc_now, nullable=False)
+
+    def get_email(self) -> Optional[str]:
+        """Return full email from alias."""
+        return f'{self.alias}@microsoft.com' if self.alias else None
+
+    def __repr__(self) -> str:
+        return f'<InternalContact {self.name} ({self.role or "unknown"})>'
+
+
 class NoteAttendee(db.Model):
     """Person who attended a call. Polymorphic - links to one person type."""
     __tablename__ = 'note_attendees'
@@ -664,6 +687,7 @@ class NoteAttendee(db.Model):
     partner_contact_id = db.Column(db.Integer, db.ForeignKey('partner_contacts.id'), nullable=True)
     solution_engineer_id = db.Column(db.Integer, db.ForeignKey('solution_engineers.id'), nullable=True)
     seller_id = db.Column(db.Integer, db.ForeignKey('sellers.id'), nullable=True)
+    internal_contact_id = db.Column(db.Integer, db.ForeignKey('internal_contacts.id'), nullable=True)
 
     # For ad-hoc attendees not in any contact list
     external_name = db.Column(db.String(200), nullable=True)
@@ -677,6 +701,7 @@ class NoteAttendee(db.Model):
     partner_contact = db.relationship('PartnerContact', lazy='select')
     solution_engineer = db.relationship('SolutionEngineer', lazy='select')
     seller = db.relationship('Seller', lazy='select')
+    internal_contact = db.relationship('InternalContact', lazy='select')
 
     @property
     def person_type(self) -> str:
@@ -689,6 +714,8 @@ class NoteAttendee(db.Model):
             return 'se'
         elif self.seller_id:
             return 'seller'
+        elif self.internal_contact_id:
+            return 'internal_contact'
         return 'external'
 
     @property
@@ -702,6 +729,8 @@ class NoteAttendee(db.Model):
             return self.solution_engineer.name
         elif self.seller_id and self.seller:
             return self.seller.name
+        elif self.internal_contact_id and self.internal_contact:
+            return self.internal_contact.name
         return self.external_name or 'Unknown'
 
     @property
@@ -715,13 +744,16 @@ class NoteAttendee(db.Model):
             return self.solution_engineer.get_email()
         elif self.seller_id and self.seller:
             return self.seller.get_email()
+        elif self.internal_contact_id and self.internal_contact:
+            return self.internal_contact.get_email()
         return self.external_email
 
     @property
     def ref_id(self) -> Optional[int]:
         """Return the FK id for this attendee's person type."""
         return (self.customer_contact_id or self.partner_contact_id
-                or self.solution_engineer_id or self.seller_id)
+                or self.solution_engineer_id or self.seller_id
+                or self.internal_contact_id)
 
     def to_dict(self) -> dict:
         """Serialize for API responses."""

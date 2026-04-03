@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="container-fluid py-4">
+    <div class="row mb-4">
+        <div class="col">
+            <h1><i class="bi bi-person-badge"></i> Internal Contacts</h1>
+            <p class="text-muted">Microsoft employees not tracked as sellers or solution engineers (DAEs, DSS, DSEs from other solution areas, etc.)</p>
+        </div>
+        <div class="col-auto">
+            <a href="{{ url_for('internal_contacts.internal_contact_new') }}" class="btn btn-success">
+                <i class="bi bi-plus-lg"></i> New Contact
+            </a>
+        </div>
+    </div>
+
+    {% if contacts %}
+    <div class="card">
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover mb-0">
+                    <thead class="table-dark">
+                        <tr>
+                            <th>Name</th>
+                            <th>Alias</th>
+                            <th>Role</th>
+                            <th class="text-end">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for contact in contacts %}
+                        <tr>
+                            <td>
+                                <a href="{{ url_for('internal_contacts.internal_contact_edit', id=contact.id) }}" class="text-decoration-none">
+                                    <i class="bi bi-person-badge text-warning me-1"></i>{{ contact.name }}
+                                </a>
+                            </td>
+                            <td>
+                                {% if contact.alias %}
+                                    <span class="text-muted">{{ contact.alias }}@microsoft.com</span>
+                                {% else %}
+                                    <span class="text-muted fst-italic">Not set</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if contact.role %}
+                                    <span class="badge bg-warning text-dark">{{ contact.role }}</span>
+                                {% endif %}
+                            </td>
+                            <td class="text-end">
+                                <a href="{{ url_for('internal_contacts.internal_contact_edit', id=contact.id) }}" class="btn btn-sm btn-outline-primary">
+                                    <i class="bi bi-pencil"></i> Edit
+                                </a>
+                                <form method="post" action="{{ url_for('internal_contacts.internal_contact_delete', id=contact.id) }}" class="d-inline" onsubmit="return confirm('Delete {{ contact.name }}? Any note attendee references will be converted to external attendees.');">
+                                    <button type="submit" class="btn btn-sm btn-outline-danger">
+                                        <i class="bi bi-trash"></i>
+                                    </button>
+                                </form>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    {% else %}
+    <div class="alert alert-info">
+        <i class="bi bi-info-circle"></i> No internal contacts yet.
+        <a href="{{ url_for('internal_contacts.internal_contact_new') }}">Create your first</a>, or they'll be created automatically when you add attendees to notes.
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

@@ -115,6 +115,7 @@ def create_app():
     from app.routes.territories import territories_bp
     from app.routes.pods import pods_bp
     from app.routes.solution_engineers import solution_engineers_bp
+    from app.routes.internal_contacts import internal_contacts_bp
     from app.routes.sellers import sellers_bp
     from app.routes.customers import customers_bp
     from app.routes.topics import topics_bp
@@ -135,6 +136,7 @@ def create_app():
     app.register_blueprint(territories_bp)
     app.register_blueprint(pods_bp)
     app.register_blueprint(solution_engineers_bp)
+    app.register_blueprint(internal_contacts_bp)
     app.register_blueprint(sellers_bp)
     app.register_blueprint(customers_bp)
     app.register_blueprint(topics_bp)

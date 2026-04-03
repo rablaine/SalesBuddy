@@ -6,7 +6,7 @@ from flask import Blueprint, render_template, request, redirect, url_for, flash,
 from datetime import datetime
 import logging
 
-from app.models import db, Note, Customer, Seller, Territory, Topic, Partner, Milestone, Opportunity, MsxTask, UserPreference, NoteTemplate, NoteAttendee, SolutionEngineer, CustomerContact, PartnerContact
+from app.models import db, Note, Customer, Seller, Territory, Topic, Partner, Milestone, Opportunity, MsxTask, UserPreference, NoteTemplate, NoteAttendee, SolutionEngineer, CustomerContact, PartnerContact, InternalContact
 from app.services.msx_api import TASK_CATEGORIES, add_user_to_milestone_team
 from app.services.seller_mode import get_seller_mode_seller_id as _get_seller_mode_seller_id
 from app.services.backup import backup_customer as _backup_customer
@@ -1352,6 +1352,8 @@ def _make_attendee(atype: str, ref_id: str) -> 'NoteAttendee | None':
         return NoteAttendee(solution_engineer_id=rid)
     elif atype == 'seller':
         return NoteAttendee(seller_id=rid)
+    elif atype == 'internal_contact':
+        return NoteAttendee(internal_contact_id=rid)
     return None
 
 
@@ -1481,7 +1483,118 @@ def api_attendee_search():
             'icon': 'bi-person', 'color': 'primary',
         })
 
+    # Internal contacts (DAEs, DSS, other Microsoft employees)
+    internals = InternalContact.query.filter(
+        db.or_(
+            db.func.lower(InternalContact.name).contains(q),
+            db.func.lower(InternalContact.alias).contains(q),
+        )
+    ).limit(10).all()
+    for ic in internals:
+        results.append({
+            'type': 'internal_contact', 'id': ic.id,
+            'name': ic.name, 'email': ic.get_email(),
+            'detail': ic.role,
+            'icon': 'bi-person-badge', 'color': 'warning',
+        })
+
     return jsonify({'results': results})
+
+
+# =============================================================================
+# Internal Contacts (Microsoft employees not tracked as Sellers or SEs)
+# =============================================================================
+
+@notes_bp.route('/api/internal-contacts', methods=['POST'])
+def api_create_internal_contact():
+    """Create or find an internal contact.
+
+    Accepts either a name or email (alias). If an alias is provided and
+    already exists, returns the existing record instead of creating a
+    duplicate. This lets users enter minimal info and update later.
+
+    Body: {name, alias?, role?}
+    """
+    data = request.get_json()
+    if not data:
+        return jsonify({'success': False, 'error': 'No data'}), 400
+
+    name = (data.get('name') or '').strip()
+    alias = (data.get('alias') or '').strip().lower()
+    role = (data.get('role') or '').strip() or None
+
+    # Strip @microsoft.com if user entered full email
+    if alias.endswith('@microsoft.com'):
+        alias = alias[:-len('@microsoft.com')]
+
+    if not name and not alias:
+        return jsonify({'success': False, 'error': 'Name or alias required'}), 400
+
+    # Check for existing by alias (dedup)
+    if alias:
+        existing = InternalContact.query.filter(
+            db.func.lower(InternalContact.alias) == alias
+        ).first()
+        if existing:
+            # Update name/role if provided and currently empty
+            if name and not existing.name:
+                existing.name = name
+            if role and not existing.role:
+                existing.role = role
+            db.session.commit()
+            return jsonify({
+                'success': True,
+                'contact': {
+                    'id': existing.id, 'name': existing.name,
+                    'alias': existing.alias, 'role': existing.role,
+                },
+            })
+
+    ic = InternalContact(
+        name=name or alias,
+        alias=alias or None,
+        role=role,
+    )
+    db.session.add(ic)
+    db.session.commit()
+    return jsonify({
+        'success': True,
+        'contact': {
+            'id': ic.id, 'name': ic.name,
+            'alias': ic.alias, 'role': ic.role,
+        },
+    }), 201
+
+
+@notes_bp.route('/api/internal-contacts/<int:contact_id>', methods=['PATCH'])
+def api_update_internal_contact(contact_id):
+    """Update an internal contact's details.
+
+    Body: {name?, alias?, role?}
+    """
+    ic = InternalContact.query.get_or_404(contact_id)
+    data = request.get_json()
+    if not data:
+        return jsonify({'success': False, 'error': 'No data'}), 400
+
+    if 'name' in data and data['name'].strip():
+        ic.name = data['name'].strip()
+    if 'alias' in data:
+        alias = data['alias'].strip().lower()
+        if alias.endswith('@microsoft.com'):
+            alias = alias[:-len('@microsoft.com')]
+        ic.alias = alias or None
+    if 'role' in data:
+        ic.role = data['role'].strip() or None
+
+    db.session.commit()
+    return jsonify({
+        'success': True,
+        'contact': {
+            'id': ic.id, 'name': ic.name,
+            'alias': ic.alias, 'role': ic.role,
+        },
+    })
 
 
 # =============================================================================

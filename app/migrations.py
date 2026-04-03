@@ -298,6 +298,16 @@ def run_migrations(db):
     _add_column_if_not_exists(db, inspector, 'customer_contacts', 'photo_full_b64', 'TEXT')
     _add_column_if_not_exists(db, inspector, 'partner_contacts', 'photo_full_b64', 'TEXT')
 
+    # Note: internal_contacts table is created by db.create_all() - no migration needed
+
+    # Migration: Add internal_contact_id FK to note_attendees
+    _add_column_if_not_exists(db, inspector, 'note_attendees',
+                              'internal_contact_id', 'INTEGER REFERENCES internal_contacts(id)')
+
+    # Note: InternalContact records for DAEs are created during MSX account
+    # sync (import_stream in msx.py), not seeded here. Users should run an
+    # account sync after upgrading to populate DAEs as internal contacts.
+
     # =========================================================================
     # End migrations
     # =========================================================================
