@@ -690,7 +690,16 @@ def chat():
             messages = [messages[0]] + messages[-(MAX_CHAT_HISTORY):]
 
         # --- Build system prompt with page context ---
-        context_line = f"The user is currently on the '{page}' page."
+        context_line = (
+            f"The user is currently on the '{page}' page."
+            " This is a single-user app. All data in Sales Buddy belongs to"
+            " this user. When they say 'I', 'my', or 'me', query across all"
+            " data without filtering by seller."
+        )
+        if context.get("user_name") or context.get("user_role"):
+            role_label = "a Solution Engineer (SE)" if context.get("user_role") == "se" else "a Data & AI Specialist (DSS)"
+            name = context.get("user_name", "the user")
+            context_line += f" The current user is {name}, {role_label}."
         if context.get("customer_name"):
             context_line += f" Customer: {context['customer_name']}"
             if context.get("customer_id"):
@@ -699,8 +708,6 @@ def chat():
             context_line += f" Engagement: {context['engagement_name']}"
         if context.get("milestone_name"):
             context_line += f" Milestone: {context['milestone_name']}"
-        if context.get("seller_name"):
-            context_line += f" Seller: {context['seller_name']}"
 
         system_prompt = CHAT_SYSTEM_PROMPT + "\n" + context_line
 

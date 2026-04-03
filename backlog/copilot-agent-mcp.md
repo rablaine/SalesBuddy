@@ -141,14 +141,26 @@ The chat JS includes this with every request. Context changes when the user navi
 
 Added 7 tools to `copilot_tools.py` (total: 21 tools):
 - `get_milestones_due_soon` - milestones due within N days with seller/team filters
-- `get_territory_summary` - territory with customers, sellers, SEs, 30-day note count
-- `get_pod_overview` - POD structure with territories, sellers, solution engineers
+- `get_territory_summary` - list all territories or get detail with customers, sellers, SEs, 30-day note count
+- `get_pod_overview` - list all PODs or get detail with territories, sellers, solution engineers
 - `get_analytics_summary` - call volume, active customers, top topics, neglected customers
 - `report_one_on_one` - 1:1 prep: recent notes by customer, open engagements, committed milestones
 - `search_contacts` - unified search across customer and partner contacts by name/email/title
 - `get_revenue_customer_detail` - per-customer revenue by bucket with monthly history
 
 All 7 tools have coverage tests in `TestToolCoverage` and execution tests in `TestToolExecution` (52 tests total, all passing).
+
+#### Phase 4 polish (chat UX & prompt fixes):
+- Rebranded chat panel from "Copilot" to "SalesIQ"
+- Replaced Copilot icon with `bi-chat-dots` Bootstrap icon
+- Added markdown heading (h1-h4) and ordered list rendering
+- Widened flyout to 500px, fixed CSS specificity bug in flyout stacking
+- Compact header matching other flyouts, active button state when open
+- Instant flyout restore on page nav (no slide animation on reload)
+- Content filter detection: HAL 9000 icon + "I'm sorry Dave" response
+- System prompt: added Sales Buddy terminology (milestones not "work items", notes not "call logs"), POD/territory/contact/analytics concepts, "use tools immediately" rule
+- User identity injection from UserPreference (name, role), single-user app context
+- Gateway deployed to staging with all prompt/context changes
 
 ---
 
