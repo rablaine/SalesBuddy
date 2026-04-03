@@ -304,8 +304,9 @@ def run_migrations(db):
     _add_column_if_not_exists(db, inspector, 'note_attendees',
                               'internal_contact_id', 'INTEGER REFERENCES internal_contacts(id)')
 
-    # Migration: Seed InternalContact records from DAE data on customers
-    _seed_internal_contacts_from_daes(db, inspector)
+    # Note: InternalContact records for DAEs are created during MSX account
+    # sync (import_stream in msx.py), not seeded here. Users should run an
+    # account sync after upgrading to populate DAEs as internal contacts.
 
     # =========================================================================
     # End migrations
@@ -1461,48 +1462,3 @@ def _migrate_estimated_acr_to_int(db, inspector):
 
         if converted:
             print(f"  Converted {converted} estimated_acr values to integer")
-
-
-def _seed_internal_contacts_from_daes(db, inspector):
-    """Create InternalContact records from DAE data on customers.
-
-    Deduplicates by alias so the same DAE on multiple customers
-    creates only one InternalContact record. Idempotent - skips
-    aliases that already exist.
-    """
-    if not _table_exists(inspector, 'internal_contacts'):
-        return
-    if not _table_exists(inspector, 'customers'):
-        return
-
-    with db.engine.connect() as conn:
-        # Get unique DAEs from customers
-        rows = conn.execute(text(
-            "SELECT DISTINCT dae_name, dae_alias FROM customers "
-            "WHERE dae_alias IS NOT NULL AND dae_alias != ''"
-        )).fetchall()
-        if not rows:
-            return
-
-        # Get existing aliases to avoid duplicates
-        existing = set(
-            r[0] for r in conn.execute(text(
-                "SELECT alias FROM internal_contacts WHERE alias IS NOT NULL"
-            )).fetchall()
-        )
-
-        created = 0
-        for row in rows:
-            name, alias = row[0], row[1]
-            if alias in existing:
-                continue
-            conn.execute(text(
-                "INSERT INTO internal_contacts (name, alias, role, created_at) "
-                "VALUES (:name, :alias, 'DAE', CURRENT_TIMESTAMP)"
-            ), {'name': name or alias, 'alias': alias})
-            existing.add(alias)
-            created += 1
-
-        if created:
-            conn.commit()
-            print(f"  Seeded {created} internal contacts from DAE data")

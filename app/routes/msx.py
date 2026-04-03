@@ -71,7 +71,7 @@ from app.services.msx_api import (
     get_user_alias,
     get_user_info,
 )
-from app.models import Customer, CustomerCSAM, Milestone, Opportunity, Territory, Seller, POD, SolutionEngineer, SyncStatus, Vertical, db
+from app.models import Customer, CustomerCSAM, InternalContact, Milestone, Opportunity, Territory, Seller, POD, SolutionEngineer, SyncStatus, Vertical, db
 
 
 logger = logging.getLogger(__name__)
@@ -2110,6 +2110,14 @@ def import_stream():
             # DAE aliases already resolved in alias_cache (Phase 4d)
             owner_alias_cache = alias_cache
 
+            # Pre-build InternalContact lookup for DAE upserts
+            internal_contacts_by_alias: dict = {
+                ic.alias: ic
+                for ic in InternalContact.query.filter(
+                    InternalContact.alias.isnot(None)
+                ).all()
+            }
+
             # Verticals
             yield _sse({"message": "Creating verticals...", "progress": 96})
             verticals_map = {}
@@ -2257,6 +2265,19 @@ def import_stream():
                             elif alias and not cust.dae_name:
                                 cust.dae_name = alias
                                 changed = True
+                            # Upsert InternalContact for DAE
+                            if alias and alias not in internal_contacts_by_alias:
+                                ic = InternalContact(
+                                    name=fullname or alias,
+                                    alias=alias,
+                                    role='DAE',
+                                )
+                                db.session.add(ic)
+                                internal_contacts_by_alias[alias] = ic
+                            elif alias and fullname:
+                                ic = internal_contacts_by_alias[alias]
+                                if ic.name != fullname:
+                                    ic.name = fullname
 
                         # Update available CSAMs (M2M) from MSX
                         acct_csam_list = account_csams.get(ad["id"], [])
@@ -2300,6 +2321,16 @@ def import_stream():
                         if info:
                             customer.dae_alias = info["alias"]
                             customer.dae_name = info.get("fullname") or info["alias"]
+                            # Upsert InternalContact for DAE
+                            alias = info["alias"]
+                            if alias and alias not in internal_contacts_by_alias:
+                                ic = InternalContact(
+                                    name=info.get("fullname") or alias,
+                                    alias=alias,
+                                    role='DAE',
+                                )
+                                db.session.add(ic)
+                                internal_contacts_by_alias[alias] = ic
                     # Available CSAMs (M2M)
                     acct_csam_list = account_csams.get(ad["id"], [])
                     for c in acct_csam_list:
