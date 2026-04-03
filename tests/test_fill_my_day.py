@@ -39,10 +39,10 @@ class TestFillMyDayPage:
 
 
 class TestFillMyDaySaveAPI:
-    """Tests for the Fill My Day save call log API."""
+    """Tests for the Fill My Day save note API."""
 
     def test_save_note_success(self, client, sample_data):
-        """Test saving a call log from Fill My Day."""
+        """Test saving a note from Fill My Day."""
         response = client.post('/api/fill-my-day/save',
             data=json.dumps({
                 'customer_id': sample_data['customer1_id'],
@@ -60,7 +60,7 @@ class TestFillMyDaySaveAPI:
         assert 'view_url' in data
 
     def test_save_note_without_time(self, client, sample_data):
-        """Test saving a call log without a specific time."""
+        """Test saving a note without a specific time."""
         response = client.post('/api/fill-my-day/save',
             data=json.dumps({
                 'customer_id': sample_data['customer1_id'],
@@ -151,7 +151,7 @@ class TestFillMyDaySaveAPI:
         assert data['success'] is False
 
     def test_save_note_with_topics(self, client, sample_data):
-        """Test that topics are correctly associated with saved call log."""
+        """Test that topics are correctly associated with saved note."""
         response = client.post('/api/fill-my-day/save',
             data=json.dumps({
                 'customer_id': sample_data['customer1_id'],
@@ -173,7 +173,7 @@ class TestFillMyDaySaveAPI:
             assert len(note.topics) == 2
 
     def test_save_note_with_milestone(self, client, sample_data):
-        """Test saving a call log with milestone data from Fill My Day."""
+        """Test saving a note with milestone data from Fill My Day."""
         milestone_data = {
             'msx_milestone_id': 'test-guid-12345',
             'name': 'Azure Migration - Phase 1',
@@ -217,7 +217,7 @@ class TestFillMyDaySaveAPI:
             'url': 'https://example.com/milestone/reuse-guid-67890',
             'status': 'On Track'
         }
-        # Save first call log with milestone
+        # Save first note with milestone
         resp1 = client.post('/api/fill-my-day/save',
             data=json.dumps({
                 'customer_id': sample_data['customer1_id'],
@@ -230,7 +230,7 @@ class TestFillMyDaySaveAPI:
         )
         assert resp1.get_json()['success'] is True
 
-        # Save second call log with same milestone
+        # Save second note with same milestone
         milestone_data['name'] = 'Updated Milestone Name'
         resp2 = client.post('/api/fill-my-day/save',
             data=json.dumps({
@@ -244,7 +244,7 @@ class TestFillMyDaySaveAPI:
         )
         assert resp2.get_json()['success'] is True
 
-        # Verify both call logs share the same milestone record
+        # Verify both notes share the same milestone record
         with client.application.app_context():
             from app.models import Milestone
             milestones = Milestone.query.filter_by(

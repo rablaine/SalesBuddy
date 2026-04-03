@@ -1,6 +1,6 @@
 """
 Routes for milestone management and milestone tracker.
-Milestones are URLs from the MSX sales platform that can be linked to call logs.
+Milestones are URLs from the MSX sales platform that can be linked to notes.
 The Milestone Tracker provides visibility into all active (uncommitted) milestones
 across customers, sorted by dollar value and due date urgency.
 """
@@ -59,7 +59,7 @@ def milestone_create():
 
 @bp.route('/milestone/<int:id>')
 def milestone_view(id):
-    """View a milestone and its associated call logs and tasks."""
+    """View a milestone and its associated notes and tasks."""
     milestone = Milestone.query.get_or_404(id)
     tasks = MsxTask.query.filter_by(milestone_id=milestone.id).order_by(
         MsxTask.created_at.desc()
@@ -138,7 +138,7 @@ def milestone_create_task(id):
     Create a task on a milestone from the milestone view page.
     
     Expects JSON body with task details. Creates the task in MSX first,
-    then stores a local MsxTask record (without a call log association).
+    then stores a local MsxTask record (without a note association).
     
     Returns JSON response for the modal form.
     """
@@ -252,13 +252,13 @@ def milestone_edit(id):
 
 @bp.route('/milestone/<int:id>/delete', methods=['POST'])
 def milestone_delete(id):
-    """Delete a milestone (only if not linked to any call logs)."""
+    """Delete a milestone (only if not linked to any notes)."""
     milestone = Milestone.query.get_or_404(id)
     
-    # Protect milestones that are linked to call logs
+    # Protect milestones that are linked to notes
     if milestone.notes:
         flash('Cannot delete this milestone — it is linked to notes. '
-              'Remove the milestone from those call logs first.', 'danger')
+              'Remove the milestone from those notes first.', 'danger')
         return redirect(url_for('milestones.milestone_view', id=milestone.id))
     
     db.session.delete(milestone)
@@ -422,7 +422,7 @@ def api_milestone_delete_comment(id: int):
 def api_find_or_create_milestone():
     """Find an existing milestone by URL or create a new one.
     
-    Used by the call log form when associating a milestone URL.
+    Used by the note form when associating a milestone URL.
     """
     data = request.get_json()
     if not data or not data.get('url'):

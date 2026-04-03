@@ -1,12 +1,12 @@
 """
 Connect export routes for Sales Buddy.
 
-Provides functionality to export call log data for writing Microsoft Connects
+Provides functionality to export note data for writing Microsoft Connects
 (self-evaluations). Generates structured summaries and JSON exports scoped to
 a configurable date range, with milestone revenue impact per customer.
 
 V2 adds AI-assisted summary generation using Azure OpenAI to produce
-polished Connect narratives from raw call log data.
+polished Connect narratives from raw note data.
 """
 import json
 import re
@@ -99,11 +99,11 @@ def _strip_html(html_text: str) -> str:
 
 def _build_export_data(start_date: date, end_date: date) -> dict[str, Any]:
     """
-    Query all call logs in the date range and build structured export data.
+    Query all notes in the date range and build structured export data.
 
     Returns a dict with:
         - summary: aggregate counts and topic/customer breakdowns
-        - customers: per-customer detail with call logs, topics, milestone revenue
+        - customers: per-customer detail with notes, topics, milestone revenue
     """
     from sqlalchemy import func
     from sqlalchemy.orm import joinedload
@@ -112,7 +112,7 @@ def _build_export_data(start_date: date, end_date: date) -> dict[str, Any]:
     start_dt = datetime.combine(start_date, datetime.min.time())
     end_dt = datetime.combine(end_date, datetime.max.time())
 
-    # Query call logs in range with eager loading
+    # Query notes in range with eager loading
     notes = (
         Note.query
         .filter(
@@ -168,7 +168,7 @@ def _build_export_data(start_date: date, end_date: date) -> dict[str, Any]:
                 'milestone_count': 0,
             }
 
-        # Add call log
+        # Add note
         topics_list = [t.name for t in cl.topics]
         customers_map[cust_id]['notes'].append({
             'id': cl.id,
@@ -207,7 +207,7 @@ def _build_export_data(start_date: date, end_date: date) -> dict[str, Any]:
     for cust_data in customers_map.values():
         cust_data['topics'] = sorted(cust_data['topics'])
 
-    # Sort customers by call log count descending
+    # Sort customers by note count descending
     customers_list = sorted(
         customers_map.values(),
         key=lambda c: len(c['notes']),
@@ -323,7 +323,7 @@ def _build_text_export(data: dict, name: str) -> str:
         for cl in cust['notes']:
             topic_str = f" [{', '.join(cl['topics'])}]" if cl['topics'] else ""
             lines.append(f"  [{cl['date']}]{topic_str}")
-            # Indent call log content
+            # Indent note content
             for content_line in cl['content_text'].splitlines():
                 lines.append(f"    {content_line}")
             lines.append("")

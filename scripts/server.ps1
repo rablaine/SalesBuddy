@@ -548,7 +548,7 @@ if ($backupOneDrive) {
         Set-OneDrivePathInDb -Path $businessOneDrive
         $backupOneDrive = $businessOneDrive
 
-        Write-Host "  [OK] Automatic backups configured (database + call logs)." -ForegroundColor Green
+        Write-Host "  [OK] Automatic backups configured (database + notes)." -ForegroundColor Green
     } else {
         Write-Host ""
         Write-Host "  [WARNING] No OneDrive for Business detected." -ForegroundColor Yellow

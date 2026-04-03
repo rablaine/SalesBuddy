@@ -194,7 +194,7 @@ def sample_data(app):
         db.session.add_all([topic1, topic2])
         db.session.flush()
         
-        # Create call logs - Use correct field name 'content'
+        # Create notes - Use correct field name 'content'
         # Note: seller and territory are now derived from customer relationship
         call1 = Note(
             customer_id=customer1.id,

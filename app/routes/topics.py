@@ -63,7 +63,7 @@ def topic_create():
 def topic_view(id):
     """View topic details (FR009)."""
     topic = Topic.query.filter_by(id=id).first_or_404()
-    # Sort call logs in-memory since they're eager-loaded
+    # Sort notes in-memory since they're eager-loaded
     notes = sorted(topic.notes, key=lambda c: c.call_date, reverse=True)
     return render_template('topic_view.html', topic=topic, notes=notes)
 
@@ -99,11 +99,11 @@ def topic_edit(id):
 
 @topics_bp.route('/topic/<int:id>/delete', methods=['POST'])
 def topic_delete(id):
-    """Delete topic and remove from all associated call logs."""
+    """Delete topic and remove from all associated notes."""
     topic = Topic.query.filter_by(id=id).first_or_404()
     topic_name = topic.name
     
-    # Get all call logs associated with this topic
+    # Get all notes associated with this topic
     notes_count = len(topic.notes)
     
     # Delete the topic (SQLAlchemy will automatically remove associations from notes_topics table)

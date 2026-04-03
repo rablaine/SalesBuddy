@@ -1414,7 +1414,7 @@
         {% block content %}{% endblock %}
     </main>
 
-    <!-- Quick Call Log Modal -->
+    <!-- Quick Note Modal -->
     <div class="modal fade" id="quickNoteModal" tabindex="-1" aria-labelledby="quickNoteModalLabel" aria-hidden="true">
         <div class="modal-dialog modal-dialog-scrollable">
             <div class="modal-content">
@@ -3071,10 +3071,10 @@
         }
     </script>
     
-    <!-- Quick Call Log Modal JavaScript -->
+    <!-- Quick Note Modal JavaScript -->
     <script defer>
         window.addEventListener('load', () => {
-            // Setup for call log modal - goes to call log form
+            // Setup for note modal - goes to note form
             setupCustomerSearchModal('quickNoteModal', 'customerSearch', 'customerResults', '{{ url_for("notes.note_create") }}?customer_id=', '{{ url_for("notes.note_create") }}');
             // Setup for new engagement modal - goes to engagement form
             setupCustomerSearchModal('quickEngagementModal', 'engagementCustomerSearch', 'engagementCustomerResults', '{{ url_for("customers.customer_view", id=0) }}'.replace('/0', '/'), null, function() { return '/engagement/new'; });
@@ -3101,7 +3101,7 @@
             function renderResults(customers){
                 let html = '';
                 const suffix = urlSuffixFn ? urlSuffixFn() : '';
-                // Show "Not Customer Associated" option at top for call log modal
+                // Show "Not Customer Associated" option at top for note modal
                 if (noCustomerUrl) {
                     const noCustomerSuffix = suffix ? (noCustomerUrl.includes('?') ? suffix : '?' + suffix.substring(1)) : '';
                     html += `<a href="${noCustomerUrl}${noCustomerSuffix}" class="list-group-item list-group-item-action list-group-item-light border-bottom-2"><i class="bi bi-journal-text text-secondary"></i> <em>Not Customer Associated</em> <span class="badge bg-secondary ms-2">General Note</span></a>`;

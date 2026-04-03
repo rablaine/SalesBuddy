@@ -1,5 +1,5 @@
 """
-Backup routes -- admin panel endpoints for file-based call log backup.
+Backup routes -- admin panel endpoints for file-based note backup.
 
 Provides:
 - Status API (enabled, path, file count)
@@ -82,7 +82,7 @@ def backup_status():
 
 @backup_bp.route("/api/backup/backup-all", methods=["POST"])
 def backup_all():
-    """Write backup files for all customers with call logs."""
+    """Write backup files for all customers with notes."""
     if not _get_backup_root():
         return jsonify({"success": False, "error": "No backup location available"}), 400
 
@@ -106,11 +106,11 @@ def clear_notes():
 
 @backup_bp.route("/api/backup/restore", methods=["POST"])
 def backup_restore():
-    """Restore call logs from a backup JSON payload.
+    """Restore notes from a backup JSON payload.
 
     Expects a JSON body with the backup data structure produced by
     ``_customer_to_dict``.  Matches the customer by TPID and creates
-    any missing call logs.
+    any missing notes.
     """
     data = request.get_json(silent=True)
     if not data:
@@ -129,7 +129,7 @@ def backup_restore():
 
 @backup_bp.route("/api/backup/restore-all", methods=["POST"])
 def backup_restore_all():
-    """Restore all call logs from the backup folder on disk.
+    """Restore all notes from the backup folder on disk.
 
     Reads every .json file under ``notes/{seller}/`` in the configured
     (or auto-detected) backup folder.  Requires accounts to have been

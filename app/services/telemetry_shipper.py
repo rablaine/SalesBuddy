@@ -12,7 +12,7 @@ shut down.
 Sent (per request):
     - instance_id  (random UUID generated on first run -- not tied to any user)
     - app_version  (git commit hash)
-    - category     (e.g. "Call Logs", "Revenue", "AI")
+    - category     (e.g. "Notes", "Revenue", "AI")
     - method       (HTTP verb)
     - status_code
     - response_time_ms
@@ -193,7 +193,7 @@ def queue_event(
     intentionally lightweight -- just appends to a list under a lock.
 
     Args:
-        category: Feature category (e.g. "Call Logs", "Admin").
+        category: Feature category (e.g. "Notes", "Admin").
         method: HTTP method (GET, POST, etc.).
         status_code: HTTP response status code.
         response_time_ms: Request duration in milliseconds.

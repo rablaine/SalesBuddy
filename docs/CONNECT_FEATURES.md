@@ -1,6 +1,6 @@
 # Connect Features
 
-Sales Buddy includes features designed to help you prepare for Microsoft Connect self-evaluations by surfacing customer impact data from your call logs.
+Sales Buddy includes features designed to help you prepare for Microsoft Connect self-evaluations by surfacing customer impact data from your notes.
 
 ## Connect Export
 
@@ -10,12 +10,12 @@ Generate a structured summary of your customer engagement activity over a time p
 
 1. Go to **Admin Panel** and click **Generate Export** on the Connect Export card
 2. Enter a name (e.g. "H1 FY25 Connect") and select a date range
-3. Click **Generate** to create a summary covering all call logs in that period
+3. Click **Generate** to create a summary covering all notes in that period
 
 ### What's Included
 
 The export summarizes:
-- **Total call logs** in the date range
+- **Total notes** in the date range
 - **Unique customers** engaged
 - **Top topics** discussed (up to 10 displayed, sorted by frequency)
 - **Per-customer breakdown** with call count, date range, and topics
@@ -38,7 +38,7 @@ When importing a meeting via WorkIQ (either "Import from Meeting" or "Auto-fill"
 
 ### How It Works
 
-When enabled, Sales Buddy appends an extra instruction to the WorkIQ summary prompt asking it to look for impact signals. The AI identifies relevant signals and returns them in a structured format. They appear in your call log content under an **Impact Signals** heading, separated by a horizontal rule.
+When enabled, Sales Buddy appends an extra instruction to the WorkIQ summary prompt asking it to look for impact signals. The AI identifies relevant signals and returns them in a structured format. They appear in your note content under an **Impact Signals** heading, separated by a horizontal rule.
 
 Example signals:
 - "Customer committed to migrating 3 production workloads to AKS by Q2"
@@ -54,7 +54,7 @@ Impact extraction is **enabled by default**. You can control it in two places:
 1. **Settings** > **WorkIQ & AI** > **Extract Connect Impact Signals** toggle
    - This sets your global default. When off, no meetings will include impact extraction unless overridden per-meeting.
 
-2. **Per-meeting override** on the call log form
+2. **Per-meeting override** on the note form
    - When importing a meeting, click **Customize summary prompt** to expand the prompt editor. The **Extract impact signals** checkbox lets you override your global setting for just that import.
 
 ### Fill My Day

@@ -8,23 +8,23 @@ from app.models import db, Note, Customer, Seller, Territory, Topic
 
 
 def test_note_create_post(client, sample_data):
-    """Test that posting to call log create works."""
+    """Test that posting to note create works."""
     customer_id = sample_data['customer1_id']
     
     response = client.post('/note/new', data={
         'customer_id': customer_id,
         'call_date': date.today().strftime('%Y-%m-%d'),
-        'content': '<p>Test call log content</p>',
+        'content': '<p>Test note content</p>',
         'topic_ids': []
     }, follow_redirects=False)
     
     # Should redirect to view page
     assert response.status_code == 302
     
-    # Verify call log was created
+    # Verify note was created
     note = Note.query.filter_by(customer_id=customer_id).order_by(Note.id.desc()).first()
     assert note is not None
-    assert note.content == '<p>Test call log content</p>'
+    assert note.content == '<p>Test note content</p>'
 
 
 def test_customer_create_post(client, sample_data):

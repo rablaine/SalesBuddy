@@ -5524,7 +5524,7 @@ function restoreDraft() {
         if (draft.note_id) {
             const form = document.getElementById('noteForm');
             form.action = `/note/${draft.note_id}/edit`;
-            console.log('Draft restored for editing call log', draft.note_id);
+            console.log('Draft restored for editing note', draft.note_id);
         }
         
         return true;
@@ -5849,7 +5849,7 @@ function discardDraft() {
     }
 }
 
-// Set current date as default if creating new call log (only if not already set by server)
+// Set current date as default if creating new note (only if not already set by server)
 {% if not note %}
 document.addEventListener('DOMContentLoaded', function() {
     var dateInput = document.getElementById('call_date');
@@ -5876,7 +5876,7 @@ document.addEventListener('DOMContentLoaded', function() {
     {% endif %}
     
     {% if previous_calls %}
-    // Match previous calls card height to new call log card height
+    // Match previous calls card height to new note card height
     function matchCardHeights() {
         const newCallCard = document.querySelector('.col-md-6:first-child .card');
         const previousCallsCard = document.querySelector('.previous-calls-card');

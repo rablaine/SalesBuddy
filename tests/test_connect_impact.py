@@ -8,7 +8,7 @@ Covers:
 - User preference for connect impact (default True)
 - Preferences API endpoint for toggling
 - Settings page UI toggle
-- Call log form inline toggle
+- Note form inline toggle
 - Meeting summary API extract_impact param
 - Fill My Day connects impact through to response
 """
@@ -397,7 +397,7 @@ class TestConnectImpactUI:
         assert 'checked' in switch_match.group(0)
 
     def test_note_form_has_inline_toggle(self, client, app, sample_data):
-        """Call log form should include the inline impact extraction checkbox."""
+        """Note form should include the inline impact extraction checkbox."""
         response = client.get(f'/note/new?customer_id={sample_data["customer1_id"]}')
         assert response.status_code == 200
         html = response.data.decode()
@@ -405,7 +405,7 @@ class TestConnectImpactUI:
         assert 'Extract impact signals' in html
 
     def test_note_form_has_impact_js_variable(self, client, app, sample_data):
-        """Call log form should have the connectImpactEnabled JS variable."""
+        """Note form should have the connectImpactEnabled JS variable."""
         response = client.get(f'/note/new?customer_id={sample_data["customer1_id"]}')
         html = response.data.decode()
         assert 'connectImpactEnabled' in html

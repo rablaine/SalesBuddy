@@ -91,7 +91,7 @@ def test_topic_edit_form_loads(client, sample_data):
 
 
 def test_note_create_form_loads(client, sample_data):
-    """Test call log creation form loads (without customer_id shows general note form)."""
+    """Test note creation form loads (without customer_id shows general note form)."""
     # Without customer_id, should load as general note form
     response = client.get('/note/new')
     assert response.status_code == 200
@@ -106,7 +106,7 @@ def test_note_create_form_loads(client, sample_data):
 
 
 def test_note_create_with_customer_preselect(client, sample_data):
-    """Test call log form with customer pre-selected."""
+    """Test note form with customer pre-selected."""
     customer_id = sample_data['customer1_id']
     response = client.get(f'/note/new?customer_id={customer_id}')
     assert response.status_code == 200
@@ -117,7 +117,7 @@ def test_note_create_with_customer_preselect(client, sample_data):
 
 
 def test_note_create_with_date_param(client, sample_data):
-    """Test call log form with date pre-filled from URL parameter."""
+    """Test note form with date pre-filled from URL parameter."""
     customer_id = sample_data['customer1_id']
     response = client.get(f'/note/new?customer_id={customer_id}&date=2026-02-03')
     assert response.status_code == 200
@@ -126,7 +126,7 @@ def test_note_create_with_date_param(client, sample_data):
 
 
 def test_note_create_with_invalid_date_param(client, sample_data):
-    """Test call log form falls back to today with invalid date."""
+    """Test note form falls back to today with invalid date."""
     customer_id = sample_data['customer1_id']
     response = client.get(f'/note/new?customer_id={customer_id}&date=invalid-date')
     assert response.status_code == 200
@@ -135,7 +135,7 @@ def test_note_create_with_invalid_date_param(client, sample_data):
 
 
 def test_note_edit_form_loads(client, sample_data):
-    """Test call log edit form loads."""
+    """Test note edit form loads."""
     call_id = sample_data['call1_id']
     response = client.get(f'/note/{call_id}/edit')
     assert response.status_code == 200

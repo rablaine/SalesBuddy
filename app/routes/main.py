@@ -397,7 +397,7 @@ def index():
 
 @main_bp.route('/api/notes/calendar')
 def notes_calendar_api():
-    """API endpoint returning call logs for calendar view.
+    """API endpoint returning notes for calendar view.
     
     Query params:
         year: int (default: current year)
@@ -424,7 +424,7 @@ def notes_calendar_api():
     else:
         next_month_first = date(year, month + 1, 1)
     
-    # Query call logs for this month with customer data and relationships
+    # Query notes for this month with customer data and relationships
     seller_mode_sid = get_seller_mode_seller_id()
     cal_query = Note.query.options(
         db.joinedload(Note.customer),
@@ -585,7 +585,7 @@ def api_active_projects():
 
 @main_bp.route('/search')
 def search():
-    """Search and filter call logs (FR011)."""
+    """Search and filter notes (FR011)."""
     # Get filter parameters
     search_text = request.args.get('q', '').strip()
     customer_id = request.args.get('customer_id', type=int)
@@ -625,13 +625,13 @@ def search():
             query = query.filter(Customer.territory_id == territory_id)
         
         if topic_ids:
-            # Filter by topics (call logs that have ANY of the selected topics)
+            # Filter by topics (notes that have ANY of the selected topics)
             query = query.join(Note.topics).filter(Topic.id.in_(topic_ids))
         
-        # Get filtered call logs
+        # Get filtered notes
         notes = query.order_by(Note.call_date.desc()).all()
         
-        # Group call logs by Seller → Customer structure (FR011)
+        # Group notes by Seller -> Customer structure (FR011)
         # Structure: { seller_id: { 'seller': Seller, 'customers': { customer_id: { 'customer': Customer, 'calls': [Note] } } } }
         for call in notes:
             seller_id_key = call.seller.id if call.seller else 0  # 0 = no seller
@@ -1086,7 +1086,7 @@ def customer_sort_by_preference():
 
 @main_bp.route('/api/preferences/show-customers-without-calls', methods=['GET', 'POST'])
 def show_customers_without_calls_preference():
-    """Get or set preference for showing customers without call logs."""
+    """Get or set preference for showing customers without notes."""
     if request.method == 'POST':
         data = request.get_json()
         show_customers_without_calls = data.get('show_customers_without_calls', False)

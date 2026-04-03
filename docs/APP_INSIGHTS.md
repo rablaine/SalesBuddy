@@ -10,7 +10,7 @@ Each HTTP request generates one custom event (`SalesBuddy.FeatureUsage`) with:
 |-------|------|---------|-------------|
 | `instance_id` | property | `5031acef-cd55-...` | Random UUID per install (not tied to any user) |
 | `app_version` | property | `a1b2c3d` | Git commit hash at boot |
-| `category` | property | `Call Logs` | Feature category (derived from blueprint) |
+| `category` | property | `Notes` | Feature category (derived from blueprint) |
 | `method` | property | `GET` | HTTP verb |
 | `is_api` | property | `True` | Whether the request hit `/api/...` |
 | `status_code` | measurement | `200` | HTTP response status |
@@ -136,7 +136,7 @@ customEvents
 
 ```kusto
 let known_categories = dynamic([
-    "Admin", "AI", "Backup", "Call Logs", "Connect Export", "Customers",
+    "Admin", "AI", "Backup", "Notes", "Connect Export", "Customers",
     "General", "Milestones", "MSX Integration", "Opportunities", "Partners",
     "Pods", "Revenue", "Sellers", "Solution Engineers", "Territories", "Topics"
 ]);

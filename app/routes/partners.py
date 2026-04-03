@@ -137,7 +137,7 @@ def partner_delete(id):
     partner = Partner.query.get_or_404(id)
     name = partner.name
     
-    # Remove from all call logs (unassociate)
+    # Remove from all notes (unassociate)
     partner.notes = []
     
     db.session.delete(partner)
@@ -402,7 +402,7 @@ def api_partners_search():
 
 @partners_bp.route('/api/partners/create', methods=['POST'])
 def api_partner_create():
-    """Create a partner via API (for inline creation from call log form)."""
+    """Create a partner via API (for inline creation from note form)."""
     data = request.get_json()
     name = data.get('name', '').strip()
     

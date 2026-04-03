@@ -24,7 +24,7 @@ def test_home_page_with_data(client, sample_data):
 
 
 def test_calendar_api_returns_json(client, sample_data):
-    """Test calendar API returns proper JSON with call log data."""
+    """Test calendar API returns proper JSON with note data."""
     response = client.get('/api/notes/calendar')
     assert response.status_code == 200
     
@@ -460,7 +460,7 @@ def test_territory_view_accounts(client, sample_data, app):
 
 
 def test_topic_view_loads(client, sample_data):
-    """Test topic page loads with sorted call logs."""
+    """Test topic page loads with sorted notes."""
     topic_id = sample_data['topic1_id']
     response = client.get(f'/topic/{topic_id}')
     assert response.status_code == 200
@@ -498,7 +498,7 @@ def test_territories_list_loads(client, sample_data):
 
 
 def test_notes_list_loads(client, sample_data):
-    """Test call logs list page."""
+    """Test notes list page."""
     response = client.get('/notes')
     assert response.status_code == 200
     assert b'Acme Corp' in response.data
@@ -506,7 +506,7 @@ def test_notes_list_loads(client, sample_data):
 
 
 def test_note_view_loads(client, sample_data):
-    """Test individual call log page."""
+    """Test individual note page."""
     call_id = sample_data['call1_id']
     response = client.get(f'/note/{call_id}')
     assert response.status_code == 200
@@ -539,7 +539,7 @@ def test_customers_list_filters_without_calls(client, sample_data):
     """Test that customers without calls are filtered when preference is False."""
     from app.models import Customer, UserPreference, db
 
-    # Create a customer without any call logs
+    # Create a customer without any notes
     customer = Customer(
         name='Empty Customer',
         tpid=9999

@@ -18,7 +18,7 @@ class TestTelemetryHelpers:
     def test_derive_category_known_blueprint(self):
         """Should map known blueprints to friendly category names."""
         from app.services.telemetry import _derive_category
-        assert _derive_category('notes', '/notes') == 'Call Logs'
+        assert _derive_category('notes', '/notes') == 'Notes'
         assert _derive_category('admin', '/admin') == 'Admin'
         assert _derive_category('ai', '/api/ai/suggest') == 'AI'
         assert _derive_category('msx', '/api/msx/status') == 'MSX Integration'
@@ -274,7 +274,7 @@ class TestTelemetryStatsAPI:
                     referrer_path=f'/ref/{i}' if i % 2 == 0 else None,
                     error_type='ServerError' if i >= 8 else None,
                     error_message='Something broke' if i >= 8 else None,
-                    category='Admin' if i % 2 == 0 else 'Call Logs',
+                    category='Admin' if i % 2 == 0 else 'Notes',
                     timestamp=datetime.now(timezone.utc) - timedelta(hours=i),
                 )
                 db.session.add(event)

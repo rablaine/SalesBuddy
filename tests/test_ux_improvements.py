@@ -26,12 +26,12 @@ def test_admin_panel_stats_are_clickable(client):
     stats_section = main_content.find('div', class_='card-body')
     links = stats_section.find_all('a')
     
-    # Should have links for: Call Logs, Customers, Sellers, Territories, Topics, PODs
+    # Should have links for: Notes, Customers, Sellers, Territories, Topics, PODs
     assert len(links) >= 6, "Should have at least 6 clickable stats"
     
     # Check specific links exist
     notes_link = soup.find('a', href='/notes')
-    assert notes_link is not None, "Call logs stat should be clickable"
+    assert notes_link is not None, "Notes stat should be clickable"
     
     customers_link = soup.find('a', href='/customers')
     assert customers_link is not None, "Customers stat should be clickable"
@@ -84,8 +84,8 @@ def test_call_content_truncation_word_boundaries(client):
     db.session.add(customer)
     db.session.commit()
     
-    # Create call log with long content that would be truncated mid-word if not using word boundaries
-    long_content = "This is a test call log with very long content. " * 10  # ~500 chars
+    # Create note with long content that would be truncated mid-word if not using word boundaries
+    long_content = "This is a test note with very long content. " * 10  # ~500 chars
     call = Note(
         customer_id=customer.id,
         call_date=date.today(),
@@ -105,7 +105,7 @@ def test_call_content_truncation_word_boundaries(client):
     # The truncate filter with word boundaries should end with complete words
     assert '...' in html or len(long_content) < 200, "Long content should be truncated"
     
-    # Check call logs list
+    # Check notes list
     response = client.get('/notes')
     assert response.status_code == 200
     assert '...' in response.data.decode('utf-8') or len(long_content) < 200
@@ -178,8 +178,8 @@ def test_search_results_hierarchy_simplified(client):
 
 
 def test_draft_save_indicator_exists(client):
-    """Test that draft save indicator element exists in call log form."""
-    # Create a customer first (call log form requires customer_id)
+    """Test that draft save indicator element exists in note form."""
+    # Create a customer first (note form requires customer_id)
     from app.models import db, Customer, Seller
     
     seller = Seller.query.first()
@@ -198,7 +198,7 @@ def test_draft_save_indicator_exists(client):
         db.session.add(customer)
         db.session.commit()
     
-    # Call log form requires customer_id parameter
+    # Note form requires customer_id parameter
     response = client.get(f'/note/new?customer_id={customer.id}')
     assert response.status_code == 200
     

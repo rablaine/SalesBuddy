@@ -493,11 +493,11 @@ function createMeetingCard(idx, meeting, customer, data, dateStr, cardNum) {
                 <small class="text-muted">Topics:</small>
                 <span id="topicContainer-${idx}">${topicBadges || '<small class="text-muted">None suggested</small>'}</span>
             </div>
-            <!-- Milestone (matching call log form style) -->
+            <!-- Milestone (matching note form style) -->
             <div id="milestoneSection-${idx}" class="mb-2">
                 ${data.milestone ? buildMilestoneCard(idx, data.milestone) : ''}
             </div>
-            <!-- Task Creation (matching call log form style) -->
+            <!-- Task Creation (matching note form style) -->
             <div id="taskSection-${idx}" style="${data.milestone ? '' : 'display:none;'}">
                 <div class="card border-primary">
                     <div class="card-header bg-primary text-white py-2">
@@ -592,7 +592,7 @@ function createMeetingCard(idx, meeting, customer, data, dateStr, cardNum) {
     return card;
 }
 
-// ---- Milestone / Task helpers (matching call log form) ----
+// ---- Milestone / Task helpers (matching note form) ----
 
 let taskCategoriesCache = null;
 

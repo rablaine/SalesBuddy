@@ -197,7 +197,7 @@ def _ai_summarize_note(
     existing_comments: list[str],
     note_id: int | None = None,
 ) -> str | None:
-    """Call the AI gateway to summarize a call log for a milestone comment.
+    """Call the AI gateway to summarize a note for a milestone comment.
 
     Returns the summary string, or None if AI is unavailable or the note
     contains no new information beyond existing comments.
@@ -423,7 +423,7 @@ def _track_note_worker(
                     f"for {ref_tag} on {msx_id}, creating initial comment"
                 )
                 fallback = (
-                    f"Call log: {customer_name}\n"
+                    f"Note: {customer_name}\n"
                     f"Topics: {topics}\n\n"
                     f"{plain[:500]}"
                 )

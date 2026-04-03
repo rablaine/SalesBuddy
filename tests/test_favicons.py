@@ -355,7 +355,7 @@ class TestCustomerFaviconMacro:
         assert b'customer-favicon' in resp.data
 
     def test_notes_list_shows_favicons(self, app, client, sample_data):
-        """Call logs list page renders favicon next to customer name."""
+        """Notes list page renders favicon next to customer name."""
         with app.app_context():
             from app.models import db, Customer
             c = db.session.get(Customer, sample_data['customer1_id'])
@@ -367,7 +367,7 @@ class TestCustomerFaviconMacro:
         assert b'customer-favicon' in resp.data
 
     def test_note_view_shows_favicon(self, app, client, sample_data):
-        """Individual call log view renders favicon next to customer."""
+        """Individual note view renders favicon next to customer."""
         with app.app_context():
             from app.models import db, Customer
             c = db.session.get(Customer, sample_data['customer1_id'])

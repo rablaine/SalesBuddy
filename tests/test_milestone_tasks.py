@@ -72,7 +72,7 @@ class TestMsxTaskNullableNote:
 
         note = Note(
             customer_id=customer.id,
-            content='Test call log',
+            content='Test note',
             call_date=datetime(2026, 1, 15, tzinfo=timezone.utc),
         )
         db_session.add(note)
@@ -148,7 +148,7 @@ class TestMilestoneViewTasks:
         assert 'HoK' in html
 
     def test_milestone_view_shows_task_linked_note(self, app, client, db_session, sample_user):
-        """Tasks linked to a call log should show a link to that call log."""
+        """Tasks linked to a note should show a link to that note."""
         customer = Customer(
             name='Task Link Customer', tpid=8802,
         )
@@ -165,7 +165,7 @@ class TestMilestoneViewTasks:
 
         note = Note(
             customer_id=customer.id,
-            content='Link test call log',
+            content='Link test note',
             call_date=datetime(2026, 2, 1, tzinfo=timezone.utc),
         )
         db_session.add(note)

@@ -80,7 +80,7 @@ class TestToolCoverage:
         )
 
     def test_note_tool_exists(self):
-        """Notes/call logs should have a search tool."""
+        """Notes should have a search tool."""
         names = self._tool_names()
         assert any('note' in n for n in names), (
             'No tool covers notes. Add one to copilot_tools.py.'

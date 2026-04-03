@@ -1,6 +1,6 @@
 # WorkIQ Integration Guide for Sales Buddy
 
-This document explains how we integrate with Microsoft WorkIQ to auto-populate call logs from Teams meeting transcripts and summaries. The goal: click a button, select a meeting, get a pre-filled call log with customer, date, discussion summary, and Azure topics extracted.
+This document explains how we integrate with Microsoft WorkIQ to auto-populate notes from Teams meeting transcripts and summaries. The goal: click a button, select a meeting, get a pre-filled note with customer, date, discussion summary, and Azure topics extracted.
 
 ## Table of Contents
 
@@ -28,7 +28,7 @@ This document explains how we integrate with Microsoft WorkIQ to auto-populate c
 - **Documents** - SharePoint/OneDrive documents
 - **Teams Messages** - Channel and chat messages
 
-For Sales Buddy, we primarily care about **meetings** and **transcripts** to auto-populate call logs.
+For Sales Buddy, we primarily care about **meetings** and **transcripts** to auto-populate notes.
 
 ---
 
@@ -164,7 +164,7 @@ def query_workiq(question: str) -> str:
 npx -y @microsoft/workiq ask -q "List my meetings for today with title and time"
 ```
 
-### Meeting Details for Call Log (250-word summary)
+### Meeting Details for Note (250-word summary)
 
 ```bash
 npx -y @microsoft/workiq ask -q "For the '[Meeting Title]' meeting on [Date], provide:
@@ -240,16 +240,16 @@ WorkIQ has **already been granted admin consent** at the tenant level. When you 
 
 ### Phase 1: MCP Integration (Easy Win)
 - Add WorkIQ MCP config to VS Code
-- Use Claude to query meetings during call log creation
+- Use Claude to query meetings during note creation
 
 ### Phase 2: "Import from Meeting" Button
-- Add button to call log form
+- Add button to note form
 - Query recent meetings with external attendees
 - Pre-fill form fields from selection
 
 ### Phase 3: Calendar Integration
 - On calendar view, show "Import" icon next to meetings with transcripts
-- Click to pull meeting summary into call log
+- Click to pull meeting summary into note
 
 ---
 

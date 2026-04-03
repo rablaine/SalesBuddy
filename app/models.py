@@ -326,7 +326,7 @@ class Territory(db.Model):
 
 
 class Seller(db.Model):
-    """Sales representative who can be assigned to customers and call logs."""
+    """Sales representative who can be assigned to customers and notes."""
     __tablename__ = 'sellers'
     
     id = db.Column(db.Integer, primary_key=True)
@@ -345,7 +345,7 @@ class Seller(db.Model):
         lazy='select'
     )
     customers = db.relationship('Customer', back_populates='seller', lazy='select')
-    # Call logs can be accessed via Customer relationship
+    # Notes can be accessed via Customer relationship
     
     def __repr__(self) -> str:
         return f'<Seller {self.name} ({self.seller_type})>'
@@ -358,7 +358,7 @@ class Seller(db.Model):
 
 
 # =============================================================================
-# Customer and Call Log Models
+# Customer and Note Models
 # =============================================================================
 
 class CustomerCSAM(db.Model):
@@ -396,7 +396,7 @@ class CustomerCSAM(db.Model):
 
 
 class Customer(db.Model):
-    """Customer account that can be associated with call logs."""
+    """Customer account that can be associated with notes."""
     __tablename__ = 'customers'
     
     id = db.Column(db.Integer, primary_key=True)
@@ -440,7 +440,7 @@ class Customer(db.Model):
         return f'<Customer {self.name} ({self.tpid})>'
     
     def get_most_recent_call_date(self) -> Optional[datetime]:
-        """Get the date of the most recent call log for this customer."""
+        """Get the date of the most recent note for this customer."""
         if not self.notes:
             return None
         most_recent = max(self.notes, key=lambda x: x.call_date)
@@ -482,7 +482,7 @@ class CustomerContact(db.Model):
 
 
 class Topic(db.Model):
-    """Topic/technology that can be tagged on call logs."""
+    """Topic/technology that can be tagged on notes."""
     __tablename__ = 'topics'
     
     id = db.Column(db.Integer, primary_key=True)
@@ -524,7 +524,7 @@ class Specialty(db.Model):
 
 
 class Partner(db.Model):
-    """Partner organization that can be associated with call logs."""
+    """Partner organization that can be associated with notes."""
     __tablename__ = 'partners'
     
     id = db.Column(db.Integer, primary_key=True)
@@ -584,7 +584,7 @@ class PartnerContact(db.Model):
 
 
 class Note(db.Model):
-    """Call log entry with rich text content and associated metadata."""
+    """Note entry with rich text content and associated metadata."""
     __tablename__ = 'notes'
     
     id = db.Column(db.Integer, primary_key=True)
@@ -997,7 +997,7 @@ class Opportunity(db.Model):
 
 
 class Milestone(db.Model):
-    """Milestone from MSX sales platform that can be linked to call logs."""
+    """Milestone from MSX sales platform that can be linked to notes."""
     __tablename__ = 'milestones'
     
     id = db.Column(db.Integer, primary_key=True)
@@ -1098,7 +1098,7 @@ class Milestone(db.Model):
 
 
 class MsxTask(db.Model):
-    """Task created in MSX linked to a milestone and call log."""
+    """Task created in MSX linked to a milestone and note."""
     __tablename__ = 'msx_tasks'
     
     id = db.Column(db.Integer, primary_key=True)
@@ -1601,7 +1601,7 @@ class RevenueEngagement(db.Model):
     resolution_notes = db.Column(db.Text, nullable=True)
     resolved_at = db.Column(db.DateTime, nullable=True)
     
-    # Optional link to a call log if one was created from this engagement
+    # Optional link to a note if one was created from this engagement
     note_id = db.Column(db.Integer, db.ForeignKey('notes.id'), nullable=True)
     
     # Relationships

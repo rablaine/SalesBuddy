@@ -346,7 +346,7 @@ class TestAIAlwaysEnabled:
     """Tests that AI UI elements are always visible (AI is always on)."""
 
     def test_note_form_always_shows_ai_buttons(self, client, app, sample_data):
-        """Call log form should always show AI buttons."""
+        """Note form should always show AI buttons."""
         with app.app_context():
             from app.models import Customer
             customer = Customer.query.first()
@@ -367,7 +367,7 @@ class TestWorkiqUIElements:
     """Tests that WorkIQ UI elements are visible when expected."""
 
     def test_new_note_shows_autofill_button(self, client, app, sample_data):
-        """New call log form should show the Auto-fill button."""
+        """New note form should show the Auto-fill button."""
         with app.app_context():
             from app.models import Customer
             customer = Customer.query.first()
@@ -379,7 +379,7 @@ class TestWorkiqUIElements:
         assert 'autoFillBtn' in html
 
     def test_new_note_shows_import_meeting_button(self, client, app, sample_data):
-        """New call log form should show the Import Summary button."""
+        """New note form should show the Import Summary button."""
         with app.app_context():
             from app.models import Customer
             customer = Customer.query.first()
@@ -391,7 +391,7 @@ class TestWorkiqUIElements:
         assert 'importMeetingBtn' in html
 
     def test_new_note_shows_prompt_customization(self, client, app, sample_data):
-        """New call log form should include the prompt customization section."""
+        """New note form should include the prompt customization section."""
         with app.app_context():
             from app.models import Customer
             customer = Customer.query.first()
@@ -403,7 +403,7 @@ class TestWorkiqUIElements:
         assert 'Customize summary prompt' in html
 
     def test_edit_note_hides_autofill_but_shows_import(self, client, app, sample_data):
-        """Edit call log form hides auto-fill but keeps Import Summary."""
+        """Edit note form hides auto-fill but keeps Import Summary."""
         with app.app_context():
             from app.models import Note
             note = Note.query.first()

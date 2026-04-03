@@ -472,7 +472,7 @@ az account get-access-token --resource "api://0f6db4af-332c-4fd5-b894-77fadb181e
 ## Additional Notes
 
 **Key Features:**
-- Create/edit/delete notes (call logs)
+- Create/edit/delete notes
 - Tag notes with technologies, customers, sellers, territories
 - Search and filter notes by multiple criteria
 - Associate notes with customer accounts

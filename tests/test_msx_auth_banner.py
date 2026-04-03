@@ -18,7 +18,7 @@ class TestMsxAuthBannerPresence:
         db.session.commit()
 
     def test_note_form_has_auth_banner(self, app, client, sample_data):
-        """Test that the new call log form includes the MSX auth banner."""
+        """Test that the new note form includes the MSX auth banner."""
         with app.app_context():
             self._dismiss_onboarding(app)
             from app.models import Customer
@@ -27,7 +27,7 @@ class TestMsxAuthBannerPresence:
             assert response.status_code == 200
             soup = BeautifulSoup(response.data, 'html.parser')
             banner = soup.find(id='msxAuthBanner')
-            assert banner is not None, "MSX auth banner should be present on call log form"
+            assert banner is not None, "MSX auth banner should be present on note form"
             # Should have sign-in button
             sign_in_btn = soup.find(id='msxBannerSignInBtn')
             assert sign_in_btn is not None, "Should have sign-in button"

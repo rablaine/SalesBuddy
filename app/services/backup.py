@@ -1,5 +1,5 @@
 """
-File-based backup service for call log disaster recovery.
+File-based backup service for note disaster recovery.
 
 Writes per-customer JSON files organized by seller name into a OneDrive-synced
 folder.  OneDrive handles cloud sync transparently, giving us RPO=0 backups
@@ -643,7 +643,7 @@ def backup_customer(customer_id: int) -> bool:
 
 
 def backup_all_customers() -> Dict[str, int]:
-    """Back up all customers that have at least one call log.
+    """Back up all customers that have at least one note.
 
     Returns:
         Dict with ``backed_up`` and ``failed`` counts.
@@ -932,7 +932,7 @@ def find_backup_folder() -> Optional[str]:
 
 
 def restore_all_from_folder(notes_dir: Optional[str] = None) -> Dict[str, Any]:
-    """Restore all call logs from a backup folder.
+    """Restore all notes from a backup folder.
 
     Walks ``{notes_dir}/{seller}/`` subfolders, reads every ``.json``
     file, and calls ``restore_from_backup()`` for each.

@@ -494,11 +494,11 @@ def recommend_partners():
 # ---------------------------------------------------------------------------
 @app.route("/v1/summarize-note", methods=["POST"])
 def summarize_note():
-    """Summarize a call log for a milestone comment.
+    """Summarize a note for a milestone comment.
 
-    Accepts the call log text and a list of existing milestone comments.
+    Accepts the note text and a list of existing milestone comments.
     Returns a 2-4 sentence summary covering only new information, or
-    ``NO_NEW_INFO`` if the call adds nothing beyond what's already tracked.
+    ``NO_NEW_INFO`` if the note adds nothing beyond what's already tracked.
     """
     try:
         body = request.get_json(force=True)
@@ -523,7 +523,7 @@ def summarize_note():
             f"Customer: {customer_name}\n"
             f"Topics: {topics}\n\n"
             f"=== EXISTING MILESTONE COMMENTS ===\n{existing_section}\n\n"
-            f"=== NEW CALL LOG ===\n{call_notes[:10000]}"
+            f"=== NEW NOTE ===\n{call_notes[:10000]}"
         )
 
         result = chat_completion(

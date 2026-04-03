@@ -37,7 +37,7 @@ def test_analytics_call_frequency_trend(client, sample_data):
 
 def test_analytics_top_topics(client, sample_data):
     """Test analytics shows most discussed topics."""
-    # Create some call logs with topics
+    # Create some notes with topics
     customer = Customer.query.first()
     topic1 = Topic.query.first()
     
@@ -97,7 +97,7 @@ def test_analytics_seller_activity(client, sample_data):
 
 def test_analytics_with_no_data(client):
     """Test analytics page handles empty data gracefully."""
-    # Clear all call logs for user
+    # Clear all notes for user
     Note.query.delete()
     db.session.commit()
     

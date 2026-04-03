@@ -26,7 +26,7 @@ The MSI installer handles everything: prerequisites (Git, Python, Azure CLI, Nod
 - **Revenue Analyzer** - CSV import, trend charts, growth alerts, seller/customer/product drill-downs
 - **Milestone Tracker** - visual board with MSX sync, task management, and AI matching from call notes
 - **AI Assistant** - auto-suggest topics, match milestones, analyze calls, generate Connect summaries (Azure OpenAI)
-- **WorkIQ Integration** - import Teams meeting summaries directly into call logs
+- **WorkIQ Integration** - import Teams meeting summaries directly into notes
 - **Partner Management** - directory with contacts, specialties, and real-time sharing between instances
 - **Connect Export** - structured self-eval summaries over date ranges with per-customer breakdowns
 - **Global Search** - full-text across notes, customers, sellers, topics, and territories
@@ -87,7 +87,7 @@ The setup wizard handles authentication and consent. You can also enable/disable
 
 ## WorkIQ (Meeting Import)
 
-Import Teams meeting summaries into call logs via [WorkIQ](https://github.com/nicklhw/workiq).
+Import Teams meeting summaries into notes via [WorkIQ](https://github.com/nicklhw/workiq).
 
 **Requirements:** Node.js 18+ (installed automatically by the launcher) and a Microsoft 365 Copilot license.
 

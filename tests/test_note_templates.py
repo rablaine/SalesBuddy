@@ -15,7 +15,7 @@ def template_data(app):
     """Create sample note templates for tests."""
     with app.app_context():
         from app.models import db, NoteTemplate
-        t1 = NoteTemplate(name='Standard Call Log', content='<h2>Attendees</h2><ul><li><br></li></ul>')
+        t1 = NoteTemplate(name='Standard Note', content='<h2>Attendees</h2><ul><li><br></li></ul>')
         t2 = NoteTemplate(name='Quick Check-In', content='<h2>Summary</h2><p><br></p>')
         t3 = NoteTemplate(name='Deep Dive', content='<h2>Architecture</h2><p><br></p>')
         db.session.add_all([t1, t2, t3])
@@ -46,7 +46,7 @@ class TestSettingsPage:
     def test_settings_page_lists_templates(self, client, template_data):
         """Settings page lists all templates in the dropdown."""
         response = client.get('/preferences')
-        assert b'Standard Call Log' in response.data
+        assert b'Standard Note' in response.data
         assert b'Quick Check-In' in response.data
         assert b'Deep Dive' in response.data
 
@@ -109,7 +109,7 @@ class TestTemplateCRUD:
         """GET /templates/<id>/edit renders the editor with content."""
         response = client.get(f'/templates/{template_data["t1"]}/edit')
         assert response.status_code == 200
-        assert b'Standard Call Log' in response.data
+        assert b'Standard Note' in response.data
         assert b'Attendees' in response.data
 
     def test_update_template(self, client, app, template_data):
@@ -175,7 +175,7 @@ class TestTemplateAPI:
         data = response.get_json()
         assert len(data) == 3
         names = {t['name'] for t in data}
-        assert 'Standard Call Log' in names
+        assert 'Standard Note' in names
         assert 'Quick Check-In' in names
 
     def test_api_templates_list_empty(self, client, app):
@@ -193,7 +193,7 @@ class TestTemplateAPI:
         response = client.get(f'/api/templates/{template_data["t1"]}')
         assert response.status_code == 200
         data = response.get_json()
-        assert data['name'] == 'Standard Call Log'
+        assert data['name'] == 'Standard Note'
         assert 'Attendees' in data['content']
 
     def test_api_template_get_404(self, client):
@@ -282,7 +282,7 @@ class TestNoteFormTemplates:
         assert response.status_code == 200
         assert b'templateSelect' in response.data
         assert b'Apply template...' in response.data
-        assert b'Standard Call Log' in response.data
+        assert b'Standard Note' in response.data
 
     def test_note_edit_form_shows_template_dropdown(self, client, app, template_data):
         """Note edit form includes the template selector dropdown."""
@@ -390,6 +390,6 @@ class TestNoteTemplateModel:
             # Refresh and check relationships
             db.session.refresh(pref)
             assert pref.default_template_customer is not None
-            assert pref.default_template_customer.name == 'Standard Call Log'
+            assert pref.default_template_customer.name == 'Standard Note'
             assert pref.default_template_noncustomer is not None
             assert pref.default_template_noncustomer.name == 'Quick Check-In'

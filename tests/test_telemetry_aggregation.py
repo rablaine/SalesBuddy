@@ -49,7 +49,7 @@ class TestDailyFeatureStatsModel:
         with app.app_context():
             stat = DailyFeatureStats(
                 date=_yesterday().date(),
-                category='Call Logs',
+                category='Notes',
                 endpoint='/notes',
                 method='GET',
                 is_api=False,
@@ -61,7 +61,7 @@ class TestDailyFeatureStatsModel:
             db.session.add(stat)
             db.session.commit()
 
-            fetched = DailyFeatureStats.query.filter_by(category='Call Logs').first()
+            fetched = DailyFeatureStats.query.filter_by(category='Notes').first()
             assert fetched is not None
             assert fetched.event_count == 42
             assert fetched.error_count == 1
@@ -117,13 +117,13 @@ class TestAggregateDaily:
         self._cleanup(app)
         ts = _yesterday() + timedelta(hours=10)
         _seed_events(app, [
-            {'endpoint': '/notes', 'method': 'GET', 'category': 'Call Logs',
+            {'endpoint': '/notes', 'method': 'GET', 'category': 'Notes',
              'status_code': 200, 'response_time_ms': 50.0, 'timestamp': ts,
              'is_api': False, 'blueprint': 'notes'},
-            {'endpoint': '/notes', 'method': 'GET', 'category': 'Call Logs',
+            {'endpoint': '/notes', 'method': 'GET', 'category': 'Notes',
              'status_code': 200, 'response_time_ms': 70.0, 'timestamp': ts + timedelta(hours=1),
              'is_api': False, 'blueprint': 'notes'},
-            {'endpoint': '/notes', 'method': 'GET', 'category': 'Call Logs',
+            {'endpoint': '/notes', 'method': 'GET', 'category': 'Notes',
              'status_code': 500, 'response_time_ms': 200.0, 'timestamp': ts + timedelta(hours=2),
              'is_api': False, 'blueprint': 'notes'},
         ])
@@ -135,7 +135,7 @@ class TestAggregateDaily:
             assert result['rows_upserted'] >= 1
 
             stat = DailyFeatureStats.query.filter_by(
-                category='Call Logs', endpoint='/notes',
+                category='Notes', endpoint='/notes',
             ).first()
             assert stat is not None
             assert stat.event_count == 3
@@ -268,7 +268,7 @@ class TestFeatureHealth:
         d = _yesterday().date()
         with app.app_context():
             db.session.add(DailyFeatureStats(
-                date=d, category='Call Logs', endpoint='/notes',
+                date=d, category='Notes', endpoint='/notes',
                 method='GET', event_count=100, error_count=2,
                 avg_response_ms=50.0, is_api=False,
             ))
@@ -283,8 +283,8 @@ class TestFeatureHealth:
             report = get_feature_health(days=30)
             ranking = report['feature_ranking']
             assert len(ranking) >= 2
-            # Call Logs should be first (more events)
-            assert ranking[0]['category'] == 'Call Logs'
+            # Notes should be first (more events)
+            assert ranking[0]['category'] == 'Notes'
             assert ranking[0]['events'] == 100
             assert ranking[1]['category'] == 'Admin'
 
@@ -297,16 +297,16 @@ class TestFeatureHealth:
             # Only one category has data
             d = _yesterday().date()
             db.session.add(DailyFeatureStats(
-                date=d, category='Call Logs', endpoint='/notes',
+                date=d, category='Notes', endpoint='/notes',
                 method='GET', event_count=10, is_api=False,
             ))
             db.session.commit()
 
             from app.services.telemetry_aggregation import get_feature_health
             report = get_feature_health(days=30)
-            # All known categories except Call Logs should be "dead"
+            # All known categories except Notes should be "dead"
             assert 'Admin' in report['dead_features']
-            assert 'Call Logs' not in report['dead_features']
+            assert 'Notes' not in report['dead_features']
 
         self._cleanup(app)
 
@@ -508,14 +508,14 @@ class TestQueueEvent:
         from app.services.telemetry_shipper import queue_event
 
         queue_event(
-            category='Call Logs', method='GET',
+            category='Notes', method='GET',
             status_code=200, response_time_ms=50.0, is_api=False,
         )
         with ts._buffer_lock:
             assert len(ts._buffer) == 1
             env = ts._buffer[0]
             assert env['data']['baseData']['name'] == 'SalesBuddy.FeatureUsage'
-            assert env['data']['baseData']['properties']['category'] == 'Call Logs'
+            assert env['data']['baseData']['properties']['category'] == 'Notes'
             assert env['data']['baseData']['measurements']['status_code'] == 200.0
         self._reset_buffer()
 
@@ -545,7 +545,7 @@ class TestQueueEvent:
 
         with patch('app.services.telemetry_shipper.is_telemetry_enabled', return_value=False):
             queue_event(
-                category='Call Logs', method='GET',
+                category='Notes', method='GET',
                 status_code=200, response_time_ms=10.0, is_api=False,
             )
         with ts._buffer_lock:
@@ -574,7 +574,7 @@ class TestQueueEvent:
         from app.services.telemetry_shipper import queue_event
 
         queue_event(
-            category='Call Logs', method='GET',
+            category='Notes', method='GET',
             status_code=200, response_time_ms=10.0, is_api=False,
             app_mode='standalone',
         )
@@ -643,7 +643,7 @@ class TestFlushBuffer:
         from app.services.telemetry_shipper import queue_event, flush_buffer
 
         queue_event(
-            category='Call Logs', method='GET',
+            category='Notes', method='GET',
             status_code=200, response_time_ms=50.0, is_api=False,
         )
 

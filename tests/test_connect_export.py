@@ -137,7 +137,7 @@ class TestGenerateExport:
         assert 'before' in data['error'].lower()
 
     def test_empty_export(self, client):
-        """Should generate successfully even with no call logs in range."""
+        """Should generate successfully even with no notes in range."""
         response = client.post('/api/connect-export/generate',
                                json={'name': 'Empty Export',
                                      'start_date': '2020-01-01',
@@ -149,7 +149,7 @@ class TestGenerateExport:
         assert data['summary']['unique_customers'] == 0
 
     def test_export_with_notes(self, client, app, sample_data):
-        """Should include call logs in the export when they exist in range."""
+        """Should include notes in the export when they exist in range."""
         response = client.post('/api/connect-export/generate',
                                json={'name': 'H2 Connect',
                                      'start_date': '2020-01-01',
@@ -219,7 +219,7 @@ class TestGenerateExport:
         assert 'customer_count' in topic
 
     def test_export_groups_by_customer(self, client, app, sample_data):
-        """Should group call logs by customer in the export."""
+        """Should group notes by customer in the export."""
         response = client.post('/api/connect-export/generate',
                                json={'name': 'Customer Group Test',
                                      'start_date': '2020-01-01',
@@ -268,7 +268,7 @@ class TestExportWithMilestones:
             db.session.add(milestone)
             db.session.flush()
 
-            # Create a call log in the period
+            # Create a note in the period
             call = Note(
                 customer_id=customer.id,
                 call_date=datetime(2025, 3, 1, tzinfo=timezone.utc),
@@ -526,7 +526,7 @@ class TestExportMarkdownFormat:
         assert '- **' in md  # bullet list with bold topic names
 
     def test_markdown_has_bold_dates(self, client, app, sample_data):
-        """Markdown call log entries should have bold dates."""
+        """Markdown note entries should have bold dates."""
         response = client.post('/api/connect-export/generate',
                                json={'name': 'Date MD',
                                      'start_date': '2020-01-01',
@@ -787,7 +787,7 @@ class TestAiSummaryEndpoint:
         assert response.status_code == 404
 
     def test_ai_summary_no_data(self, client, app, monkeypatch):
-        """Should return 400 when export has no call log data."""
+        """Should return 400 when export has no note data."""
         with app.app_context():
             from app.models import ConnectExport, User, db
             user = User.query.first()

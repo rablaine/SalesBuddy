@@ -1,5 +1,5 @@
 """
-Tests for the file-based call log backup system.
+Tests for the file-based note backup system.
 
 Covers:
 - backup.py service functions (_sanitize_folder_name, _customer_to_dict,
@@ -70,7 +70,7 @@ def backup_config(app, onedrive_root, monkeypatch):
 
 @pytest.fixture
 def customer_with_logs(app):
-    """Create a customer with a seller, territory, call logs, topics, and partners."""
+    """Create a customer with a seller, territory, notes, topics, and partners."""
     with app.app_context():
         user = User.query.first()
 
@@ -98,7 +98,7 @@ def customer_with_logs(app):
         cl = Note(
             customer_id=customer.id,
             call_date=datetime(2025, 6, 15, 12, 0, 0, tzinfo=timezone.utc),
-            content="Test call log for backup",
+            content="Test note for backup",
         )
         cl.topics.append(topic)
         cl.partners.append(partner)
@@ -211,7 +211,7 @@ class TestCustomerToDict:
 
             assert len(result["notes"]) == 1
             cl = result["notes"][0]
-            assert cl["content"] == "Test call log for backup"
+            assert cl["content"] == "Test note for backup"
             assert "Backup Topic" in cl["topics"]
             assert "Backup Partner" in cl["partners"]
 
@@ -618,10 +618,10 @@ class TestBackupRoutes:
 # =========================================================================
 
 class TestNoteBackupHooks:
-    """Verify that call log CRUD triggers a backup write."""
+    """Verify that note CRUD triggers a backup write."""
 
     def test_create_note_triggers_backup(self, client, app, backup_dir, onedrive_root, sample_data, monkeypatch):
-        """Creating a call log should write a backup file."""
+        """Creating a note should write a backup file."""
         monkeypatch.setattr(
             "app.services.backup._get_onedrive_path_from_db",
             lambda: onedrive_root,
@@ -885,7 +885,7 @@ class TestRestoreAllFromFolder:
         return filepath
 
     def test_restore_all_creates_notes(self, app, backup_dir):
-        """Should restore call logs from multiple files across sellers."""
+        """Should restore notes from multiple files across sellers."""
         with app.app_context():
             user = User.query.first()
             seller = Seller(name="TestSeller", alias="ts", seller_type="Growth")
@@ -919,7 +919,7 @@ class TestRestoreAllFromFolder:
             assert "Customer B" in result["customers_restored"]
 
     def test_restore_all_skips_existing_logs(self, app, backup_dir):
-        """Should skip call logs that already exist (by date dedup)."""
+        """Should skip notes that already exist (by date dedup)."""
         with app.app_context():
             user = User.query.first()
             seller = Seller(name="DedupSeller", alias="ds", seller_type="Growth")
@@ -931,7 +931,7 @@ class TestRestoreAllFromFolder:
             db.session.add(customer)
             db.session.flush()
 
-            # Pre-existing call log
+            # Pre-existing note
             existing = Note(
                 customer_id=customer.id,
                 call_date=datetime(2025, 3, 1, 10, 0, 0, tzinfo=timezone.utc),

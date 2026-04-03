@@ -179,7 +179,7 @@ class TestMilestoneCRUD:
         assert deleted is None
 
     def test_milestone_delete_blocked_when_linked_to_note(self, client, app, db_session, sample_user, sample_customer):
-        """Test that deleting a milestone linked to a call log is blocked."""
+        """Test that deleting a milestone linked to a note is blocked."""
         milestone = Milestone(
             url='https://example.com/linked/test',
             title='Linked Milestone',
@@ -208,17 +208,17 @@ class TestMilestoneCRUD:
 
 
 class TestNoteMilestoneIntegration:
-    """Tests for milestone integration with call logs."""
+    """Tests for milestone integration with notes."""
     
     def test_note_with_msx_milestone_creates_milestone(self, client, app, db_session, sample_customer):
-        """Test that adding MSX milestone to call log creates a new milestone."""
+        """Test that adding MSX milestone to note creates a new milestone."""
         msx_milestone_id = 'test-msx-id-12345678'
         milestone_url = 'https://msxsalesplatform.dynamics.com/new/milestone'
         
         response = client.post(f'/note/new?customer_id={sample_customer.id}', data={
             'customer_id': sample_customer.id,
             'call_date': '2026-01-30',
-            'content': '<p>Test call log with milestone</p>',
+            'content': '<p>Test note with milestone</p>',
             'milestone_msx_id': msx_milestone_id,
             'milestone_url': milestone_url,
             'milestone_name': 'Test Milestone',
@@ -238,7 +238,7 @@ class TestNoteMilestoneIntegration:
             assert milestone.url == milestone_url
             assert milestone.msx_status == 'On Track'
             
-            # Verify call log is linked to milestone
+            # Verify note is linked to milestone
             note = Note.query.filter_by(customer_id=sample_customer.id).first()
             assert note is not None
             assert milestone in note.milestones
@@ -264,7 +264,7 @@ class TestNoteMilestoneIntegration:
         response = client.post(f'/note/new?customer_id={sample_customer.id}', data={
             'customer_id': sample_customer.id,
             'call_date': '2026-01-30',
-            'content': '<p>Test call log linking to existing milestone</p>',
+            'content': '<p>Test note linking to existing milestone</p>',
             'milestone_msx_id': msx_milestone_id,
             'milestone_url': 'https://msxsalesplatform.dynamics.com/existing/milestone',
             'milestone_name': 'Existing Milestone',
@@ -284,12 +284,12 @@ class TestNoteMilestoneIntegration:
             milestone = milestones[0]
             assert milestone.msx_status == 'Blocked'
             
-            # Call log should be linked to existing milestone
+            # Note should be linked to existing milestone
             note = Note.query.filter_by(customer_id=sample_customer.id).first()
             assert len([m for m in note.milestones if m.id == existing_id]) == 1
     
     def test_note_view_shows_milestone(self, client, app, db_session, sample_customer, sample_user):
-        """Test that call log view shows associated milestone."""
+        """Test that note view shows associated milestone."""
         from datetime import date
         
         with app.app_context():
@@ -317,14 +317,14 @@ class TestNoteMilestoneIntegration:
         assert b'Visible Milestone' in response.data
     
     def test_note_edit_updates_milestone(self, client, app, db_session, sample_customer, sample_user):
-        """Test that editing call log can change milestone."""
+        """Test that editing note can change milestone."""
         from datetime import date
         
         with app.app_context():
             from app.models import db, Milestone, Note, User
             test_user = User.query.first()
             
-            # Create call log with initial milestone
+            # Create note with initial milestone
             old_milestone = Milestone(
                 msx_milestone_id='old-msx-id-12345',
                 url='https://example.com/old/milestone',

@@ -1,5 +1,5 @@
 """
-Tests for general notes (call logs not associated with a customer).
+Tests for general notes (notes not associated with a customer).
 
 Tests cover:
 - Creating general notes (no customer_id)
@@ -31,7 +31,7 @@ class TestGeneralNoteCreate:
         assert b'not associated with a specific customer' in response.data
 
     def test_create_general_note_post(self, client, app):
-        """Should successfully create a call log without a customer."""
+        """Should successfully create a note without a customer."""
         response = client.post('/note/new', data={
             'call_date': '2025-06-15',
             'content': '<p>Internal planning session notes</p>',
@@ -154,7 +154,7 @@ class TestGeneralNoteListView:
             return general.id
 
     def test_list_shows_general_notes(self, client, app, sample_data):
-        """General notes should appear in the call logs list."""
+        """General notes should appear in the notes list."""
         general_id = self._create_mixed_notes(app, sample_data)
         response = client.get('/notes')
         assert response.status_code == 200

@@ -400,12 +400,12 @@ class TestMilestoneViewPage:
         assert 'Open in MSX' in html
 
     def test_milestone_view_shows_notes(self, app, client, db_session, sample_user):
-        """Test that milestone view page shows associated call logs."""
+        """Test that milestone view page shows associated notes."""
         from app.models import Note
         from datetime import datetime, timezone
 
         customer = Customer(
-            name='Call Log Corp', tpid=7002,
+            name='Note Corp', tpid=7002,
         )
         db_session.add(customer)
         db_session.flush()
@@ -431,7 +431,7 @@ class TestMilestoneViewPage:
         assert response.status_code == 200
         html = response.data.decode()
 
-        assert 'Call Log Corp' in html
+        assert 'Note Corp' in html
         assert 'Feb 15, 2026' in html
         assert '1' in html  # badge count
 

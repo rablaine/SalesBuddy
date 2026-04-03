@@ -203,7 +203,7 @@ def customer_create():
 def customer_view(id):
     """View customer details with engagement dashboard (FR008)."""
     customer = Customer.query.filter_by(id=id).first_or_404()
-    # Sort call logs by date (descending) - customer.notes is already loaded as a list
+    # Sort notes by date (descending) - customer.notes is already loaded as a list
     notes = sorted(customer.notes, key=lambda c: c.call_date, reverse=True)
     
     # Get revenue analysis for this customer if available

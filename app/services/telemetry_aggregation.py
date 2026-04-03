@@ -153,7 +153,7 @@ _KNOWN_CATEGORIES: list[str] = [
     'Admin',
     'AI',
     'Backup',
-    'Call Logs',
+    'Notes',
     'Connect Export',
     'Customers',
     'General',

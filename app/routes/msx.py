@@ -369,14 +369,14 @@ def get_milestones(account_id: str):
     Get all milestones for an account.
     
     Returns milestones sorted by status (Active first, then Blocked, Completed, etc.)
-    with indication of whether each milestone is used in any call logs.
+    with indication of whether each milestone is used in any notes.
     """
     result = get_milestones_by_account(account_id)
     
     if not result.get("success"):
         return jsonify(result)
     
-    # Check which milestones are already used in call logs
+    # Check which milestones are already used in notes
     milestones = result.get("milestones", [])
     for milestone_data in milestones:
         msx_milestone_id = milestone_data.get("id")

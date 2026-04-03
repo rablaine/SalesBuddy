@@ -108,7 +108,7 @@ class TestMsxTaskModel:
             )
             db.session.add(milestone)
             
-            # Create call log
+            # Create note
             from datetime import date
             note = Note(
                 customer_id=customer.id,
@@ -405,10 +405,10 @@ class TestMilestoneStatusSorting:
 
 
 class TestNoteMilestoneTaskFlow:
-    """Tests for the full call log -> milestone -> task flow."""
+    """Tests for the full note -> milestone -> task flow."""
     
     def test_note_save_with_milestone_and_task_fields(self, client, app, db_session, sample_customer):
-        """Test saving call log with milestone and task creation fields."""
+        """Test saving note with milestone and task creation fields."""
         msx_milestone_id = 'flow-test-milestone'
         
         # Note: Task creation won't succeed without MSX auth, 

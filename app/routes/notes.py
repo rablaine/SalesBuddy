@@ -1,6 +1,6 @@
 """
-Call log routes for Sales Buddy.
-Handles call log listing, creation, viewing, editing, and Fill My Day bulk import.
+Note routes for Sales Buddy.
+Handles note listing, creation, viewing, editing, and Fill My Day bulk import.
 """
 from flask import Blueprint, render_template, request, redirect, url_for, flash, g, jsonify, session
 from datetime import datetime
@@ -126,7 +126,7 @@ def _handle_milestone_and_task(note):
             except Exception as e:
                 logger.warning(f'Auto-join milestone team failed (non-blocking): {e}')
     
-    # Associate all milestones with call log
+    # Associate all milestones with note
     note.milestones = milestones
     
     # Check if a task was already created (via the "Create Task in MSX" button)
@@ -153,7 +153,7 @@ def _handle_milestone_and_task(note):
         except (ValueError, TypeError):
             task_category_int = 0
         
-        logger.info(f"Linking pre-created MSX task {created_task_id} to call log")
+        logger.info(f"Linking pre-created MSX task {created_task_id} to note")
         
         # Parse due date
         task_due_date = None
@@ -246,7 +246,7 @@ def _handle_opportunity(note):
 
 @notes_bp.route('/notes')
 def notes_list():
-    """List all call logs (FR010)."""
+    """List all notes (FR010)."""
     filter_type = request.args.get('filter', '')
     
     query = Note.query.options(
@@ -272,7 +272,7 @@ def notes_list():
 
 @notes_bp.route('/note/new', methods=['GET', 'POST'])
 def note_create():
-    """Create a new call log (FR005)."""
+    """Create a new note (FR005)."""
     if request.method == 'POST':
         customer_id = request.form.get('customer_id')
         seller_id = request.form.get('seller_id')
@@ -319,7 +319,7 @@ def note_create():
                     customer.territory_id = seller.territory_id
                     territory_id = seller.territory_id
         
-        # Create call log
+        # Create note
         note = Note(
             customer_id=int(customer_id) if customer_id else None,
             call_date=call_date,
@@ -400,7 +400,7 @@ def note_create():
                 else:
                     _handle_milestone_and_task(note)
             except Exception as e:
-                logger.exception("Error handling milestone/opportunity during call log create")
+                logger.exception("Error handling milestone/opportunity during note create")
                 flash(f'Note will be saved, but milestone/opportunity failed: {e}', 'warning')
         
         # Cross-link: attach note milestones to linked engagements
@@ -411,7 +411,7 @@ def note_create():
 
         db.session.commit()
 
-        # Back up this customer's call logs
+        # Back up this customer's notes
         if note.customer_id:
             try:
                 _backup_customer(note.customer_id)
@@ -434,7 +434,7 @@ def note_create():
     previous_calls = []
     
     if preselect_customer_id:
-        # Load customer and their previous call logs
+        # Load customer and their previous notes
         preselect_customer = Customer.query.filter_by(id=preselect_customer_id).first_or_404()
         previous_calls = Note.query.filter_by(customer_id=preselect_customer_id).options(
             db.joinedload(Note.topics)
@@ -490,7 +490,7 @@ def note_create():
     else:
         today = date.today().strftime('%Y-%m-%d')
     
-    # Current time for new call logs (default to now)
+    # Current time for new notes (default to now)
     now_time = datetime.now().strftime('%H:%M')
     
     # Get user's custom WorkIQ prompt (for meeting import modal)
@@ -543,7 +543,7 @@ def note_create():
 
 @notes_bp.route('/note/<int:id>')
 def note_view(id):
-    """View call log details (FR010)."""
+    """View note details (FR010)."""
     note = Note.query.filter_by(id=id).first_or_404()
 
     # Capture where the user came from so Edit → Save/Cancel can return there.
@@ -572,7 +572,7 @@ def note_detail_fragment(id):
 
 @notes_bp.route('/note/<int:id>/edit', methods=['GET', 'POST'])
 def note_edit(id):
-    """Edit call log (FR010)."""
+    """Edit note (FR010)."""
     note = Note.query.filter_by(id=id).first_or_404()
     
     if request.method == 'POST':
@@ -604,7 +604,7 @@ def note_edit(id):
             flash('Invalid date/time format.', 'danger')
             return redirect(url_for('notes.note_edit', id=id))
         
-        # Update call log
+        # Update note
         note.customer_id = int(customer_id) if customer_id else None
         # Seller and territory are now derived from customer
         note.call_date = call_date
@@ -688,7 +688,7 @@ def note_edit(id):
                 else:
                     _handle_milestone_and_task(note)
             except Exception as e:
-                logger.exception("Error handling milestone/opportunity during call log edit")
+                logger.exception("Error handling milestone/opportunity during note edit")
                 flash(f'Note will be saved, but milestone/opportunity failed: {e}', 'warning')
         
         # Cross-link: attach note milestones to linked engagements
@@ -699,7 +699,7 @@ def note_edit(id):
 
         db.session.commit()
 
-        # Back up this customer's call logs
+        # Back up this customer's notes
         if note.customer_id:
             try:
                 _backup_customer(note.customer_id)
@@ -766,7 +766,7 @@ def note_edit(id):
 
 @notes_bp.route('/note/<int:id>/delete', methods=['POST'])
 def note_delete(id):
-    """Delete a call log."""
+    """Delete a note."""
     note = db.session.get(Note, id)
     
     if not note:
@@ -776,11 +776,11 @@ def note_delete(id):
     # Store customer for redirect
     customer_id = note.customer_id
     
-    # Delete the call log
+    # Delete the note
     db.session.delete(note)
     db.session.commit()
 
-    # Back up this customer's call logs (reflects the deletion)
+    # Back up this customer's notes (reflects the deletion)
     try:
         _backup_customer(customer_id)
     except Exception:
@@ -788,7 +788,7 @@ def note_delete(id):
     
     flash('Note deleted successfully.', 'success')
     
-    # Redirect to customer view if we have a customer, otherwise call logs list
+    # Redirect to customer view if we have a customer, otherwise notes list
     if customer_id:
         return redirect(url_for('customers.customer_view', id=customer_id))
     else:
@@ -952,7 +952,7 @@ def api_get_meeting_summary():
 
 @notes_bp.route('/fill-my-day')
 def fill_my_day():
-    """Fill My Day page - bulk import meetings for a date into call logs."""
+    """Fill My Day page - bulk import meetings for a date into notes."""
     from datetime import date as date_type
     date_param = request.args.get('date', '')
     
@@ -1146,7 +1146,7 @@ def api_fill_my_day_process():
 @notes_bp.route('/api/fill-my-day/save', methods=['POST'])
 def api_fill_my_day_save():
     """
-    Save a single call log from Fill My Day.
+    Save a single note from Fill My Day.
     
     Request JSON:
         - customer_id: int
@@ -1204,7 +1204,7 @@ def api_fill_my_day_save():
         return jsonify({'success': False, 'error': 'Customer not found'}), 404
     
     try:
-        # Create call log
+        # Create note
         note = Note(
             customer_id=int(customer_id),
             call_date=call_date,
@@ -1284,7 +1284,7 @@ def api_fill_my_day_save():
                     milestone=milestone
                 )
                 db.session.add(msx_task)
-                logger.info(f"Fill My Day - linked task {created_task_id} to call log")
+                logger.info(f"Fill My Day - linked task {created_task_id} to note")
         
         db.session.commit()
         
