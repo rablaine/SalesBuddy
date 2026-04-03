@@ -165,6 +165,50 @@ class TestToolCoverage:
             'No tool covers the whitespace report. Add one to copilot_tools.py.'
         )
 
+    # -- Phase 4 entities/reports -------------------------------------------
+
+    def test_territory_tool_exists(self):
+        """Territories should have a summary tool."""
+        names = self._tool_names()
+        assert any('territory' in n for n in names), (
+            'No tool covers territories. Add one to copilot_tools.py.'
+        )
+
+    def test_pod_tool_exists(self):
+        """PODs should have an overview tool."""
+        names = self._tool_names()
+        assert any('pod' in n for n in names), (
+            'No tool covers PODs. Add one to copilot_tools.py.'
+        )
+
+    def test_analytics_tool_exists(self):
+        """Analytics summary should have a tool."""
+        names = self._tool_names()
+        assert any('analytics' in n for n in names), (
+            'No tool covers analytics. Add one to copilot_tools.py.'
+        )
+
+    def test_one_on_one_tool_exists(self):
+        """1:1 report should have a tool."""
+        names = self._tool_names()
+        assert any('one_on_one' in n for n in names), (
+            'No tool covers 1:1 report. Add one to copilot_tools.py.'
+        )
+
+    def test_contact_tool_exists(self):
+        """Contacts should have a search tool."""
+        names = self._tool_names()
+        assert any('contact' in n for n in names), (
+            'No tool covers contacts. Add one to copilot_tools.py.'
+        )
+
+    def test_milestones_due_soon_tool_exists(self):
+        """Milestones due soon should have a tool."""
+        names = self._tool_names()
+        assert any('due' in n for n in names), (
+            'No tool covers milestones due soon. Add one to copilot_tools.py.'
+        )
+
 
 class TestToolExecution:
     """Test that tools actually execute against the DB without errors."""
@@ -281,4 +325,76 @@ class TestToolExecution:
         """report_whitespace without params should return error guidance."""
         with app.app_context():
             result = execute_tool('report_whitespace', {})
+            assert 'error' in result
+
+    # -- Phase 4 tool execution tests ---------------------------------------
+
+    def test_get_milestones_due_soon_empty(self, app):
+        """get_milestones_due_soon with no data returns empty list."""
+        with app.app_context():
+            result = execute_tool('get_milestones_due_soon', {})
+            assert isinstance(result, list)
+
+    def test_get_territory_summary_not_found(self, app):
+        """get_territory_summary with bad ID returns error."""
+        with app.app_context():
+            result = execute_tool('get_territory_summary', {'territory_id': 99999})
+            assert 'error' in result
+
+    def test_get_territory_summary(self, app, sample_data):
+        """get_territory_summary returns structured data."""
+        with app.app_context():
+            from app.models import db, Territory
+            t = Territory(name='West')
+            db.session.add(t)
+            db.session.commit()
+            result = execute_tool('get_territory_summary', {'territory_id': t.id})
+            assert result['name'] == 'West'
+            assert 'customers' in result
+            assert 'sellers' in result
+
+    def test_get_pod_overview_not_found(self, app):
+        """get_pod_overview with bad ID returns error."""
+        with app.app_context():
+            result = execute_tool('get_pod_overview', {'pod_id': 99999})
+            assert 'error' in result
+
+    def test_get_pod_overview(self, app, sample_data):
+        """get_pod_overview returns structured data."""
+        with app.app_context():
+            from app.models import db, POD
+            p = POD(name='Alpha Pod')
+            db.session.add(p)
+            db.session.commit()
+            result = execute_tool('get_pod_overview', {'pod_id': p.id})
+            assert result['name'] == 'Alpha Pod'
+            assert 'territories' in result
+            assert 'solution_engineers' in result
+
+    def test_get_analytics_summary(self, app):
+        """get_analytics_summary returns structured data."""
+        with app.app_context():
+            result = execute_tool('get_analytics_summary', {'days': 30})
+            assert 'total_notes' in result
+            assert 'active_customers' in result
+            assert 'top_topics' in result
+
+    def test_report_one_on_one(self, app):
+        """report_one_on_one returns structured data."""
+        with app.app_context():
+            result = execute_tool('report_one_on_one', {'days': 14})
+            assert 'customer_activity' in result
+            assert 'open_engagements' in result
+
+    def test_search_contacts_empty(self, app):
+        """search_contacts with no data returns empty list."""
+        with app.app_context():
+            result = execute_tool('search_contacts', {'query': 'nonexistent'})
+            assert isinstance(result, list)
+            assert len(result) == 0
+
+    def test_get_revenue_customer_detail_needs_params(self, app):
+        """get_revenue_customer_detail without params returns error."""
+        with app.app_context():
+            result = execute_tool('get_revenue_customer_detail', {})
             assert 'error' in result

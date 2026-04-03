@@ -583,6 +583,11 @@
             height: calc(100% - var(--sb-navbar-height, 56px)) !important;
             z-index: 1046 !important;
         }
+        #navCopilotChat.active {
+            background-color: var(--bs-primary) !important;
+            color: #fff !important;
+            border-color: var(--bs-primary) !important;
+        }
         #copilotChatMessages {
             font-size: 0.9rem;
         }
@@ -633,24 +638,24 @@
             opacity: 0.7;
             margin-top: 0.25rem;
         }
-        /* When copilot chat is open, note flyouts shift an extra 400px left */
-        body.copilot-chat-open .offcanvas.offcanvas-end.show:not(#copilotChatFlyout) {
-            transform: translateX(-400px) !important;
+        /* When copilot chat is open, note flyouts shift an extra 500px left */
+        body.copilot-chat-open .offcanvas.offcanvas-end.show:not(#copilotChatFlyout):not(.flyout-shifted):not(.flyout-shifted-2):not(.flyout-shifted-3):not(.flyout-shifted-4):not(.flyout-shifted-5) {
+            transform: translateX(-500px) !important;
         }
-        body.copilot-chat-open .offcanvas.flyout-shifted {
-            transform: translateX(-799px) !important;
+        body.copilot-chat-open .offcanvas.offcanvas-end.show.flyout-shifted {
+            transform: translateX(-899px) !important;
         }
-        body.copilot-chat-open .offcanvas.flyout-shifted-2 {
-            transform: translateX(-1198px) !important;
+        body.copilot-chat-open .offcanvas.offcanvas-end.show.flyout-shifted-2 {
+            transform: translateX(-1298px) !important;
         }
-        body.copilot-chat-open .offcanvas.flyout-shifted-3 {
-            transform: translateX(-1597px) !important;
+        body.copilot-chat-open .offcanvas.offcanvas-end.show.flyout-shifted-3 {
+            transform: translateX(-1697px) !important;
         }
-        body.copilot-chat-open .offcanvas.flyout-shifted-4 {
-            transform: translateX(-1996px) !important;
+        body.copilot-chat-open .offcanvas.offcanvas-end.show.flyout-shifted-4 {
+            transform: translateX(-2096px) !important;
         }
-        body.copilot-chat-open .offcanvas.flyout-shifted-5 {
-            transform: translateX(-2395px) !important;
+        body.copilot-chat-open .offcanvas.offcanvas-end.show.flyout-shifted-5 {
+            transform: translateX(-2495px) !important;
         }
     </style>
     <style>
@@ -779,9 +784,9 @@
                     </button>
                     {% if config.DEBUG %}
                     <button class="btn btn-light" type="button" id="navCopilotChat"
-                            title="Copilot Chat (Ctrl+Shift+C)" aria-label="Toggle Copilot Chat"
+                            title="SalesIQ Chat (Ctrl+Shift+C)" aria-label="Toggle SalesIQ Chat"
                             style="padding: 0.3rem 0.5rem;">
-                        <img src="{{ url_for('static', filename='copilot-icon.svg') }}" alt="Copilot" width="20" height="20">
+                        <i class="bi bi-chat-dots"></i>
                     </button>
                     {% endif %}
                     <div class="dropdown">
@@ -1507,7 +1512,7 @@
                             {% if config.DEBUG %}
                             <tr>
                                 <td><span class="kbd">Ctrl</span> + <span class="kbd">Shift</span> + <span class="kbd">C</span></td>
-                                <td>Toggle Copilot Chat</td>
+                                <td>Toggle SalesIQ Chat</td>
                             </tr>
                             {% endif %}
                         </tbody>
@@ -1522,14 +1527,14 @@
     <div class="offcanvas offcanvas-end" tabindex="-1" id="copilotChatFlyout"
          aria-labelledby="copilotChatFlyoutLabel"
          data-bs-backdrop="false" data-bs-scroll="true"
-         style="width: 400px;">
-        <div class="offcanvas-header border-bottom py-2">
-            <h6 class="offcanvas-title mb-0" id="copilotChatFlyoutLabel">
-                <i class="bi bi-chat-dots"></i> Copilot Chat
+         style="width: 500px;">
+        <div class="offcanvas-header py-2 border-bottom">
+            <h6 class="offcanvas-title" id="copilotChatFlyoutLabel">
+                <i class="bi bi-chat-dots"></i> SalesIQ
                 <span class="badge bg-warning text-dark ms-1" style="font-size: 0.65rem;">DEV</span>
             </h6>
-            <div class="d-flex gap-1">
-                <button type="button" class="btn btn-sm btn-outline-secondary" id="copilotChatClear" title="Clear conversation">
+            <div class="d-flex align-items-center gap-1">
+                <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-1" id="copilotChatClear" title="Clear conversation">
                     <i class="bi bi-trash"></i>
                 </button>
                 <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Close"></button>
@@ -1545,7 +1550,7 @@
             <div class="border-top p-2">
                 <div class="input-group">
                     <textarea id="copilotChatInput" class="form-control form-control-sm" rows="1"
-                              placeholder="Ask Copilot..." aria-label="Chat message"
+                              placeholder="Ask SalesIQ..." aria-label="Chat message"
                               style="resize: none; max-height: 120px;"></textarea>
                     <button class="btn btn-primary btn-sm" id="copilotChatSend" type="button" title="Send message">
                         <i class="bi bi-send"></i>
@@ -3800,10 +3805,17 @@
                 .replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>')
                 // Inline code
                 .replace(/`([^`]+)`/g, '<code>$1</code>')
+                // Headings (h4, h3, h2, h1 - order matters: longest prefix first)
+                .replace(/^#### (.+)$/gm, '<h6>$1</h6>')
+                .replace(/^### (.+)$/gm, '<h5>$1</h5>')
+                .replace(/^## (.+)$/gm, '<h5>$1</h5>')
+                .replace(/^# (.+)$/gm, '<h5>$1</h5>')
                 // Bold
                 .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
                 // Italic
                 .replace(/\*(.+?)\*/g, '<em>$1</em>')
+                // Ordered lists
+                .replace(/^\s*\d+\.\s+(.+)/gm, '<li>$1</li>')
                 // Unordered lists
                 .replace(/^\s*[-*]\s+(.+)/gm, '<li>$1</li>')
                 // Wrap consecutive <li> in <ul>
@@ -3977,7 +3989,15 @@
         // Restore state on page load
         restoreHistory();
         if (sessionStorage.getItem(OPEN_KEY) === '1') {
+            // Open instantly without slide animation
+            chatFlyoutEl.style.transition = 'none';
             chatFlyout.show();
+            // Re-enable transitions after the flyout is rendered
+            requestAnimationFrame(function() {
+                requestAnimationFrame(function() {
+                    chatFlyoutEl.style.transition = '';
+                });
+            });
         }
     });
     </script>

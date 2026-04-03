@@ -791,6 +791,17 @@ def api_ai_chat():
     # Truncate history to last 20 messages
     history = history[-20:]
 
+    # Inject current user identity into context
+    from app.models import UserPreference
+    prefs = UserPreference.query.first()
+    if prefs:
+        if prefs.user_role:
+            context.setdefault('user_role', prefs.user_role)
+        if prefs.my_seller:
+            context.setdefault('user_name', prefs.my_seller.name)
+        elif prefs.my_seller_alias:
+            context.setdefault('user_name', prefs.my_seller_alias)
+
     # Build messages array for the gateway
     messages = list(history) + [{"role": "user", "content": message}]
 
@@ -898,6 +909,18 @@ def api_ai_chat():
         db.session.add(log_entry)
         db.session.commit()
         logger.error(f"Chat gateway error: {e}")
+
+        # Detect Azure OpenAI content filter (jailbreak / prompt injection)
+        err_str = str(e).lower()
+        if 'content_filter' in err_str or 'content_management_policy' in err_str:
+            return jsonify({
+                'success': True,
+                'reply': '<img src="/static/hal9000.svg" alt="HAL 9000" '
+                         'style="width:24px;height:24px;vertical-align:middle;margin-right:6px;">'
+                         "I'm sorry Dave, I'm afraid I can't do that.",
+                'tools_used': [],
+            })
+
         status = getattr(e, 'status_code', None) or 502
         return jsonify({'success': False, 'error': str(e)}), status
 

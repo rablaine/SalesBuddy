@@ -86,11 +86,11 @@ Build dynamically per request:
 
 ---
 
-### Phase 3: Chat Panel UI (Dev-Only)
+### Phase 3: Chat Panel UI (Dev-Only) - DONE
 
-**Status:** In Progress
+**Status:** Complete
 
-**Detailed spec:** See `backlog/copilot-chat-flyout.md` for the full flyout design, stacking behavior, CSS overrides, and implementation plan.
+Built chat flyout in `base.html` with Copilot icon branding, URL-based page context auto-detection, `window.copilotContext` overrides on key pages (customer_view, customers_list, milestone_view, seller_view), sessionStorage message history, Markdown rendering, typing indicator, and `config.DEBUG` dev gate. Fixed flyout stacking for 5+ levels.
 
 **Goal:** A working chat panel in the browser, gated behind `FLASK_ENV=development` so it doesn't ship to production yet.
 
@@ -135,20 +135,32 @@ The chat JS includes this with every request. Context changes when the user navi
 
 ---
 
-### Phase 4: More Entity & Report Tools
+### Phase 4: More Entity & Report Tools - DONE
 
-**Goal:** Fill gaps that become obvious once you can actually chat with the data.
+**Status:** Complete
 
-Likely additions based on existing features:
-- `get_milestone_status` enhancement: add `due_within_days` parameter for date-range filtering at the DB level (avoids LLM date math and result truncation)
-- `get_territory_summary` - territory view data (customers, sellers, recent activity)
-- `get_pod_overview` - POD structure with territories and solution engineers
-- `get_analytics_summary` - call volume metrics, top topics, customers needing attention
-- `report_one_on_one` - 1:1 manager prep data (recent customer activity, commitments, topic trends)
-- `search_contacts` - search customer and partner contacts across the whole database
-- `get_revenue_customer_detail` - per-customer revenue history and bucket breakdown
+Added 7 tools to `copilot_tools.py` (total: 21 tools):
+- `get_milestones_due_soon` - milestones due within N days with seller/team filters
+- `get_territory_summary` - list all territories or get detail with customers, sellers, SEs, 30-day note count
+- `get_pod_overview` - list all PODs or get detail with territories, sellers, solution engineers
+- `get_analytics_summary` - call volume, active customers, top topics, neglected customers
+- `report_one_on_one` - 1:1 prep: recent notes by customer, open engagements, committed milestones
+- `search_contacts` - unified search across customer and partner contacts by name/email/title
+- `get_revenue_customer_detail` - per-customer revenue by bucket with monthly history
 
-Each tool follows the same pattern: decorate a function in `copilot_tools.py`, call existing query code, return JSON-serializable dict. Add the keyword to `TestToolCoverage` if it covers a new entity.
+All 7 tools have coverage tests in `TestToolCoverage` and execution tests in `TestToolExecution` (52 tests total, all passing).
+
+#### Phase 4 polish (chat UX & prompt fixes):
+- Rebranded chat panel from "Copilot" to "SalesIQ"
+- Replaced Copilot icon with `bi-chat-dots` Bootstrap icon
+- Added markdown heading (h1-h4) and ordered list rendering
+- Widened flyout to 500px, fixed CSS specificity bug in flyout stacking
+- Compact header matching other flyouts, active button state when open
+- Instant flyout restore on page nav (no slide animation on reload)
+- Content filter detection: HAL 9000 icon + "I'm sorry Dave" response
+- System prompt: added Sales Buddy terminology (milestones not "work items", notes not "call logs"), POD/territory/contact/analytics concepts, "use tools immediately" rule
+- User identity injection from UserPreference (name, role), single-user app context
+- Gateway deployed to staging with all prompt/context changes
 
 ---
 

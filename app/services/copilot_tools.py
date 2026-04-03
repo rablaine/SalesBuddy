@@ -892,3 +892,533 @@ def report_whitespace(
         }
 
     return {'error': 'Provide customer_id or bucket to query whitespace.'}
+
+
+# ============================================================================
+# Phase 4 tools — expanded entity & report coverage
+# ============================================================================
+
+# -- Milestone due_within_days enhancement -----------------------------------
+
+@tool(
+    'get_milestones_due_soon',
+    'Get milestones due within a number of days. Useful for upcoming deadlines.',
+    {
+        'type': 'object',
+        'properties': {
+            'due_within_days': {
+                'type': 'integer',
+                'description': 'Return milestones due within this many days (default 30).',
+            },
+            'on_my_team': {
+                'type': 'boolean',
+                'description': 'Filter to milestones where user is on the team.',
+            },
+            'seller_id': {
+                'type': 'integer',
+                'description': 'Filter to a specific seller.',
+            },
+            'limit': {
+                'type': 'integer',
+                'description': 'Max results (default 30).',
+            },
+        },
+    },
+)
+def get_milestones_due_soon(
+    due_within_days: int = 30,
+    on_my_team: bool | None = None,
+    seller_id: int | None = None,
+    limit: int = 30,
+) -> list[dict]:
+    """Get milestones with due dates within N days from today."""
+    from datetime import date, timedelta
+    from app.models import Milestone, Customer
+
+    today = date.today()
+    cutoff = today + timedelta(days=due_within_days)
+
+    q = Milestone.query.filter(
+        Milestone.due_date >= today,
+        Milestone.due_date <= cutoff,
+    )
+    if on_my_team is not None:
+        q = q.filter(Milestone.on_my_team == on_my_team)
+    if seller_id:
+        cust_ids = [c.id for c in Customer.query.filter_by(seller_id=seller_id).all()]
+        q = q.filter(Milestone.customer_id.in_(cust_ids))
+
+    milestones = q.order_by(Milestone.due_date.asc()).limit(limit).all()
+    return [
+        {
+            'id': m.id,
+            'title': m.display_text,
+            'status': m.msx_status,
+            'customer': m.customer.name if m.customer else None,
+            'due_date': m.due_date.strftime('%Y-%m-%d') if m.due_date else None,
+            'on_my_team': m.on_my_team,
+            'workload': m.workload,
+        }
+        for m in milestones
+    ]
+
+
+# -- Territory summary -------------------------------------------------------
+
+@tool(
+    'get_territory_summary',
+    'List all territories or get detailed info for one territory including '
+    'customers, sellers, solution engineers, and recent activity. '
+    'Call without territory_id to list all territories.',
+    {
+        'type': 'object',
+        'properties': {
+            'territory_id': {
+                'type': 'integer',
+                'description': 'Territory ID. Omit to list all territories.',
+            },
+        },
+    },
+)
+def get_territory_summary(territory_id: int | None = None) -> dict | list:
+    """Return summary data for a territory or list all territories."""
+    from app.models import db, Territory, Note
+
+    if territory_id is None:
+        territories = Territory.query.order_by(Territory.name).all()
+        return [
+            {
+                'id': t.id,
+                'name': t.name,
+                'pod': t.pod.name if t.pod else None,
+                'customer_count': len(t.customers),
+                'seller_count': len(t.sellers),
+            }
+            for t in territories
+        ]
+
+    territory = db.session.get(Territory, territory_id)
+    if not territory:
+        return {'error': f'Territory {territory_id} not found.'}
+
+    customers = territory.customers
+    customer_ids = [c.id for c in customers]
+
+    recent_note_count = 0
+    if customer_ids:
+        from datetime import datetime, timedelta, timezone
+        cutoff = datetime.now(timezone.utc) - timedelta(days=30)
+        recent_note_count = (
+            Note.query
+            .filter(Note.customer_id.in_(customer_ids), Note.call_date >= cutoff)
+            .count()
+        )
+
+    return {
+        'id': territory.id,
+        'name': territory.name,
+        'pod': territory.pod.name if territory.pod else None,
+        'customers': [
+            {'id': c.id, 'name': c.name}
+            for c in sorted(customers, key=lambda c: c.name)
+        ],
+        'sellers': [
+            {'id': s.id, 'name': s.name, 'type': s.seller_type}
+            for s in territory.sellers
+        ],
+        'solution_engineers': [
+            {'id': se.id, 'name': se.name, 'specialty': se.specialty}
+            for se in territory.solution_engineers
+        ],
+        'customer_count': len(customers),
+        'notes_last_30_days': recent_note_count,
+    }
+
+
+# -- POD overview ------------------------------------------------------------
+
+@tool(
+    'get_pod_overview',
+    'List all PODs or get detailed info for one POD including territories, '
+    'sellers, and solution engineers. Call without pod_id to list all PODs.',
+    {
+        'type': 'object',
+        'properties': {
+            'pod_id': {
+                'type': 'integer',
+                'description': 'POD ID. Omit to list all PODs.',
+            },
+        },
+    },
+)
+def get_pod_overview(pod_id: int | None = None) -> dict | list:
+    """Return overview of one POD or list all PODs."""
+    from app.models import db, POD
+
+    if pod_id is None:
+        pods = POD.query.order_by(POD.name).all()
+        return [
+            {
+                'id': p.id,
+                'name': p.name,
+                'territory_count': len(p.territories),
+                'se_count': len(p.solution_engineers),
+            }
+            for p in pods
+        ]
+
+    pod = db.session.get(POD, pod_id)
+    if not pod:
+        return {'error': f'POD {pod_id} not found.'}
+
+    territories = pod.territories
+    all_sellers = set()
+    total_customers = 0
+    for t in territories:
+        for s in t.sellers:
+            all_sellers.add((s.id, s.name, s.seller_type))
+        total_customers += len(t.customers)
+
+    return {
+        'id': pod.id,
+        'name': pod.name,
+        'territories': [
+            {
+                'id': t.id,
+                'name': t.name,
+                'customer_count': len(t.customers),
+            }
+            for t in territories
+        ],
+        'sellers': [
+            {'id': sid, 'name': sname, 'type': stype}
+            for sid, sname, stype in sorted(all_sellers, key=lambda x: x[1])
+        ],
+        'solution_engineers': [
+            {'id': se.id, 'name': se.name, 'specialty': se.specialty}
+            for se in pod.solution_engineers
+        ],
+        'total_customers': total_customers,
+    }
+
+
+# -- Analytics summary -------------------------------------------------------
+
+@tool(
+    'get_analytics_summary',
+    'Get call volume metrics, top topics, customers needing attention, '
+    'and seller activity.',
+    {
+        'type': 'object',
+        'properties': {
+            'days': {
+                'type': 'integer',
+                'description': 'Lookback window in days (default 30, max 90).',
+            },
+        },
+    },
+)
+def get_analytics_summary(days: int = 30) -> dict:
+    """Return analytics dashboard data."""
+    from datetime import datetime, timedelta, timezone
+    from sqlalchemy import func, distinct
+    from app.models import db, Note, Customer, Topic, notes_topics
+
+    days = max(1, min(days, 90))
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+
+    total_notes = Note.query.count()
+    recent_notes = Note.query.filter(Note.call_date >= cutoff).count()
+    total_customers = Customer.query.count()
+    active_customers = (
+        db.session.query(func.count(distinct(Note.customer_id)))
+        .filter(Note.call_date >= cutoff)
+        .scalar()
+    ) or 0
+
+    # Top topics in the period
+    top_topics = (
+        db.session.query(Topic.name, func.count(Note.id).label('cnt'))
+        .join(notes_topics, Topic.id == notes_topics.c.topic_id)
+        .join(Note, Note.id == notes_topics.c.note_id)
+        .filter(Note.call_date >= cutoff)
+        .group_by(Topic.name)
+        .order_by(func.count(Note.id).desc())
+        .limit(10)
+        .all()
+    )
+
+    # Customers not called in the period
+    called_ids = (
+        db.session.query(distinct(Note.customer_id))
+        .filter(Note.call_date >= cutoff, Note.customer_id.isnot(None))
+        .subquery()
+    )
+    neglected = (
+        Customer.query
+        .filter(~Customer.id.in_(db.session.query(called_ids)))
+        .count()
+    )
+
+    return {
+        'period_days': days,
+        'total_notes': total_notes,
+        'notes_in_period': recent_notes,
+        'total_customers': total_customers,
+        'active_customers': active_customers,
+        'neglected_customers': neglected,
+        'top_topics': [
+            {'name': name, 'call_count': cnt} for name, cnt in top_topics
+        ],
+    }
+
+
+# -- 1:1 report data --------------------------------------------------------
+
+@tool(
+    'report_one_on_one',
+    'Get 1:1 manager prep data: recent customer activity, open engagements, '
+    'and milestone updates in the last 2 weeks.',
+    {
+        'type': 'object',
+        'properties': {
+            'days': {
+                'type': 'integer',
+                'description': 'Lookback window in days (default 14).',
+            },
+            'seller_id': {
+                'type': 'integer',
+                'description': 'Scope to a specific seller.',
+            },
+        },
+    },
+)
+def report_one_on_one(days: int = 14, seller_id: int | None = None) -> dict:
+    """Return 1:1 prep data."""
+    from datetime import datetime, timedelta, timezone
+    from app.models import Note, Engagement, Milestone, Customer
+
+    days = max(1, min(days, 90))
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+
+    # Recent notes
+    note_q = Note.query.filter(Note.call_date >= cutoff)
+    if seller_id:
+        cust_ids = [c.id for c in Customer.query.filter_by(seller_id=seller_id).all()]
+        note_q = note_q.filter(Note.customer_id.in_(cust_ids))
+    recent_notes = note_q.order_by(Note.call_date.desc()).limit(50).all()
+
+    # Group by customer
+    customer_notes: dict[str, list] = {}
+    for n in recent_notes:
+        cname = n.customer.name if n.customer else 'No Customer'
+        customer_notes.setdefault(cname, []).append({
+            'id': n.id,
+            'call_date': n.call_date.strftime('%Y-%m-%d') if n.call_date else None,
+            'snippet': (n.content or '')[:150],
+            'topics': [t.name for t in n.topics],
+        })
+
+    # Open engagements
+    eng_q = Engagement.query.filter(Engagement.status == 'Active')
+    if seller_id:
+        eng_q = eng_q.filter(Engagement.customer_id.in_(cust_ids))
+    open_engagements = eng_q.count()
+
+    # Recently committed milestones
+    ms_q = Milestone.query.filter(
+        Milestone.on_my_team == True,
+        Milestone.committed_at >= cutoff,
+    )
+    if seller_id:
+        ms_q = ms_q.filter(Milestone.customer_id.in_(cust_ids))
+    committed_milestones = ms_q.all()
+
+    return {
+        'period_days': days,
+        'customer_activity': customer_notes,
+        'customers_with_calls': len(customer_notes),
+        'total_notes': len(recent_notes),
+        'open_engagements': open_engagements,
+        'recently_committed_milestones': [
+            {
+                'id': m.id,
+                'title': m.display_text,
+                'customer': m.customer.name if m.customer else None,
+                'committed_at': m.committed_at.strftime('%Y-%m-%d') if m.committed_at else None,
+            }
+            for m in committed_milestones
+        ],
+    }
+
+
+# -- Search contacts ---------------------------------------------------------
+
+@tool(
+    'search_contacts',
+    'Search customer and partner contacts by name, email, or title.',
+    {
+        'type': 'object',
+        'properties': {
+            'query': {
+                'type': 'string',
+                'description': 'Name, email, or title to search for.',
+            },
+            'customer_id': {
+                'type': 'integer',
+                'description': 'Filter to contacts at a specific customer.',
+            },
+            'partner_id': {
+                'type': 'integer',
+                'description': 'Filter to contacts at a specific partner.',
+            },
+            'limit': {
+                'type': 'integer',
+                'description': 'Max results (default 20).',
+            },
+        },
+    },
+)
+def search_contacts(
+    query: str = '',
+    customer_id: int | None = None,
+    partner_id: int | None = None,
+    limit: int = 20,
+) -> list[dict]:
+    """Search contacts across customers and partners."""
+    from app.models import db, CustomerContact, PartnerContact
+
+    results = []
+
+    if not partner_id:
+        # Search customer contacts
+        cc_q = CustomerContact.query
+        if query:
+            pattern = f'%{query}%'
+            cc_q = cc_q.filter(
+                db.or_(
+                    CustomerContact.name.ilike(pattern),
+                    CustomerContact.email.ilike(pattern),
+                    CustomerContact.title.ilike(pattern),
+                )
+            )
+        if customer_id:
+            cc_q = cc_q.filter(CustomerContact.customer_id == customer_id)
+        for c in cc_q.limit(limit).all():
+            results.append({
+                'type': 'customer_contact',
+                'id': c.id,
+                'name': c.name,
+                'email': c.email,
+                'title': c.title,
+                'customer': c.customer.name if c.customer else None,
+                'customer_id': c.customer_id,
+            })
+
+    if not customer_id:
+        # Search partner contacts
+        remaining = limit - len(results)
+        if remaining > 0:
+            pc_q = PartnerContact.query
+            if query:
+                pattern = f'%{query}%'
+                pc_q = pc_q.filter(
+                    db.or_(
+                        PartnerContact.name.ilike(pattern),
+                        PartnerContact.email.ilike(pattern),
+                        PartnerContact.title.ilike(pattern),
+                    )
+                )
+            if partner_id:
+                pc_q = pc_q.filter(PartnerContact.partner_id == partner_id)
+            for c in pc_q.limit(remaining).all():
+                results.append({
+                    'type': 'partner_contact',
+                    'id': c.id,
+                    'name': c.name,
+                    'email': c.email,
+                    'title': c.title,
+                    'partner': c.partner.name if c.partner else None,
+                    'partner_id': c.partner_id,
+                })
+
+    return results
+
+
+# -- Revenue customer detail -------------------------------------------------
+
+@tool(
+    'get_revenue_customer_detail',
+    'Get per-customer revenue history and bucket breakdown.',
+    {
+        'type': 'object',
+        'properties': {
+            'customer_id': {
+                'type': 'integer',
+                'description': 'Customer ID to look up revenue for.',
+            },
+            'customer_name': {
+                'type': 'string',
+                'description': 'Customer name (used if customer_id not provided).',
+            },
+            'months': {
+                'type': 'integer',
+                'description': 'Number of recent months to include (default 6).',
+            },
+        },
+    },
+)
+def get_revenue_customer_detail(
+    customer_id: int | None = None,
+    customer_name: str | None = None,
+    months: int = 6,
+) -> dict:
+    """Return revenue breakdown for a customer."""
+    from app.models import CustomerRevenueData
+
+    if not customer_id and not customer_name:
+        return {'error': 'Provide customer_id or customer_name.'}
+
+    q = CustomerRevenueData.query
+    if customer_id:
+        q = q.filter(CustomerRevenueData.customer_id == customer_id)
+    elif customer_name:
+        q = q.filter(CustomerRevenueData.customer_name.ilike(f'%{customer_name}%'))
+
+    rows = (
+        q.order_by(
+            CustomerRevenueData.month_date.desc(),
+            CustomerRevenueData.bucket,
+        )
+        .all()
+    )
+
+    if not rows:
+        return {'error': 'No revenue data found for this customer.'}
+
+    # Get unique months sorted desc, limit to requested count
+    all_months = sorted({r.month_date for r in rows}, reverse=True)[:months]
+
+    # Build bucket summary
+    bucket_totals: dict[str, float] = {}
+    monthly: dict[str, dict[str, float]] = {}
+    for r in rows:
+        if r.month_date not in all_months:
+            continue
+        bucket_totals[r.bucket] = bucket_totals.get(r.bucket, 0) + r.revenue
+        month_key = r.fiscal_month
+        monthly.setdefault(month_key, {})[r.bucket] = r.revenue
+
+    return {
+        'customer_name': rows[0].customer_name,
+        'tpid': rows[0].tpid,
+        'months_included': len(all_months),
+        'buckets': {
+            k: round(v, 2) for k, v in
+            sorted(bucket_totals.items(), key=lambda x: -x[1])
+        },
+        'monthly_breakdown': {
+            mk: {b: round(v, 2) for b, v in bv.items()}
+            for mk, bv in monthly.items()
+        },
+    }
