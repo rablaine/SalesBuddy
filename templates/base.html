@@ -1789,7 +1789,7 @@
                 let accountsImported = {{ 'true' if accounts_synced else 'false' }};
                 let milestonesImported = {{ 'true' if has_milestones else 'false' }};
                 let revenueImported = {{ 'true' if has_revenue else 'false' }};
-                let aiEnabled = true;
+                let aiEnabled = false;
                 let roleSelected = true;  // No role selection in Step 1 - auto-detected in Step 3
                 let selectedRole = '{{ user_role }}';  // Updated after Step 3 auto-detect
                 const milestonesSyncState = '{{ milestones_sync_state }}';
@@ -1894,7 +1894,7 @@
 
                 function updateNextButton() {
                     const skipStepBtn = document.getElementById('onboardSkipStepBtn');
-                    if (currentStep === 2 && !(authCompleted && vpnVerified)) {
+                    if (currentStep === 2 && !(authCompleted && vpnVerified && aiEnabled)) {
                         nextBtn.disabled = true;
                     } else if (currentStep === 3 && !accountsImported) {
                         nextBtn.disabled = true;
@@ -2108,21 +2108,25 @@
                             aiEnabled = true;
                             if (aiStatusEl) aiStatusEl.innerHTML = '<div class="d-flex align-items-center text-success"><i class="bi bi-check-circle-fill fs-5 me-2"></i><span class="fw-bold"><i class="bi bi-stars text-warning"></i> AI features enabled</span></div>';
                         } else {
-                            if (aiStatusEl) aiStatusEl.innerHTML = '<div class="d-flex align-items-center text-muted"><i class="bi bi-dash-circle fs-5 me-2"></i><span>AI consent not granted. Enable anytime from the Admin Panel.</span></div>';
+                            aiEnabled = false;
+                            if (aiStatusEl) aiStatusEl.innerHTML = '<div class="alert alert-warning py-2 mb-2"><i class="bi bi-exclamation-triangle-fill me-1"></i> <strong>AI consent not granted.</strong> You must accept the consent prompt to continue.<div class="mt-2"><button class="btn btn-primary btn-sm" onclick="startSignIn()"><i class="bi bi-arrow-clockwise"></i> Retry</button></div></div>';
                         }
                     } catch (e) {
-                        if (aiStatusEl) aiStatusEl.innerHTML = '<div class="d-flex align-items-center text-muted"><i class="bi bi-dash-circle fs-5 me-2"></i><span>Could not check AI status. Enable from the Admin Panel.</span></div>';
+                        aiEnabled = false;
+                        if (aiStatusEl) aiStatusEl.innerHTML = '<div class="alert alert-warning py-2 mb-2"><i class="bi bi-exclamation-triangle-fill me-1"></i> <strong>Could not verify AI consent.</strong><div class="mt-2"><button class="btn btn-primary btn-sm" onclick="startSignIn()"><i class="bi bi-arrow-clockwise"></i> Retry</button></div></div>';
                     }
 
                     showSignInState('signInSuccess');
                     nextBtn.innerHTML = 'Next <i class="bi bi-arrow-right"></i>';
-                    nextBtn.disabled = false;
 
-                    // Auto-advance for returning users who already have data
-                    if (accountsImported || milestonesImported || revenueImported) {
-                        setTimeout(() => {
-                            if (currentStep === 2) showStep(nextIncompleteStep());
-                        }, 2000);
+                    if (aiEnabled) {
+                        nextBtn.disabled = false;
+                        // Auto-advance for returning users who already have data
+                        if (accountsImported || milestonesImported || revenueImported) {
+                            setTimeout(() => {
+                                if (currentStep === 2) showStep(nextIncompleteStep());
+                            }, 2000);
+                        }
                     }
                 }
 

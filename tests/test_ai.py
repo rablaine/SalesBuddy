@@ -78,6 +78,41 @@ class TestConsentEndpoints:
 
 
 # ---------------------------------------------------------------------------
+# Wizard consent gate (JS rendered in base.html)
+# ---------------------------------------------------------------------------
+
+class TestWizardConsentGate:
+    """Verify the onboarding wizard blocks progression without AI consent."""
+
+    def _render_index(self, client):
+        """GET / returns the index page which includes the wizard JS."""
+        return client.get('/')
+
+    def test_ai_enabled_defaults_false(self, client):
+        """aiEnabled JS variable must start as false so the wizard gates on it."""
+        resp = self._render_index(client)
+        assert b'let aiEnabled = false;' in resp.data
+
+    def test_next_button_gated_on_ai_enabled(self, client):
+        """updateNextButton must require aiEnabled for step 2."""
+        resp = self._render_index(client)
+        assert b'authCompleted && vpnVerified && aiEnabled' in resp.data
+
+    def test_consent_failure_shows_retry(self, client):
+        """When consent fails, the wizard should offer a Retry button."""
+        resp = self._render_index(client)
+        html = resp.data.decode()
+        assert 'AI consent not granted' in html
+        assert 'onclick="startSignIn()"' in html
+
+    def test_consent_error_shows_retry(self, client):
+        """When consent check errors, the wizard should offer a Retry button."""
+        resp = self._render_index(client)
+        html = resp.data.decode()
+        assert 'Could not verify AI consent' in html
+
+
+# ---------------------------------------------------------------------------
 # AI connection test endpoint
 # ---------------------------------------------------------------------------
 
