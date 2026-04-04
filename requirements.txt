@@ -32,3 +32,6 @@ beautifulsoup4==4.14.3
 
 # Data Analysis (for revenue import)
 pandas==3.0.1
+
+# MCP Server (VS Code Copilot integration)
+mcp>=1.27.0
