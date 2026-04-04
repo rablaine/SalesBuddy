@@ -602,53 +602,6 @@ def test_admin_panel_has_shutdown_button(client):
 
 
 
-def test_admin_ai_consent_check_endpoint_ok(client, app):
-    """AI consent check endpoint returns ok when consent is valid."""
-    mock_result = {"consented": True, "error": None, "needs_relogin": False, "status": "ok"}
-    with patch('app.gateway_client.check_ai_consent', return_value=mock_result):
-        response = client.get('/api/admin/ai-consent-check')
-        data = response.get_json()
-
-    assert response.status_code == 200
-    assert data['consented'] is True
-    assert 'ai_enabled' in data
-
-
-def test_admin_ai_consent_check_endpoint_needs_relogin(client, app):
-    """AI consent check endpoint returns needs_relogin when consent is missing."""
-    mock_result = {"consented": False, "error": "consent_required", "needs_relogin": True, "status": "needs_relogin"}
-    with patch('app.gateway_client.check_ai_consent', return_value=mock_result):
-        response = client.get('/api/admin/ai-consent-check')
-        data = response.get_json()
-
-    assert response.status_code == 200
-    assert data['consented'] is False
-    assert data['needs_relogin'] is True
-    assert 'ai_enabled' in data
-
-
-def test_admin_ai_consent_check_endpoint_error(client):
-    """AI consent check endpoint handles unexpected errors gracefully."""
-    mock_result = {"consented": False, "error": "boom", "needs_relogin": False, "status": "error"}
-    with patch('app.gateway_client.check_ai_consent', return_value=mock_result):
-        response = client.get('/api/admin/ai-consent-check')
-        data = response.get_json()
-
-    assert response.status_code == 200
-    assert data['consented'] is False
-
-
-def test_admin_ai_test_consent_error_returns_needs_relogin(client):
-    """AI test connection returns needs_relogin when GatewayConsentError is raised."""
-    from app.gateway_client import GatewayConsentError
-    with patch('app.gateway_client.gateway_call', side_effect=GatewayConsentError('consent_required')):
-        response = client.post('/api/admin/ai-config/test')
-        data = response.get_json()
-
-    assert response.status_code == 403
-    assert data['needs_relogin'] is True
-
-
 # =============================================================================
 # Admin Panel Update Check - Boot Commit Tracking
 # =============================================================================

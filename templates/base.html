@@ -1066,7 +1066,7 @@
                             <div class="card-body" id="authCard">
                                 <!-- Initial: show button -->
                                 <div id="signInInitial">
-                                    <p class="small text-muted mb-2"><i class="bi bi-info-circle"></i> A browser window will open. Select your <strong>Microsoft corporate account</strong> and approve the consent prompt.</p>
+                                    <p class="small text-muted mb-2"><i class="bi bi-info-circle"></i> A browser window will open. Select your <strong>Microsoft corporate account</strong> to sign in.</p>
                                     <div class="text-center">
                                         <button class="btn btn-primary btn-lg" id="startSignInBtn">
                                             <i class="bi bi-box-arrow-in-right"></i> Sign In to Azure
@@ -1076,9 +1076,8 @@
 
                                 <!-- Waiting: spinner + elapsed timer -->
                                 <div id="signInWaiting" class="d-none text-center">
-                                    <p class="mb-2 text-primary fw-bold" id="signInBrowserHint">Select your Microsoft corporate account, then approve the consent prompt.</p>
+                                    <p class="mb-2 text-primary fw-bold" id="signInBrowserHint">Select your Microsoft corporate account to sign in.</p>
                                     <p class="mb-2 small text-muted">This page will update automatically once you're signed in.</p>
-                                    <p class="mb-2 small text-warning d-none" id="signInConsentHint"><i class="bi bi-window-stack"></i> <strong>Still waiting?</strong> Try minimizing your foreground windows. The consent prompt may be behind them. Look for <strong>"Permissions requested"</strong> for <strong>NoteHelper-AI-Gateway</strong> (with the Sales Buddy icon).</p>
                                     <div class="mb-2">
                                         <div class="spinner-border spinner-border-sm text-primary" role="status"></div>
                                         <span class="text-muted ms-2" id="signInStatus">Waiting for sign-in...</span>
@@ -1097,7 +1096,6 @@
                                             <small class="text-muted ms-2" id="signInEmail"></small>
                                         </div>
                                     </div>
-                                    <div id="signInAiStatus"></div>
                                 </div>
 
                                 <!-- VPN blocked after sign-in -->
@@ -1789,7 +1787,6 @@
                 let accountsImported = {{ 'true' if accounts_synced else 'false' }};
                 let milestonesImported = {{ 'true' if has_milestones else 'false' }};
                 let revenueImported = {{ 'true' if has_revenue else 'false' }};
-                let aiEnabled = false;
                 let roleSelected = true;  // No role selection in Step 1 - auto-detected in Step 3
                 let selectedRole = '{{ user_role }}';  // Updated after Step 3 auto-detect
                 const milestonesSyncState = '{{ milestones_sync_state }}';
@@ -1894,7 +1891,7 @@
 
                 function updateNextButton() {
                     const skipStepBtn = document.getElementById('onboardSkipStepBtn');
-                    if (currentStep === 2 && !(authCompleted && vpnVerified && aiEnabled)) {
+                    if (currentStep === 2 && !(authCompleted && vpnVerified)) {
                         nextBtn.disabled = true;
                     } else if (currentStep === 3 && !accountsImported) {
                         nextBtn.disabled = true;
@@ -1980,7 +1977,6 @@
 
                 // --- Step 2: Authentication ---
                 const SIGN_IN_TIMEOUT_MS = 120000;  // 2 min total timeout
-                const CONSENT_HINT_DELAY = 7;       // seconds before showing "look under windows" hint
                 let signInPollTimer = null;
                 let wizardElapsedTimer = null;
 
@@ -1989,8 +1985,6 @@
                     showSignInState('signInWaiting');
                     const statusEl = document.getElementById('signInStatus');
                     const browserHint = document.getElementById('signInBrowserHint');
-                    const consentHint = document.getElementById('signInConsentHint');
-                    if (consentHint) consentHint.classList.add('d-none');
                     if (browserHint) browserHint.classList.remove('d-none');
 
                     // Step 1: Clear any existing session for a clean start
@@ -1999,12 +1993,12 @@
                         await fetch('/api/msx/az-logout', { method: 'POST' });
                     } catch (e) { /* continue */ }
 
-                    // Step 2: Launch az login with consent scope
+                    // Step 2: Launch az login (Microsoft tenant only, no app-specific scope needed)
                     try {
                         const resp = await fetch('/api/msx/az-login/start', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ scope: 'api://0f6db4af-332c-4fd5-b894-77fadb181e5c/.default' })
+                            body: JSON.stringify({})
                         });
                         const data = await resp.json();
                         if (data.error) {
@@ -2029,7 +2023,6 @@
                     wizardElapsedTimer = setInterval(() => {
                         const elapsed = Math.round((Date.now() - startTime) / 1000);
                         if (statusEl) statusEl.textContent = 'Waiting for sign-in... (' + elapsed + 's)';
-                        if (elapsed >= CONSENT_HINT_DELAY && consentHint) consentHint.classList.remove('d-none');
                     }, 1000);
 
                     signInPollTimer = setInterval(async () => {
@@ -2046,7 +2039,6 @@
                                 clearWizardTimers();
                                 if (statusEl) statusEl.textContent = 'Verifying MSX connection...';
                                 if (browserHint) browserHint.classList.add('d-none');
-                                if (consentHint) consentHint.classList.add('d-none');
                                 await completeSignIn(data.user_email);
                             }
                         } catch (err) { /* keep polling */ }
@@ -2098,35 +2090,20 @@
                         } catch (e) { /* non-blocking */ }
                     }
 
-                    // Try to enable AI (consent may have been granted during login)
-                    const aiStatusEl = document.getElementById('signInAiStatus');
+                    // Clear token cache so gateway picks up the new login
                     try {
                         await fetch('/api/admin/ai-clear-cache', { method: 'POST' });
-                        const grantResp = await fetch('/api/admin/ai-enable', { method: 'POST' });
-                        const grantData = await grantResp.json();
-                        if (grantData.success && grantData.ai_enabled) {
-                            aiEnabled = true;
-                            if (aiStatusEl) aiStatusEl.innerHTML = '<div class="d-flex align-items-center text-success"><i class="bi bi-check-circle-fill fs-5 me-2"></i><span class="fw-bold"><i class="bi bi-stars text-warning"></i> AI features enabled</span></div>';
-                        } else {
-                            aiEnabled = false;
-                            if (aiStatusEl) aiStatusEl.innerHTML = '<div class="alert alert-warning py-2 mb-2"><i class="bi bi-exclamation-triangle-fill me-1"></i> <strong>AI consent not granted.</strong> You must accept the consent prompt to continue.<div class="mt-2"><button class="btn btn-primary btn-sm" onclick="startSignIn()"><i class="bi bi-arrow-clockwise"></i> Retry</button></div></div>';
-                        }
-                    } catch (e) {
-                        aiEnabled = false;
-                        if (aiStatusEl) aiStatusEl.innerHTML = '<div class="alert alert-warning py-2 mb-2"><i class="bi bi-exclamation-triangle-fill me-1"></i> <strong>Could not verify AI consent.</strong><div class="mt-2"><button class="btn btn-primary btn-sm" onclick="startSignIn()"><i class="bi bi-arrow-clockwise"></i> Retry</button></div></div>';
-                    }
+                    } catch (e) { /* non-blocking */ }
 
                     showSignInState('signInSuccess');
                     nextBtn.innerHTML = 'Next <i class="bi bi-arrow-right"></i>';
+                    nextBtn.disabled = false;
 
-                    if (aiEnabled) {
-                        nextBtn.disabled = false;
-                        // Auto-advance for returning users who already have data
-                        if (accountsImported || milestonesImported || revenueImported) {
-                            setTimeout(() => {
-                                if (currentStep === 2) showStep(nextIncompleteStep());
-                            }, 2000);
-                        }
+                    // Auto-advance for returning users who already have data
+                    if (accountsImported || milestonesImported || revenueImported) {
+                        setTimeout(() => {
+                            if (currentStep === 2) showStep(nextIncompleteStep());
+                        }, 2000);
                     }
                 }
 

@@ -83,7 +83,7 @@ conn = sqlite3.connect(db)
 c = conn.cursor()
 c.execute('UPDATE user_preferences SET onedrive_path = ? WHERE id = (SELECT id FROM user_preferences LIMIT 1)', (path,))
 if c.rowcount == 0:
-    c.execute('INSERT INTO user_preferences (onedrive_path, dark_mode, customer_view_grouped, customer_sort_by, topic_sort_by_calls, territory_view_accounts, show_customers_without_calls, first_run_modal_dismissed, guided_tour_completed, ai_enabled, fy_transition_active, fy_sync_complete, backup_retention_daily, backup_retention_weekly, backup_retention_monthly) VALUES (?, 1, 0, ''alphabetical'', 0, 0, 1, 0, 0, 0, 0, 0, 7, 4, 3)', (path,))
+    c.execute('INSERT INTO user_preferences (onedrive_path, dark_mode, customer_view_grouped, customer_sort_by, topic_sort_by_calls, territory_view_accounts, show_customers_without_calls, first_run_modal_dismissed, guided_tour_completed, fy_transition_active, fy_sync_complete, backup_retention_daily, backup_retention_weekly, backup_retention_monthly) VALUES (?, 1, 0, ''alphabetical'', 0, 0, 1, 0, 0, 0, 0, 7, 4, 3)', (path,))
 conn.commit()
 conn.close()
 "@

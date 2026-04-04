@@ -2240,7 +2240,6 @@ class TestRestoreGlobalData:
                     "show_customers_without_calls": False,
                     "workiq_summary_prompt": "Summarize the key points",
                     "workiq_connect_impact": False,
-                    "ai_enabled": True,
                     "default_template_customer_name": None,
                     "default_template_noncustomer_name": None,
                 },

@@ -41,8 +41,9 @@ else:
 # Show which gateway we're using on startup (visible before logging is configured)
 print(f"AI Gateway URL: {_GATEWAY_URL}")
 
-# Entra app registration client ID — the audience for JWT tokens
-_GATEWAY_APP_ID = "api://0f6db4af-332c-4fd5-b894-77fadb181e5c"
+# Token audience — Azure Management plane. Any Microsoft-tenant user with
+# az login gets a valid JWT. APIM validates audience + tenant + signature.
+_GATEWAY_RESOURCE = "https://management.azure.com"
 
 # Microsoft corporate tenant — must match the APIM JWT policy
 _REQUIRED_TENANT_ID = "72f988bf-86f1-41af-91ab-2d7cd011db47"
@@ -61,7 +62,7 @@ def is_gateway_enabled() -> bool:
 def clear_token_cache() -> None:
     """Clear the cached credential and token.
 
-    Called after ``az login`` completes so the new consent is picked up.
+    Called after ``az login`` completes so the next token is picked up.
     """
     global _credential, _cached_token, _token_expiry
     _credential = None
@@ -73,8 +74,8 @@ def _get_token() -> str:
     """Acquire a JWT for the gateway audience. Caches until near expiry.
 
     Raises:
-        GatewayConsentError: If the user hasn't consented to the gateway app.
-        GatewayError: On other authentication failures.
+        GatewayError: If the user is signed in with a non-Microsoft account
+            or on other authentication failures.
     """
     import time
 
@@ -88,24 +89,14 @@ def _get_token() -> str:
         # Prefer AzureCliCredential for local dev (faster, no prompts)
         try:
             cred = AzureCliCredential()
-            cred.get_token(f"{_GATEWAY_APP_ID}/.default")
+            cred.get_token(f"{_GATEWAY_RESOURCE}/.default")
             _credential = cred
-        except Exception as exc:
-            if _is_consent_error(exc):
-                raise GatewayConsentError(
-                    "AI gateway consent required. Please sign out and sign "
-                    "back in via the Admin Panel to grant permission."
-                ) from exc
+        except Exception:
             _credential = DefaultAzureCredential()
 
     try:
-        token_obj = _credential.get_token(f"{_GATEWAY_APP_ID}/.default")
+        token_obj = _credential.get_token(f"{_GATEWAY_RESOURCE}/.default")
     except Exception as exc:
-        if _is_consent_error(exc):
-            raise GatewayConsentError(
-                "AI gateway consent required. Please sign out and sign "
-                "back in via the Admin Panel to grant permission."
-            ) from exc
         raise GatewayError(f"Failed to acquire gateway token: {exc}") from exc
 
     _cached_token = token_obj.token
@@ -121,7 +112,7 @@ def _verify_tenant(token: str) -> None:
     """Decode the JWT and verify the ``tid`` claim matches Microsoft corp.
 
     Raises:
-        GatewayConsentError: If the user is signed in with a non-Microsoft account.
+        GatewayError: If the user is signed in with a non-Microsoft account.
     """
     import base64
     import json as _json
@@ -145,39 +136,11 @@ def _verify_tenant(token: str) -> None:
         _cached_token = None
         _token_expiry = 0
         _credential = None
-        raise GatewayConsentError(
+        raise GatewayError(
             "You are signed in with a non-Microsoft account. "
             "Please sign out and sign back in with your "
             "Microsoft corporate (@microsoft.com) account."
         )
-
-
-def _is_consent_error(exc: Exception) -> bool:
-    """Return True if the exception indicates a missing consent."""
-    msg = str(exc).lower()
-    return "consent_required" in msg or "aadsts65001" in msg
-
-
-def check_ai_consent() -> dict[str, Any]:
-    """Check whether the current user has consented to the AI gateway.
-
-    Returns:
-        Dict with ``status`` ('ok', 'needs_relogin', or 'error'),
-        ``consented`` (bool), ``error`` (str or None),
-        and ``needs_relogin`` (bool).
-    """
-    try:
-        _get_token()
-        return {"status": "ok", "consented": True, "error": None, "needs_relogin": False}
-    except GatewayConsentError as exc:
-        return {
-            "status": "needs_relogin",
-            "consented": False,
-            "error": str(exc),
-            "needs_relogin": True,
-        }
-    except Exception as exc:
-        return {"status": "error", "consented": False, "error": str(exc), "needs_relogin": False}
 
 
 def gateway_call(
@@ -264,11 +227,6 @@ class GatewayError(Exception):
     def __init__(self, message: str, status_code: int | None = None):
         super().__init__(message)
         self.status_code = status_code
-
-
-class GatewayConsentError(GatewayError):
-    """Raised when the user hasn't consented to the AI gateway app."""
-    pass
 
 
 def get_user_name() -> str:

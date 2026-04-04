@@ -75,7 +75,7 @@ def is_online():
 Start the Socket.IO client in a daemon thread during Flask app initialization (after first successful auth):
 
 ```python
-# In app/__init__.py or triggered by admin AI-enable flow
+# In app/__init__.py or triggered after successful auth
 def start_sharing_client(app):
     def _run():
         with app.app_context():

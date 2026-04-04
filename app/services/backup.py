@@ -1353,7 +1353,6 @@ def restore_global_data(data: Dict[str, Any]) -> Dict[str, Any]:
             "show_customers_without_calls",
             "workiq_summary_prompt",
             "workiq_connect_impact",
-            "ai_enabled",
         ]
         for field in pref_fields:
             if field in pref_data and pref_data[field] is not None:

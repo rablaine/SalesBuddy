@@ -6,8 +6,8 @@ All AI calls go through the centralized APIM gateway
 (Sales Buddy -> APIM -> App Service gateway -> Azure OpenAI).
 No direct Azure OpenAI credentials are needed locally.
 
-AI is always enabled -- the onboarding wizard enforces gateway
-consent before users can access the product.
+AI is always enabled for any user signed in with a Microsoft
+corporate account.
 """
 from flask import Blueprint, request, jsonify, g, current_app
 import json

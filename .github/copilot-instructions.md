@@ -108,6 +108,29 @@
 - The test `test_salesiq_tools.py::test_tool_coverage` enforces that every core entity and report has at least one registered tool. If you add a new model or report, update the coverage test.
 - Run `pytest tests/test_salesiq_tools.py` after adding or modifying tools.
 
+### Removing Features or Dead Code
+**CRITICAL - When told to remove something, REMOVE IT COMPLETELY.**
+
+When the user says "rip out X" or "remove X from the app," that means:
+1. **Search the ENTIRE codebase** for every reference (code, comments, docstrings, templates, JS, tests, scripts, docs, config files, migration files, backlog items, copilot instructions)
+2. **Remove or update EVERY reference** in a single pass. Do not leave stragglers.
+3. **Do NOT invent reasons to keep dead code.** "Backward compatibility," "the DB column still exists," and "the INSERT needs it" are not valid reasons to preserve references to something that nothing reads, writes, or depends on. If the model doesn't have it, nothing should reference it.
+4. **Do NOT half-remove and wait for the user to notice.** The user should never have to ask twice.
+5. **After removal, run a final grep** for the removed term across the entire repo. If any matches remain (outside of unrelated contexts like third-party docs), fix them before reporting done.
+
+The bar: if you grep for the removed term after cleanup, the only matches should be in files that genuinely talk about something else (e.g., a WorkIQ doc mentioning WorkIQ's own consent is fine when removing SalesBuddy consent).
+
+### Codebase-Wide Changes (Renames, Replacements, Removals)
+**CRITICAL - This applies to ANY "do X everywhere" instruction.**
+
+When the user says "rename A to B everywhere," "replace all mentions of X with Y," or any variation:
+1. **grep the ENTIRE codebase** for the old term - code, comments, docstrings, templates, JS, CSS, tests, scripts, docs, config files, migration files, backlog items, copilot instructions, README, .env.example, everything.
+2. **Fix EVERY match** in a single pass. Comments, docstrings, variable names, UI strings, test assertions, documentation - ALL of it.
+3. **Do NOT skip files** because they're "just comments" or "just docs" or "just backlog." If it contains the old term, update it.
+4. **Do NOT stop at code files.** Templates, JS, markdown, YAML, PowerShell scripts, batch files - search them all.
+5. **After the change, run a final grep** for the old term. If matches remain, fix them before reporting done.
+6. **The user should NEVER have to ask twice.** If you find yourself thinking "that one doesn't matter," you're wrong. Fix it.
+
 ### Extracting Template Partials
 **CRITICAL - Read this carefully and follow it exactly.**
 
@@ -424,50 +447,15 @@ The rule: **if it leaves your machine, say what you're doing and why before doin
 
 **Key Resources:**
 - **APIM Gateway URL:** `https://apim-notehelper.azure-api.net/ai`
-- **Entra App Registration:** `NoteHelper-AI-Gateway`, App ID `0f6db4af-332c-4fd5-b894-77fadb181e5c`
 - **Tenant:** Microsoft corp `72f988bf-86f1-41af-91ab-2d7cd011db47` (JWT validation)
 - **Gateway client:** `app/gateway_client.py` - hardcoded config, no env vars needed
-- **AI is always enabled** - the onboarding wizard enforces consent before the user can access the product, so there is no per-user AI gate
+- **AI is always enabled** for any user signed in with a Microsoft corporate account. No app registration or consent needed - APIM validates a standard Azure Management JWT.
 
-**How AI consent works:**
-1. User runs `az login --scope api://0f6db4af-332c-4fd5-b894-77fadb181e5c/.default` (wizard does this automatically)
-2. Browser shows Entra consent prompt if first time
-3. After accepting, `POST /api/admin/ai-enable` validates token acquisition and records consent in `UserPreference.ai_enabled`
-4. AI features are available immediately - no template-level gating
-
-**Revoking AI consent for testing:**
-
-To reset a user to the "no consent" state for testing the first-time consent flow:
-
-```powershell
-# 1. Get a Graph API token
-$token = (az account get-access-token --resource "https://graph.microsoft.com" --query accessToken -o tsv)
-$headers = @{ Authorization = "Bearer $token" }
-
-# 2. Find the gateway app's service principal ID in the corp tenant
-$sp = Invoke-RestMethod -Uri "https://graph.microsoft.com/v1.0/servicePrincipals?`$filter=appId eq '0f6db4af-332c-4fd5-b894-77fadb181e5c'" -Headers $headers
-$spId = $sp.value[0].id  # Should be 4fdba304-193d-42b9-ad1e-273381ef8265
-
-# 3. Find the user's consent grant for that SP (it's the clientId, not resourceId)
-$grants = Invoke-RestMethod -Uri "https://graph.microsoft.com/v1.0/me/oauth2PermissionGrants" -Headers $headers
-$grant = $grants.value | Where-Object { $_.clientId -eq $spId }
-$grant | Select-Object id, clientId, resourceId, scope  # Verify it's the right one
-
-# 4. Delete the consent grant
-Invoke-RestMethod -Method DELETE -Uri "https://graph.microsoft.com/v1.0/oauth2PermissionGrants/$($grant.id)" -Headers $headers
-
-# 5. Clear az CLI token cache and re-login WITHOUT the scope
-az account clear
-az login --tenant 72f988bf-86f1-41af-91ab-2d7cd011db47
-
-# 6. Verify consent is revoked (should show AADSTS65001 consent_required)
-az account get-access-token --resource "api://0f6db4af-332c-4fd5-b894-77fadb181e5c" 2>&1
-
-# 7. (Optional) Reset the DB flag too if testing the full wizard
-# Move data/salesbuddy.db to data/salesbuddy.db.bak
-```
-
-**Key detail:** The consent grant's `clientId` is the gateway SP ID (not `resourceId`). The `resourceId` on the grant points to the Microsoft Graph SP.
+**How AI authentication works:**
+1. User runs `az login --tenant 72f988bf-...` (wizard does this automatically)
+2. Gateway client acquires a token for `https://management.azure.com`
+3. APIM validates the JWT signature, audience, issuer, and tenant
+4. Gateway App Service processes the request
 
 ## Additional Notes
 
@@ -487,4 +475,4 @@ az account get-access-token --resource "api://0f6db4af-332c-4fd5-b894-77fadb181e
 
 ---
 
-**Last Updated:** March 14, 2026
+**Last Updated:** April 3, 2026

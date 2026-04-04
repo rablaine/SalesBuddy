@@ -1,22 +1,29 @@
 <policies>
     <inbound>
         <base />
-        <!-- 1. Validate JWT — Microsoft tenant only -->
-        <validate-jwt header-name="Authorization" require-scheme="Bearer" failed-validation-httpcode="401" failed-validation-error-message="Unauthorized: Invalid or missing JWT token">
-            <openid-config url="https://login.microsoftonline.com/common/v2.0/.well-known/openid-configuration" />
-            <audiences>
-                <audience>api://0f6db4af-332c-4fd5-b894-77fadb181e5c</audience>
-            </audiences>
-            <required-claims>
-                <claim name="tid" match="any">
-                    <!-- Microsoft corporate tenant ID -->
-                    <value>72f988bf-86f1-41af-91ab-2d7cd011db47</value>
-                </claim>
-            </required-claims>
-        </validate-jwt>
+        <choose>
+            <when condition="@(context.Request.Url.Path.EndsWith(&quot;/health&quot;))">
+            </when>
+            <otherwise>
+                <!-- Validate JWT - Microsoft tenant only, Azure Management audience -->
+                <validate-jwt header-name="Authorization" failed-validation-httpcode="401" failed-validation-error-message="Unauthorized: Invalid or missing JWT token" require-expiration-time="true" require-signed-tokens="true">
+                    <openid-config url="https://login.microsoftonline.com/72f988bf-86f1-41af-91ab-2d7cd011db47/.well-known/openid-configuration" />
+                    <audiences>
+                        <audience>https://management.azure.com</audience>
+                    </audiences>
+                    <issuers>
+                        <issuer>https://sts.windows.net/72f988bf-86f1-41af-91ab-2d7cd011db47/</issuer>
+                        <issuer>https://login.microsoftonline.com/72f988bf-86f1-41af-91ab-2d7cd011db47/v2.0</issuer>
+                    </issuers>
+                </validate-jwt>
+            </otherwise>
+        </choose>
+        <set-header name="X-Gateway-Secret" exists-action="override">
+            <value>tea-earl-grey-hot-and-make-it-so</value>
+        </set-header>
     </inbound>
     <backend>
-        <base />
+        <forward-request timeout="240" />
     </backend>
     <outbound>
         <base />

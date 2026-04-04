@@ -275,9 +275,8 @@ def az_cli_status():
 def az_login_start():
     """Launch ``az login --tenant ...`` in a visible console window.
 
-    Accepts an optional JSON body ``{"scope": "api://…/.default"}``
-    to include an OAuth scope in the login command, which triggers
-    user consent for that resource (e.g. the AI gateway).
+    Accepts an optional JSON body ``{"scope": ".../.default"}``
+    to include an OAuth scope in the login command.
     """
     scope = None
     if request.is_json and request.json:
@@ -327,7 +326,7 @@ def az_login_complete():
     """Called by the frontend once polling detects a successful login.
 
     Sets the subscription, refreshes the CRM token, and clears the
-    AI gateway token cache so the new consent is picked up immediately.
+    AI gateway token cache so the new credentials are picked up immediately.
     """
     status = get_az_cli_status()
     if not status.get("logged_in"):
@@ -340,7 +339,7 @@ def az_login_complete():
     # waiting for subscription selection, and we don't need it anymore.
     kill_az_login_process()
 
-    # Clear gateway token cache so fresh consent is used
+    # Clear gateway token cache so fresh credentials are used
     from app.gateway_client import clear_token_cache as clear_gw_cache
     clear_gw_cache()
 

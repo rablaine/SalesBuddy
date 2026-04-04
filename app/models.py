@@ -1258,7 +1258,6 @@ class UserPreference(db.Model):
     dismissed_update_commit = db.Column(db.String(7), nullable=True)  # Last dismissed update commit hash (short)
     workiq_summary_prompt = db.Column(db.Text, nullable=True)  # Custom WorkIQ meeting summary prompt (null = use default)
     workiq_connect_impact = db.Column(db.Boolean, default=True, nullable=False)  # Extract Connect impact signals from WorkIQ summaries
-    ai_enabled = db.Column(db.Boolean, default=False, nullable=False)  # True once user explicitly grants AI gateway consent
     default_template_customer_id = db.Column(db.Integer, db.ForeignKey('note_templates.id', ondelete='SET NULL'), nullable=True)  # Default template for customer notes
     default_template_noncustomer_id = db.Column(db.Integer, db.ForeignKey('note_templates.id', ondelete='SET NULL'), nullable=True)  # Default template for non-customer notes
     fy_transition_active = db.Column(db.Boolean, default=False, nullable=False)  # True during FY changeover period

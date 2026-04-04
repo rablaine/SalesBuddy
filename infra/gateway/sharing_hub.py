@@ -28,10 +28,10 @@ logger = logging.getLogger(__name__)
 
 # Microsoft corp tenant
 _MS_TENANT = "72f988bf-86f1-41af-91ab-2d7cd011db47"
-# Gateway Entra app ID (audience)
-_AUDIENCE = "api://0f6db4af-332c-4fd5-b894-77fadb181e5c"
-# Microsoft OIDC JWKS endpoint for key rotation
-_JWKS_URL = f"https://login.microsoftonline.com/{_MS_TENANT}/discovery/v2.0/keys"
+# Token audience - Azure Management plane (no app registration needed)
+_AUDIENCE = "https://management.azure.com"
+# Microsoft OIDC JWKS endpoint for key rotation (v1 - matches management tokens)
+_JWKS_URL = f"https://login.microsoftonline.com/{_MS_TENANT}/discovery/keys"
 
 # Online users: sid → {name, email, connected_at}
 _online_users: dict[str, dict] = {}

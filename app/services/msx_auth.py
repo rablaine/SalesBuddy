@@ -599,8 +599,8 @@ def start_az_login(scope: str | None = None) -> Dict[str, Any]:
 
     Args:
         scope: Optional OAuth scope to include in the login command.
-            When provided (e.g. ``api://…/.default``), ``az login`` will
-            also trigger user consent for that resource.
+            When provided (e.g. ``https://management.azure.com/.default``),
+            ``az login`` will also request that scope.
 
     Returns:
         Dict with success, message, error.
@@ -617,9 +617,7 @@ def start_az_login(scope: str | None = None) -> Dict[str, Any]:
             pass  # already dead
 
     try:
-        # Login scoped to the Microsoft corporate tenant.
-        # If a scope is provided, include it so the browser flow also
-        # triggers user consent for that resource (e.g. the AI gateway).
+        # Login with optional scope.
         cmd = f'az login --tenant {TENANT_ID}'
         args = ["az", "login", "--tenant", TENANT_ID]
         if scope:

@@ -483,7 +483,6 @@ class TestOnboardingAuthUiElements:
         response = client.get('/')
         html = response.data.decode('utf-8')
         assert 'Microsoft corporate account' in html
-        assert 'approve the consent prompt' in html
 
     def test_step2_has_120s_timeout(self, client, app):
         """Step 2 JS should use a 120-second sign-in timeout."""

@@ -83,7 +83,7 @@ AI is powered by Azure OpenAI through a shared APIM gateway. No Azure OpenAI res
 
 **Requirements:** Azure CLI + Microsoft corp account (`@microsoft.com`)
 
-The setup wizard handles authentication and consent. You can also enable/disable AI from the Admin Panel. When AI is off, AI buttons are hidden automatically.
+The setup wizard handles authentication. AI features work automatically for any Microsoft corporate account.
 
 ## WorkIQ (Meeting Import)
 
