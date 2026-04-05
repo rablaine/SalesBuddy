@@ -71,7 +71,7 @@ from app.services.msx_api import (
     get_user_alias,
     get_user_info,
 )
-from app.models import Customer, CustomerCSAM, InternalContact, Milestone, Opportunity, Territory, Seller, POD, SolutionEngineer, SyncStatus, Vertical, db
+from app.models import Customer, CustomerCSAM, InternalContact, Milestone, MsxTask, Opportunity, Territory, Seller, POD, SolutionEngineer, SyncStatus, Vertical, db
 
 
 logger = logging.getLogger(__name__)
@@ -565,6 +565,38 @@ def create_msx_task():
     
     # Auto-join the milestone team if task creation succeeded
     if result.get('success'):
+        # Save the task locally so it shows in the workspace immediately
+        try:
+            from app.services.msx_api import TASK_CATEGORIES, HOK_TASK_CATEGORIES
+            local_ms = Milestone.query.filter_by(msx_milestone_id=milestone_id).first()
+            if local_ms and result.get('task_id'):
+                cat_name = next(
+                    (c['label'] for c in TASK_CATEGORIES if c['value'] == task_category),
+                    'Unknown',
+                )
+                local_task = MsxTask(
+                    msx_task_id=result['task_id'],
+                    msx_task_url=result.get('task_url'),
+                    subject=subject,
+                    description=description,
+                    task_category=task_category,
+                    task_category_name=cat_name,
+                    is_hok=task_category in HOK_TASK_CATEGORIES,
+                    milestone_id=local_ms.id,
+                )
+                if due_date:
+                    from datetime import datetime as _dt
+                    try:
+                        local_task.due_date = _dt.fromisoformat(
+                            due_date.replace('Z', '+00:00').replace('+00:00', '')
+                        )
+                    except (ValueError, AttributeError):
+                        pass
+                db.session.add(local_task)
+                db.session.commit()
+        except Exception as e:
+            logger.warning(f'Could not save task locally: {e}')
+
         try:
             join_result = add_user_to_milestone_team(milestone_id)
             if join_result.get('success'):
@@ -713,17 +745,27 @@ def update_task_route(task_id: str):
 
 @msx_bp.route('/task/<string:task_id>/close', methods=['POST'])
 def close_task_route(task_id: str):
-    """Close a task in MSX."""
+    """Close a task in MSX and remove from local DB."""
     from app.services.msx_api import close_task
     result = close_task(task_id)
+    if result.get('success'):
+        local_task = MsxTask.query.filter_by(msx_task_id=task_id).first()
+        if local_task:
+            db.session.delete(local_task)
+            db.session.commit()
     return jsonify(result)
 
 
 @msx_bp.route('/task/<string:task_id>/delete', methods=['DELETE'])
 def delete_task_route(task_id: str):
-    """Delete a task from MSX."""
+    """Delete a task from MSX and remove from local DB."""
     from app.services.msx_api import delete_task
     result = delete_task(task_id)
+    if result.get('success'):
+        local_task = MsxTask.query.filter_by(msx_task_id=task_id).first()
+        if local_task:
+            db.session.delete(local_task)
+            db.session.commit()
     return jsonify(result)
 
 

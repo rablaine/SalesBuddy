@@ -8,9 +8,9 @@ import pytest
 
 @pytest.fixture
 def msx_data(app, sample_data):
-    """Create opportunity and milestone sample data for MSX workspace tests."""
+    """Create opportunity, milestone, and task sample data for MSX workspace tests."""
     with app.app_context():
-        from app.models import db, Opportunity, Milestone, Customer
+        from app.models import db, Opportunity, Milestone, MsxTask, Customer
 
         customer = Customer.query.get(sample_data['customer1_id'])
 
@@ -74,6 +74,29 @@ def msx_data(app, sample_data):
             opportunity_id=opp1.id,
         )
         db.session.add_all([ms1, ms2])
+        db.session.flush()
+
+        task1 = MsxTask(
+            msx_task_id='task-guid-001',
+            msx_task_url='https://msxurl/task-001',
+            subject='Run POC demo',
+            description='Demo the migration POC',
+            task_category=861980002,
+            task_category_name='Demo',
+            is_hok=True,
+            due_date=datetime(2026, 5, 1, tzinfo=timezone.utc),
+            milestone_id=ms1.id,
+        )
+        task2 = MsxTask(
+            msx_task_id='task-guid-002',
+            msx_task_url='https://msxurl/task-002',
+            subject='Architecture review',
+            task_category=861980004,
+            task_category_name='Architecture Design Session',
+            is_hok=True,
+            milestone_id=ms2.id,
+        )
+        db.session.add_all([task1, task2])
         db.session.commit()
 
         return {
@@ -81,6 +104,8 @@ def msx_data(app, sample_data):
             'opp2_id': opp2.id,
             'ms1_id': ms1.id,
             'ms2_id': ms2.id,
+            'task1_id': task1.id,
+            'task2_id': task2.id,
             'customer_id': customer.id,
         }
 
@@ -235,38 +260,58 @@ def test_milestones_api_multiple_statuses(client, msx_data):
 
 # ---- Tasks API tests ----
 
-@patch('app.services.msx_api.get_tasks_for_milestones')
-def test_tasks_api_returns_data(mock_get_tasks, client, msx_data):
-    """Tasks API fetches from MSX and returns task data."""
-    mock_get_tasks.return_value = {
-        'success': True,
-        'tasks': [
-            {
-                'task_id': 'task-001',
-                'subject': 'Run POC demo',
-                'task_category': 861980002,
-                'task_category_name': 'Demo',
-                'is_hok': True,
-                'due_date': '2026-05-01T00:00:00Z',
-                'milestone_msx_id': 'ccc-333-ms',
-                'task_url': 'https://msxurl/task-001',
-            },
-        ],
-    }
-    response = client.get('/api/reports/msx-workspace/tasks?milestone_ids=ccc-333-ms')
+def test_tasks_api_returns_data(client, msx_data):
+    """Tasks API returns locally cached task data."""
+    response = client.get('/api/reports/msx-workspace/tasks')
+    data = response.get_json()
+    assert data['count'] == 2
+    subjects = {t['subject'] for t in data['tasks']}
+    assert 'Run POC demo' in subjects
+    assert 'Architecture review' in subjects
+
+
+def test_tasks_api_filter_by_customer(client, msx_data):
+    """Tasks API filters by customer_id."""
+    response = client.get(
+        f'/api/reports/msx-workspace/tasks?customer_id={msx_data["customer_id"]}'
+    )
+    data = response.get_json()
+    assert data['count'] == 2
+
+
+def test_tasks_api_filter_by_milestone(client, msx_data):
+    """Tasks API filters by milestone_id."""
+    response = client.get(
+        f'/api/reports/msx-workspace/tasks?milestone_id={msx_data["ms1_id"]}'
+    )
     data = response.get_json()
     assert data['count'] == 1
     assert data['tasks'][0]['subject'] == 'Run POC demo'
-    mock_get_tasks.assert_called_once_with(['ccc-333-ms'])
 
 
-@patch('app.services.msx_api.get_tasks_for_milestones')
-def test_tasks_api_empty_when_no_ids(mock_get_tasks, client, msx_data):
-    """Tasks API returns empty when no milestone_ids provided."""
-    response = client.get('/api/reports/msx-workspace/tasks')
+def test_tasks_api_search(client, msx_data):
+    """Tasks API filters by search term."""
+    response = client.get('/api/reports/msx-workspace/tasks?search=demo')
     data = response.get_json()
-    assert data['count'] == 0
-    mock_get_tasks.assert_not_called()
+    assert data['count'] == 1
+    assert data['tasks'][0]['subject'] == 'Run POC demo'
+
+
+def test_tasks_api_returns_all_fields(client, msx_data):
+    """Task JSON includes all expected fields."""
+    response = client.get(
+        f'/api/reports/msx-workspace/tasks?milestone_id={msx_data["ms1_id"]}'
+    )
+    data = response.get_json()
+    task = data['tasks'][0]
+    assert task['task_id'] == 'task-guid-001'
+    assert task['subject'] == 'Run POC demo'
+    assert task['task_category_name'] == 'Demo'
+    assert task['is_hok'] is True
+    assert task['due_date'] is not None
+    assert task['milestone_msx_id'] == 'ccc-333-ms'
+    assert task['milestone_title'] == 'Azure Migration POC'
+    assert task['task_url'] == 'https://msxurl/task-001'
 
 
 # ---- Task CRUD route tests (in MSX blueprint) ----
@@ -286,25 +331,33 @@ def test_update_task_route(mock_update, client, msx_data):
 
 
 @patch('app.services.msx_api.close_task')
-def test_close_task_route(mock_close, client, msx_data):
-    """POST /api/msx/task/<id>/close calls close_task."""
+def test_close_task_route(mock_close, client, app, msx_data):
+    """POST /api/msx/task/<id>/close calls close_task and removes local record."""
     mock_close.return_value = {'success': True}
-    response = client.post('/api/msx/task/task-001/close')
+    response = client.post('/api/msx/task/task-guid-001/close')
     assert response.status_code == 200
     data = response.get_json()
     assert data['success'] is True
-    mock_close.assert_called_once_with('task-001')
+    mock_close.assert_called_once_with('task-guid-001')
+    # Verify local task was deleted
+    with app.app_context():
+        from app.models import MsxTask
+        assert MsxTask.query.filter_by(msx_task_id='task-guid-001').first() is None
 
 
 @patch('app.services.msx_api.delete_task')
-def test_delete_task_route(mock_delete, client, msx_data):
-    """DELETE /api/msx/task/<id>/delete calls delete_task."""
+def test_delete_task_route(mock_delete, client, app, msx_data):
+    """DELETE /api/msx/task/<id>/delete calls delete_task and removes local record."""
     mock_delete.return_value = {'success': True}
-    response = client.delete('/api/msx/task/task-001/delete')
+    response = client.delete('/api/msx/task/task-guid-002/delete')
     assert response.status_code == 200
     data = response.get_json()
     assert data['success'] is True
-    mock_delete.assert_called_once_with('task-001')
+    mock_delete.assert_called_once_with('task-guid-002')
+    # Verify local task was deleted
+    with app.app_context():
+        from app.models import MsxTask
+        assert MsxTask.query.filter_by(msx_task_id='task-guid-002').first() is None
 
 
 @patch('app.services.msx_api.update_milestone')

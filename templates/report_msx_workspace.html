@@ -138,14 +138,7 @@
 
     <!-- Tasks Tab -->
     <div class="tab-pane fade" id="tasksPane" role="tabpanel">
-        <div id="tasksNotice" class="text-center text-muted py-4">
-            <i class="bi bi-info-circle"></i> Select a milestone from the Milestones tab to view its tasks,
-            or load tasks for all milestones you are on the team for.
-            <div class="mt-2">
-                <button id="btnLoadMyTasks" class="btn btn-sm btn-outline-primary"><i class="bi bi-arrow-repeat"></i> Load My Tasks</button>
-            </div>
-        </div>
-        <div id="tasksContent" class="d-none">
+        <div id="tasksContent">
             <div class="d-flex justify-content-between align-items-center mb-2">
                 <span class="text-muted small" id="taskContext"></span>
                 <button class="btn btn-sm btn-success" id="btnCreateTask" data-bs-toggle="modal" data-bs-target="#createTaskModal">
@@ -245,7 +238,7 @@
     let tasksData = [];
     let currentSortField = '';
     let currentSortDir = 'asc';
-    let activeTaskMilestoneIds = [];  // MSX IDs for current task view
+    let activeTaskMilestoneIds = [];  // MSX IDs for create task context
 
     // DOM refs
     const filterCustomer = document.getElementById('filterCustomer');
@@ -513,13 +506,22 @@
         tbody.querySelectorAll('.ms-tasks-btn').forEach(btn => {
             btn.addEventListener('click', function() {
                 const msxId = this.dataset.msxId;
+                const msId = this.closest('tr').dataset.id;
                 const title = this.dataset.title;
                 if (!msxId) return;
-                activeTaskMilestoneIds = [msxId];
                 document.getElementById('taskContext').textContent = 'Tasks for: ' + title;
                 document.getElementById('taskMilestoneId').value = msxId;
                 document.getElementById('taskMilestoneName').value = title;
-                loadTasks([msxId]);
+                // Load tasks filtered to this milestone
+                const params = new URLSearchParams();
+                params.set('milestone_id', msId);
+                fetch('/api/reports/msx-workspace/tasks?' + params.toString())
+                    .then(r => r.json())
+                    .then(data => {
+                        tasksData = data.tasks || [];
+                        document.getElementById('taskCount').textContent = tasksData.length;
+                        renderTasks();
+                    });
                 // Switch to tasks tab
                 const tasksTab = document.getElementById('tasks-tab');
                 bootstrap.Tab.getOrCreateInstance(tasksTab).show();
@@ -586,19 +588,16 @@
     }
 
     // ----- Tasks -----
-    async function loadTasks(msxIds) {
-        if (!msxIds || !msxIds.length) return;
+    async function loadTasks() {
+        const params = new URLSearchParams();
+        if (filterCustomer.value) params.set('customer_id', filterCustomer.value);
+        if (filterSearch.value) params.set('search', filterSearch.value);
 
-        document.getElementById('tasksNotice').classList.add('d-none');
-        document.getElementById('tasksContent').classList.remove('d-none');
-        document.getElementById('tasksBody').innerHTML = '<tr><td colspan="5" class="text-center py-3"><div class="spinner-border spinner-border-sm"></div> Loading tasks from MSX...</td></tr>';
+        document.getElementById('tasksBody').innerHTML = '<tr><td colspan="5" class="text-center py-3"><div class="spinner-border spinner-border-sm"></div> Loading tasks...</td></tr>';
 
         try {
-            const resp = await fetch(`/api/reports/msx-workspace/tasks?milestone_ids=${msxIds.join(',')}`);
+            const resp = await fetch('/api/reports/msx-workspace/tasks?' + params.toString());
             const data = await resp.json();
-            if (data.error) {
-                showToast('Error loading tasks: ' + data.error, 'warning');
-            }
             tasksData = data.tasks || [];
             document.getElementById('taskCount').textContent = tasksData.length;
             renderTasks();
@@ -622,7 +621,7 @@
                 <td>${escHtml(t.subject)}${hokBadge}</td>
                 <td>${escHtml(catLabel)}</td>
                 <td class="text-nowrap">${t.due_date ? escHtml(t.due_date.substring(0, 10)) : '-'}</td>
-                <td class="text-nowrap">${escHtml(findMilestoneTitle(t.milestone_msx_id))}</td>
+                <td class="text-nowrap">${escHtml(t.milestone_title || findMilestoneTitle(t.milestone_msx_id))}</td>
                 <td>
                     <div class="btn-group btn-group-sm">
                         <button class="btn btn-outline-success close-task-btn" data-task-id="${escHtml(t.task_id)}" title="Close Task"><i class="bi bi-check-lg"></i></button>
@@ -645,7 +644,7 @@
                     const result = await resp.json();
                     if (result.success) {
                         showToast('Task closed');
-                        loadTasks(activeTaskMilestoneIds);
+                        loadTasks();
                     } else {
                         showToast(result.error || 'Failed to close task', 'danger');
                         this.disabled = false;
@@ -666,19 +665,7 @@
         return ms ? (ms.title || ms.number || '-') : '-';
     }
 
-    // ----- Load My Tasks (all milestones I'm on) -----
-    document.getElementById('btnLoadMyTasks').addEventListener('click', function() {
-        const myIds = msData.filter(m => m.on_my_team && m.msx_id).map(m => m.msx_id);
-        if (!myIds.length) {
-            showToast('No milestones found where you are on the team. Load milestones first.', 'warning');
-            return;
-        }
-        activeTaskMilestoneIds = myIds;
-        document.getElementById('taskContext').textContent = `Tasks for ${myIds.length} milestone(s) I'm on`;
-        document.getElementById('taskMilestoneId').value = '';
-        document.getElementById('taskMilestoneName').value = '';
-        loadTasks(myIds);
-    });
+
 
     // ----- Create Task -----
     document.getElementById('btnSubmitTask').addEventListener('click', async function() {
@@ -721,7 +708,7 @@
                 document.getElementById('taskSubject').value = '';
                 document.getElementById('taskDescription').value = '';
                 document.getElementById('taskDueDate').value = '';
-                loadTasks(activeTaskMilestoneIds);
+                loadTasks();
             } else {
                 showToast(result.error || 'Failed to create task', 'danger');
             }
@@ -757,6 +744,7 @@
         currentSortDir = 'asc';
         loadOpportunities();
         loadMilestones();
+        loadTasks();
     }
 
     btnApply.addEventListener('click', applyAll);

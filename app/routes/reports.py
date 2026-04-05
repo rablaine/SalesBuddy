@@ -1238,16 +1238,46 @@ def api_msx_workspace_milestones():
 
 @bp.route('/api/reports/msx-workspace/tasks')
 def api_msx_workspace_tasks():
-    """JSON endpoint: fetch tasks from MSX for given milestone(s)."""
-    from app.services.msx_api import get_tasks_for_milestones
+    """JSON endpoint: tasks from local DB (synced from MSX)."""
+    customer_id = request.args.get('customer_id', type=int)
+    milestone_id = request.args.get('milestone_id', type=int)
+    search = request.args.get('search', '').strip()
 
-    milestone_ids = request.args.get('milestone_ids', '')
-    msx_ids = [mid.strip() for mid in milestone_ids.split(',') if mid.strip()]
-    if not msx_ids:
-        return jsonify(tasks=[], count=0)
+    query = MsxTask.query.join(Milestone, MsxTask.milestone_id == Milestone.id)
 
-    result = get_tasks_for_milestones(msx_ids)
-    if not result.get('success'):
-        return jsonify(tasks=[], count=0, error=result.get('error')), 502
+    if customer_id:
+        query = query.filter(Milestone.customer_id == customer_id)
+    else:
+        query = query.filter(Milestone.customer_id.isnot(None))
 
-    return jsonify(tasks=result['tasks'], count=len(result['tasks']))
+    if milestone_id:
+        query = query.filter(MsxTask.milestone_id == milestone_id)
+
+    if search:
+        pattern = f'%{search}%'
+        query = query.filter(or_(
+            MsxTask.subject.ilike(pattern),
+            MsxTask.task_category_name.ilike(pattern),
+        ))
+
+    tasks = query.order_by(MsxTask.due_date.asc().nullslast()).all()
+
+    results = []
+    for t in tasks:
+        ms = t.milestone
+        results.append({
+            'task_id': t.msx_task_id,
+            'subject': t.subject,
+            'description': t.description,
+            'task_category': t.task_category,
+            'task_category_name': t.task_category_name,
+            'is_hok': t.is_hok,
+            'due_date': t.due_date.isoformat() if t.due_date else None,
+            'milestone_msx_id': ms.msx_milestone_id if ms else None,
+            'milestone_title': ms.title if ms else None,
+            'milestone_id': t.milestone_id,
+            'task_url': t.msx_task_url,
+            'customer_id': ms.customer_id if ms else None,
+        })
+
+    return jsonify(tasks=results, count=len(results))
