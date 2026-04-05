@@ -776,6 +776,9 @@ def get_milestones_by_account(
             f"_msp_workloadlkid_value,msp_milestonedate,msp_bacvrate,"
             f"msp_commitmentrecommendation,msp_committedon,msp_completedon,"
             f"msp_forecastcommentsjsonfield,createdon,modifiedon"
+            f"&$expand=msp_OpportunityId($select=opportunityid,name,"
+            f"msp_opportunitynumber,statecode,statuscode,estimatedvalue,"
+            f"estimatedclosedate,_ownerid_value)"
             f"&$orderby=msp_name"
         )
         
@@ -813,6 +816,21 @@ def get_milestones_by_account(
                     ""
                 ) or raw.get("msp_commitmentrecommendation", "")
 
+                # Extract expanded opportunity data (from $expand)
+                raw_opp = raw.get("msp_OpportunityId") or {}
+                opp_id = raw.get("_msp_opportunityid_value")
+                opp_statecode = raw_opp.get("statecode")
+                opp_state = raw_opp.get(
+                    "statecode@OData.Community.Display.V1.FormattedValue",
+                    {0: "Open", 1: "Won", 2: "Lost"}.get(opp_statecode, "")
+                ) if opp_statecode is not None else None
+                opp_status_reason = raw_opp.get(
+                    "statuscode@OData.Community.Display.V1.FormattedValue", ""
+                )
+                opp_owner = raw_opp.get(
+                    "_ownerid_value@OData.Community.Display.V1.FormattedValue", ""
+                )
+
                 milestones.append({
                     "id": milestone_id,
                     "name": raw.get("msp_name", ""),
@@ -821,7 +839,7 @@ def get_milestones_by_account(
                     "status_code": status_code,
                     "status_sort": MILESTONE_STATUS_ORDER.get(status, 99),
                     "customer_commitment": commitment if isinstance(commitment, str) else str(commitment),
-                    "msx_opportunity_id": raw.get("_msp_opportunityid_value"),
+                    "msx_opportunity_id": opp_id,
                     "opportunity_name": opp_name,
                     "workload": workload,
                     "monthly_usage": monthly_usage,
@@ -833,6 +851,14 @@ def get_milestones_by_account(
                     "comments_json": raw.get("msp_forecastcommentsjsonfield"),
                     "created_on": raw.get("createdon"),
                     "modified_on": raw.get("modifiedon"),
+                    # Expanded opportunity fields
+                    "opportunity_number": raw_opp.get("msp_opportunitynumber", ""),
+                    "opportunity_statecode": opp_statecode,
+                    "opportunity_state": opp_state,
+                    "opportunity_status_reason": opp_status_reason,
+                    "opportunity_estimated_value": raw_opp.get("estimatedvalue"),
+                    "opportunity_estimated_close_date": raw_opp.get("estimatedclosedate"),
+                    "opportunity_owner": opp_owner,
                 })
             
             # Sort by status (active first), then by name
