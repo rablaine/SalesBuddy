@@ -384,6 +384,55 @@ def test_reports_hub_includes_msx_workspace(client, sample_data):
     assert b'msx-workspace' in response.data
 
 
+# ---- Leave deal team ----
+
+@patch('app.services.msx_api.remove_user_from_deal_team')
+def test_leave_deal_team_success(mock_remove, client, app, msx_data):
+    """POST /api/msx/leave-deal-team removes user and clears on_deal_team."""
+    mock_remove.return_value = {'success': True}
+    response = client.post(
+        '/api/msx/leave-deal-team',
+        json={'opportunity_id': msx_data['opp1_id']},
+    )
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data['success'] is True
+    mock_remove.assert_called_once_with('aaa-111-opp')
+    with app.app_context():
+        from app.models import Opportunity
+        opp = Opportunity.query.get(msx_data['opp1_id'])
+        assert opp.on_deal_team is False
+
+
+@patch('app.services.msx_api.remove_user_from_deal_team')
+def test_leave_deal_team_failure(mock_remove, client, app, msx_data):
+    """POST /api/msx/leave-deal-team preserves on_deal_team on failure."""
+    mock_remove.return_value = {'success': False, 'error': 'MSX returned HTTP 500'}
+    response = client.post(
+        '/api/msx/leave-deal-team',
+        json={'opportunity_id': msx_data['opp1_id']},
+    )
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data['success'] is False
+    with app.app_context():
+        from app.models import Opportunity
+        opp = Opportunity.query.get(msx_data['opp1_id'])
+        assert opp.on_deal_team is True
+
+
+def test_leave_deal_team_missing_id(client, msx_data):
+    """POST /api/msx/leave-deal-team returns 400 when opportunity_id is missing."""
+    response = client.post('/api/msx/leave-deal-team', json={})
+    assert response.status_code == 400
+
+
+def test_leave_deal_team_not_found(client, msx_data):
+    """POST /api/msx/leave-deal-team returns 404 for non-existent opportunity."""
+    response = client.post('/api/msx/leave-deal-team', json={'opportunity_id': 99999})
+    assert response.status_code == 404
+
+
 # ---- SalesIQ tool coverage ----
 
 def test_salesiq_tools_include_msx_workspace(app):

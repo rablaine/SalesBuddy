@@ -791,6 +791,99 @@ class TestMilestoneViewPage:
         assert data['success'] is True
         assert data['opportunity']['comments'] == []
 
+    def test_opportunity_view_with_milestone_due_dates(self, app, client, db_session, sample_user):
+        """Test page renders correctly when milestones have due dates.
+
+        Regression: datetime.datetime (due_date) - datetime.date (today) caused TypeError.
+        """
+        opp = Opportunity(
+            msx_opportunity_id='opp-duedate-test',
+            name='Due Date Opp',
+        )
+        db_session.add(opp)
+        db_session.flush()
+
+        # Milestone with a future due date
+        ms_future = Milestone(
+            msx_milestone_id='ms-future-dd',
+            url='https://example.com/ms-future',
+            title='Future Milestone',
+            msx_status='On Track',
+            opportunity_id=opp.id,
+            due_date=datetime(2026, 12, 15, 0, 0, 0),
+        )
+        # Milestone with a past due date (overdue)
+        ms_overdue = Milestone(
+            msx_milestone_id='ms-overdue-dd',
+            url='https://example.com/ms-overdue',
+            title='Overdue Milestone',
+            msx_status='At Risk',
+            opportunity_id=opp.id,
+            due_date=datetime(2026, 1, 1, 0, 0, 0),
+        )
+        # Completed milestone with due date
+        ms_done = Milestone(
+            msx_milestone_id='ms-done-dd',
+            url='https://example.com/ms-done',
+            title='Done Milestone',
+            msx_status='Completed',
+            opportunity_id=opp.id,
+            due_date=datetime(2026, 3, 1, 0, 0, 0),
+        )
+        db_session.add_all([ms_future, ms_overdue, ms_done])
+        db_session.commit()
+
+        response = client.get(f'/opportunity/{opp.id}')
+        assert response.status_code == 200
+        html = response.data.decode()
+        assert 'Future Milestone' in html
+        assert 'Overdue Milestone' in html
+        assert 'Done Milestone' in html
+        assert 'overdue' in html
+
+    def test_opportunity_detail_fragment(self, app, client, db_session, sample_user):
+        """Test the /api/opportunity/<id>/detail fragment endpoint for modals."""
+        customer = Customer(name='Fragment Corp', tpid=7001)
+        db_session.add(customer)
+        db_session.flush()
+
+        opp = Opportunity(
+            msx_opportunity_id='opp-fragment-test',
+            name='Fragment Opp',
+            customer_id=customer.id,
+        )
+        db_session.add(opp)
+        db_session.flush()
+
+        ms = Milestone(
+            msx_milestone_id='ms-fragment-1',
+            url='https://example.com/ms-frag',
+            title='Fragment Milestone',
+            msx_status='On Track',
+            opportunity_id=opp.id,
+            due_date=datetime(2026, 9, 30, 0, 0, 0),
+        )
+        db_session.add(ms)
+        db_session.commit()
+
+        response = client.get(f'/api/opportunity/{opp.id}/detail')
+        assert response.status_code == 200
+        html = response.data.decode()
+
+        # Should render content but NOT the page header (show_header=False)
+        assert 'Fragment Opp' not in html or 'Fragment Milestone' in html
+        assert 'Fragment Milestone' in html
+        assert 'Details' in html
+        # Should NOT have the full page header with favorite button
+        assert 'oppFavoriteBtn' not in html
+        # Should NOT extend base.html (it's a fragment)
+        assert '<!DOCTYPE' not in html.upper()
+
+    def test_opportunity_detail_fragment_404(self, client):
+        """Test detail fragment returns 404 for nonexistent opportunity."""
+        response = client.get('/api/opportunity/99999/detail')
+        assert response.status_code == 404
+
 
 class TestOpportunityCommentRoute:
     """Tests for posting comments to opportunities."""

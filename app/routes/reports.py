@@ -34,6 +34,17 @@ def reports_hub():
                     'url': url_for('milestones.milestone_tracker'),
                 },
                 {
+                    'id': 'msx-workspace',
+                    'name': 'MSX Workspace',
+                    'description': (
+                        'Browse opportunities, milestones, and tasks from MSX. '
+                        'Manage team membership, create HOK tasks, and edit '
+                        'milestones - all without leaving Sales Buddy.'
+                    ),
+                    'icon': 'bi-grid-3x3',
+                    'url': url_for('reports.report_msx_workspace'),
+                },
+                {
                     'id': 'whats-new',
                     'name': "What's New",
                     'description': (
@@ -122,23 +133,6 @@ def reports_hub():
                     ),
                     'icon': 'bi-tag',
                     'url': url_for('reports.report_workload'),
-                },
-            ],
-        },
-        {
-            'title': 'MSX Tools',
-            'icon': 'bi-gear-wide-connected',
-            'reports': [
-                {
-                    'id': 'msx-workspace',
-                    'name': 'MSX Workspace',
-                    'description': (
-                        'Browse opportunities, milestones, and tasks from MSX. '
-                        'Manage team membership, create HOK tasks, and edit '
-                        'milestones - all without leaving Sales Buddy.'
-                    ),
-                    'icon': 'bi-grid-3x3',
-                    'url': url_for('reports.report_msx_workspace'),
                 },
             ],
         },

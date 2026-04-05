@@ -543,7 +543,7 @@ class TestMilestoneTrackerTeamColumn:
         resp = client.get('/reports/milestone-tracker')
         assert resp.status_code == 200
         html = resp.data.decode()
-        assert 'joinTrackerTeam' in html
+        assert 'toggleTrackerTeam' in html
 
     @patch('app.services.milestone_sync.get_milestone_tracker_data')
     def test_tracker_no_msx_id_shows_dash(self, mock_data, app, client):
@@ -559,8 +559,8 @@ class TestMilestoneTrackerTeamColumn:
         resp = client.get('/reports/milestone-tracker')
         assert resp.status_code == 200
         html = resp.data.decode()
-        # Should NOT have a join button in any table cell
-        assert 'onclick="joinTrackerTeam' not in html
+        # Should show a dash in the team cell, not a toggle button
+        assert '<span class="text-muted">-</span>' in html
 
 
 # =============================================================================

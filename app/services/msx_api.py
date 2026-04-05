@@ -2007,6 +2007,9 @@ def add_user_to_milestone_team(milestone_msx_id: str) -> Dict[str, Any]:
     """
     Add the current user to a milestone's access team in MSX.
 
+    MSX natively adds the user to the parent opportunity's deal team
+    as a side effect. The deal team sync picks up that status change.
+
     Args:
         milestone_msx_id: The MSX GUID of the milestone.
 
@@ -2040,12 +2043,11 @@ def add_user_to_milestone_team(milestone_msx_id: str) -> Dict[str, Any]:
             return {"success": True}
         else:
             error_text = response.text[:300]
-            # Check for "already on team" type errors
             if "already" in error_text.lower() or response.status_code == 409:
                 return {"success": True, "already_on_team": True}
             logger.warning(
                 f"Failed to add user to milestone team {milestone_msx_id}: "
-                f"HTTP {response.status_code} — {error_text}"
+                f"HTTP {response.status_code} - {error_text}"
             )
             return {
                 "success": False,
@@ -2172,6 +2174,63 @@ def add_user_to_deal_team(opportunity_msx_id: str) -> Dict[str, Any]:
         return {"success": False, "error": f"Connection error (VPN?): {str(e)[:100]}"}
     except Exception as e:
         logger.exception(f"Error adding user to deal team {opportunity_msx_id}")
+        return {"success": False, "error": str(e)}
+
+
+def remove_user_from_deal_team(opportunity_msx_id: str) -> Dict[str, Any]:
+    """
+    Remove the current user from an opportunity's deal team in MSX.
+
+    Args:
+        opportunity_msx_id: The MSX GUID of the opportunity.
+
+    Returns:
+        Dict with success: bool and optional error message.
+    """
+    try:
+        user_id = get_current_user_id()
+        if not user_id:
+            return {"success": False, "error": "Could not get current user ID"}
+
+        url = (
+            f"{CRM_BASE_URL}/systemusers({user_id})"
+            f"/Microsoft.Dynamics.CRM.RemoveUserFromRecordTeam"
+        )
+        payload = {
+            "Record": {
+                "@odata.type": "Microsoft.Dynamics.CRM.opportunity",
+                "opportunityid": opportunity_msx_id,
+            },
+            "TeamTemplate": {
+                "@odata.type": "Microsoft.Dynamics.CRM.teamtemplate",
+                "teamtemplateid": OPPORTUNITY_TEAM_TEMPLATE_ID,
+            },
+        }
+
+        response = _msx_request('POST', url, json_data=payload)
+
+        if response.status_code in (200, 204):
+            logger.info(f"Removed user from deal team: {opportunity_msx_id}")
+            return {"success": True}
+        else:
+            error_text = response.text[:300]
+            if "not a member" in error_text.lower() or response.status_code == 409:
+                return {"success": True, "not_on_team": True}
+            logger.warning(
+                f"Failed to remove user from deal team {opportunity_msx_id}: "
+                f"HTTP {response.status_code} -- {error_text}"
+            )
+            return {
+                "success": False,
+                "error": f"MSX returned HTTP {response.status_code}",
+            }
+
+    except requests.exceptions.Timeout:
+        return {"success": False, "error": "Request timed out. Check VPN connection."}
+    except requests.exceptions.ConnectionError as e:
+        return {"success": False, "error": f"Connection error (VPN?): {str(e)[:100]}"}
+    except Exception as e:
+        logger.exception(f"Error removing user from deal team {opportunity_msx_id}")
         return {"success": False, "error": str(e)}
 
 
@@ -2470,7 +2529,7 @@ def update_task(
 
 def close_task(task_id: str) -> Dict[str, Any]:
     """
-    Close a task in MSX using the CloseTask action with fallback.
+    Close a task in MSX by setting statecode=1 (Completed) and statuscode=5.
 
     Args:
         task_id: The MSX task GUID.
@@ -2482,29 +2541,18 @@ def close_task(task_id: str) -> Dict[str, Any]:
         return dict(_WRITEBACK_BLOCKED)
 
     try:
-        # Primary approach: CloseTask action
+        # PATCH statecode/statuscode directly - the most reliable approach
         payload = {
-            "TaskClose": {
-                "subject": "Task Closed",
-                "activityid@odata.bind": f"/tasks({task_id})",
-            },
-            "Status": 5,
+            "statecode": 1,       # Completed
+            "statuscode": 5,      # Completed
         }
-        response = _msx_request('POST', f"{CRM_BASE_URL}/CloseTask", json_data=payload)
-        if response.status_code in (200, 204):
-            logger.info(f"Closed task {task_id} via CloseTask action")
-            return {"success": True}
-
-        # Fallback: bound Close method
-        logger.info(f"CloseTask returned {response.status_code}, trying bound Close method")
-        fallback_payload = {"Status": 5}
         response = _msx_request(
-            'POST',
-            f"{CRM_BASE_URL}/tasks({task_id})/Microsoft.Dynamics.CRM.Close",
-            json_data=fallback_payload,
+            'PATCH',
+            f"{CRM_BASE_URL}/tasks({task_id})",
+            json_data=payload,
         )
         if response.status_code in (200, 204):
-            logger.info(f"Closed task {task_id} via bound Close method")
+            logger.info(f"Closed task {task_id} via PATCH statecode")
             return {"success": True}
 
         return {

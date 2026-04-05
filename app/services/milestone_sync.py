@@ -20,6 +20,7 @@ from app.services.msx_api import (
     get_milestones_by_account,
     get_milestone_audits,
     get_milestone_comments,
+    get_my_deal_team_ids,
     get_my_milestone_team_ids,
     get_tasks_for_milestones,
     build_milestone_url,
@@ -138,6 +139,7 @@ def sync_all_customer_milestones() -> Dict[str, Any]:
     
     # Update team membership flags
     _update_team_memberships()
+    _update_deal_team_memberships()
     
     # Sync comments for milestones I'm on the team for
     comment_gen = _sync_team_milestone_comments(since=start_time)
@@ -441,6 +443,7 @@ def sync_all_customer_milestones_stream(
         'progress': 87,
     })
     _update_team_memberships()
+    _update_deal_team_memberships()
 
     # -----------------------------------------------------------------
     # Phase 4: Sync comments for milestones I'm on the team for
@@ -1457,6 +1460,40 @@ def _update_team_memberships() -> None:
         db.session.commit()
     except Exception as e:
         logger.exception("Error updating team memberships")
+        db.session.rollback()
+
+
+def _update_deal_team_memberships() -> None:
+    """
+    Update the on_deal_team flag for all opportunities based on MSX deal teams.
+
+    Makes one API call to get all deal team memberships, then bulk-updates
+    the on_deal_team column. Mirrors _update_team_memberships() logic.
+    """
+    try:
+        result = get_my_deal_team_ids()
+        if not result.get("success"):
+            logger.warning(
+                f"Could not fetch deal team memberships: {result.get('error')}"
+            )
+            return
+
+        my_ids = result["opportunity_ids"]
+        logger.info(f"Updating on_deal_team for {len(my_ids)} opportunities")
+
+        # Clear all, then set matched ones
+        Opportunity.query.filter(
+            Opportunity.msx_opportunity_id.isnot(None)
+        ).update({Opportunity.on_deal_team: False})
+
+        if my_ids:
+            Opportunity.query.filter(
+                db.func.lower(Opportunity.msx_opportunity_id).in_(my_ids)
+            ).update({Opportunity.on_deal_team: True}, synchronize_session='fetch')
+
+        db.session.commit()
+    except Exception as e:
+        logger.exception("Error updating deal team memberships")
         db.session.rollback()
 
 

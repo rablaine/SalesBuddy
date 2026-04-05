@@ -729,6 +729,41 @@ def join_deal_team():
     return jsonify(result)
 
 
+@msx_bp.route('/leave-deal-team', methods=['POST'])
+def leave_deal_team():
+    """
+    Remove the current user from an opportunity's deal team in MSX.
+
+    Expected JSON body:
+        opportunity_id: local opportunity ID (integer)
+
+    Updates the local on_deal_team flag on success.
+    """
+    if not request.is_json:
+        return jsonify({"success": False, "error": "JSON body required"}), 400
+
+    from app.services.msx_api import remove_user_from_deal_team
+
+    opportunity_id = request.json.get("opportunity_id")
+    if not opportunity_id:
+        return jsonify({"success": False, "error": "opportunity_id required"}), 400
+
+    opportunity = Opportunity.query.get(opportunity_id)
+    if not opportunity:
+        return jsonify({"success": False, "error": "Opportunity not found"}), 404
+
+    if not opportunity.msx_opportunity_id:
+        return jsonify({"success": False, "error": "Opportunity has no MSX ID"}), 400
+
+    result = remove_user_from_deal_team(opportunity.msx_opportunity_id)
+
+    if result.get("success"):
+        opportunity.on_deal_team = False
+        db.session.commit()
+
+    return jsonify(result)
+
+
 # -----------------------------------------------------------------------------
 # Task CRUD Routes (for MSX Workspace)
 # -----------------------------------------------------------------------------

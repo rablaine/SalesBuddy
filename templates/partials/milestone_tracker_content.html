@@ -75,6 +75,13 @@
                     </ul>
                 </div>
             </div>
+            <div class="col-md-auto">
+                <select class="form-select form-select-sm" data-role="myTeamFilter">
+                    <option value="">All Team</option>
+                    <option value="on">On Team</option>
+                    <option value="off">Off Team</option>
+                </select>
+            </div>
             {% if not locked_seller %}
             <div class="col-md">
                 <select data-role="sellerFilter" class="form-select form-select-sm">
@@ -103,6 +110,21 @@
                     </ul>
                 </div>
             </div>
+            <div class="col-md-auto">
+                <select class="form-select form-select-sm" data-role="commitmentFilter">
+                    <option value="">All Commitment</option>
+                    <option value="Committed">Committed</option>
+                    <option value="Uncommitted">Uncommitted</option>
+                </select>
+            </div>
+            <div class="col-md">
+                <select data-role="urgencyFilter" class="form-select form-select-sm">
+                    <option value="">All Urgency</option>
+                    <option value="past_due">Past Due</option>
+                    <option value="this_week">Due This Week</option>
+                    <option value="this_month">Due This Month</option>
+                </select>
+            </div>
             <div class="col-md">
                 {% if areas %}
                 <div class="dropdown" style="width: 100%;">
@@ -122,28 +144,6 @@
                     </ul>
                 </div>
                 {% endif %}
-            </div>
-            <div class="col-md">
-                <select data-role="urgencyFilter" class="form-select form-select-sm">
-                    <option value="">All Urgency</option>
-                    <option value="past_due">Past Due</option>
-                    <option value="this_week">Due This Week</option>
-                    <option value="this_month">Due This Month</option>
-                </select>
-            </div>
-            <div class="col-md-auto">
-                <select class="form-select form-select-sm" data-role="commitmentFilter">
-                    <option value="">All Commitment</option>
-                    <option value="Committed">Committed</option>
-                    <option value="Uncommitted">Uncommitted</option>
-                </select>
-            </div>
-            <div class="col-md-auto">
-                <select class="form-select form-select-sm" data-role="myTeamFilter">
-                    <option value="">All Team</option>
-                    <option value="on">On Team</option>
-                    <option value="off">Off Team</option>
-                </select>
             </div>
             <div class="col-md-auto">
                 <button type="button" class="btn btn-sm btn-outline-warning" data-role="favoritesOnlyBtn" title="Show favorites only">
@@ -224,11 +224,12 @@
                 <!-- Team Status -->
                 <td class="text-center" data-export-bool="{{ 'true' if ms.on_my_team else 'false' }}" onclick="event.stopPropagation();">
                     {% if ms.on_my_team %}
-                    <span class="badge bg-success" title="On my team"><i class="bi bi-people-fill"></i></span>
+                    <button class="btn btn-sm btn-success team-toggle on-team" data-id="{{ ms.id }}" data-on-team="1" title="On milestone team (click to leave)" onclick="toggleTrackerTeam(this, {{ ms.id }})">
+                        <i class="bi bi-people-fill icon-default"></i><i class="bi bi-person-dash icon-leave"></i>
+                    </button>
                     {% elif ms.msx_milestone_id %}
-                    <button class="btn btn-external btn-sm py-0 px-1" title="Join milestone team"
-                            onclick="joinTrackerTeam(this, {{ ms.id }})">
-                        <i class="bi bi-person-plus"></i>
+                    <button class="btn btn-sm btn-outline-success team-toggle" data-id="{{ ms.id }}" data-on-team="0" title="Join milestone team" onclick="toggleTrackerTeam(this, {{ ms.id }})">
+                        <i class="bi bi-person-plus icon-default"></i><i class="bi bi-person-dash icon-leave"></i>
                     </button>
                     {% else %}
                     <span class="text-muted">-</span>
