@@ -231,8 +231,78 @@ class TestMilestoneSyncService:
             
             # Cleanup
             db.session.delete(ms)
+            if ms.opportunity:
+                db.session.delete(ms.opportunity)
             db.session.commit()
-    
+
+    @patch('app.services.milestone_sync.get_milestones_by_account')
+    def test_sync_enriches_opportunity_from_expand(self, mock_get, app, sample_data):
+        """Sync should populate opportunity fields from expanded milestone data."""
+        customer_id = self._create_test_customer_with_tpid_url(app, sample_data)
+
+        mock_get.return_value = {
+            "success": True,
+            "milestones": [
+                {
+                    "id": "ms-guid-enrich",
+                    "name": "Enrichment Test Milestone",
+                    "number": "7-900001",
+                    "status": "On Track",
+                    "status_code": 861980000,
+                    "status_sort": 1,
+                    "msx_opportunity_id": "opp-guid-enrich-111",
+                    "opportunity_name": "Enriched Cloud Deal",
+                    "opportunity_number": "7-ENRICH01",
+                    "opportunity_statecode": 0,
+                    "opportunity_state": "Open",
+                    "opportunity_status_reason": "In Progress",
+                    "opportunity_estimated_value": 750000.0,
+                    "opportunity_estimated_close_date": "2026-09-30",
+                    "opportunity_owner": "Jane Doe",
+                    "workload": "Azure Core",
+                    "monthly_usage": 3000.0,
+                    "due_date": "2026-06-15T00:00:00Z",
+                    "dollar_value": 100000.0,
+                    "url": "https://example.com/ms-enrich",
+                },
+            ],
+            "count": 1,
+        }
+
+        with app.app_context():
+            from app.models import db, Customer, Milestone, Opportunity
+            from app.services.milestone_sync import sync_customer_milestones
+
+            customer = db.session.get(Customer, customer_id)
+            result = sync_customer_milestones(customer)
+
+            assert result["success"] is True
+            assert result["created"] == 1
+            assert result["opportunities_created"] == 1
+
+            # Verify opportunity was created with enriched fields
+            opp = Opportunity.query.filter_by(
+                msx_opportunity_id="opp-guid-enrich-111"
+            ).first()
+            assert opp is not None
+            assert opp.name == "Enriched Cloud Deal"
+            assert opp.opportunity_number == "7-ENRICH01"
+            assert opp.statecode == 0
+            assert opp.state == "Open"
+            assert opp.status_reason == "In Progress"
+            assert opp.estimated_value == 750000.0
+            assert opp.estimated_close_date == "2026-09-30"
+            assert opp.owner_name == "Jane Doe"
+            assert opp.msx_url is not None
+            assert "opp-guid-enrich-111" in opp.msx_url
+
+            # Cleanup
+            ms = Milestone.query.filter_by(msx_milestone_id="ms-guid-enrich").first()
+            if ms:
+                db.session.delete(ms)
+            db.session.delete(opp)
+            db.session.commit()
+
     @patch('app.services.milestone_sync.get_milestones_by_account')
     def test_sync_customer_milestones_updates_existing(self, mock_get, app, sample_data):
         """Sync should update existing milestones with fresh MSX data."""

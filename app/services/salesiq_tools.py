@@ -1422,3 +1422,166 @@ def get_revenue_customer_detail(
             for mk, bv in monthly.items()
         },
     }
+
+
+# ---------------------------------------------------------------------------
+# MSX Workspace Tools
+# ---------------------------------------------------------------------------
+
+@tool(
+    'get_msx_workspace_opportunities',
+    'Query MSX opportunities with optional filters for customer, status, and deal team.',
+    {
+        'type': 'object',
+        'properties': {
+            'customer_id': {
+                'type': 'integer',
+                'description': 'Filter by customer ID.',
+            },
+            'status': {
+                'type': 'string',
+                'description': 'Filter by state: open, won, lost, or empty for all.',
+            },
+            'team': {
+                'type': 'string',
+                'description': 'Filter by deal team: on, off, or empty for all.',
+            },
+            'search': {
+                'type': 'string',
+                'description': 'Search by name, number, or owner.',
+            },
+        },
+    },
+)
+def get_msx_workspace_opportunities(**kwargs: Any) -> Any:
+    """Return opportunities matching the given filters."""
+    from app.models import Opportunity, Customer
+    from sqlalchemy import or_
+
+    query = Opportunity.query.filter(Opportunity.customer_id.isnot(None))
+
+    customer_id = kwargs.get('customer_id')
+    if customer_id:
+        query = query.filter(Opportunity.customer_id == customer_id)
+
+    status = kwargs.get('status', '')
+    if status == 'open':
+        query = query.filter(Opportunity.statecode == 0)
+    elif status == 'won':
+        query = query.filter(Opportunity.statecode == 1)
+    elif status == 'lost':
+        query = query.filter(Opportunity.statecode == 2)
+
+    team = kwargs.get('team', '')
+    if team == 'on':
+        query = query.filter(Opportunity.on_deal_team.is_(True))
+    elif team == 'off':
+        query = query.filter(Opportunity.on_deal_team.is_(False))
+
+    search = kwargs.get('search', '')
+    if search:
+        pat = f'%{search}%'
+        query = query.filter(or_(
+            Opportunity.name.ilike(pat),
+            Opportunity.opportunity_number.ilike(pat),
+            Opportunity.owner_name.ilike(pat),
+        ))
+
+    opps = query.order_by(Opportunity.name).limit(100).all()
+    return {
+        'count': len(opps),
+        'opportunities': [
+            {
+                'id': o.id,
+                'name': o.name,
+                'number': o.opportunity_number,
+                'state': o.state or 'Open',
+                'owner': o.owner_name,
+                'customer': o.customer.name if o.customer else None,
+                'on_deal_team': o.on_deal_team,
+                'estimated_value': o.estimated_value,
+                'close_date': o.estimated_close_date,
+            }
+            for o in opps
+        ],
+    }
+
+
+@tool(
+    'get_msx_workspace_milestones',
+    'Query MSX milestones with optional filters for customer, status, and team membership.',
+    {
+        'type': 'object',
+        'properties': {
+            'customer_id': {
+                'type': 'integer',
+                'description': 'Filter by customer ID.',
+            },
+            'status': {
+                'type': 'string',
+                'description': 'Comma-separated statuses: On Track, At Risk, Blocked, etc.',
+            },
+            'team': {
+                'type': 'string',
+                'description': 'Filter by team: on, off, or empty for all.',
+            },
+            'search': {
+                'type': 'string',
+                'description': 'Search by title, number, workload, or owner.',
+            },
+        },
+    },
+)
+def get_msx_workspace_milestones(**kwargs: Any) -> Any:
+    """Return milestones matching the given filters."""
+    from app.models import Milestone
+    from sqlalchemy import or_
+
+    query = Milestone.query.filter(Milestone.customer_id.isnot(None))
+
+    customer_id = kwargs.get('customer_id')
+    if customer_id:
+        query = query.filter(Milestone.customer_id == customer_id)
+
+    status = kwargs.get('status', '')
+    if status:
+        statuses = [s.strip() for s in status.split(',') if s.strip()]
+        if statuses:
+            query = query.filter(Milestone.msx_status.in_(statuses))
+
+    team = kwargs.get('team', '')
+    if team == 'on':
+        query = query.filter(Milestone.on_my_team.is_(True))
+    elif team == 'off':
+        query = query.filter(Milestone.on_my_team.is_(False))
+
+    search = kwargs.get('search', '')
+    if search:
+        pat = f'%{search}%'
+        query = query.filter(or_(
+            Milestone.title.ilike(pat),
+            Milestone.milestone_number.ilike(pat),
+            Milestone.workload.ilike(pat),
+            Milestone.owner_name.ilike(pat),
+        ))
+
+    milestones = query.order_by(Milestone.due_date).limit(200).all()
+    return {
+        'count': len(milestones),
+        'milestones': [
+            {
+                'id': m.id,
+                'title': m.title,
+                'number': m.milestone_number,
+                'status': m.msx_status,
+                'customer': m.customer.name if m.customer else None,
+                'opportunity': m.opportunity.name if m.opportunity else m.opportunity_name,
+                'workload': m.workload,
+                'due_date': m.due_date.strftime('%Y-%m-%d') if m.due_date else None,
+                'monthly_usage': m.monthly_usage,
+                'on_my_team': m.on_my_team,
+                'owner': m.owner_name,
+            }
+            for m in milestones
+        ],
+    }

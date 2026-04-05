@@ -20,9 +20,11 @@ from app.services.msx_api import (
     get_milestones_by_account,
     get_milestone_audits,
     get_milestone_comments,
+    get_my_deal_team_ids,
     get_my_milestone_team_ids,
     get_tasks_for_milestones,
     build_milestone_url,
+    build_opportunity_url,
     build_task_url,
     TASK_CATEGORIES,
     HOK_TASK_CATEGORIES,
@@ -137,6 +139,7 @@ def sync_all_customer_milestones() -> Dict[str, Any]:
     
     # Update team membership flags
     _update_team_memberships()
+    _update_deal_team_memberships()
     
     # Sync comments for milestones I'm on the team for
     comment_gen = _sync_team_milestone_comments(since=start_time)
@@ -440,6 +443,7 @@ def sync_all_customer_milestones_stream(
         'progress': 87,
     })
     _update_team_memberships()
+    _update_deal_team_memberships()
 
     # -----------------------------------------------------------------
     # Phase 4: Sync comments for milestones I'm on the team for
@@ -1189,16 +1193,60 @@ def _upsert_opportunity(
     else:
         opportunity = Opportunity.query.filter_by(msx_opportunity_id=msx_opp_id).first()
 
+    # Expanded opportunity fields from $expand=msp_OpportunityId
+    opp_number = msx_data.get("opportunity_number") or None
+    opp_statecode = msx_data.get("opportunity_statecode")
+    opp_state = msx_data.get("opportunity_state") or None
+    opp_status_reason = msx_data.get("opportunity_status_reason") or None
+    opp_value = msx_data.get("opportunity_estimated_value")
+    opp_close_date = msx_data.get("opportunity_estimated_close_date") or None
+    opp_owner = msx_data.get("opportunity_owner") or None
+    opp_customer_need = msx_data.get("opportunity_customer_need") or None
+    opp_description = msx_data.get("opportunity_description") or None
+    opp_compete = msx_data.get("opportunity_compete_threat") or None
+    opp_url = build_opportunity_url(msx_opp_id)
+
     if opportunity:
-        # Update name in case it changed
+        # Update fields from the expanded opportunity data
         opportunity.name = opp_name or opportunity.name
         opportunity.customer_id = customer_id
+        if opp_number:
+            opportunity.opportunity_number = opp_number
+        if opp_statecode is not None:
+            opportunity.statecode = opp_statecode
+            opportunity.state = opp_state
+        if opp_status_reason:
+            opportunity.status_reason = opp_status_reason
+        if opp_value is not None:
+            opportunity.estimated_value = opp_value
+        if opp_close_date:
+            opportunity.estimated_close_date = opp_close_date
+        if opp_owner:
+            opportunity.owner_name = opp_owner
+        if opp_customer_need:
+            opportunity.customer_need = opp_customer_need
+        if opp_description:
+            opportunity.description = opp_description
+        if opp_compete:
+            opportunity.compete_threat = opp_compete
+        opportunity.msx_url = opp_url
         return opportunity, False
     else:
         opportunity = Opportunity(
             msx_opportunity_id=msx_opp_id,
             name=opp_name,
             customer_id=customer_id,
+            opportunity_number=opp_number,
+            statecode=opp_statecode,
+            state=opp_state,
+            status_reason=opp_status_reason,
+            estimated_value=opp_value,
+            estimated_close_date=opp_close_date,
+            owner_name=opp_owner,
+            customer_need=opp_customer_need,
+            description=opp_description,
+            compete_threat=opp_compete,
+            msx_url=opp_url,
         )
         db.session.add(opportunity)
         # Track in map so later milestones sharing this opportunity find it
@@ -1412,6 +1460,40 @@ def _update_team_memberships() -> None:
         db.session.commit()
     except Exception as e:
         logger.exception("Error updating team memberships")
+        db.session.rollback()
+
+
+def _update_deal_team_memberships() -> None:
+    """
+    Update the on_deal_team flag for all opportunities based on MSX deal teams.
+
+    Makes one API call to get all deal team memberships, then bulk-updates
+    the on_deal_team column. Mirrors _update_team_memberships() logic.
+    """
+    try:
+        result = get_my_deal_team_ids()
+        if not result.get("success"):
+            logger.warning(
+                f"Could not fetch deal team memberships: {result.get('error')}"
+            )
+            return
+
+        my_ids = result["opportunity_ids"]
+        logger.info(f"Updating on_deal_team for {len(my_ids)} opportunities")
+
+        # Clear all, then set matched ones
+        Opportunity.query.filter(
+            Opportunity.msx_opportunity_id.isnot(None)
+        ).update({Opportunity.on_deal_team: False})
+
+        if my_ids:
+            Opportunity.query.filter(
+                db.func.lower(Opportunity.msx_opportunity_id).in_(my_ids)
+            ).update({Opportunity.on_deal_team: True}, synchronize_session='fetch')
+
+        db.session.commit()
+    except Exception as e:
+        logger.exception("Error updating deal team memberships")
         db.session.rollback()
 
 

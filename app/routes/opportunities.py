@@ -4,7 +4,7 @@ Handles viewing opportunity details (fetched fresh from MSX) and posting comment
 """
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, g
 
@@ -57,6 +57,33 @@ def opportunity_view(id: int):
         msx_url=msx_url,
         cached_comments=cached_comments,
         is_favorited=Favorite.is_favorited('opportunity', opportunity.id),
+        today=date.today(),
+    )
+
+
+@opportunities_bp.route('/api/opportunity/<int:id>/detail')
+def opportunity_detail_fragment(id: int):
+    """Return rendered HTML fragment of opportunity view for modal embedding."""
+    opportunity = Opportunity.query.get_or_404(id)
+    milestones = Milestone.query.filter_by(
+        opportunity_id=opportunity.id
+    ).order_by(Milestone.msx_status, Milestone.title).all()
+    msx_url = build_opportunity_url(opportunity.msx_opportunity_id)
+    cached_comments = None
+    if opportunity.cached_comments_json:
+        try:
+            cached_comments = json.loads(opportunity.cached_comments_json)
+        except (json.JSONDecodeError, TypeError):
+            cached_comments = None
+    return render_template(
+        'partials/opportunity_view_content.html',
+        opportunity=opportunity,
+        milestones=milestones,
+        msx_url=msx_url,
+        cached_comments=cached_comments,
+        is_favorited=Favorite.is_favorited('opportunity', opportunity.id),
+        show_header=False,
+        today=date.today(),
     )
 
 

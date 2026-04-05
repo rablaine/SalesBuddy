@@ -365,6 +365,11 @@
             }
         }
 
+        /* Team toggle button: single button, hover swaps icon */
+        .team-toggle .icon-leave { display: none; }
+        .team-toggle.on-team:hover .icon-default { display: none; }
+        .team-toggle.on-team:hover .icon-leave { display: inline; }
+
         /* --- User menu button --- */
         .navbar .btn-light {
             border: 1px solid rgba(0, 0, 0, 0.15) !important;
@@ -725,6 +730,7 @@
                             <li><hr class="dropdown-divider"></li>
                             <li><a class="dropdown-item" href="{{ url_for('revenue.revenue_dashboard') }}"><i class="bi bi-graph-up"></i> Revenue Analyzer</a></li>
                             <li><a class="dropdown-item" href="{{ url_for('milestones.milestone_tracker') }}"><i class="bi bi-flag-fill"></i> Milestone Tracker</a></li>
+                            <li><a class="dropdown-item" href="{{ url_for('reports.report_msx_workspace') }}"><i class="bi bi-grid-3x3"></i> MSX Workspace</a></li>
                             <li><a class="dropdown-item" href="{{ url_for('reports.report_one_on_one') }}"><i class="bi bi-chat-left-text"></i> 1:1 Report</a></li>
                             <li><a class="dropdown-item" href="{{ url_for('reports.report_workload') }}"><i class="bi bi-tag"></i> Workload Report</a></li>
                             <li><a class="dropdown-item" href="{{ url_for('reports.report_hygiene') }}"><i class="bi bi-link-45deg"></i> Hygiene Report</a></li>
@@ -734,7 +740,7 @@
                         </ul>
                     </li>
                     <li class="nav-item dropdown nav-hover-dropdown" id="navBrowse">
-                        <a class="nav-link dropdown-toggle" href="#" id="browseMenuDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                        <a class="nav-link dropdown-toggle" href="javascript:void(0)" id="browseMenuDropdown" role="button" aria-expanded="false">
                             <i class="bi bi-collection"></i> Browse
                         </a>
                         <ul class="dropdown-menu" aria-labelledby="browseMenuDropdown">

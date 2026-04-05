@@ -115,6 +115,8 @@ def _msx_request(
             return requests.post(url, headers=hdrs, json=json_data, timeout=REQUEST_TIMEOUT)
         elif method.upper() == 'PATCH':
             return requests.patch(url, headers=hdrs, json=json_data, timeout=REQUEST_TIMEOUT)
+        elif method.upper() == 'DELETE':
+            return requests.delete(url, headers=hdrs, timeout=REQUEST_TIMEOUT)
         else:
             raise ValueError(f"Unsupported HTTP method: {method}")
     
@@ -774,6 +776,10 @@ def get_milestones_by_account(
             f"_msp_workloadlkid_value,msp_milestonedate,msp_bacvrate,"
             f"msp_commitmentrecommendation,msp_committedon,msp_completedon,"
             f"msp_forecastcommentsjsonfield,createdon,modifiedon"
+            f"&$expand=msp_OpportunityId($select=opportunityid,name,"
+            f"msp_opportunitynumber,statecode,statuscode,estimatedvalue,"
+            f"estimatedclosedate,_ownerid_value,customerneed,description,"
+            f"msp_competethreatlevel)"
             f"&$orderby=msp_name"
         )
         
@@ -811,6 +817,24 @@ def get_milestones_by_account(
                     ""
                 ) or raw.get("msp_commitmentrecommendation", "")
 
+                # Extract expanded opportunity data (from $expand)
+                raw_opp = raw.get("msp_OpportunityId") or {}
+                opp_id = raw.get("_msp_opportunityid_value")
+                opp_statecode = raw_opp.get("statecode")
+                opp_state = raw_opp.get(
+                    "statecode@OData.Community.Display.V1.FormattedValue",
+                    {0: "Open", 1: "Won", 2: "Lost"}.get(opp_statecode, "")
+                ) if opp_statecode is not None else None
+                opp_status_reason = raw_opp.get(
+                    "statuscode@OData.Community.Display.V1.FormattedValue", ""
+                )
+                opp_owner = raw_opp.get(
+                    "_ownerid_value@OData.Community.Display.V1.FormattedValue", ""
+                )
+                opp_compete = raw_opp.get(
+                    "msp_competethreatlevel@OData.Community.Display.V1.FormattedValue", ""
+                )
+
                 milestones.append({
                     "id": milestone_id,
                     "name": raw.get("msp_name", ""),
@@ -819,7 +843,7 @@ def get_milestones_by_account(
                     "status_code": status_code,
                     "status_sort": MILESTONE_STATUS_ORDER.get(status, 99),
                     "customer_commitment": commitment if isinstance(commitment, str) else str(commitment),
-                    "msx_opportunity_id": raw.get("_msp_opportunityid_value"),
+                    "msx_opportunity_id": opp_id,
                     "opportunity_name": opp_name,
                     "workload": workload,
                     "monthly_usage": monthly_usage,
@@ -831,6 +855,17 @@ def get_milestones_by_account(
                     "comments_json": raw.get("msp_forecastcommentsjsonfield"),
                     "created_on": raw.get("createdon"),
                     "modified_on": raw.get("modifiedon"),
+                    # Expanded opportunity fields
+                    "opportunity_number": raw_opp.get("msp_opportunitynumber", ""),
+                    "opportunity_statecode": opp_statecode,
+                    "opportunity_state": opp_state,
+                    "opportunity_status_reason": opp_status_reason,
+                    "opportunity_estimated_value": raw_opp.get("estimatedvalue"),
+                    "opportunity_estimated_close_date": raw_opp.get("estimatedclosedate"),
+                    "opportunity_owner": opp_owner,
+                    "opportunity_customer_need": raw_opp.get("customerneed", ""),
+                    "opportunity_description": raw_opp.get("description", ""),
+                    "opportunity_compete_threat": opp_compete,
                 })
             
             # Sort by status (active first), then by name
@@ -1972,6 +2007,9 @@ def add_user_to_milestone_team(milestone_msx_id: str) -> Dict[str, Any]:
     """
     Add the current user to a milestone's access team in MSX.
 
+    MSX natively adds the user to the parent opportunity's deal team
+    as a side effect. The deal team sync picks up that status change.
+
     Args:
         milestone_msx_id: The MSX GUID of the milestone.
 
@@ -2005,12 +2043,11 @@ def add_user_to_milestone_team(milestone_msx_id: str) -> Dict[str, Any]:
             return {"success": True}
         else:
             error_text = response.text[:300]
-            # Check for "already on team" type errors
             if "already" in error_text.lower() or response.status_code == 409:
                 return {"success": True, "already_on_team": True}
             logger.warning(
                 f"Failed to add user to milestone team {milestone_msx_id}: "
-                f"HTTP {response.status_code} — {error_text}"
+                f"HTTP {response.status_code} - {error_text}"
             )
             return {
                 "success": False,
@@ -2137,6 +2174,63 @@ def add_user_to_deal_team(opportunity_msx_id: str) -> Dict[str, Any]:
         return {"success": False, "error": f"Connection error (VPN?): {str(e)[:100]}"}
     except Exception as e:
         logger.exception(f"Error adding user to deal team {opportunity_msx_id}")
+        return {"success": False, "error": str(e)}
+
+
+def remove_user_from_deal_team(opportunity_msx_id: str) -> Dict[str, Any]:
+    """
+    Remove the current user from an opportunity's deal team in MSX.
+
+    Args:
+        opportunity_msx_id: The MSX GUID of the opportunity.
+
+    Returns:
+        Dict with success: bool and optional error message.
+    """
+    try:
+        user_id = get_current_user_id()
+        if not user_id:
+            return {"success": False, "error": "Could not get current user ID"}
+
+        url = (
+            f"{CRM_BASE_URL}/systemusers({user_id})"
+            f"/Microsoft.Dynamics.CRM.RemoveUserFromRecordTeam"
+        )
+        payload = {
+            "Record": {
+                "@odata.type": "Microsoft.Dynamics.CRM.opportunity",
+                "opportunityid": opportunity_msx_id,
+            },
+            "TeamTemplate": {
+                "@odata.type": "Microsoft.Dynamics.CRM.teamtemplate",
+                "teamtemplateid": OPPORTUNITY_TEAM_TEMPLATE_ID,
+            },
+        }
+
+        response = _msx_request('POST', url, json_data=payload)
+
+        if response.status_code in (200, 204):
+            logger.info(f"Removed user from deal team: {opportunity_msx_id}")
+            return {"success": True}
+        else:
+            error_text = response.text[:300]
+            if "not a member" in error_text.lower() or response.status_code == 409:
+                return {"success": True, "not_on_team": True}
+            logger.warning(
+                f"Failed to remove user from deal team {opportunity_msx_id}: "
+                f"HTTP {response.status_code} -- {error_text}"
+            )
+            return {
+                "success": False,
+                "error": f"MSX returned HTTP {response.status_code}",
+            }
+
+    except requests.exceptions.Timeout:
+        return {"success": False, "error": "Request timed out. Check VPN connection."}
+    except requests.exceptions.ConnectionError as e:
+        return {"success": False, "error": f"Connection error (VPN?): {str(e)[:100]}"}
+    except Exception as e:
+        logger.exception(f"Error removing user from deal team {opportunity_msx_id}")
         return {"success": False, "error": str(e)}
 
 
@@ -2388,6 +2482,166 @@ def get_tasks_for_milestones(
 
     logger.info(f"Fetched {len(all_tasks)} user tasks across {len(milestone_msx_ids)} milestones")
     return {"success": True, "tasks": all_tasks}
+
+
+def update_task(
+    task_id: str,
+    fields: Dict[str, Any],
+) -> Dict[str, Any]:
+    """
+    Update a task in MSX.
+
+    Args:
+        task_id: The MSX task GUID.
+        fields: Dict of field names to new values. Supported keys:
+            subject, description, scheduledend, statuscode.
+
+    Returns:
+        Dict with success: bool and optional error message.
+    """
+    if _is_writeback_disabled():
+        return dict(_WRITEBACK_BLOCKED)
+
+    allowed = {"subject", "description", "scheduledend", "statuscode"}
+    payload = {k: v for k, v in fields.items() if k in allowed}
+    if not payload:
+        return {"success": False, "error": "No valid fields to update."}
+
+    try:
+        response = _msx_request(
+            'PATCH', f"{CRM_BASE_URL}/tasks({task_id})", json_data=payload
+        )
+        if response.status_code in (200, 204):
+            logger.info(f"Updated task {task_id}: {list(payload.keys())}")
+            return {"success": True}
+        return {
+            "success": False,
+            "error": f"HTTP {response.status_code}: {response.text[:300]}",
+        }
+    except requests.exceptions.Timeout:
+        return {"success": False, "error": "Request timed out. Check VPN connection."}
+    except requests.exceptions.ConnectionError as e:
+        return {"success": False, "error": f"Connection error (VPN?): {str(e)[:100]}"}
+    except Exception as e:
+        logger.exception(f"Error updating task {task_id}")
+        return {"success": False, "error": str(e)}
+
+
+def close_task(task_id: str) -> Dict[str, Any]:
+    """
+    Close a task in MSX by setting statecode=1 (Completed) and statuscode=5.
+
+    Args:
+        task_id: The MSX task GUID.
+
+    Returns:
+        Dict with success: bool and optional error message.
+    """
+    if _is_writeback_disabled():
+        return dict(_WRITEBACK_BLOCKED)
+
+    try:
+        # PATCH statecode/statuscode directly - the most reliable approach
+        payload = {
+            "statecode": 1,       # Completed
+            "statuscode": 5,      # Completed
+        }
+        response = _msx_request(
+            'PATCH',
+            f"{CRM_BASE_URL}/tasks({task_id})",
+            json_data=payload,
+        )
+        if response.status_code in (200, 204):
+            logger.info(f"Closed task {task_id} via PATCH statecode")
+            return {"success": True}
+
+        return {
+            "success": False,
+            "error": f"HTTP {response.status_code}: {response.text[:300]}",
+        }
+    except requests.exceptions.Timeout:
+        return {"success": False, "error": "Request timed out. Check VPN connection."}
+    except requests.exceptions.ConnectionError as e:
+        return {"success": False, "error": f"Connection error (VPN?): {str(e)[:100]}"}
+    except Exception as e:
+        logger.exception(f"Error closing task {task_id}")
+        return {"success": False, "error": str(e)}
+
+
+def delete_task(task_id: str) -> Dict[str, Any]:
+    """
+    Delete a task from MSX.
+
+    Args:
+        task_id: The MSX task GUID.
+
+    Returns:
+        Dict with success: bool and optional error message.
+    """
+    if _is_writeback_disabled():
+        return dict(_WRITEBACK_BLOCKED)
+
+    try:
+        response = _msx_request('DELETE', f"{CRM_BASE_URL}/tasks({task_id})")
+        if response.status_code in (200, 204):
+            logger.info(f"Deleted task {task_id}")
+            return {"success": True}
+        return {
+            "success": False,
+            "error": f"HTTP {response.status_code}: {response.text[:300]}",
+        }
+    except requests.exceptions.Timeout:
+        return {"success": False, "error": "Request timed out. Check VPN connection."}
+    except requests.exceptions.ConnectionError as e:
+        return {"success": False, "error": f"Connection error (VPN?): {str(e)[:100]}"}
+    except Exception as e:
+        logger.exception(f"Error deleting task {task_id}")
+        return {"success": False, "error": str(e)}
+
+
+def update_milestone(
+    milestone_id: str,
+    fields: Dict[str, Any],
+) -> Dict[str, Any]:
+    """
+    Update a milestone in MSX.
+
+    Args:
+        milestone_id: The MSX milestone GUID.
+        fields: Dict of field names to new values. Supported keys:
+            msp_milestonedate, msp_monthlyuse, msp_forecastcomments.
+
+    Returns:
+        Dict with success: bool and optional error message.
+    """
+    if _is_writeback_disabled():
+        return dict(_WRITEBACK_BLOCKED)
+
+    allowed = {"msp_milestonedate", "msp_monthlyuse", "msp_forecastcomments"}
+    payload = {k: v for k, v in fields.items() if k in allowed}
+    if not payload:
+        return {"success": False, "error": "No valid fields to update."}
+
+    try:
+        response = _msx_request(
+            'PATCH',
+            f"{CRM_BASE_URL}/msp_engagementmilestones({milestone_id})",
+            json_data=payload,
+        )
+        if response.status_code in (200, 204):
+            logger.info(f"Updated milestone {milestone_id}: {list(payload.keys())}")
+            return {"success": True}
+        return {
+            "success": False,
+            "error": f"HTTP {response.status_code}: {response.text[:300]}",
+        }
+    except requests.exceptions.Timeout:
+        return {"success": False, "error": "Request timed out. Check VPN connection."}
+    except requests.exceptions.ConnectionError as e:
+        return {"success": False, "error": f"Connection error (VPN?): {str(e)[:100]}"}
+    except Exception as e:
+        logger.exception(f"Error updating milestone {milestone_id}")
+        return {"success": False, "error": str(e)}
 
 
 # =============================================================================

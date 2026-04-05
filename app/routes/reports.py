@@ -3,8 +3,8 @@ import logging
 from datetime import datetime, timedelta, timezone, date
 from flask import Blueprint, render_template, url_for, jsonify, request
 from app.models import (
-    db, Customer, Engagement, Note, Milestone, MilestoneAudit, Seller,
-    SolutionEngineer, SyncStatus,
+    db, Customer, Engagement, Note, Milestone, MilestoneAudit, Opportunity, Seller,
+    SolutionEngineer, SyncStatus, MsxTask,
     Topic, RevenueAnalysis, HygieneNote, CustomerRevenueData, ProductRevenueData,
     notes_engagements, notes_milestones, notes_topics,
 )
@@ -32,6 +32,17 @@ def reports_hub():
                     ),
                     'icon': 'bi-flag-fill',
                     'url': url_for('milestones.milestone_tracker'),
+                },
+                {
+                    'id': 'msx-workspace',
+                    'name': 'MSX Workspace',
+                    'description': (
+                        'Browse opportunities, milestones, and tasks from MSX. '
+                        'Manage team membership, create HOK tasks, and edit '
+                        'milestones - all without leaving Sales Buddy.'
+                    ),
+                    'icon': 'bi-grid-3x3',
+                    'url': url_for('reports.report_msx_workspace'),
                 },
                 {
                     'id': 'whats-new',
@@ -1054,3 +1065,260 @@ def api_whitespace_penetration_customers():
             for c in without_spend
         ],
     )
+
+
+# =============================================================================
+# MSX Workspace
+# =============================================================================
+
+@bp.route('/reports/msx-workspace')
+def report_msx_workspace():
+    """MSX Workspace - browse opportunities, milestones, and tasks from MSX."""
+    from app.services.msx_api import TASK_CATEGORIES
+
+    customers = (
+        Customer.query
+        .filter(Customer.tpid.isnot(None))
+        .order_by(Customer.name)
+        .all()
+    )
+
+    # Build seller list and customer-seller mapping for SE mode filtering
+    sellers = Seller.query.order_by(Seller.name).all()
+    customer_seller_map = {
+        c.id: c.seller_id for c in customers if c.seller_id
+    }
+
+    return render_template(
+        'report_msx_workspace.html',
+        customers=customers,
+        sellers=sellers,
+        customer_seller_map=customer_seller_map,
+        task_categories=TASK_CATEGORIES,
+    )
+
+
+@bp.route('/api/reports/msx-workspace/opportunities')
+def api_msx_workspace_opportunities():
+    """JSON endpoint: opportunities with filters for the MSX workspace."""
+    customer_id = request.args.get('customer_id', type=int)
+    seller_id = request.args.get('seller_id', type=int)
+    status_filter = request.args.get('status', '')  # 'open', 'won', 'lost', or ''
+    search = request.args.get('search', '').strip()
+    team_filter = request.args.get('team', '')  # 'on', 'off', or ''
+
+    query = Opportunity.query
+
+    if customer_id:
+        query = query.filter(Opportunity.customer_id == customer_id)
+    elif seller_id:
+        seller_customer_ids = [c.id for c in Customer.query.filter_by(seller_id=seller_id).all()]
+        query = query.filter(Opportunity.customer_id.in_(seller_customer_ids))
+    else:
+        # Only show opportunities for customers we track
+        query = query.filter(Opportunity.customer_id.isnot(None))
+
+    if status_filter == 'open':
+        query = query.filter(Opportunity.statecode == 0)
+    elif status_filter == 'won':
+        query = query.filter(Opportunity.statecode == 1)
+    elif status_filter == 'lost':
+        query = query.filter(Opportunity.statecode == 2)
+
+    if team_filter == 'on':
+        query = query.filter(Opportunity.on_deal_team.is_(True))
+    elif team_filter == 'off':
+        query = query.filter(Opportunity.on_deal_team.is_(False))
+
+    if search:
+        pattern = f'%{search}%'
+        query = query.filter(or_(
+            Opportunity.name.ilike(pattern),
+            Opportunity.opportunity_number.ilike(pattern),
+            Opportunity.owner_name.ilike(pattern),
+        ))
+
+    opportunities = query.order_by(Opportunity.name).all()
+
+    # Pre-compute milestone ACR sums for opportunities missing estimated_value
+    opp_ids_no_value = [o.id for o in opportunities if not o.estimated_value]
+    ms_acr_sums = {}
+    if opp_ids_no_value:
+        rows = (
+            db.session.query(
+                Milestone.opportunity_id,
+                func.sum(Milestone.monthly_usage),
+            )
+            .filter(
+                Milestone.opportunity_id.in_(opp_ids_no_value),
+                Milestone.msx_status != 'Cancelled',
+                Milestone.monthly_usage.isnot(None),
+            )
+            .group_by(Milestone.opportunity_id)
+            .all()
+        )
+        ms_acr_sums = {row[0]: row[1] for row in rows}
+
+    results = []
+    for opp in opportunities:
+        cust = opp.customer
+        acr = opp.estimated_value
+        acr_from_milestones = False
+        if not acr:
+            ms_sum = ms_acr_sums.get(opp.id)
+            if ms_sum:
+                acr = ms_sum
+                acr_from_milestones = True
+        results.append({
+            'id': opp.id,
+            'msx_id': opp.msx_opportunity_id,
+            'name': opp.name,
+            'number': opp.opportunity_number,
+            'state': opp.state or 'Open',
+            'status_reason': opp.status_reason,
+            'estimated_value': acr,
+            'acr_from_milestones': acr_from_milestones,
+            'estimated_close_date': opp.estimated_close_date,
+            'owner_name': opp.owner_name,
+            'on_deal_team': opp.on_deal_team,
+            'customer_name': cust.name if cust else None,
+            'customer_id': opp.customer_id,
+            'msx_url': opp.msx_url,
+            'description': opp.description,
+            'customer_need': opp.customer_need,
+            'compete_threat': opp.compete_threat,
+        })
+
+    return jsonify(opportunities=results, count=len(results))
+
+
+@bp.route('/api/reports/msx-workspace/milestones')
+def api_msx_workspace_milestones():
+    """JSON endpoint: milestones with filters for the MSX workspace."""
+    customer_id = request.args.get('customer_id', type=int)
+    seller_id = request.args.get('seller_id', type=int)
+    opportunity_id = request.args.get('opportunity_id', type=int)
+    status_filter = request.args.get('status', '')  # comma-separated
+    team_filter = request.args.get('team', '')  # 'on', 'off', or ''
+    search = request.args.get('search', '').strip()
+
+    query = Milestone.query
+
+    if customer_id:
+        query = query.filter(Milestone.customer_id == customer_id)
+    elif seller_id:
+        seller_customer_ids = [c.id for c in Customer.query.filter_by(seller_id=seller_id).all()]
+        query = query.filter(Milestone.customer_id.in_(seller_customer_ids))
+    else:
+        query = query.filter(Milestone.customer_id.isnot(None))
+
+    if opportunity_id:
+        query = query.filter(Milestone.opportunity_id == opportunity_id)
+
+    if status_filter:
+        statuses = [s.strip() for s in status_filter.split(',') if s.strip()]
+        if statuses:
+            query = query.filter(Milestone.msx_status.in_(statuses))
+
+    if team_filter == 'on':
+        query = query.filter(Milestone.on_my_team.is_(True))
+    elif team_filter == 'off':
+        query = query.filter(Milestone.on_my_team.is_(False))
+
+    if search:
+        pattern = f'%{search}%'
+        query = query.filter(or_(
+            Milestone.title.ilike(pattern),
+            Milestone.milestone_number.ilike(pattern),
+            Milestone.workload.ilike(pattern),
+            Milestone.owner_name.ilike(pattern),
+        ))
+
+    milestones = query.order_by(Milestone.due_date).all()
+
+    results = []
+    for ms in milestones:
+        cust = ms.customer
+        opp = ms.opportunity
+        comment_count = 0
+        if ms.cached_comments_json:
+            try:
+                import json
+                comments = json.loads(ms.cached_comments_json)
+                comment_count = len(comments) if isinstance(comments, list) else 0
+            except (json.JSONDecodeError, TypeError):
+                pass
+        results.append({
+            'id': ms.id,
+            'msx_id': ms.msx_milestone_id,
+            'title': ms.title,
+            'number': ms.milestone_number,
+            'status': ms.msx_status,
+            'due_date': ms.due_date.strftime('%Y-%m-%d') if ms.due_date else None,
+            'due_date_urgency': ms.due_date_urgency,
+            'dollar_value': ms.dollar_value,
+            'monthly_usage': ms.monthly_usage,
+            'workload': ms.workload,
+            'owner_name': ms.owner_name,
+            'on_my_team': ms.on_my_team,
+            'customer_name': cust.name if cust else None,
+            'customer_id': ms.customer_id,
+            'opportunity_name': opp.name if opp else ms.opportunity_name,
+            'opportunity_id': ms.opportunity_id,
+            'commitment': ms.customer_commitment,
+            'comment_count': comment_count,
+            'url': ms.url,
+        })
+
+    return jsonify(milestones=results, count=len(results))
+
+
+@bp.route('/api/reports/msx-workspace/tasks')
+def api_msx_workspace_tasks():
+    """JSON endpoint: tasks from local DB (synced from MSX)."""
+    customer_id = request.args.get('customer_id', type=int)
+    seller_id = request.args.get('seller_id', type=int)
+    milestone_id = request.args.get('milestone_id', type=int)
+    search = request.args.get('search', '').strip()
+
+    query = MsxTask.query.join(Milestone, MsxTask.milestone_id == Milestone.id)
+
+    if customer_id:
+        query = query.filter(Milestone.customer_id == customer_id)
+    elif seller_id:
+        seller_customer_ids = [c.id for c in Customer.query.filter_by(seller_id=seller_id).all()]
+        query = query.filter(Milestone.customer_id.in_(seller_customer_ids))
+    else:
+        query = query.filter(Milestone.customer_id.isnot(None))
+
+    if milestone_id:
+        query = query.filter(MsxTask.milestone_id == milestone_id)
+
+    if search:
+        pattern = f'%{search}%'
+        query = query.filter(or_(
+            MsxTask.subject.ilike(pattern),
+            MsxTask.task_category_name.ilike(pattern),
+        ))
+
+    tasks = query.order_by(MsxTask.due_date.asc().nullslast()).all()
+
+    results = []
+    for t in tasks:
+        ms = t.milestone
+        results.append({
+            'task_id': t.msx_task_id,
+            'subject': t.subject,
+            'description': t.description,
+            'task_category': t.task_category,
+            'task_category_name': t.task_category_name,
+            'is_hok': t.is_hok,
+            'due_date': t.due_date.isoformat() if t.due_date else None,
+            'milestone_msx_id': ms.msx_milestone_id if ms else None,
+            'milestone_title': ms.title if ms else None,
+            'milestone_id': t.milestone_id,
+            'task_url': t.msx_task_url,
+            'customer_id': ms.customer_id if ms else None,
+        })
+
+    return jsonify(tasks=results, count=len(results))
