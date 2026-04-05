@@ -8,7 +8,10 @@
 <div class="d-flex justify-content-between align-items-start mb-3">
     <div>
         <h2><i class="bi bi-grid-3x3 text-primary"></i> MSX Workspace</h2>
-        <p class="text-muted mb-0">Browse opportunities, milestones, and tasks from MSX.</p>
+        <p class="text-muted mb-0">
+            Browse opportunities, milestones, and tasks from your synced MSX data.
+            Run a <a href="/reports/milestone-tracker">Milestone Sync</a> to pull fresh data from MSX.
+        </p>
     </div>
 </div>
 
@@ -83,7 +86,7 @@
                     </tr>
                 </thead>
                 <tbody id="oppsBody">
-                    <tr><td colspan="9" class="text-center text-muted py-4">Click "Apply" to load opportunities</td></tr>
+                    <tr><td colspan="9" class="text-center py-3"><div class="spinner-border spinner-border-sm"></div> Loading...</td></tr>
                 </tbody>
             </table>
         </div>
@@ -127,7 +130,7 @@
                     </tr>
                 </thead>
                 <tbody id="msBody">
-                    <tr><td colspan="10" class="text-center text-muted py-4">Click "Apply" to load milestones</td></tr>
+                    <tr><td colspan="10" class="text-center py-3"><div class="spinner-border spinner-border-sm"></div> Loading...</td></tr>
                 </tbody>
             </table>
         </div>
@@ -789,6 +792,9 @@
             else if (active.id === 'tasksPane') resultCount.textContent = tasksData.length ? tasksData.length + ' tasks' : '';
         });
     });
+
+    // Auto-load data on page open
+    applyAll();
 })();
 </script>
 {% endblock %}
