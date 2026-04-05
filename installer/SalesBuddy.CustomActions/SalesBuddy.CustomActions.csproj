@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net451</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="WixToolset.Dtf.CustomAction" Version="6.0.2" />
+    <PackageReference Include="WixToolset.Dtf.WindowsInstaller" Version="6.0.2" />
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="CustomAction.config" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <ItemGroup>
+    <Reference Include="System.IO.Compression.FileSystem" />
+    <Reference Include="Microsoft.CSharp" />
+  </ItemGroup>
+</Project>

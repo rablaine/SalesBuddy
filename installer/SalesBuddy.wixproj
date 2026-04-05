@@ -6,4 +6,7 @@
   <ItemGroup>
     <PackageReference Include="WixToolset.UI.wixext" Version="5.0.2" />
   </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="SalesBuddy.CustomActions\SalesBuddy.CustomActions.csproj" />
+  </ItemGroup>
 </Project>

@@ -4,17 +4,17 @@
     Sales Buddy MSI Installer
     WiX v4 / WiX SDK 5.x
 
-    This MSI bootstraps a local dev-style install:
-      1. Runs install.ps1 (prereqs, git clone, venv, server start)
-      2. Registers in Add/Remove Programs for clean uninstall
-      3. Finish page offers Launch / Start Menu / Desktop shortcuts
+    This MSI installs Sales Buddy using C# DTF custom actions that:
+      1. Install prerequisites (git, python, az cli, node) with live status text
+      2. Clone the repo, set up venv, install deps, run migrations
+      3. Create shortcuts, register auto-start, launch the server
+      4. Register in Add/Remove Programs for clean uninstall
 
-    The MSI itself installs no files to disk - all real work is done by
-    PowerShell scripts. The MSI is just a UX wrapper and Add/Remove entry.
+    No terminal windows appear during installation. The MSI progress page
+    shows real-time status text as each step runs.
 -->
 
-<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
-     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
 
     <Package Name="Sales Buddy"
              Manufacturer="Sales Buddy Contributors"
@@ -36,35 +36,31 @@
         <Property Id="ARPPRODUCTICON" Value="SalesBuddyIcon" />
         <Property Id="ARPURLINFOABOUT" Value="https://github.com/rablaine/SalesBuddy" />
         <Property Id="ARPNOREPAIR" Value="yes" />
+        <Property Id="ARPNOMODIFY" Value="yes" />
 
-        <!-- Minimal UI: Welcome -> Progress -> Finish -->
-        <ui:WixUI Id="WixUI_Minimal" />
+        <!-- Default values for install options -->
+        <Property Id="STARTMENUSHORTCUT" Value="1" />
+        <Property Id="DESKTOPSHORTCUT" Value="1" />
+        <Property Id="AUTOSTART" Value="1" />
+
+        <!-- Exit dialog: "Launch Sales Buddy" checkbox (checked by default) -->
+        <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOX" Value="1" />
+        <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT" Value="Launch Sales Buddy" />
+
+        <!-- Custom UI: Welcome -> License -> Options -> Progress -> Finish -->
+        <UIRef Id="SalesBuddyUI" />
         <WixVariable Id="WixUILicenseRtf" Value="License.rtf" />
         <WixVariable Id="WixUIBannerBmp" Value="Banner.bmp" />
         <WixVariable Id="WixUIDialogBmp" Value="Dialog.bmp" />
 
-        <!-- Install bootstrap scripts + registry marker -->
+        <!-- Install icon + registry marker to INSTALLFOLDER.
+             The DTF custom action handles everything else (clone, prereqs, etc.) -->
         <StandardDirectory Id="LocalAppDataFolder">
             <Directory Id="INSTALLFOLDER" Name="SalesBuddy">
                 <Component Id="AppIcon" Guid="f6a7b8c9-d0e1-2345-6789-abcdef012345">
                     <File Id="IconFile" Source="..\static\icon.ico" KeyPath="yes" />
                 </Component>
-                <Directory Id="ScriptsFolder" Name="scripts">
-                    <Component Id="InstallScript" Guid="b2c3d4e5-f6a7-8901-bcde-f12345678901">
-                        <File Id="InstallPs1" Source="..\scripts\install.ps1" KeyPath="yes" />
-                    </Component>
-                    <Component Id="UninstallScript" Guid="c3d4e5f6-a7b8-9012-cdef-123456789012">
-                        <File Id="UninstallPs1" Source="..\scripts\uninstall.ps1" KeyPath="yes" />
-                    </Component>
-                    <Component Id="InstallCmd" Guid="d4e5f6a7-b8c9-0123-def0-234567890abc">
-                        <File Id="RunInstallCmd" Source="..\scripts\run-install.cmd" KeyPath="yes" />
-                    </Component>
-                    <Component Id="UninstallCmd" Guid="e5f6a7b8-c9d0-1234-ef01-34567890abcd">
-                        <File Id="RunUninstallCmd" Source="..\scripts\run-uninstall.cmd" KeyPath="yes" />
-                    </Component>
-                </Directory>
                 <Component Id="Marker" Guid="a1b2c3d4-e5f6-7890-abcd-ef1234567890">
-                    <RemoveFolder Id="RemoveScriptsFolder" Directory="ScriptsFolder" On="uninstall" />
                     <RemoveFolder Id="RemoveInstallFolder" On="uninstall" />
                     <RegistryValue Root="HKCU"
                                    Key="Software\SalesBuddy"
@@ -79,10 +75,6 @@
         <Feature Id="Main" Title="Sales Buddy" Level="1">
             <ComponentRef Id="Marker" />
             <ComponentRef Id="AppIcon" />
-            <ComponentRef Id="InstallScript" />
-            <ComponentRef Id="UninstallScript" />
-            <ComponentRef Id="InstallCmd" />
-            <ComponentRef Id="UninstallCmd" />
         </Feature>
 
         <!-- Pull in custom actions from install-actions.wxs -->
