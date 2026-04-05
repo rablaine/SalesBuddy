@@ -757,6 +757,8 @@
                             <!-- Work -->
                             <li><a class="dropdown-item" href="{{ url_for('notes.notes_list') }}"><i class="bi bi-journal-text"></i> Notes</a></li>
                             <li><a class="dropdown-item" href="{{ url_for('engagements.engagements_hub') }}"><i class="bi bi-kanban"></i> Engagements & Projects</a></li>
+                            <li><a class="dropdown-item" href="{{ url_for('reports.report_msx_workspace', tab='opps') }}"><i class="bi bi-briefcase"></i> Opportunities</a></li>
+                            <li><a class="dropdown-item" href="{{ url_for('milestones.milestone_tracker') }}"><i class="bi bi-flag"></i> Milestones</a></li>
                             <li><hr class="dropdown-divider"></li>
                             <!-- Organization -->
                             <li><a class="dropdown-item" href="{{ url_for('territories.territories_list') }}"><i class="bi bi-geo-alt"></i> Territories</a></li>
@@ -1730,6 +1732,15 @@
         }
         // Dropdown items - highlight the item AND the parent nav-item
         // Find the longest (most specific) href match to avoid /reports matching /reports/one-on-one
+        // For Browse, skip items whose href matches a Reports item (Reports takes priority)
+        var reportHrefs = new Set();
+        var reportsEl = document.getElementById('navReports');
+        if (reportsEl) {
+            reportsEl.querySelectorAll('.dropdown-item').forEach(function(item) {
+                var h = item.getAttribute('href');
+                if (h) reportHrefs.add(h.split('?')[0]);
+            });
+        }
         ['navSellers', 'navReports', 'navBrowse'].forEach(function(dropId) {
             var dropEl = document.getElementById(dropId);
             if (!dropEl) return;
@@ -1739,6 +1750,8 @@
             for (var j = 0; j < items.length; j++) {
                 var href = items[j].getAttribute('href');
                 if (!href || href === '#') continue;
+                // In Browse, skip links whose base path belongs to Reports
+                if (dropId === 'navBrowse' && reportHrefs.has(href.split('?')[0])) continue;
                 if (path === href || path.startsWith(href + '/') || (href.length > 1 && path.startsWith(href))) {
                     if (href.length > bestLen) {
                         bestMatch = items[j];

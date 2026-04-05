@@ -1048,10 +1048,12 @@
         });
     });
 
-    // Restore last active tab (defer until Bootstrap JS is loaded)
-    const savedTab = localStorage.getItem('msxWorkspaceTab');
-    if (savedTab && savedTab !== 'opps-tab') {
-        const tabEl = document.getElementById(savedTab);
+    // Restore last active tab: URL param takes priority, then localStorage
+    const urlTab = new URLSearchParams(window.location.search).get('tab');
+    const tabMap = {opps: 'opps-tab', milestones: 'ms-tab', tasks: 'tasks-tab'};
+    const targetTab = (urlTab && tabMap[urlTab]) || localStorage.getItem('msxWorkspaceTab');
+    if (targetTab && targetTab !== 'opps-tab') {
+        const tabEl = document.getElementById(targetTab);
         if (tabEl) {
             // Bootstrap is loaded with defer - wait for it
             window.addEventListener('load', () => {
