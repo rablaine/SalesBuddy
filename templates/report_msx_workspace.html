@@ -81,12 +81,11 @@
                         <th class="sortable" data-sort="owner_name">Owner <i class="bi bi-chevron-expand"></i></th>
                         <th class="sortable" data-sort="estimated_close_date">Close Date <i class="bi bi-chevron-expand"></i></th>
                         <th class="sortable" data-sort="estimated_value">Value <i class="bi bi-chevron-expand"></i></th>
-                        <th>Team</th>
-                        <th style="width: 50px;"></th>
+                        <th class="text-end">Team</th>
                     </tr>
                 </thead>
                 <tbody id="oppsBody">
-                    <tr><td colspan="9" class="text-center py-3"><div class="spinner-border spinner-border-sm"></div> Loading...</td></tr>
+                    <tr><td colspan="8" class="text-center py-3"><div class="spinner-border spinner-border-sm"></div> Loading...</td></tr>
                 </tbody>
             </table>
         </div>
@@ -166,7 +165,7 @@
 <!-- Opportunity Detail Collapse Template (hidden, cloned per row) -->
 <template id="oppDetailTpl">
     <tr class="opp-detail">
-        <td colspan="9">
+        <td colspan="8">
             <div class="p-2 ps-4 small">
                 <div class="row">
                     <div class="col-md-4"><strong>Description:</strong> <span class="opp-desc text-muted">-</span></div>
@@ -304,7 +303,7 @@
         if (oppStatusFilter.value) params.set('status', oppStatusFilter.value);
         if (oppTeamFilter.value) params.set('team', oppTeamFilter.value);
 
-        document.getElementById('oppsBody').innerHTML = '<tr><td colspan="9" class="text-center py-3"><div class="spinner-border spinner-border-sm"></div> Loading...</td></tr>';
+        document.getElementById('oppsBody').innerHTML = '<tr><td colspan="8" class="text-center py-3"><div class="spinner-border spinner-border-sm"></div> Loading...</td></tr>';
 
         try {
             const resp = await fetch(`/api/reports/msx-workspace/opportunities?${params}`);
@@ -313,14 +312,14 @@
             document.getElementById('oppCount').textContent = oppsData.length;
             renderOpportunities();
         } catch (e) {
-            document.getElementById('oppsBody').innerHTML = `<tr><td colspan="9" class="text-center text-danger py-3">Error loading opportunities: ${escHtml(e.message)}</td></tr>`;
+            document.getElementById('oppsBody').innerHTML = `<tr><td colspan="8" class="text-center text-danger py-3">Error loading opportunities: ${escHtml(e.message)}</td></tr>`;
         }
     }
 
     function renderOpportunities() {
         const tbody = document.getElementById('oppsBody');
         if (!oppsData.length) {
-            tbody.innerHTML = '<tr><td colspan="9" class="text-center text-muted py-4">No opportunities found</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-4">No opportunities found</td></tr>';
             return;
         }
 
@@ -337,9 +336,6 @@
 
         let html = '';
         for (const opp of sorted) {
-            const teamBadge = opp.on_deal_team
-                ? '<span class="badge bg-success" title="You are on this deal team"><i class="bi bi-people-fill"></i></span>'
-                : '';
             html += `<tr class="opp-row" data-id="${opp.id}" data-msx-id="${escHtml(opp.msx_id || '')}">
                 <td><button class="btn btn-sm btn-link p-0 opp-expand" title="Expand"><i class="bi bi-chevron-right"></i></button></td>
                 <td>${escHtml(opp.name)}</td>
@@ -348,9 +344,11 @@
                 <td>${escHtml(opp.owner_name || '-')}</td>
                 <td class="text-nowrap">${escHtml(opp.estimated_close_date || '-')}</td>
                 <td class="text-end">${fmt$(opp.estimated_value)}</td>
-                <td>${teamBadge}</td>
-                <td>
-                    ${!opp.on_deal_team ? `<button class="btn btn-sm btn-outline-success join-deal-team" data-id="${opp.id}" title="Join this opportunity's deal team in MSX"><i class="bi bi-person-plus"></i></button>` : ''}
+                <td class="text-end text-nowrap">
+                    ${opp.on_deal_team
+                        ? `<span class="badge bg-success" title="You are on this deal team"><i class="bi bi-people-fill"></i></span>`
+                        : `<button type="button" class="btn btn-sm btn-outline-success join-deal-team" data-id="${opp.id}" title="Join this opportunity's deal team in MSX"><i class="bi bi-person-plus"></i></button>`
+                    }
                 </td>
             </tr>`;
         }
@@ -386,7 +384,9 @@
 
         // Join deal team handlers
         tbody.querySelectorAll('.join-deal-team').forEach(btn => {
-            btn.addEventListener('click', async function() {
+            btn.addEventListener('click', async function(e) {
+                e.preventDefault();
+                e.stopPropagation();
                 const oppId = this.dataset.id;
                 this.disabled = true;
                 this.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
@@ -491,11 +491,11 @@
                 <td>${escHtml(ms.workload || '-')}</td>
                 <td class="text-nowrap ${dueCls}">${escHtml(ms.due_date || '-')}</td>
                 <td class="text-end">${ms.monthly_usage != null ? fmt$(ms.monthly_usage) : '-'}</td>
-                <td>
+                <td class="text-end text-nowrap">
                     ${teamBadge}
                     ${!ms.on_my_team
-                        ? `<button class="btn btn-sm btn-outline-success join-ms-team" data-id="${ms.id}" title="Join this milestone's access team in MSX"><i class="bi bi-person-plus"></i></button>`
-                        : `<button class="btn btn-sm btn-outline-danger leave-ms-team" data-id="${ms.id}" title="Leave this milestone's access team in MSX"><i class="bi bi-person-dash"></i></button>`
+                        ? `<button type="button" class="btn btn-sm btn-outline-success join-ms-team" data-id="${ms.id}" title="Join this milestone's access team in MSX"><i class="bi bi-person-plus"></i></button>`
+                        : `<button type="button" class="btn btn-sm btn-outline-danger leave-ms-team" data-id="${ms.id}" title="Leave this milestone's access team in MSX"><i class="bi bi-person-dash"></i></button>`
                     }
                 </td>
             </tr>`;
