@@ -1819,7 +1819,9 @@
                 // --- PWA Install Prompt ---
                 const pwaInstallCard = document.getElementById('pwaInstallCard');
                 const pwaInstallBtn = document.getElementById('pwaInstallBtn');
-                if (window.__pwaInstallPrompt && pwaInstallCard) {
+                function enablePwaInstall() {
+                    if (!pwaInstallCard || pwaInstallCard.dataset.ready) return;
+                    pwaInstallCard.dataset.ready = '1';
                     pwaInstallCard.classList.remove('d-none');
                     pwaInstallBtn.addEventListener('click', async () => {
                         const prompt = window.__pwaInstallPrompt;
@@ -1835,6 +1837,15 @@
                         }
                     });
                 }
+                // Show immediately if event already fired, or wait for it
+                if (window.__pwaInstallPrompt) {
+                    enablePwaInstall();
+                }
+                window.addEventListener('beforeinstallprompt', function(e) {
+                    e.preventDefault();
+                    window.__pwaInstallPrompt = e;
+                    enablePwaInstall();
+                });
 
 
                 function showStep(step) {
