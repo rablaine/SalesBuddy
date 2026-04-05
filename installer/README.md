@@ -1,35 +1,42 @@
 # Sales Buddy MSI Installer
 
-Builds an MSI installer for Sales Buddy using WiX v4.
+Builds a signed MSI installer for Sales Buddy using WiX v5 and C# custom actions (DTF).
 
 ## What the MSI Does
 
-1. **Install**: Runs `scripts/install.ps1` which handles:
-   - Installing prerequisites via winget (Git, Python, Azure CLI, Node.js)
+1. **Install**: C# custom actions handle:
+   - Installing prerequisites via winget (Git, Python 3.13) if missing
    - Cloning the repo to `%LOCALAPPDATA%\SalesBuddy`
-   - Setting up venv, pip dependencies, `.env` file
+   - Creating a Python venv and installing pip dependencies
    - Running database migrations
-   - Registering scheduled tasks (auto-start, daily backup)
-   - Starting the server
+   - Starting the server (waitress-serve)
 
-2. **Uninstall**: Runs `scripts/uninstall.ps1 -Silent` which:
-   - Stops the server
-   - Removes scheduled tasks
-   - Removes Start Menu and desktop shortcuts
-   - Cleans up app files (preserves database to `%TEMP%`)
+2. **Uninstall**: C# custom actions handle:
+   - Stopping the server (kills waitress-serve and Python child processes)
+   - Removing Start Menu and desktop shortcuts
+   - Force-deleting app files (clears read-only git pack files, retries with delays)
 
-3. **Finish page**: Offers checkboxes to:
-   - Launch Sales Buddy in the browser
-   - Create Start Menu shortcuts
-   - Create a desktop shortcut
+3. **Resilience** (handles dirty state from failed uninstalls):
+   - Detects corrupted `.git` repos via `git rev-parse --verify HEAD`
+   - Backs up `data/salesbuddy.db` to `%TEMP%` before nuking a broken install dir
+   - Restores the database after a fresh clone so user data survives
+   - Detects stale/broken venvs and recreates them
+   - Always runs `pip install` even if venv already existed
+
+4. **Custom UI**: Options dialog with checkboxes for:
+   - Start Menu shortcut
+   - Desktop shortcut
+   - Auto-start on login
+   - Launch Sales Buddy on exit
 
 ## Prerequisites for Building
 
 - [.NET SDK 8.0+](https://dotnet.microsoft.com/download)
-- WiX v4 CLI tool:
+- WiX CLI tool:
   ```powershell
   dotnet tool install -g wix
   ```
+- Azure Code Signing access (for `build.ps1` signing step)
 
 ## Build
 
@@ -37,23 +44,27 @@ Builds an MSI installer for Sales Buddy using WiX v4.
 .\build.ps1
 ```
 
-Or manually:
+This builds the MSI and signs it with Azure Artifact Signing. Output: `output\SalesBuddy.msi`
+
+To build without signing:
 
 ```powershell
 dotnet build -c Release
 ```
-
-Output: `output\SalesBuddy.msi`
 
 ## Project Structure
 
 | File | Purpose |
 |------|---------|
 | `SalesBuddy.wixproj` | MSBuild project (references WiX SDK) |
-| `Package.wxs` | Product metadata, UI, features |
-| `install-actions.wxs` | Custom actions (install/uninstall PowerShell calls) |
+| `Package.wxs` | Product metadata, features, component definitions |
+| `install-actions.wxs` | Custom action declarations (Binary + CA entries) |
+| `CustomUI.wxs` | Custom dialog set (Welcome, License, Options, Progress, Exit) |
+| `SalesBuddy.CustomActions/` | C# DTF custom actions project (.NET 4.5.1) |
+| `SalesBuddy.CustomActions/CustomActions.cs` | Install, uninstall, and server management logic |
+| `SalesBuddy.CustomActions/PathHelper.cs` | PATH resolution and Python/Git discovery |
+| `SalesBuddy.CustomActions/ProcessRunner.cs` | Process execution with MSI progress/status updates |
 | `License.rtf` | MIT license shown on welcome page |
-| `Banner.bmp` | 493x58 top banner |
-| `Dialog.bmp` | 493x312 welcome page background |
-| `build.ps1` | One-command build script |
+| `signing-metadata.json` | Azure Code Signing configuration |
+| `build.ps1` | One-command build + sign script |
 | `output/` | Build output (gitignored) |
