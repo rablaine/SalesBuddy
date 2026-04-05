@@ -87,3 +87,5 @@ apim-policy*.json
 installer/output/
 installer/bin/
 installer/obj/
+installer/SalesBuddy.CustomActions/bin/
+installer/SalesBuddy.CustomActions/obj/

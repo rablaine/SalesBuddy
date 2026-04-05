@@ -26,7 +26,7 @@ namespace SalesBuddy.CustomActions
 
         /// <summary>
         /// Check if a command exists on PATH and is actually usable.
-        /// For python, rejects the Windows Store stub in WindowsApps.
+        /// For python, rejects the Windows Store stub by running --version.
         /// </summary>
         public static bool CommandExists(string command)
         {
@@ -34,8 +34,31 @@ namespace SalesBuddy.CustomActions
             if (fullPath == null) return false;
 
             // The Windows Store python stub lives in WindowsApps and doesn't work.
-            if (command == "python" && fullPath.Contains("WindowsApps"))
-                return false;
+            // Also reject any python that doesn't actually respond to --version.
+            if (command == "python")
+            {
+                if (fullPath.IndexOf("WindowsApps", StringComparison.OrdinalIgnoreCase) >= 0)
+                    return false;
+                try
+                {
+                    var psi = new System.Diagnostics.ProcessStartInfo
+                    {
+                        FileName = fullPath,
+                        Arguments = "--version",
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true,
+                        UseShellExecute = false,
+                        CreateNoWindow = true
+                    };
+                    using (var p = System.Diagnostics.Process.Start(psi))
+                    {
+                        var output = p.StandardOutput.ReadToEnd();
+                        p.WaitForExit(5000);
+                        return p.ExitCode == 0 && output.Contains("Python");
+                    }
+                }
+                catch { return false; }
+            }
 
             return true;
         }
@@ -141,6 +164,7 @@ namespace SalesBuddy.CustomActions
         /// <summary>
         /// Get the Python executable path. Prefers our installed copy
         /// at %LOCALAPPDATA%\python, falls back to PATH lookup.
+        /// Rejects the Windows Store stub.
         /// </summary>
         public static string FindPython()
         {
@@ -149,7 +173,12 @@ namespace SalesBuddy.CustomActions
                 "python", "python.exe");
             if (File.Exists(localPython)) return localPython;
 
-            return FindOnPath("python");
+            var found = FindOnPath("python");
+            if (found != null &&
+                found.IndexOf("WindowsApps", StringComparison.OrdinalIgnoreCase) >= 0)
+                return null;
+
+            return found;
         }
     }
 }

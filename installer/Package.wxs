@@ -14,8 +14,7 @@
     shows real-time status text as each step runs.
 -->
 
-<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
-     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
 
     <Package Name="Sales Buddy"
              Manufacturer="Sales Buddy Contributors"
@@ -37,15 +36,19 @@
         <Property Id="ARPPRODUCTICON" Value="SalesBuddyIcon" />
         <Property Id="ARPURLINFOABOUT" Value="https://github.com/rablaine/SalesBuddy" />
         <Property Id="ARPNOREPAIR" Value="yes" />
+        <Property Id="ARPNOMODIFY" Value="yes" />
 
-        <!-- Default values for install options (Phase 4 will add a custom UI dialog) -->
+        <!-- Default values for install options -->
         <Property Id="STARTMENUSHORTCUT" Value="1" />
         <Property Id="DESKTOPSHORTCUT" Value="1" />
-        <Property Id="LAUNCHBROWSER" Value="1" />
         <Property Id="AUTOSTART" Value="1" />
 
-        <!-- Minimal UI: Welcome -> Progress -> Finish -->
-        <ui:WixUI Id="WixUI_Minimal" />
+        <!-- Exit dialog: "Launch Sales Buddy" checkbox (checked by default) -->
+        <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOX" Value="1" />
+        <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT" Value="Launch Sales Buddy" />
+
+        <!-- Custom UI: Welcome -> License -> Options -> Progress -> Finish -->
+        <UIRef Id="SalesBuddyUI" />
         <WixVariable Id="WixUILicenseRtf" Value="License.rtf" />
         <WixVariable Id="WixUIBannerBmp" Value="Banner.bmp" />
         <WixVariable Id="WixUIDialogBmp" Value="Dialog.bmp" />

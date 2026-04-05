@@ -19,7 +19,7 @@
 
         <!-- The custom action DLL, embedded in the MSI as a binary stream -->
         <Binary Id="CustomActionsDll"
-                SourceFile="SalesBuddy.CustomActions\bin\Release\net472\SalesBuddy.CustomActions.CA.dll" />
+                SourceFile="SalesBuddy.CustomActions\bin\Release\net451\SalesBuddy.CustomActions.CA.dll" />
 
         <!-- ================================================================
              INSTALL: Set properties then run the deferred install action.
@@ -29,7 +29,7 @@
 
         <CustomAction Id="SetInstallActionData"
                       Property="InstallAction"
-                      Value="INSTALLFOLDER=[INSTALLFOLDER];STARTMENUSHORTCUT=[STARTMENUSHORTCUT];DESKTOPSHORTCUT=[DESKTOPSHORTCUT];LAUNCHBROWSER=[LAUNCHBROWSER];AUTOSTART=[AUTOSTART]" />
+                      Value="INSTALLFOLDER=[INSTALLFOLDER];STARTMENUSHORTCUT=[STARTMENUSHORTCUT];DESKTOPSHORTCUT=[DESKTOPSHORTCUT];AUTOSTART=[AUTOSTART]" />
 
         <CustomAction Id="InstallAction"
                       BinaryRef="CustomActionsDll"
@@ -59,6 +59,18 @@
              Install runs After InstallFiles (icon.ico is on disk).
              Uninstall runs Before RemoveFiles (app files still accessible).
              ================================================================ -->
+
+        <!-- ================================================================
+             LAUNCH: Immediate action triggered from the Exit dialog
+             checkbox. Reads INSTALLFOLDER to find the .env port.
+             ================================================================ -->
+
+        <CustomAction Id="LaunchApp"
+                      BinaryRef="CustomActionsDll"
+                      DllEntry="LaunchApp"
+                      Execute="immediate"
+                      Impersonate="yes"
+                      Return="ignore" />
 
         <InstallExecuteSequence>
             <Custom Action="SetInstallActionData" Before="InstallAction" Condition="NOT REMOVE" />

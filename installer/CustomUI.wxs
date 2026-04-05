@@ -1,0 +1,181 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!--
+    Custom dialog set for Sales Buddy MSI.
+
+    Replaces WixUI_Minimal with a custom flow that adds an options page
+    between the license agreement and the install:
+
+        Welcome -> License -> Options -> Progress -> Exit
+
+    Maintenance (re-run MSI or Add/Remove Programs):
+        MaintenanceWelcome -> MaintenanceType -> VerifyReady -> Progress -> Exit
+
+    The Options page lets users toggle:
+      - Start Menu shortcuts
+      - Desktop shortcut
+
+    The Exit page has a "Launch Sales Buddy" checkbox (standard WixUI pattern).
+-->
+
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+
+    <Fragment>
+
+        <UI Id="SalesBuddyUI">
+
+            <!-- Text styles required by standard WixUI dialogs -->
+            <TextStyle Id="WixUI_Font_Normal" FaceName="Tahoma" Size="8" />
+            <TextStyle Id="WixUI_Font_Bigger" FaceName="Tahoma" Size="12" />
+            <TextStyle Id="WixUI_Font_Title" FaceName="Tahoma" Size="9" Bold="yes" />
+
+            <Property Id="DefaultUIFont" Value="WixUI_Font_Normal" />
+            <Property Id="WixUI_Mode" Value="Minimal" />
+
+            <!-- Standard dialogs from the WixUI extension -->
+            <DialogRef Id="ErrorDlg" />
+            <DialogRef Id="FatalError" />
+            <DialogRef Id="FilesInUse" />
+            <DialogRef Id="MsiRMFilesInUse" />
+            <DialogRef Id="PrepareDlg" />
+            <DialogRef Id="ProgressDlg" />
+            <DialogRef Id="ResumeDlg" />
+            <DialogRef Id="UserExit" />
+            <DialogRef Id="WelcomeDlg" />
+            <DialogRef Id="LicenseAgreementDlg" />
+            <DialogRef Id="ExitDialog" />
+
+            <!-- Maintenance/uninstall dialogs (shown when product is already installed) -->
+            <DialogRef Id="MaintenanceWelcomeDlg" />
+            <DialogRef Id="MaintenanceTypeDlg" />
+            <DialogRef Id="VerifyReadyDlg" />
+
+            <!-- Pull in common WixUI resources (bitmaps, icons, CancelDlg) -->
+            <UIRef Id="WixUI_Common" />
+
+            <!-- ==========================================================
+                 Custom options dialog: checkboxes for install preferences
+                 ========================================================== -->
+            <Dialog Id="InstallOptionsDlg" Width="370" Height="270"
+                    Title="[ProductName] Setup">
+
+                <!-- Banner area (matches standard WixUI inner pages) -->
+                <Control Id="BannerBitmap" Type="Bitmap"
+                         X="0" Y="0" Width="370" Height="44"
+                         TabSkip="no" Text="!(wix.WixUIBannerBmp)" />
+                <Control Id="BannerLine" Type="Line"
+                         X="0" Y="44" Width="370" Height="0" />
+                <Control Id="BottomLine" Type="Line"
+                         X="0" Y="234" Width="370" Height="0" />
+
+                <!-- Title and description -->
+                <Control Id="Title" Type="Text"
+                         X="15" Y="6" Width="200" Height="15"
+                         Transparent="yes" NoPrefix="yes"
+                         Text="{\WixUI_Font_Title}Installation Options" />
+                <Control Id="Description" Type="Text"
+                         X="25" Y="23" Width="280" Height="15"
+                         Transparent="yes" NoPrefix="yes"
+                         Text="Choose which options to include with your installation." />
+
+                <!-- Checkboxes bound to MSI properties -->
+                <Control Id="StartMenuCheck" Type="CheckBox"
+                         X="25" Y="75" Width="330" Height="18"
+                         Property="STARTMENUSHORTCUT" CheckBoxValue="1"
+                         Text="Create Start Menu shortcuts" />
+
+                <Control Id="DesktopCheck" Type="CheckBox"
+                         X="25" Y="100" Width="330" Height="18"
+                         Property="DESKTOPSHORTCUT" CheckBoxValue="1"
+                         Text="Create a desktop shortcut" />
+
+                <!-- Navigation buttons -->
+                <Control Id="Back" Type="PushButton"
+                         X="180" Y="243" Width="56" Height="17"
+                         Text="&amp;Back" />
+
+                <Control Id="Next" Type="PushButton"
+                         X="236" Y="243" Width="56" Height="17"
+                         Default="yes" Text="&amp;Install" />
+
+                <Control Id="Cancel" Type="PushButton"
+                         X="304" Y="243" Width="56" Height="17"
+                         Cancel="yes" Text="Cancel">
+                    <Publish Event="SpawnDialog" Value="CancelDlg" />
+                </Control>
+
+            </Dialog>
+
+            <!-- ==========================================================
+                 Navigation flow
+                 ========================================================== -->
+
+            <!-- Welcome -> License -->
+            <Publish Dialog="WelcomeDlg" Control="Next"
+                     Event="NewDialog" Value="LicenseAgreementDlg"
+                     Condition="1" />
+
+            <!-- License <- -> Welcome -->
+            <Publish Dialog="LicenseAgreementDlg" Control="Back"
+                     Event="NewDialog" Value="WelcomeDlg"
+                     Condition="1" />
+
+            <!-- License -> Options (only when license accepted) -->
+            <Publish Dialog="LicenseAgreementDlg" Control="Next"
+                     Event="NewDialog" Value="InstallOptionsDlg"
+                     Condition="LicenseAccepted = &quot;1&quot;" />
+
+            <!-- Options <- -> License -->
+            <Publish Dialog="InstallOptionsDlg" Control="Back"
+                     Event="NewDialog" Value="LicenseAgreementDlg"
+                     Condition="1" />
+
+            <!-- Options -> Start install -->
+            <Publish Dialog="InstallOptionsDlg" Control="Next"
+                     Event="EndDialog" Value="Return"
+                     Condition="1" />
+
+            <!-- ==========================================================
+                 Maintenance flow (product already installed)
+                 ========================================================== -->
+
+            <!-- MaintenanceWelcome -> MaintenanceType -->
+            <Publish Dialog="MaintenanceWelcomeDlg" Control="Next"
+                     Event="NewDialog" Value="MaintenanceTypeDlg"
+                     Condition="1" />
+
+            <!-- MaintenanceType -> VerifyReady (Repair) -->
+            <Publish Dialog="MaintenanceTypeDlg" Control="RepairButton"
+                     Event="NewDialog" Value="VerifyReadyDlg"
+                     Condition="1" />
+
+            <!-- MaintenanceType -> VerifyReady (Remove) -->
+            <Publish Dialog="MaintenanceTypeDlg" Control="RemoveButton"
+                     Event="NewDialog" Value="VerifyReadyDlg"
+                     Condition="1" />
+
+            <!-- MaintenanceType <- MaintenanceWelcome -->
+            <Publish Dialog="MaintenanceTypeDlg" Control="Back"
+                     Event="NewDialog" Value="MaintenanceWelcomeDlg"
+                     Condition="1" />
+
+            <!-- VerifyReady <- MaintenanceType -->
+            <Publish Dialog="VerifyReadyDlg" Control="Back"
+                     Event="NewDialog" Value="MaintenanceTypeDlg"
+                     Condition="1" />
+
+            <!-- Exit dialog: launch app if checkbox is checked -->
+            <Publish Dialog="ExitDialog" Control="Finish"
+                     Event="DoAction" Value="LaunchApp"
+                     Condition="WIXUI_EXITDIALOGOPTIONALCHECKBOX = 1 AND NOT Installed" />
+
+            <!-- Exit dialog -> Close installer -->
+            <Publish Dialog="ExitDialog" Control="Finish"
+                     Event="EndDialog" Value="Return"
+                     Order="999" Condition="1" />
+
+        </UI>
+
+    </Fragment>
+
+</Wix>

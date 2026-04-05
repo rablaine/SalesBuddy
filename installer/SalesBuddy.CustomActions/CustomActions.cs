@@ -1,10 +1,12 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
 using System.Net;
 using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
+using System.Threading;
 using WixToolset.Dtf.WindowsInstaller;
 
 namespace SalesBuddy.CustomActions
@@ -31,19 +33,20 @@ namespace SalesBuddy.CustomActions
         private const string NodeZipUrl =
             "https://nodejs.org/dist/" + NodeVersion + "/node-" + NodeVersion + "-win-x64.zip";
 
-        // Step weights for progress bar (total = 100).
-        private const int WeightWinget = 5;
-        private const int WeightGit = 10;
-        private const int WeightPython = 10;
-        private const int WeightAzCli = 30;
-        private const int WeightNode = 8;
-        private const int WeightClone = 10;
-        private const int WeightVenv = 15;
-        private const int WeightConfig = 3;
-        private const int WeightShortcuts = 2;
-        private const int WeightAutoStart = 2;
-        private const int WeightServer = 3;
-        private const int WeightFinish = 2;
+        // Step weights for progress bar (total = 98).
+        // Calibrated from clean VM install log (2026-04-04, ~11.5 min total).
+        private const int WeightWinget = 1;
+        private const int WeightGit = 8;
+        private const int WeightPython = 2;
+        private const int WeightAzCli = 55;
+        private const int WeightNode = 2;
+        private const int WeightClone = 1;
+        private const int WeightVenv = 21;
+        private const int WeightConfig = 4;
+        private const int WeightShortcuts = 1;
+        private const int WeightAutoStart = 1;
+        private const int WeightServer = 1;
+        private const int WeightFinish = 1;
 
         // =====================================================================
         // Entry points
@@ -72,15 +75,48 @@ namespace SalesBuddy.CustomActions
 
             bool startMenu = GetBoolData(data, "STARTMENUSHORTCUT");
             bool desktop = GetBoolData(data, "DESKTOPSHORTCUT");
-            bool launchBrowser = GetBoolData(data, "LAUNCHBROWSER");
             bool autoStart = GetBoolData(data, "AUTOSTART");
 
             session.Log($"Install directory: {installDir}");
             session.Log($"Options: StartMenu={startMenu}, Desktop={desktop}, " +
-                        $"Launch={launchBrowser}, AutoStart={autoStart}");
+                        $"AutoStart={autoStart}");
 
-            // Initialize progress bar (tell MSI how many ticks we'll report)
-            InitProgress(session, 100);
+            // Pre-scan installed tools to rebalance the progress bar.
+            // Steps that are already installed get weight=1 (brief blip),
+            // so the bar's full range is distributed across actual work.
+            PathHelper.RefreshPath();
+            bool needsWinget = !PathHelper.FindWinget(session);
+            bool needsGit = !PathHelper.CommandExists("git");
+            bool needsPython = !PathHelper.CommandExists("python");
+            bool needsAzCli = !PathHelper.CommandExists("az");
+            bool needsNode = !PathHelper.CommandExists("node");
+
+            int wWinget = needsWinget ? WeightWinget : 1;
+            int wGit = needsGit ? WeightGit : 1;
+            int wPython = needsPython ? WeightPython : 1;
+            int wAzCli = needsAzCli ? WeightAzCli : 1;
+            int wNode = needsNode ? WeightNode : 1;
+            int totalWeight = wWinget + wGit + wPython + wAzCli + wNode
+                + WeightClone + WeightVenv + WeightConfig
+                + WeightShortcuts + WeightAutoStart + WeightServer + WeightFinish;
+
+            session.Log($"Pre-scan: winget={!needsWinget}, git={!needsGit}, " +
+                        $"python={!needsPython}, az={!needsAzCli}, node={!needsNode}");
+            session.Log($"Adjusted total weight: {totalWeight}");
+
+            // Initialize progress bar with adjusted total
+            InitProgress(session, totalWeight);
+
+            // Send ActionStart so the UI knows how to render our status text.
+            // Field 1 = action name, Field 2 = description, Field 3 = template.
+            // The template "[1]" means ActionData field [1] shows as the detail line.
+            using (var actionStart = new Record(3))
+            {
+                actionStart[1] = "InstallAction";
+                actionStart[2] = "Installing Sales Buddy...";
+                actionStart[3] = "[1]";
+                session.Message(InstallMessage.ActionStart, actionStart);
+            }
 
             try
             {
@@ -90,28 +126,41 @@ namespace SalesBuddy.CustomActions
                 // Step 1: Winget
                 ProcessRunner.UpdateStatus(session, "Checking for winget...");
                 EnsureWinget(session);
-                AdvanceProgress(session, WeightWinget);
+                AdvanceProgress(session, wWinget);
 
-                // Step 2: Git
-                ProcessRunner.UpdateStatus(session, "Checking for Git...");
-                EnsureGit(session);
-                AdvanceProgress(session, WeightGit);
+                // Step 2: Git (~1 minute, synthetic progress)
+                ProcessRunner.UpdateStatus(session,
+                    needsGit ? "Installing Git... this typically takes about a minute"
+                             : "Checking for Git...");
+                if (needsGit)
+                    RunWithSyntheticProgress(session,
+                        () => EnsureGit(session),
+                        wGit, targetSeconds: 60, reserveTicks: 1);
+                else
+                {
+                    EnsureGit(session);
+                    AdvanceProgress(session, wGit);
+                }
 
                 // Step 3: Python
                 ProcessRunner.UpdateStatus(session, "Checking for Python...");
                 EnsurePython(session);
-                AdvanceProgress(session, WeightPython);
+                AdvanceProgress(session, wPython);
 
-                // Step 4: Azure CLI (the big one - 3-5 minutes)
+                // Step 4: Azure CLI (the big one - 5-7 minutes)
+                // Uses synthetic progress: a background thread drips ticks
+                // smoothly over 7 minutes while pip runs. When pip finishes,
+                // remaining ticks are filled immediately.
                 ProcessRunner.UpdateStatus(session,
-                    "Installing Azure CLI... this takes a few minutes");
-                EnsureAzureCli(session);
-                AdvanceProgress(session, WeightAzCli);
+                    needsAzCli ? "Installing Azure CLI... this typically takes 5-7 minutes"
+                               : "Checking for Azure CLI...");
+                EnsureAzureCliWithProgress(session, wAzCli);
+                // Progress is fully handled inside EnsureAzureCliWithProgress
 
                 // Step 5: Node.js
                 ProcessRunner.UpdateStatus(session, "Checking for Node.js...");
                 EnsureNodeJs(session);
-                AdvanceProgress(session, WeightNode);
+                AdvanceProgress(session, wNode);
 
                 // Verify critical commands before proceeding
                 PathHelper.RefreshPath();
@@ -130,10 +179,12 @@ namespace SalesBuddy.CustomActions
                 CloneOrUpdateRepo(session, installDir);
                 AdvanceProgress(session, WeightClone);
 
-                // Step 7: Python environment (venv + pip install)
-                ProcessRunner.UpdateStatus(session, "Setting up Python environment...");
-                SetupPythonEnv(session, installDir);
-                AdvanceProgress(session, WeightVenv);
+                // Step 7: Python environment (venv + pip install, ~2.5 min)
+                ProcessRunner.UpdateStatus(session,
+                    "Installing Python dependencies... this typically takes 2-3 minutes");
+                RunWithSyntheticProgress(session,
+                    () => SetupPythonEnv(session, installDir),
+                    WeightVenv, targetSeconds: 150, reserveTicks: 2);
 
                 // Step 8: Configure app (.env + migrations)
                 ProcessRunner.UpdateStatus(session, "Configuring application...");
@@ -161,14 +212,7 @@ namespace SalesBuddy.CustomActions
                 StartServer(session, installDir);
                 AdvanceProgress(session, WeightServer);
 
-                // Step 12: Launch browser
-                if (launchBrowser)
-                {
-                    int port = GetPortFromEnv(installDir);
-                    string url = $"http://localhost:{port}";
-                    ProcessRunner.UpdateStatus(session, $"Opening {url}...");
-                    Process.Start("explorer.exe", url);
-                }
+                // Step 12: Done
                 AdvanceProgress(session, WeightFinish);
 
                 ProcessRunner.UpdateStatus(session, "Installation complete!");
@@ -232,19 +276,11 @@ namespace SalesBuddy.CustomActions
                     session.Log($"Database backed up to {backup}");
                 }
 
-                // Remove app files
+                // Remove app files (force-delete with read-only clearing + retries)
                 ProcessRunner.UpdateStatus(session, "Removing application files...");
                 if (Directory.Exists(installDir))
                 {
-                    try
-                    {
-                        Directory.Delete(installDir, true);
-                        session.Log("App files removed.");
-                    }
-                    catch (Exception ex)
-                    {
-                        session.Log($"Could not fully remove {installDir}: {ex.Message}");
-                    }
+                    ForceDeleteDirectory(session, installDir);
                 }
 
                 ProcessRunner.UpdateStatus(session, "Uninstall complete.");
@@ -259,6 +295,41 @@ namespace SalesBuddy.CustomActions
         }
 
         // =====================================================================
+        // Launch action (immediate, triggered from Exit dialog checkbox)
+        // =====================================================================
+
+        /// <summary>
+        /// Launch Sales Buddy in the default browser. Triggered from the
+        /// Exit dialog checkbox - runs as an immediate action so it can
+        /// read session properties directly.
+        /// </summary>
+        [CustomAction]
+        public static ActionResult LaunchApp(Session session)
+        {
+            try
+            {
+                string installDir = session["INSTALLFOLDER"];
+                if (string.IsNullOrEmpty(installDir))
+                {
+                    installDir = Path.Combine(
+                        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                        "SalesBuddy");
+                }
+
+                int port = GetPortFromEnv(installDir);
+                string url = $"http://localhost:{port}";
+                session.Log($"Launching browser: {url}");
+                Process.Start("explorer.exe", url);
+            }
+            catch (Exception ex)
+            {
+                session.Log($"LaunchApp error (non-fatal): {ex.Message}");
+            }
+
+            return ActionResult.Success;
+        }
+
+        // =====================================================================
         // Progress helpers
         // =====================================================================
 
@@ -266,15 +337,30 @@ namespace SalesBuddy.CustomActions
         /// Tell the MSI engine how many progress ticks our custom action will report.
         /// Must be called once at the start before any AdvanceProgress calls.
         /// </summary>
+        // We scale ticks so bar movement is visible.
+        private const int TickScale = 500;
+
         private static void InitProgress(Session session, int totalTicks)
         {
+            // Type 0 = Reset. Takes over the progress bar so our custom
+            // action controls 0-100%.
             using (var record = new Record(4))
             {
-                record[1] = 3; // Type 3 = add ticks to the total
-                record[2] = totalTicks;
-                record[3] = 0;
-                record[4] = 0;
+                record[1] = 0; // Reset
+                record[2] = totalTicks * TickScale;
+                record[3] = 0; // Forward direction
+                record[4] = 0; // Execution phase
                 session.Message(InstallMessage.Progress, record);
+            }
+
+            // Establish progress context so Type 2 increments work immediately.
+            using (var actionInfo = new Record(4))
+            {
+                actionInfo[1] = 1; // Type 1 = action info
+                actionInfo[2] = 0; // 0 ticks per ActionData (we advance manually)
+                actionInfo[3] = 0;
+                actionInfo[4] = 0;
+                session.Message(InstallMessage.Progress, actionInfo);
             }
         }
 
@@ -286,9 +372,58 @@ namespace SalesBuddy.CustomActions
             using (var record = new Record(2))
             {
                 record[1] = 2; // Type 2 = increment
-                record[2] = ticks;
+                record[2] = ticks * TickScale;
                 session.Message(InstallMessage.Progress, record);
             }
+        }
+
+        /// <summary>
+        /// Run an action with a background thread that smoothly advances
+        /// the progress bar over [targetSeconds]. When the action finishes,
+        /// the drip stops and remaining ticks fill immediately.
+        /// </summary>
+        /// <param name="session">MSI session.</param>
+        /// <param name="action">The work to perform (runs on main thread).</param>
+        /// <param name="weight">Total ticks allocated for this step.</param>
+        /// <param name="targetSeconds">Expected duration to spread ticks over.</param>
+        /// <param name="reserveTicks">Ticks to hold back for the completion bump.</param>
+        private static void RunWithSyntheticProgress(
+            Session session, Action action, int weight,
+            int targetSeconds, int reserveTicks)
+        {
+            int syntheticTicks = weight - reserveTicks;
+            if (syntheticTicks <= 0)
+            {
+                action();
+                AdvanceProgress(session, weight);
+                return;
+            }
+
+            int intervalMs = (targetSeconds * 1000) / syntheticTicks;
+            int ticksDripped = 0;
+            var done = new ManualResetEventSlim(false);
+
+            var drip = new Thread(() =>
+            {
+                while (ticksDripped < syntheticTicks)
+                {
+                    if (done.Wait(intervalMs))
+                        break;
+                    ticksDripped++;
+                    AdvanceProgress(session, 1);
+                }
+            });
+            drip.IsBackground = true;
+            drip.Start();
+
+            action();
+
+            done.Set();
+            drip.Join(5000);
+
+            int remaining = weight - ticksDripped;
+            if (remaining > 0)
+                AdvanceProgress(session, remaining);
         }
 
         // =====================================================================
@@ -360,7 +495,7 @@ if ($env:Path -notlike ""*$wa*"") { $env:Path += "";$wa"" }
 Write-Host 'winget installation complete.'
 ";
 
-            int exitCode = ProcessRunner.RunPowerShell(session, script, "  ");
+            int exitCode = ProcessRunner.RunPowerShell(session, script);
             PathHelper.RefreshPath();
 
             // Add WindowsApps to our process PATH
@@ -399,7 +534,7 @@ Write-Host 'winget installation complete.'
             }
 
             ProcessRunner.UpdateStatus(session,
-                "Installing Git... this may take a minute or two");
+                "Installing Git... this typically takes about a minute");
             InstallViaWinget(session, "Git", "Git.Git", "git");
         }
 
@@ -461,7 +596,7 @@ Write-Host 'winget installation complete.'
                 ProcessRunner.UpdateStatus(session, "Bootstrapping pip...");
                 var pythonExe = Path.Combine(pythonDir, "python.exe");
                 ProcessRunner.Run(session, pythonExe,
-                    "-m ensurepip --upgrade", "  ");
+                    "-m ensurepip --upgrade");
 
                 session.Log($"Python {PythonVersion} installed to {pythonDir}.");
             }
@@ -491,7 +626,7 @@ Write-Host 'winget installation complete.'
             }
 
             ProcessRunner.UpdateStatus(session,
-                "Installing Azure CLI... this takes a few minutes");
+                "Installing Azure CLI... this typically takes 5-7 minutes");
 
             var pythonExe = PathHelper.FindPython();
             if (pythonExe == null)
@@ -500,10 +635,10 @@ Write-Host 'winget installation complete.'
                 return;
             }
 
-            // pip install azure-cli with line-by-line status updates
+            // pip install azure-cli (no live status - pip goes silent during
+            // the install phase so text updates would just freeze)
             int exitCode = ProcessRunner.Run(session, pythonExe,
-                "-m pip install azure-cli",
-                "  ");
+                "-m pip install azure-cli");
 
             PathHelper.RefreshPath();
 
@@ -526,6 +661,27 @@ Write-Host 'winget installation complete.'
                     session.Log("Azure CLI pip install completed but 'az' not found.");
                 }
             }
+        }
+
+        /// <summary>
+        /// Wrapper around EnsureAzureCli with synthetic progress.
+        /// Drips ticks smoothly over 7 minutes while pip runs.
+        /// </summary>
+        private static void EnsureAzureCliWithProgress(Session session, int weight)
+        {
+            PathHelper.RefreshPath();
+            if (PathHelper.CommandExists("az"))
+            {
+                session.Log("Azure CLI already installed.");
+                ProcessRunner.UpdateStatus(session,
+                    "Azure CLI already installed, skipping...");
+                AdvanceProgress(session, weight);
+                return;
+            }
+
+            RunWithSyntheticProgress(session,
+                () => EnsureAzureCli(session),
+                weight, targetSeconds: 420, reserveTicks: 5);
         }
 
         /// <summary>
@@ -604,23 +760,41 @@ Write-Host 'winget installation complete.'
             string gitDir = Path.Combine(installDir, ".git");
             if (Directory.Exists(gitDir))
             {
-                // Existing repo - fetch and reset
-                ProcessRunner.UpdateStatus(session, "Updating Sales Buddy repository...");
-                session.Log("Repository exists, pulling latest.");
-                ProcessRunner.Run(session, "git",
-                    "-c credential.helper= fetch origin",
+                // Verify repo is healthy before attempting update
+                int checkCode = ProcessRunner.Run(session, "git",
+                    "rev-parse --verify HEAD",
                     workingDirectory: installDir);
-                ProcessRunner.Run(session, "git",
-                    "reset --hard origin/main",
-                    workingDirectory: installDir);
-                ProcessRunner.Run(session, "git",
-                    "clean -fd",
-                    workingDirectory: installDir);
+                if (checkCode != 0)
+                {
+                    // Corrupted repo (e.g., partial delete from failed uninstall).
+                    // Aggressively remove - kill git processes, clear read-only, retry.
+                    session.Log("WARNING: Git repo is corrupted, removing.");
+                    ForceDeleteDirectory(session, gitDir);
+                }
+                else
+                {
+                    // Existing healthy repo - fetch and reset
+                    ProcessRunner.UpdateStatus(session,
+                        "Updating Sales Buddy repository...");
+                    session.Log("Repository exists, pulling latest.");
+                    ProcessRunner.Run(session, "git",
+                        "-c credential.helper= fetch origin",
+                        workingDirectory: installDir);
+                    ProcessRunner.Run(session, "git",
+                        "reset --hard origin/main",
+                        workingDirectory: installDir);
+                    ProcessRunner.Run(session, "git",
+                        "clean -fd",
+                        workingDirectory: installDir);
+                    session.Log("Repository ready.");
+                    return;
+                }
             }
-            else if (Directory.Exists(installDir))
+
+            if (Directory.Exists(installDir) && !Directory.Exists(gitDir))
             {
-                // Directory exists but not a git repo (MSI created it for icon.ico).
-                // Initialize in-place.
+                // Directory exists but not a git repo (MSI created it for icon.ico,
+                // or corrupted .git was removed above).
                 ProcessRunner.UpdateStatus(session,
                     "Initializing Sales Buddy repository...");
                 session.Log("Directory exists, initializing git repo in-place.");
@@ -636,7 +810,33 @@ Write-Host 'winget installation complete.'
                     "checkout -f -B main origin/main",
                     workingDirectory: installDir);
             }
-            else
+            else if (Directory.Exists(gitDir))
+            {
+                // .git STILL exists (couldn't delete it). Nuclear option:
+                // back up the database, nuke install dir, fresh clone, restore DB.
+                session.Log("WARNING: .git survived deletion. Nuking install dir.");
+                string dbBackupPath = BackupDatabase(session, installDir);
+                ForceDeleteDirectory(session, installDir);
+                // Fall through to fresh clone, then restore below
+                if (!Directory.Exists(installDir))
+                {
+                    ProcessRunner.UpdateStatus(session,
+                        "Cloning Sales Buddy repository...");
+                    PathHelper.RefreshPath();
+                    int exitCode = ProcessRunner.Run(session, "git",
+                        $"-c credential.helper= clone {RepoUrl} \"{installDir}\"");
+                    if (exitCode != 0)
+                    {
+                        throw new InvalidOperationException(
+                            $"git clone failed with exit code {exitCode}");
+                    }
+                }
+                RestoreDatabase(session, installDir, dbBackupPath);
+                session.Log("Repository ready.");
+                return;
+            }
+
+            if (!Directory.Exists(installDir))
             {
                 // Fresh clone
                 ProcessRunner.UpdateStatus(session,
@@ -655,6 +855,107 @@ Write-Host 'winget installation complete.'
         }
 
         /// <summary>
+        /// Aggressively delete a directory: kill git processes, clear read-only
+        /// flags, retry with delays.
+        /// </summary>
+        private static void ForceDeleteDirectory(Session session, string path)
+        {
+            // Kill any git processes that might hold locks
+            foreach (var proc in Process.GetProcessesByName("git"))
+            {
+                try
+                {
+                    proc.Kill();
+                    proc.WaitForExit(3000);
+                    session.Log($"Killed git process {proc.Id}.");
+                }
+                catch { }
+            }
+
+            // Clear read-only attributes on all files (git pack files are read-only)
+            try
+            {
+                foreach (string file in Directory.GetFiles(path, "*", SearchOption.AllDirectories))
+                {
+                    File.SetAttributes(file, System.IO.FileAttributes.Normal);
+                }
+            }
+            catch (Exception ex)
+            {
+                session.Log($"Could not clear attributes: {ex.Message}");
+            }
+
+            // Retry delete with delays
+            for (int attempt = 1; attempt <= 3; attempt++)
+            {
+                try
+                {
+                    Directory.Delete(path, true);
+                    session.Log($"Deleted {path} on attempt {attempt}.");
+                    return;
+                }
+                catch (Exception ex)
+                {
+                    session.Log($"Force delete attempt {attempt}/3: {ex.Message}");
+                    if (attempt < 3)
+                        Thread.Sleep(2000);
+                }
+            }
+            session.Log($"WARNING: Could not force-delete {path}.");
+        }
+
+        /// <summary>
+        /// Back up data/salesbuddy.db to %TEMP% if it exists. Returns the
+        /// temp path (or null if no DB found).
+        /// </summary>
+        private static string BackupDatabase(Session session, string installDir)
+        {
+            string dbPath = Path.Combine(installDir, "data", "salesbuddy.db");
+            if (!File.Exists(dbPath))
+            {
+                session.Log("No database to back up.");
+                return null;
+            }
+            string tempPath = Path.Combine(
+                Path.GetTempPath(), "salesbuddy_db_backup.db");
+            try
+            {
+                File.Copy(dbPath, tempPath, overwrite: true);
+                session.Log($"Database backed up to {tempPath}.");
+                return tempPath;
+            }
+            catch (Exception ex)
+            {
+                session.Log($"WARNING: Could not back up database: {ex.Message}");
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Restore a previously backed-up database into data/salesbuddy.db.
+        /// </summary>
+        private static void RestoreDatabase(
+            Session session, string installDir, string backupPath)
+        {
+            if (backupPath == null || !File.Exists(backupPath))
+                return;
+            string dataDir = Path.Combine(installDir, "data");
+            if (!Directory.Exists(dataDir))
+                Directory.CreateDirectory(dataDir);
+            string dbPath = Path.Combine(dataDir, "salesbuddy.db");
+            try
+            {
+                File.Copy(backupPath, dbPath, overwrite: true);
+                session.Log($"Database restored from {backupPath}.");
+                File.Delete(backupPath);
+            }
+            catch (Exception ex)
+            {
+                session.Log($"WARNING: Could not restore database: {ex.Message}");
+            }
+        }
+
+        /// <summary>
         /// Create a Python virtual environment and install dependencies.
         /// </summary>
         private static void SetupPythonEnv(Session session, string installDir)
@@ -663,16 +964,28 @@ Write-Host 'winget installation complete.'
             if (pythonExe == null)
                 throw new InvalidOperationException("Python not found.");
 
-            var venvPython = Path.Combine(installDir, "venv", "Scripts", "python.exe");
-            var pipExe = Path.Combine(installDir, "venv", "Scripts", "pip.exe");
+            var venvDir = Path.Combine(installDir, "venv");
+            var venvPython = Path.Combine(venvDir, "Scripts", "python.exe");
+            var pipExe = Path.Combine(venvDir, "Scripts", "pip.exe");
             var reqFile = Path.Combine(installDir, "requirements.txt");
 
-            // Create venv if it doesn't exist
-            if (!File.Exists(venvPython))
+            // Create venv if missing or broken (stale venv from failed uninstall)
+            bool venvHealthy = File.Exists(venvPython) && File.Exists(pipExe);
+            if (!venvHealthy)
             {
+                // Remove stale venv remnants before recreating
+                if (Directory.Exists(venvDir))
+                {
+                    session.Log("Removing stale venv...");
+                    try { Directory.Delete(venvDir, true); }
+                    catch (Exception ex)
+                    {
+                        session.Log($"WARNING: Could not remove stale venv: {ex.Message}");
+                    }
+                }
+
                 ProcessRunner.UpdateStatus(session,
                     "Creating Python virtual environment...");
-                var venvDir = Path.Combine(installDir, "venv");
                 ProcessRunner.Run(session, pythonExe, $"-m venv \"{venvDir}\"");
                 if (!File.Exists(venvPython))
                     throw new InvalidOperationException("Failed to create venv.");
@@ -680,18 +993,21 @@ Write-Host 'winget installation complete.'
             }
             else
             {
-                session.Log("Virtual environment already exists.");
+                session.Log("Virtual environment already exists and is healthy.");
             }
 
-            // pip install requirements
+            // Always run pip install (handles fresh install and repair)
             if (File.Exists(reqFile))
             {
                 ProcessRunner.UpdateStatus(session,
-                    "Installing Python dependencies...");
+                    "Installing Python dependencies... this typically takes 2-3 minutes");
                 ProcessRunner.Run(session, pipExe,
-                    $"install -r \"{reqFile}\"",
-                    "  ");
+                    $"install -r \"{reqFile}\"");
                 session.Log("Dependencies installed.");
+            }
+            else
+            {
+                session.Log($"WARNING: requirements.txt not found at {reqFile}");
             }
         }
 
@@ -744,6 +1060,9 @@ Write-Host 'winget installation complete.'
         {
             int port = GetPortFromEnv(installDir);
             string appUrl = $"http://localhost:{port}";
+            string explorer = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.Windows),
+                "explorer.exe");
 
             // Find icon - prefer MSI-installed copy, fall back to repo
             string iconPath = Path.Combine(installDir, "icon.ico");
@@ -761,8 +1080,8 @@ Write-Host 'winget installation complete.'
 
                 // Main app shortcut
                 CreateShortcutLink(
-                    Path.Combine(startMenuFolder, $"{AppName}.lnk"),
-                    "explorer.exe", appUrl, "",
+                    Path.Combine(startMenuFolder, $"{AppName} (web).lnk"),
+                    explorer, appUrl, "",
                     File.Exists(iconPath) ? $"{iconPath},0" : "",
                     "Open Sales Buddy in your browser");
 
@@ -797,8 +1116,8 @@ Write-Host 'winget installation complete.'
                 var desktopPath = Environment.GetFolderPath(
                     Environment.SpecialFolder.DesktopDirectory);
                 CreateShortcutLink(
-                    Path.Combine(desktopPath, $"{AppName}.lnk"),
-                    "explorer.exe", appUrl, "",
+                    Path.Combine(desktopPath, $"{AppName} (web).lnk"),
+                    explorer, appUrl, "",
                     File.Exists(iconPath) ? $"{iconPath},0" : "",
                     "Open Sales Buddy in your browser");
                 session.Log("Desktop shortcut created.");
@@ -858,21 +1177,62 @@ Write-Host 'winget installation complete.'
         // =====================================================================
 
         /// <summary>
-        /// Stop the Sales Buddy server by killing waitress processes.
+        /// Stop the Sales Buddy server by killing waitress and python processes
+        /// running from the install directory, then waiting for handles to release.
         /// </summary>
         private static void StopServer(Session session, string installDir)
         {
+            var killed = new List<Process>();
+
+            // Kill waitress-serve processes
             foreach (var proc in Process.GetProcessesByName("waitress-serve"))
             {
                 try
                 {
                     proc.Kill();
+                    killed.Add(proc);
                     session.Log($"Killed waitress-serve process {proc.Id}.");
                 }
                 catch (Exception ex)
                 {
-                    session.Log($"Could not kill process {proc.Id}: {ex.Message}");
+                    session.Log($"Could not kill waitress-serve {proc.Id}: {ex.Message}");
                 }
+            }
+
+            // Kill python processes running from our venv
+            string venvDir = Path.Combine(installDir, "venv").TrimEnd('\\');
+            foreach (var proc in Process.GetProcessesByName("python"))
+            {
+                try
+                {
+                    string exePath = proc.MainModule?.FileName ?? "";
+                    if (exePath.StartsWith(venvDir, StringComparison.OrdinalIgnoreCase))
+                    {
+                        proc.Kill();
+                        killed.Add(proc);
+                        session.Log($"Killed python process {proc.Id} ({exePath}).");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    session.Log($"Could not inspect/kill python {proc.Id}: {ex.Message}");
+                }
+            }
+
+            // Wait for all killed processes to fully exit and release file handles
+            foreach (var proc in killed)
+            {
+                try
+                {
+                    proc.WaitForExit(5000);
+                }
+                catch { /* already dead */ }
+            }
+
+            // Extra settle time for OS to release file locks
+            if (killed.Count > 0)
+            {
+                Thread.Sleep(1000);
             }
         }
 
@@ -906,13 +1266,20 @@ Write-Host 'winget installation complete.'
 
             var desktopShortcut = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory),
-                $"{AppName}.lnk");
+                $"{AppName} (web).lnk");
 
             if (File.Exists(desktopShortcut))
             {
                 File.Delete(desktopShortcut);
                 session.Log("Desktop shortcut removed.");
             }
+
+            // Also clean up old-style shortcut name
+            var oldShortcut = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory),
+                $"{AppName}.lnk");
+            if (File.Exists(oldShortcut))
+                File.Delete(oldShortcut);
         }
 
         // =====================================================================
