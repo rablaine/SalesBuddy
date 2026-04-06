@@ -2570,3 +2570,49 @@ def import_stream():
             'X-Accel-Buffering': 'no',
         },
     )
+
+
+@msx_bp.route('/sync-marketing', methods=['POST'])
+def api_sync_marketing():
+    """Trigger a marketing insights sync from MSX with SSE progress.
+
+    Streams real-time progress events as each customer's marketing data
+    is fetched and stored. Falls back to background thread for non-SSE clients.
+    """
+    from app.services.marketing_sync import sync_marketing_stream
+
+    if 'text/event-stream' in request.headers.get('Accept', ''):
+        def generate():
+            yield from sync_marketing_stream()
+
+        return Response(
+            stream_with_context(generate()),
+            mimetype='text/event-stream',
+            headers={
+                'Cache-Control': 'no-cache',
+                'X-Accel-Buffering': 'no',
+            },
+        )
+
+    # JSON fallback: fire-and-forget in background thread
+    import threading
+
+    def _run_sync(app):
+        with app.app_context():
+            try:
+                for _ in sync_marketing_stream():
+                    pass  # Consume generator to completion
+            except Exception:
+                logger.exception("Background marketing sync failed")
+
+    t = threading.Thread(
+        target=_run_sync,
+        args=(current_app._get_current_object(),),
+        daemon=True,
+    )
+    t.start()
+    return jsonify({
+        "success": True,
+        "message": "Marketing sync started in background.",
+        "async": True,
+    }), 202

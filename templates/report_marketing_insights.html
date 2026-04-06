@@ -1,0 +1,265 @@
+{% extends "base.html" %}
+{% from 'partials/customer_favicon.html' import customer_favicon %}
+
+{% block title %}Marketing Insights - Sales Buddy{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-start mb-3">
+    <div>
+        <h2><i class="bi bi-megaphone"></i> Marketing Insights</h2>
+        <p class="text-muted mb-0">Marketing engagement data synced from MSX. Shows which accounts have active marketing activity and which contacts are most engaged.</p>
+    </div>
+    <div class="d-flex gap-2">
+        {% set export_table_id = '#summaryTable' %}
+        {% set export_filename = 'marketing-insights' %}
+        {% include 'partials/_report_export.html' %}
+    </div>
+</div>
+
+<!-- Sync Status -->
+<div class="mb-3">
+    {% if sync_status.state == 'never_run' %}
+    <div class="alert alert-info mb-0 py-2">
+        <i class="bi bi-info-circle"></i> Marketing data has not been synced yet.
+        <a href="{{ url_for('admin.admin_panel') }}">Run a sync from the Admin Panel</a> to populate this report.
+    </div>
+    {% elif sync_status.state == 'in_progress' %}
+    <div class="alert alert-warning mb-0 py-2">
+        <i class="bi bi-arrow-repeat spin"></i> Marketing sync is currently running...
+    </div>
+    {% elif sync_status.state == 'complete' %}
+    <div class="alert alert-success mb-0 py-2 d-flex justify-content-between align-items-center">
+        <span>
+            <i class="bi bi-check-circle"></i>
+            Last synced: <span class="local-datetime">{{ sync_status.completed_at.strftime('%Y-%m-%dT%H:%M:%SZ') if sync_status.completed_at else 'Unknown' }}</span>
+            {% if sync_status.items_synced is not none %} - {{ sync_status.items_synced }} customers synced{% endif %}
+        </span>
+        <a href="{{ url_for('admin.admin_panel') }}" class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-arrow-repeat"></i> Re-sync
+        </a>
+    </div>
+    {% elif sync_status.state in ('failed', 'incomplete') %}
+    <div class="alert alert-danger mb-0 py-2">
+        <i class="bi bi-exclamation-triangle"></i> Last sync {{ sync_status.state }}.
+        <a href="{{ url_for('admin.admin_panel') }}">Try again from the Admin Panel</a>.
+    </div>
+    {% endif %}
+</div>
+
+{% if customer_data %}
+<!-- Summary Cards -->
+<div class="row mb-4">
+    <div class="col-md-4">
+        <div class="card text-center">
+            <div class="card-body py-2">
+                <h3 class="mb-0">{{ total_customers }}</h3>
+                <small class="text-muted">Customers with Marketing Data</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card text-center">
+            <div class="card-body py-2">
+                <h3 class="mb-0">{{ "{:,}".format(total_interactions) }}</h3>
+                <small class="text-muted">Total Interactions</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card text-center">
+            <div class="card-body py-2">
+                <h3 class="mb-0">{{ "{:,}".format(total_contacts) }}</h3>
+                <small class="text-muted">Engaged Contacts</small>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Customer Filter -->
+<div class="mb-3">
+    <input type="text" id="customerFilter" class="form-control" placeholder="Filter by customer name...">
+</div>
+
+<!-- Customer Accordion -->
+<div class="accordion" id="marketingAccordion">
+    {% for item in customer_data %}
+    {% set cust = item.customer %}
+    {% set summary = item.summary %}
+    <div class="accordion-item customer-card" data-customer-name="{{ cust.get_display_name()|lower }}">
+        <h2 class="accordion-header">
+            <button class="accordion-button collapsed" type="button"
+                    data-bs-toggle="collapse" data-bs-target="#mkt-{{ cust.id }}">
+                <span class="d-flex align-items-center gap-2 w-100">
+                    {{ customer_favicon(cust, size=20) }}
+                    <strong>{{ cust.get_display_name() }}</strong>
+                    <span class="badge bg-secondary ms-auto me-3">{{ "{:,}".format(summary.total_interactions) }} interactions</span>
+                    <span class="badge bg-info text-dark">{{ summary.engaged_contacts }} contacts</span>
+                </span>
+            </button>
+        </h2>
+        <div id="mkt-{{ cust.id }}" class="accordion-collapse collapse" data-bs-parent="#marketingAccordion">
+            <div class="accordion-body">
+                <!-- Summary Stats -->
+                <div class="row mb-3">
+                    <div class="col">
+                        <div class="card bg-body-secondary text-center">
+                            <div class="card-body py-2">
+                                <h5 class="mb-0">{{ "{:,}".format(summary.total_interactions) }}</h5>
+                                <small class="text-muted">Total Interactions</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col">
+                        <div class="card bg-body-secondary text-center">
+                            <div class="card-body py-2">
+                                <h5 class="mb-0">{{ "{:,}".format(summary.content_downloads) }}</h5>
+                                <small class="text-muted">Content Downloads</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col">
+                        <div class="card bg-body-secondary text-center">
+                            <div class="card-body py-2">
+                                <h5 class="mb-0">{{ "{:,}".format(summary.trials) }}</h5>
+                                <small class="text-muted">Trials</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col">
+                        <div class="card bg-body-secondary text-center">
+                            <div class="card-body py-2">
+                                <h5 class="mb-0">{{ "{:,}".format(summary.engaged_contacts) }}</h5>
+                                <small class="text-muted">Engaged Contacts</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col">
+                        <div class="card bg-body-secondary text-center">
+                            <div class="card-body py-2">
+                                <h5 class="mb-0">{{ "{:,}".format(summary.unique_decision_makers) }}</h5>
+                                <small class="text-muted">Decision Makers</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                {% if summary.last_interaction_date %}
+                <p class="text-muted small mb-3">
+                    <i class="bi bi-clock"></i> Last interaction:
+                    <span class="local-datetime">{{ summary.last_interaction_date.strftime('%Y-%m-%dT%H:%M:%SZ') }}</span>
+                </p>
+                {% endif %}
+
+                <!-- Sales Play Breakdown -->
+                {% if item.interactions %}
+                <h6 class="mb-2"><i class="bi bi-bar-chart"></i> Breakdown by Sales Play</h6>
+                <div class="table-responsive mb-3">
+                    <table class="table table-sm table-hover mb-0 align-middle">
+                        <thead>
+                            <tr>
+                                <th>Solution Area</th>
+                                <th>Sales Play</th>
+                                <th class="text-end">Interactions</th>
+                                <th class="text-end">Contact Me</th>
+                                <th class="text-end">Trials</th>
+                                <th class="text-end">Content</th>
+                                <th class="text-end">Events</th>
+                                <th class="text-end">Last Date</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for mi in item.interactions %}
+                            <tr>
+                                <td>{{ mi.solution_area or '-' }}</td>
+                                <td>{{ mi.sales_play or '-' }}</td>
+                                <td class="text-end">{{ mi.all_interactions }}</td>
+                                <td class="text-end">{{ mi.contact_me }}</td>
+                                <td class="text-end">{{ mi.trial_signups }}</td>
+                                <td class="text-end">{{ mi.content_downloads }}</td>
+                                <td class="text-end">{{ mi.events }}</td>
+                                <td class="text-end">
+                                    {% if mi.last_interaction_date %}
+                                    <span class="local-datetime">{{ mi.last_interaction_date.strftime('%Y-%m-%dT%H:%M:%SZ') }}</span>
+                                    {% else %}-{% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% endif %}
+
+                <!-- Engaged Contacts -->
+                {% if item.contacts %}
+                <h6 class="mb-2"><i class="bi bi-people"></i> Top Engaged Contacts</h6>
+                <div class="table-responsive">
+                    <table class="table table-sm table-hover mb-0 align-middle">
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Title</th>
+                                <th class="text-end">Email Interactions</th>
+                                <th class="text-end">Meeting Interactions</th>
+                                <th>Engagement Level</th>
+                                <th>Audience</th>
+                                <th>Last Solution Area</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for mc in item.contacts %}
+                            <tr>
+                                <td>{{ mc.contact_name or '-' }}</td>
+                                <td><small class="text-muted">{{ mc.job_title or '-' }}</small></td>
+                                <td class="text-end">{{ mc.mail_interactions }}</td>
+                                <td class="text-end">{{ mc.meeting_interactions }}</td>
+                                <td>
+                                    {% if mc.engagement_level %}
+                                    <span class="badge {% if 'High' in mc.engagement_level %}bg-success{% elif 'Medium' in mc.engagement_level %}bg-warning text-dark{% else %}bg-secondary{% endif %}">
+                                        {{ mc.engagement_level }}
+                                    </span>
+                                    {% else %}-{% endif %}
+                                </td>
+                                <td><small>{{ mc.audience_type or '-' }}</small></td>
+                                <td><small>{{ mc.last_solution_area or '-' }}</small></td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% endif %}
+
+                {% if not item.interactions and not item.contacts %}
+                <p class="text-muted mb-0">Summary data only - no sales play breakdown or contact details available.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+{% else %}
+<div class="card">
+    <div class="card-body text-center text-muted py-5">
+        <i class="bi bi-megaphone" style="font-size: 3rem;"></i>
+        <h4 class="mt-3">No Marketing Data</h4>
+        <p>Run a marketing sync from the <a href="{{ url_for('admin.admin_panel') }}">Admin Panel</a> to populate this report.</p>
+    </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // Customer name filter
+    const filterInput = document.getElementById('customerFilter');
+    if (filterInput) {
+        filterInput.addEventListener('input', function() {
+            const query = this.value.toLowerCase();
+            document.querySelectorAll('.customer-card').forEach(card => {
+                const name = card.dataset.customerName || '';
+                card.style.display = name.includes(query) ? '' : 'none';
+            });
+        });
+    }
+</script>
+{% endblock %}

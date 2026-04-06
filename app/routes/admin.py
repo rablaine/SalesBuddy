@@ -792,6 +792,21 @@ def api_milestone_sync_status():
     })
 
 
+@admin_bp.route('/api/admin/sync-status/<sync_type>', methods=['GET'])
+def api_sync_status(sync_type):
+    """Return the last sync status for a given sync type (accounts, marketing, etc.)."""
+    allowed = {'accounts', 'marketing', 'milestones', 'favicons'}
+    if sync_type not in allowed:
+        return jsonify({'error': 'Unknown sync type'}), 400
+    status = SyncStatus.get_status(sync_type)
+    result = {
+        'state': status['state'],
+        'completed_at': status['completed_at'].isoformat() if status['completed_at'] else None,
+        'items_synced': status['items_synced'],
+    }
+    return jsonify(result)
+
+
 @admin_bp.route('/api/admin/tasks/milestone-sync/toggle', methods=['POST'])
 def api_milestone_sync_toggle():
     """Toggle milestone auto-sync on/off."""
