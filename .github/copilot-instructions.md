@@ -101,6 +101,7 @@
 - **NEVER put new reports, pages, or API endpoints under the `/revenue/` URL prefix or the `revenue` blueprint** unless they are specifically about revenue data import, revenue configuration, or the revenue dashboard itself. The revenue blueprint (`app/routes/revenue.py`) is strictly for revenue data management.
 - **Reports that use revenue data** (whitespace analysis, synapse users, etc.) belong in the `reports` blueprint (`app/routes/reports.py`) under `/reports/` URLs with APIs under `/api/reports/`.
 - **When in doubt, put it in `reports.py`** - revenue.py is for CRUD and data pipeline, not for analytical views.
+- **When adding a new report**, also add it to the Reports dropdown menu in `templates/base.html` (the `navReports` `<ul>`) and to the `report_groups` list in the `reports_hub()` function in `app/routes/reports.py`. Every report must be accessible from the nav menu.
 
 ### SalesIQ Tool Registry
 - **When adding a new queryable entity, report, or analytical feature**, add a corresponding read tool to `app/services/salesiq_tools.py` using the `@tool` decorator.
