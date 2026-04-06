@@ -2124,6 +2124,7 @@ def import_stream():
             # DSSs are SolutionEngineer records linked to territories (not pods).
             dss_map: dict = {}  # (name, specialty) -> SolutionEngineer
             dss_created = 0
+            dss_updated = 0
             dss_total = len(dss_seen)
 
             yield _sse({
@@ -2151,6 +2152,7 @@ def import_stream():
                         alias = _cached_alias(dss_info["user_id"])
                         if alias:
                             existing.alias = alias
+                            dss_updated += 1
                 else:
                     systemuser_id = dss_info.get("user_id")
                     alias = _cached_alias(systemuser_id)
@@ -2188,6 +2190,7 @@ def import_stream():
             # CSAMs
             csam_map: dict = {}  # name -> CustomerCSAM
             csams_created = 0
+            csams_updated = 0
             csam_total = len(csams_seen)
 
             yield _sse({
@@ -2204,6 +2207,7 @@ def import_stream():
                         alias = _cached_alias(csam_info["user_id"])
                         if alias:
                             existing.alias = alias
+                            csams_updated += 1
                 else:
                     systemuser_id = csam_info.get("user_id")
                     alias = _cached_alias(systemuser_id)
@@ -2225,6 +2229,8 @@ def import_stream():
 
             # DAE aliases already resolved in alias_cache (Phase 4d)
             owner_alias_cache = alias_cache
+            daes_created = 0
+            daes_updated = 0
 
             # Pre-build InternalContact lookup for DAE upserts
             internal_contacts_by_alias: dict = {
@@ -2390,10 +2396,12 @@ def import_stream():
                                 )
                                 db.session.add(ic)
                                 internal_contacts_by_alias[alias] = ic
+                                daes_created += 1
                             elif alias and fullname:
                                 ic = internal_contacts_by_alias[alias]
                                 if ic.name != fullname:
                                     ic.name = fullname
+                                    daes_updated += 1
 
                         # Update available CSAMs (M2M) from MSX
                         acct_csam_list = account_csams.get(ad["id"], [])
@@ -2447,6 +2455,7 @@ def import_stream():
                                 )
                                 db.session.add(ic)
                                 internal_contacts_by_alias[alias] = ic
+                                daes_created += 1
                     # Available CSAMs (M2M)
                     acct_csam_list = account_csams.get(ad["id"], [])
                     for c in acct_csam_list:
@@ -2527,7 +2536,11 @@ def import_stream():
                     "sellers_updated": sellers_updated,
                     "solution_engineers_created": ses_created,
                     "dss_created": dss_created,
+                    "dss_updated": dss_updated,
                     "csams_created": csams_created,
+                    "csams_updated": csams_updated,
+                    "daes_created": daes_created,
+                    "daes_updated": daes_updated,
                     "verticals_created": verticals_created,
                     "customers_created": customers_created,
                     "customers_skipped": customers_skipped,
@@ -2541,7 +2554,10 @@ def import_stream():
                 f"Parallel MSX Import complete in {duration}s: "
                 f"{pods_created} PODs, {territories_created} territories, "
                 f"{sellers_created} sellers ({sellers_updated} updated), {ses_created} SEs, "
-                f"{csams_created} CSAMs, {verticals_created} verticals, "
+                f"{dss_created} DSSs ({dss_updated} updated), "
+                f"{csams_created} CSAMs ({csams_updated} updated), "
+                f"{daes_created} DAEs ({daes_updated} updated), "
+                f"{verticals_created} verticals, "
                 f"{customers_created} customers created, {customers_updated} updated, "
                 f"{customers_unchanged} unchanged, {customers_skipped} skipped"
             )

@@ -1526,6 +1526,9 @@ document.getElementById('importFromMsxBtn').addEventListener('click', async func
                                     <li>Territories: ${s.territories_created || 0} created</li>
                                     <li>Sellers: ${s.sellers_created || 0} created${s.sellers_updated ? ', ' + s.sellers_updated + ' updated' : ''}</li>
                                     <li>Solution Engineers: ${s.solution_engineers_created || 0} created</li>
+                                    <li>DSSs: ${s.dss_created || 0} created${s.dss_updated ? ', ' + s.dss_updated + ' updated' : ''}</li>
+                                    <li>CSAMs: ${s.csams_created || 0} created${s.csams_updated ? ', ' + s.csams_updated + ' updated' : ''}</li>
+                                    <li>DAEs: ${s.daes_created || 0} created${s.daes_updated ? ', ' + s.daes_updated + ' updated' : ''}</li>
                                     <li>Verticals: ${s.verticals_created || 0} created</li>
                                     <li>Customers: ${s.customers_created || 0} created${s.customers_updated ? ', ' + s.customers_updated + ' updated' : ''}${s.customers_unchanged ? ', ' + s.customers_unchanged + ' unchanged' : ''}${s.customers_skipped ? ', ' + s.customers_skipped + ' skipped' : ''}</li>
                                     ${s.duration ? '<li class="mt-1"><i class="bi bi-clock"></i> Completed in ' + s.duration + 's</li>' : ''}
