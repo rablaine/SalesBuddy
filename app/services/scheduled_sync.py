@@ -156,10 +156,25 @@ def _run_sync(app):
             if pref:
                 pref.last_milestone_sync = datetime.now(timezone.utc)
                 db.session.commit()
+
+            # Run marketing insights sync after milestone sync completes
+            _run_marketing_sync(app)
     except Exception:
         logger.exception("Error during milestone sync")
     finally:
         _sync_lock.release()
+
+
+def _run_marketing_sync(app):
+    """Run marketing insights sync in the current thread (already in app context)."""
+    try:
+        from app.services.marketing_sync import sync_marketing_stream
+        logger.info("Starting marketing insights sync (post-milestone)")
+        for _ in sync_marketing_stream():
+            pass  # Consume generator to completion
+        logger.info("Marketing insights sync complete")
+    except Exception:
+        logger.exception("Error during marketing insights sync")
 
 
 def start_milestone_sync_background(app):

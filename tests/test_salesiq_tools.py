@@ -209,6 +209,13 @@ class TestToolCoverage:
             'No tool covers milestones due soon. Add one to salesiq_tools.py.'
         )
 
+    def test_marketing_insights_tool_exists(self):
+        """Marketing insights should have a tool."""
+        names = self._tool_names()
+        assert any('marketing' in n for n in names), (
+            'No tool covers marketing insights. Add one to salesiq_tools.py.'
+        )
+
 
 class TestToolExecution:
     """Test that tools actually execute against the DB without errors."""

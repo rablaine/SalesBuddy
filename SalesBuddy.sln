@@ -1,0 +1,29 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.5.2.0
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "installer", "installer", "{1860D2E4-5C43-71D5-59A5-599A4DE1DF67}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SalesBuddy.CustomActions", "installer\SalesBuddy.CustomActions\SalesBuddy.CustomActions.csproj", "{731AF73D-1F91-0FD1-6D08-7B31B1FBBBC3}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{731AF73D-1F91-0FD1-6D08-7B31B1FBBBC3}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{731AF73D-1F91-0FD1-6D08-7B31B1FBBBC3}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{731AF73D-1F91-0FD1-6D08-7B31B1FBBBC3}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{731AF73D-1F91-0FD1-6D08-7B31B1FBBBC3}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{731AF73D-1F91-0FD1-6D08-7B31B1FBBBC3} = {1860D2E4-5C43-71D5-59A5-599A4DE1DF67}
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {14B68D9F-9E77-40BF-B8A5-579EAE0F70C7}
+	EndGlobalSection
+EndGlobal

@@ -2490,6 +2490,8 @@
                         showImportState('importMilestones', 'Success');
                         setWizardProgress(90);
                         updateNextButton();
+                        // Kick off background marketing insights sync (fire-and-forget)
+                        fetch('/api/msx/sync-marketing', { method: 'POST' }).catch(() => {});
                     } catch (err) {
                         const mMsg = err.message || 'Connection error during sync';
                         document.getElementById('importMilestonesErrorMsg').textContent = mMsg.charAt(0).toUpperCase() + mMsg.slice(1);

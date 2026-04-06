@@ -4365,3 +4365,203 @@ def get_seller_type_for_account(account_id: str, user_id: str) -> str:
         
     except Exception:
         return "Growth"
+
+
+# =============================================================================
+# Marketing Insights API Functions
+# =============================================================================
+
+def get_marketing_summary(tpid: str) -> Dict[str, Any]:
+    """Fetch account-level marketing summary from msp_marketingengagements.
+
+    Args:
+        tpid: Top Parent ID for the customer account.
+
+    Returns:
+        Dict with success flag and summary data. Counts are parsed from strings to ints.
+    """
+    try:
+        url = (
+            f"{CRM_BASE_URL}/msp_marketingengagements"
+            f"?$filter=msp_mstopparentid eq '{tpid}'"
+        )
+        response = _msx_request('GET', url)
+
+        if response.status_code == 200:
+            records = response.json().get('value', [])
+            if not records:
+                return {'success': True, 'data': None}
+
+            row = records[0]
+            def _parse_int(val: Any) -> int:
+                try:
+                    return int(val)
+                except (TypeError, ValueError):
+                    return 0
+
+            return {
+                'success': True,
+                'data': {
+                    'total_interactions': _parse_int(row.get('msp_marketinginteractions')),
+                    'content_downloads': _parse_int(row.get('msp_contentdownloads')),
+                    'trials': _parse_int(row.get('msp_trials')),
+                    'engaged_contacts': _parse_int(row.get('msp_engagedcontacts')),
+                    'unique_decision_makers': _parse_int(row.get('msp_uniquedecisionmakers')),
+                    'last_interaction_date': row.get('msp_lastinteractiondate'),
+                },
+            }
+
+        if response.status_code == 401:
+            return {'success': False, 'error': 'Not authenticated. Run az login first.'}
+        if response.status_code == 403 and is_vpn_blocked():
+            return {'success': False, 'error': 'VPN blocked', 'vpn_blocked': True}
+        return {'success': False, 'error': f'HTTP {response.status_code}'}
+    except Exception as e:
+        logger.exception(f"Error fetching marketing summary for TPID {tpid}")
+        return {'success': False, 'error': str(e)}
+
+
+def get_marketing_breakdown(tpid: str) -> Dict[str, Any]:
+    """Fetch per-sales-play marketing breakdown from msp_marketinginteractions.
+
+    Args:
+        tpid: Top Parent ID for the customer account.
+
+    Returns:
+        Dict with success flag and list of interaction rows.
+    """
+    try:
+        select_fields = ','.join([
+            'msp_tpid', 'msp_tpidsolutionareasalesplay',
+            'msp_salesplaycode', 'msp_solutionareacode',
+            'msp_allinteractions', 'msp_contacts', 'msp_trialsignups',
+            'msp_contentdownloads', 'msp_events', 'msp_uniquedecisionmakers',
+            'msp_highinteractioncontacts', 'msp_highinteractioncount',
+            'msp_highinteractionuniquedecisionmakers',
+            'msp_lastinteractiondate', 'msp_lasthighinteractiondate',
+        ])
+        url = (
+            f"{CRM_BASE_URL}/msp_marketinginteractions"
+            f"?$select={select_fields}"
+            f"&$filter=msp_tpid eq '{tpid}'"
+            f"&$orderby=msp_allinteractions desc"
+            f"&$top=100"
+        )
+        response = _msx_request('GET', url)
+
+        if response.status_code == 200:
+            rows = response.json().get('value', [])
+            interactions = []
+            for r in rows:
+                interactions.append({
+                    'composite_key': r.get('msp_tpidsolutionareasalesplay', ''),
+                    'solution_area': r.get(
+                        'msp_solutionareacode@OData.Community.Display.V1.FormattedValue',
+                        r.get('msp_solutionareacode', '')),
+                    'sales_play': r.get(
+                        'msp_salesplaycode@OData.Community.Display.V1.FormattedValue',
+                        r.get('msp_salesplaycode', '')),
+                    'all_interactions': r.get('msp_allinteractions', 0) or 0,
+                    'contact_me': r.get('msp_contacts', 0) or 0,
+                    'trial_signups': r.get('msp_trialsignups', 0) or 0,
+                    'content_downloads': r.get('msp_contentdownloads', 0) or 0,
+                    'events': r.get('msp_events', 0) or 0,
+                    'unique_decision_makers': r.get('msp_uniquedecisionmakers', 0) or 0,
+                    'high_interaction_contacts': r.get('msp_highinteractioncontacts', 0) or 0,
+                    'high_interaction_count': r.get('msp_highinteractioncount', 0) or 0,
+                    'last_interaction_date': r.get('msp_lastinteractiondate'),
+                    'last_high_interaction_date': r.get('msp_lasthighinteractiondate'),
+                })
+            return {'success': True, 'data': interactions}
+
+        if response.status_code == 401:
+            return {'success': False, 'error': 'Not authenticated. Run az login first.'}
+        if response.status_code == 403 and is_vpn_blocked():
+            return {'success': False, 'error': 'VPN blocked', 'vpn_blocked': True}
+        return {'success': False, 'error': f'HTTP {response.status_code}'}
+    except Exception as e:
+        logger.exception(f"Error fetching marketing breakdown for TPID {tpid}")
+        return {'success': False, 'error': str(e)}
+
+
+def get_marketing_contacts(tpid: str) -> Dict[str, Any]:
+    """Fetch contact-level marketing aggregates from contact entity msp_ fields.
+
+    Two-step query: look up account GUID from TPID, then query contacts.
+
+    Args:
+        tpid: Top Parent ID for the customer account.
+
+    Returns:
+        Dict with success flag and list of contact dicts.
+    """
+    try:
+        # Step 1: Look up account GUID from TPID
+        acct_url = (
+            f"{CRM_BASE_URL}/accounts"
+            f"?$select=accountid"
+            f"&$filter=msp_mstopparentid eq '{tpid}'"
+            f"&$top=1"
+        )
+        acct_resp = _msx_request('GET', acct_url)
+
+        if acct_resp.status_code != 200:
+            if acct_resp.status_code == 401:
+                return {'success': False, 'error': 'Not authenticated. Run az login first.'}
+            if acct_resp.status_code == 403 and is_vpn_blocked():
+                return {'success': False, 'error': 'VPN blocked', 'vpn_blocked': True}
+            return {'success': False, 'error': f'Account lookup HTTP {acct_resp.status_code}'}
+
+        acct_records = acct_resp.json().get('value', [])
+        if not acct_records:
+            return {'success': True, 'data': []}
+
+        account_guid = acct_records[0].get('accountid')
+        if not account_guid:
+            return {'success': True, 'data': []}
+
+        # Step 2: Query contacts with marketing fields
+        select_fields = ','.join([
+            'contactid', 'fullname', 'emailaddress1', 'jobtitle',
+            'msp_lastmarketinginteractiondate', 'msp_noofmailinteractions',
+            'msp_noofmeetinginteractions', 'msp_marketingaudiencecode',
+            'msp_salesengagementlevel', 'msp_lastsolutionareaengaged',
+        ])
+        contacts_url = (
+            f"{CRM_BASE_URL}/contacts"
+            f"?$select={select_fields}"
+            f"&$filter=_parentcustomerid_value eq {account_guid}"
+            f"&$orderby=msp_noofmailinteractions desc"
+            f"&$top=50"
+        )
+        contacts_resp = _msx_request('GET', contacts_url)
+
+        if contacts_resp.status_code != 200:
+            return {'success': False, 'error': f'Contacts HTTP {contacts_resp.status_code}'}
+
+        rows = contacts_resp.json().get('value', [])
+        contacts = []
+        for r in rows:
+            mail = r.get('msp_noofmailinteractions', 0) or 0
+            meeting = r.get('msp_noofmeetinginteractions', 0) or 0
+            if mail == 0 and meeting == 0:
+                continue  # Skip contacts with no marketing interactions
+            contacts.append({
+                'contact_guid': r.get('contactid', ''),
+                'contact_name': r.get('fullname', ''),
+                'job_title': r.get('jobtitle', ''),
+                'email': r.get('emailaddress1', ''),
+                'mail_interactions': mail,
+                'meeting_interactions': meeting,
+                'audience_type': r.get(
+                    'msp_marketingaudiencecode@OData.Community.Display.V1.FormattedValue', ''),
+                'engagement_level': r.get(
+                    'msp_salesengagementlevel@OData.Community.Display.V1.FormattedValue', ''),
+                'last_interaction_date': r.get('msp_lastmarketinginteractiondate'),
+                'last_solution_area': r.get(
+                    'msp_lastsolutionareaengaged@OData.Community.Display.V1.FormattedValue', ''),
+            })
+        return {'success': True, 'data': contacts}
+    except Exception as e:
+        logger.exception(f"Error fetching marketing contacts for TPID {tpid}")
+        return {'success': False, 'error': str(e)}

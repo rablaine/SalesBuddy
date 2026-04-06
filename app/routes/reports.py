@@ -7,6 +7,7 @@ from app.models import (
     SolutionEngineer, SyncStatus, MsxTask,
     Topic, RevenueAnalysis, HygieneNote, CustomerRevenueData, ProductRevenueData,
     notes_engagements, notes_milestones, notes_topics,
+    MarketingSummary, MarketingInteraction, MarketingContact,
 )
 from sqlalchemy import func, desc, or_
 
@@ -108,6 +109,17 @@ def reports_hub():
             'title': 'Meeting Prep',
             'icon': 'bi-people',
             'reports': [
+                {
+                    'id': 'marketing-insights',
+                    'name': 'Marketing Insights',
+                    'description': (
+                        'Marketing engagement data from MSX. See which accounts '
+                        'have active marketing activity, sales play breakdowns, '
+                        'and top engaged contacts.'
+                    ),
+                    'icon': 'bi-megaphone',
+                    'url': url_for('reports.report_marketing_insights'),
+                },
                 {
                     'id': 'one-on-one',
                     'name': '1:1 Manager / SE Report',
@@ -1322,3 +1334,61 @@ def api_msx_workspace_tasks():
         })
 
     return jsonify(tasks=results, count=len(results))
+
+
+@bp.route('/reports/marketing-insights')
+def report_marketing_insights():
+    """Marketing Insights report - shows synced marketing engagement data.
+
+    Displays account-level summary stats, per-sales-play breakdown,
+    and engaged contacts for all customers with marketing data.
+    """
+    # Get sync status
+    sync_status = SyncStatus.get_status('marketing')
+
+    # Customers with marketing data, ordered by total interactions desc
+    summaries = (
+        MarketingSummary.query
+        .join(Customer, MarketingSummary.customer_id == Customer.id)
+        .order_by(MarketingSummary.total_interactions.desc())
+        .all()
+    )
+
+    # Build per-customer data with interactions and contacts
+    customer_data = []
+    for s in summaries:
+        interactions = (
+            MarketingInteraction.query
+            .filter_by(customer_id=s.customer_id)
+            .order_by(MarketingInteraction.all_interactions.desc())
+            .all()
+        )
+        contacts = (
+            MarketingContact.query
+            .filter_by(customer_id=s.customer_id)
+            .order_by(
+                (MarketingContact.mail_interactions + MarketingContact.meeting_interactions).desc()
+            )
+            .limit(10)
+            .all()
+        )
+        customer_data.append({
+            'customer': s.customer,
+            'summary': s,
+            'interactions': interactions,
+            'contacts': contacts,
+        })
+
+    # Aggregate stats across all customers
+    total_customers = len(summaries)
+    total_interactions = sum(s.total_interactions for s in summaries)
+    total_contacts = sum(s.engaged_contacts for s in summaries)
+
+    return render_template(
+        'report_marketing_insights.html',
+        customer_data=customer_data,
+        total_customers=total_customers,
+        total_interactions=total_interactions,
+        total_contacts=total_contacts,
+        sync_status=sync_status,
+    )

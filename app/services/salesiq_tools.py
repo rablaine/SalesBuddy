@@ -1585,3 +1585,91 @@ def get_msx_workspace_milestones(**kwargs: Any) -> Any:
             for m in milestones
         ],
     }
+
+
+@tool(
+    'get_marketing_insights',
+    'Get marketing engagement data for a customer or across all customers. '
+    'Shows total interactions, content downloads, trials, engaged contacts, '
+    'and per-sales-play breakdowns.',
+    {
+        'type': 'object',
+        'properties': {
+            'customer_id': {
+                'type': 'integer',
+                'description': 'Get marketing insights for a specific customer.',
+            },
+        },
+    },
+)
+def get_marketing_insights(customer_id: int | None = None) -> dict:
+    """Return marketing engagement data."""
+    from app.models import MarketingSummary, MarketingInteraction, MarketingContact
+
+    if customer_id:
+        summary = MarketingSummary.query.filter_by(customer_id=customer_id).first()
+        if not summary:
+            return {'customer_id': customer_id, 'message': 'No marketing data synced for this customer.'}
+
+        interactions = (
+            MarketingInteraction.query
+            .filter_by(customer_id=customer_id)
+            .order_by(MarketingInteraction.all_interactions.desc())
+            .all()
+        )
+        contacts = (
+            MarketingContact.query
+            .filter_by(customer_id=customer_id)
+            .order_by(
+                (MarketingContact.mail_interactions + MarketingContact.meeting_interactions).desc()
+            )
+            .limit(10)
+            .all()
+        )
+        return {
+            'customer_id': customer_id,
+            'summary': {
+                'total_interactions': summary.total_interactions,
+                'content_downloads': summary.content_downloads,
+                'trials': summary.trials,
+                'engaged_contacts': summary.engaged_contacts,
+                'unique_decision_makers': summary.unique_decision_makers,
+            },
+            'sales_plays': [
+                {
+                    'solution_area': i.solution_area,
+                    'sales_play': i.sales_play,
+                    'interactions': i.all_interactions,
+                }
+                for i in interactions
+            ],
+            'top_contacts': [
+                {
+                    'name': c.contact_name,
+                    'title': c.job_title,
+                    'mail_interactions': c.mail_interactions,
+                    'meeting_interactions': c.meeting_interactions,
+                    'engagement_level': c.engagement_level,
+                }
+                for c in contacts
+            ],
+        }
+
+    # All customers summary
+    summaries = (
+        MarketingSummary.query
+        .order_by(MarketingSummary.total_interactions.desc())
+        .limit(20)
+        .all()
+    )
+    return {
+        'customers_with_data': len(summaries),
+        'top_customers': [
+            {
+                'customer_id': s.customer_id,
+                'total_interactions': s.total_interactions,
+                'engaged_contacts': s.engaged_contacts,
+            }
+            for s in summaries
+        ],
+    }

@@ -792,6 +792,35 @@ def api_milestone_sync_status():
     })
 
 
+@admin_bp.route('/api/admin/sync-status/<sync_type>', methods=['GET'])
+def api_sync_status(sync_type):
+    """Return the last sync status for a given sync type (accounts, marketing, etc.)."""
+    allowed = {'accounts', 'marketing', 'milestones', 'favicons'}
+    if sync_type not in allowed:
+        return jsonify({'error': 'Unknown sync type'}), 400
+    status = SyncStatus.get_status(sync_type)
+    result = {
+        'state': status['state'],
+        'completed_at': status['completed_at'].isoformat() if status['completed_at'] else None,
+        'items_synced': status['items_synced'],
+    }
+    # Marketing sync runs automatically after milestone sync (same MWF schedule)
+    if sync_type == 'marketing':
+        pref = UserPreference.query.first()
+        if pref:
+            sync_time = None
+            if pref.milestone_sync_hour is not None and pref.milestone_sync_minute is not None:
+                # Marketing runs ~10 min after milestone sync
+                total_min = pref.milestone_sync_hour * 60 + pref.milestone_sync_minute + 10
+                h, m = divmod(total_min, 60)
+                sync_time = f"{h:02d}:{m:02d}"
+            result['auto_sync_info'] = {
+                'enabled': bool(pref.milestone_auto_sync),
+                'sync_time': sync_time,
+            }
+    return jsonify(result)
+
+
 @admin_bp.route('/api/admin/tasks/milestone-sync/toggle', methods=['POST'])
 def api_milestone_sync_toggle():
     """Toggle milestone auto-sync on/off."""
@@ -799,6 +828,16 @@ def api_milestone_sync_toggle():
     if not pref:
         return jsonify({'success': False, 'error': 'No preferences found'}), 404
     pref.milestone_auto_sync = not pref.milestone_auto_sync
+    if pref.milestone_auto_sync:
+        # Assign a fresh random sync time within the valid range (9:30 AM - 4:30 PM)
+        import random
+        SYNC_START_HOUR = 9
+        SYNC_START_MINUTE = 30
+        SYNC_SLOT_COUNT = 84
+        slot = random.randint(0, SYNC_SLOT_COUNT - 1)
+        total_minutes = (SYNC_START_HOUR * 60 + SYNC_START_MINUTE) + slot * 5
+        pref.milestone_sync_hour = total_minutes // 60
+        pref.milestone_sync_minute = total_minutes % 60
     db.session.commit()
     return jsonify({'success': True, 'enabled': pref.milestone_auto_sync})
 

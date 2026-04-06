@@ -1936,3 +1936,104 @@ class HygieneNote(db.Model):
 
     def __repr__(self) -> str:
         return f'<HygieneNote {self.entity_type}:{self.entity_id}>'
+
+
+class MarketingSummary(db.Model):
+    """Account-level marketing engagement summary from MSX.
+
+    One row per customer (keyed by TPID). Sourced from the
+    msp_marketingengagements entity in Dynamics 365.
+    """
+    __tablename__ = 'marketing_summaries'
+
+    id = db.Column(db.Integer, primary_key=True)
+    customer_id = db.Column(db.Integer, db.ForeignKey('customers.id'), nullable=False)
+    tpid = db.Column(db.String(50), nullable=False)
+    total_interactions = db.Column(db.Integer, default=0)
+    content_downloads = db.Column(db.Integer, default=0)
+    trials = db.Column(db.Integer, default=0)
+    engaged_contacts = db.Column(db.Integer, default=0)
+    unique_decision_makers = db.Column(db.Integer, default=0)
+    last_interaction_date = db.Column(db.DateTime, nullable=True)
+    synced_at = db.Column(db.DateTime, default=utc_now)
+
+    customer = db.relationship('Customer', backref=db.backref(
+        'marketing_summary', uselist=False, cascade='all, delete-orphan'))
+
+    __table_args__ = (
+        db.UniqueConstraint('customer_id', name='uq_marketing_summary_customer'),
+    )
+
+    def __repr__(self) -> str:
+        return f'<MarketingSummary customer={self.customer_id} interactions={self.total_interactions}>'
+
+
+class MarketingInteraction(db.Model):
+    """Per-sales-play marketing interaction breakdown from MSX.
+
+    One row per TPID + solution area + sales play combination. Sourced from
+    the msp_marketinginteractions entity in Dynamics 365.
+    """
+    __tablename__ = 'marketing_interactions'
+
+    id = db.Column(db.Integer, primary_key=True)
+    customer_id = db.Column(db.Integer, db.ForeignKey('customers.id'), nullable=False)
+    tpid = db.Column(db.String(50), nullable=False)
+    composite_key = db.Column(db.String(200), nullable=False)  # msp_tpidsolutionareasalesplay
+    solution_area = db.Column(db.String(200), nullable=True)
+    sales_play = db.Column(db.String(200), nullable=True)
+    all_interactions = db.Column(db.Integer, default=0)
+    contact_me = db.Column(db.Integer, default=0)
+    trial_signups = db.Column(db.Integer, default=0)
+    content_downloads = db.Column(db.Integer, default=0)
+    events = db.Column(db.Integer, default=0)
+    unique_decision_makers = db.Column(db.Integer, default=0)
+    high_interaction_contacts = db.Column(db.Integer, default=0)
+    high_interaction_count = db.Column(db.Integer, default=0)
+    last_interaction_date = db.Column(db.DateTime, nullable=True)
+    last_high_interaction_date = db.Column(db.DateTime, nullable=True)
+    synced_at = db.Column(db.DateTime, default=utc_now)
+
+    customer = db.relationship('Customer', backref=db.backref(
+        'marketing_interactions', cascade='all, delete-orphan', lazy='dynamic'))
+
+    __table_args__ = (
+        db.UniqueConstraint('composite_key', name='uq_marketing_interaction_key'),
+    )
+
+    def __repr__(self) -> str:
+        return f'<MarketingInteraction {self.sales_play} interactions={self.all_interactions}>'
+
+
+class MarketingContact(db.Model):
+    """Per-contact marketing engagement aggregates from MSX.
+
+    One row per CRM-linked contact per customer. Sourced from contact entity
+    msp_ fields in Dynamics 365. Requires two-step query (account lookup
+    then contacts).
+    """
+    __tablename__ = 'marketing_contacts'
+
+    id = db.Column(db.Integer, primary_key=True)
+    customer_id = db.Column(db.Integer, db.ForeignKey('customers.id'), nullable=False)
+    contact_guid = db.Column(db.String(50), nullable=False)  # Dynamics contact GUID
+    contact_name = db.Column(db.String(200), nullable=True)
+    job_title = db.Column(db.String(200), nullable=True)
+    email = db.Column(db.String(255), nullable=True)
+    mail_interactions = db.Column(db.Integer, default=0)
+    meeting_interactions = db.Column(db.Integer, default=0)
+    audience_type = db.Column(db.String(200), nullable=True)
+    engagement_level = db.Column(db.String(100), nullable=True)
+    last_interaction_date = db.Column(db.DateTime, nullable=True)
+    last_solution_area = db.Column(db.String(200), nullable=True)
+    synced_at = db.Column(db.DateTime, default=utc_now)
+
+    customer = db.relationship('Customer', backref=db.backref(
+        'marketing_contacts', cascade='all, delete-orphan', lazy='dynamic'))
+
+    __table_args__ = (
+        db.UniqueConstraint('customer_id', 'contact_guid', name='uq_marketing_contact'),
+    )
+
+    def __repr__(self) -> str:
+        return f'<MarketingContact {self.contact_name} mail={self.mail_interactions}>'
