@@ -670,6 +670,26 @@
             height: auto;
             cursor: zoom-in;
         }
+        /* Table styling in note content */
+        .call-content table {
+            border-collapse: collapse;
+            width: 100%;
+            margin: 0.5em 0;
+            font-size: 0.9em;
+        }
+        .call-content th, .call-content td {
+            border: 1px solid var(--bs-border-color, #dee2e6);
+            padding: 6px 10px;
+            vertical-align: top;
+            color: inherit;
+        }
+        .call-content th {
+            background-color: rgba(128,128,128,0.15);
+            font-weight: 600;
+        }
+        .call-content tr:nth-child(even) {
+            background-color: rgba(128,128,128,0.06);
+        }
     </style>
     
     {% block extra_css %}{% endblock %}
