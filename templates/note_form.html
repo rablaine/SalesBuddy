@@ -7429,41 +7429,44 @@ function _buildEngCardHtml(engId) {
                 'open <i class="bi bi-box-arrow-up-right"></i></a>' +
         '</div>' +
         '<div class="card-body py-2">' +
-            '<div class="mb-2">' +
-                '<label class="form-label mb-0 small text-muted">Status</label>' +
-                '<select class="form-select form-select-sm eng-status">' +
-                    '<option value="Active">Active</option>' +
-                    '<option value="On Hold">On Hold</option>' +
-                    '<option value="Won">Won</option>' +
-                    '<option value="Lost">Lost</option>' +
-                '</select>' +
+            '<div class="row g-2 mb-2">' +
+                '<div class="col-6">' +
+                    '<label class="form-label mb-0 small text-muted">Status</label>' +
+                    '<select class="form-select form-select-sm eng-status">' +
+                        '<option value="Active">Active</option>' +
+                        '<option value="On Hold">On Hold</option>' +
+                        '<option value="Won">Won</option>' +
+                        '<option value="Lost">Lost</option>' +
+                    '</select>' +
+                '</div>' +
+                '<div class="col-6">' +
+                    '<label class="form-label mb-0 small text-muted">Key Individuals</label>' +
+                    '<textarea class="form-control form-control-sm eng-key-individuals" rows="1" placeholder="Jane (CTO), Bob (Infra)"></textarea>' +
+                '</div>' +
             '</div>' +
-            '<div class="mb-2">' +
-                '<label class="form-label mb-0 small text-muted">Key Individuals</label>' +
-                '<textarea class="form-control form-control-sm eng-key-individuals" rows="2" placeholder="Jane Smith (CTO), Bob (Infra Lead)"></textarea>' +
+            '<div class="row g-2 mb-2">' +
+                '<div class="col-6">' +
+                    '<label class="form-label mb-0 small text-muted">Technical/Business Problem</label>' +
+                    '<textarea class="form-control form-control-sm eng-tech-problem" rows="2" placeholder="What challenge are they facing?"></textarea>' +
+                '</div>' +
+                '<div class="col-6">' +
+                    '<label class="form-label mb-0 small text-muted">Business Impact</label>' +
+                    '<textarea class="form-control form-control-sm eng-biz-impact" rows="2" placeholder="How does this affect their business?"></textarea>' +
+                '</div>' +
             '</div>' +
-            '<div class="mb-2">' +
-                '<label class="form-label mb-0 small text-muted">Technical/Business Problem</label>' +
-                '<textarea class="form-control form-control-sm eng-tech-problem" rows="2" placeholder="What challenge are they facing?"></textarea>' +
-            '</div>' +
-            '<div class="mb-2">' +
-                '<label class="form-label mb-0 small text-muted">Business Impact</label>' +
-                '<textarea class="form-control form-control-sm eng-biz-impact" rows="2" placeholder="How does this affect their business?"></textarea>' +
-            '</div>' +
-            '<div class="mb-2">' +
-                '<label class="form-label mb-0 small text-muted">Solution Resources</label>' +
-                '<textarea class="form-control form-control-sm eng-solution" rows="2" placeholder="Azure Migrate, App Service, etc."></textarea>' +
-            '</div>' +
-            '<div class="row mb-2">' +
-                '<div class="col-7">' +
-                    '<label class="form-label mb-0 small text-muted">Est. $ACR (monthly)</label>' +
+            '<div class="row g-2 mb-2">' +
+                '<div class="col-6">' +
+                    '<label class="form-label mb-0 small text-muted">Solution Resources</label>' +
+                    '<textarea class="form-control form-control-sm eng-solution" rows="1" placeholder="Azure Migrate, App Service..."></textarea>' +
+                '</div>' +
+                '<div class="col-3">' +
+                    '<label class="form-label mb-0 small text-muted">Est. $ACR/mo</label>' +
                     '<div class="input-group input-group-sm">' +
                         '<span class="input-group-text">$</span>' +
                         '<input type="number" class="form-control eng-acr" placeholder="500" min="0" step="1">' +
-                        '<span class="input-group-text">/mo</span>' +
                     '</div>' +
                 '</div>' +
-                '<div class="col-5">' +
+                '<div class="col-3">' +
                     '<label class="form-label mb-0 small text-muted">Target Date</label>' +
                     '<input type="date" class="form-control form-control-sm eng-target-date">' +
                 '</div>' +
