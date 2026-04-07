@@ -288,7 +288,7 @@
                         <span class="{% if ms.urgency == 'past_due' %}text-danger fw-bold{% elif ms.urgency == 'this_week' %}text-warning fw-semibold{% endif %}">
                             {{ ms.due_date.strftime('%b %d, %Y') }}
                         </span>
-                        {% if ms.days_until_due is not none %}
+                        {% if ms.days_until_due is not none and ms.customer_commitment != 'Committed' %}
                             <div class="small {% if ms.urgency == 'past_due' %}text-danger{% elif ms.days_until_due <= 7 %}text-warning{% else %}text-muted{% endif %}">
                                 {% if ms.urgency == 'past_due' %}
                                     {{ (-ms.days_until_due) }}d overdue
