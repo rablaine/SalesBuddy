@@ -785,13 +785,21 @@ class Engagement(db.Model):
     title = db.Column(db.String(300), nullable=False)
     status = db.Column(db.String(50), nullable=False, default='Active')
 
-    # Story fields
+    # Story fields (human-authored)
     key_individuals = db.Column(db.Text, nullable=True)  # "I've been working with..."
     technical_problem = db.Column(db.Text, nullable=True)  # "...they have run into..."
     business_impact = db.Column(db.Text, nullable=True)  # "...and it's impacting..."
     solution_resources = db.Column(db.Text, nullable=True)  # "We are addressing the Opportunity with..."
     estimated_acr = db.Column(db.Integer, nullable=True)  # Monthly ACR in dollars
     target_date = db.Column(db.Date, nullable=True)  # "...by..."
+
+    # AI-generated story fields (written only by the Generate function)
+    ai_key_individuals = db.Column(db.Text, nullable=True)
+    ai_technical_problem = db.Column(db.Text, nullable=True)
+    ai_business_impact = db.Column(db.Text, nullable=True)
+    ai_solution_resources = db.Column(db.Text, nullable=True)
+    ai_estimated_acr = db.Column(db.Integer, nullable=True)
+    ai_target_date = db.Column(db.Date, nullable=True)
 
     created_at = db.Column(db.DateTime, default=utc_now, nullable=False)
     updated_at = db.Column(db.DateTime, default=utc_now, onupdate=utc_now, nullable=False)

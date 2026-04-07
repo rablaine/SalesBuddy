@@ -68,6 +68,9 @@
                     {% for partner in call.partners %}
                         <a href="{{ url_for('partners.partner_view', id=partner.id) }}" class="badge text-decoration-none" style="background-color: #6f42c1;" onclick="event.stopPropagation();"><i class="bi bi-building"></i> {{ partner.name }}</a>
                     {% endfor %}
+                    {% for eng in call.engagements %}
+                        <a href="{{ url_for('engagements.engagement_view', id=eng.id) }}" class="badge bg-success text-decoration-none" onclick="event.stopPropagation();"><i class="bi bi-diagram-3"></i> {{ eng.title }}</a>
+                    {% endfor %}
                     {% for opp in call.opportunities %}
                         <a href="{{ url_for('opportunities.opportunity_view', id=opp.id) }}" class="badge bg-info text-dark text-decoration-none" onclick="event.stopPropagation();" title="{{ opp.name }}">
                             <i class="bi bi-cash-stack"></i> {{ opp.name[:30] }}{% if opp.name|length > 30 %}...{% endif %}

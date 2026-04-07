@@ -253,7 +253,8 @@ def notes_list():
         db.joinedload(Note.customer).joinedload(Customer.seller),
         db.joinedload(Note.customer).joinedload(Customer.territory),
         db.joinedload(Note.topics),
-        db.joinedload(Note.partners)
+        db.joinedload(Note.partners),
+        db.joinedload(Note.engagements)
     )
     
     # Seller mode scoping
@@ -431,14 +432,8 @@ def note_create():
     preselect_customer_id = request.args.get('customer_id', type=int)
     
     preselect_customer = None
-    previous_calls = []
-    
     if preselect_customer_id:
-        # Load customer and their previous notes
         preselect_customer = Customer.query.filter_by(id=preselect_customer_id).first_or_404()
-        previous_calls = Note.query.filter_by(customer_id=preselect_customer_id).options(
-            db.joinedload(Note.topics)
-        ).order_by(Note.call_date.desc()).all()
     
     customers = Customer.query.order_by(Customer.name).all()
     sellers = Seller.query.order_by(Seller.name).all()
@@ -531,7 +526,6 @@ def note_create():
                          active_projects=active_projects,
                          project_types=Project.BUILT_IN_TYPES,
                          unattached_notes=unattached_notes,
-                         previous_calls=previous_calls,
                          referrer=referrer,
                          today=today,
                          now_time=now_time,
@@ -568,6 +562,65 @@ def note_detail_fragment(id):
         back_url='',
         show_edit_delete=False,
     )
+
+
+@notes_bp.route('/api/notes/related')
+def api_notes_related():
+    """Return related notes as JSON for the note form right column.
+
+    Query params:
+        customer_id - required customer ID
+        engagement_ids - comma-separated engagement IDs (optional)
+        exclude_note_id - note ID to exclude (optional, for edit mode)
+
+    If engagement_ids provided: returns notes linked to those engagements.
+    Otherwise: returns customer notes that have no engagements.
+    """
+    from app.models import Engagement, notes_engagements
+    customer_id = request.args.get('customer_id', type=int)
+    if not customer_id:
+        return jsonify([])
+
+    exclude_note_id = request.args.get('exclude_note_id', type=int)
+    eng_ids_str = request.args.get('engagement_ids', '')
+    engagement_ids = [int(x) for x in eng_ids_str.split(',') if x.strip()]
+
+    if engagement_ids:
+        # Notes linked to any of the selected engagements
+        query = (
+            Note.query
+            .filter(Note.customer_id == customer_id)
+            .filter(Note.engagements.any(Engagement.id.in_(engagement_ids)))
+            .options(db.joinedload(Note.topics))
+            .order_by(Note.call_date.desc())
+        )
+    else:
+        # Customer notes with no engagement links
+        query = (
+            Note.query
+            .filter(Note.customer_id == customer_id)
+            .filter(~Note.engagements.any())
+            .options(db.joinedload(Note.topics))
+            .order_by(Note.call_date.desc())
+        )
+
+    if exclude_note_id:
+        query = query.filter(Note.id != exclude_note_id)
+
+    notes = query.limit(50).all()
+    result = []
+    for n in notes:
+        result.append({
+            'id': n.id,
+            'call_date': n.call_date.strftime('%b %d, %Y') if n.call_date else '',
+            'call_time': (
+                n.call_date.strftime('%I:%M %p')
+                if n.call_date and (n.call_date.hour or n.call_date.minute) else ''
+            ),
+            'topics': [{'name': t.name} for t in n.topics],
+            'content': n.content or '',
+        })
+    return jsonify(result)
 
 
 @notes_bp.route('/note/<int:id>/edit', methods=['GET', 'POST'])
