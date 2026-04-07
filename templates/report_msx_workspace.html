@@ -578,7 +578,8 @@
         if (selectedStatuses.length) params.set('status', selectedStatuses.join(','));
 
         if (msOppFilter.value) params.set('opportunity_id', msOppFilter.value);
-        if (msWorkloadFilter.value) params.set('workload_area', msWorkloadFilter.value);
+        const workloadArea = msWorkloadFilter.value || localStorage.getItem('msxWsMsWorkload') || '';
+        if (workloadArea) params.set('workload_area', workloadArea);
 
         document.getElementById('msBody').innerHTML = '<tr><td colspan="10" class="text-center py-3"><div class="spinner-border spinner-border-sm"></div> Loading...</td></tr>';
 
@@ -611,7 +612,7 @@
     function populateWorkloadFilter() {
         const areas = new Set();
         msData.forEach(m => { if (m.workload_area) areas.add(m.workload_area); });
-        const current = msWorkloadFilter.value;
+        const current = msWorkloadFilter.value || localStorage.getItem('msxWsMsWorkload') || '';
         msWorkloadFilter.innerHTML = '<option value="">All Areas</option>';
         [...areas].sort((a, b) => a.localeCompare(b)).forEach(a => {
             msWorkloadFilter.innerHTML += `<option value="${escHtml(a)}">${escHtml(a)}</option>`;
@@ -1095,10 +1096,6 @@
         const savedMsSort = JSON.parse(localStorage.getItem('msxWsMsSort'));
         if (savedMsSort) { msSortField = savedMsSort.f || ''; msSortDir = savedMsSort.d || 'asc'; }
     } catch(e) {}
-
-    // Restore workload area filter from localStorage
-    const savedWorkload = localStorage.getItem('msxWsMsWorkload');
-    if (savedWorkload) msWorkloadFilter.value = savedWorkload;
 
     // Set initial button label
     updateMsStatusBtnLabel();
