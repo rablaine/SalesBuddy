@@ -66,8 +66,8 @@
 {% include 'partials/msx_auth_banner.html' %}
 {% endif %}
 
-<div class="row{% if is_general_note %} justify-content-center{% endif %}">
-    <div class="col-md-{% if not is_general_note %}6{% else %}10{% endif %}">
+<div id="noteFormRow" class="row{% if is_general_note %} justify-content-center{% endif %}">
+    <div id="noteFormLeftCol" class="col-md-{% if not is_general_note %}6{% else %}10{% endif %}">
         <div class="d-flex justify-content-between align-items-center mb-4">
             <h1 class="mb-0">
                 {% if is_general_note %}
@@ -677,7 +677,7 @@
     {% endif %}
 
     {% if not is_general_note %}
-    <div class="col-md-6">
+    <div id="noteFormRightCol" class="col-md-6">
         <!-- Inline Engagement Details (dynamically populated) -->
         <div id="inlineEngContainer"></div>
 
@@ -7534,6 +7534,27 @@ function _loadEngCard(card, engId) {
         });
 }
 
+function _updateColumnLayout() {
+    var row = document.getElementById('noteFormRow');
+    var leftCol = document.getElementById('noteFormLeftCol');
+    var rightCol = document.getElementById('noteFormRightCol');
+    if (!row || !leftCol || !rightCol) return;
+
+    var hasEngCards = rightCol.querySelectorAll('.inline-eng-card').length > 0;
+    var hasPrevCalls = rightCol.querySelector('.previous-calls-card') !== null;
+    var rightHasContent = hasEngCards || hasPrevCalls;
+
+    if (rightHasContent) {
+        leftCol.className = 'col-md-6';
+        rightCol.style.display = '';
+        row.classList.remove('justify-content-center');
+    } else {
+        leftCol.className = 'col-md-10';
+        rightCol.style.display = 'none';
+        row.classList.add('justify-content-center');
+    }
+}
+
 function syncInlineEngPanel() {
     var container = document.getElementById('inlineEngContainer');
     if (!container) return;
@@ -7576,6 +7597,9 @@ function syncInlineEngPanel() {
         var card = container.querySelector('.inline-eng-card[data-eng-id="' + engId + '"]');
         if (card) container.appendChild(card);
     });
+
+    // Dynamically toggle column layout based on right-column content
+    _updateColumnLayout();
 }
 
 // Event delegation for auto-save on inline engagement field changes
