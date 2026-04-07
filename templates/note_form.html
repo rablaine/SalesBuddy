@@ -51,18 +51,6 @@
 {% set is_general_note = not preselect_customer_id and not (note and note.customer_id) %}
 
 {% if not is_general_note %}
-<style>
-    /* Widen container for 2-column layout */
-    main.container {
-        max-width: min(100%, 1900px) !important;
-        padding-left: 2rem !important;
-        padding-right: 2rem !important;
-        width: 100% !important;
-    }
-</style>
-{% endif %}
-
-{% if not is_general_note %}
 {% include 'partials/msx_auth_banner.html' %}
 {% endif %}
 
