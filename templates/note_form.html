@@ -5537,6 +5537,21 @@ function saveDraft() {
             href: a.href,
             taskId: a.getAttribute('data-task-id') || null
         })),
+        inlineEngagement: (function() {
+            var engIdEl = document.getElementById('inlineEngId');
+            if (!engIdEl || !engIdEl.value) return null;
+            return {
+                id: engIdEl.value,
+                title: document.getElementById('inlineEngHeaderTitle').textContent.trim(),
+                status: document.getElementById('inlineEngStatus').value,
+                key_individuals: document.getElementById('inlineEngKeyIndividuals').value,
+                technical_problem: document.getElementById('inlineEngTechProblem').value,
+                business_impact: document.getElementById('inlineEngBizImpact').value,
+                solution_resources: document.getElementById('inlineEngSolution').value,
+                estimated_acr: document.getElementById('inlineEngAcr').value,
+                target_date: document.getElementById('inlineEngTargetDate').value
+            };
+        })(),
         task: taskData,
         pendingTaskSuggestion: pendingTaskSuggestion || null,
         note_id: {% if note %}{{ note.id }}{% else %}null{% endif %},
@@ -5672,6 +5687,25 @@ function restoreDraft() {
                 // Show engagement section if hidden
                 var engSection = document.getElementById('engagementSection');
                 if (engSection) engSection.style.display = '';
+            }
+        }
+
+        // Restore inline engagement panel fields from draft
+        if (draft.inlineEngagement && draft.inlineEngagement.id) {
+            var card = document.getElementById('inlineEngCard');
+            if (card) {
+                document.getElementById('inlineEngId').value = draft.inlineEngagement.id;
+                document.getElementById('inlineEngHeaderTitle').textContent = draft.inlineEngagement.title || 'Engagement';
+                document.getElementById('inlineEngViewLink').href = '/engagement/' + draft.inlineEngagement.id;
+                document.getElementById('inlineEngStatus').value = draft.inlineEngagement.status || 'Active';
+                document.getElementById('inlineEngKeyIndividuals').value = draft.inlineEngagement.key_individuals || '';
+                document.getElementById('inlineEngTechProblem').value = draft.inlineEngagement.technical_problem || '';
+                document.getElementById('inlineEngBizImpact').value = draft.inlineEngagement.business_impact || '';
+                document.getElementById('inlineEngSolution').value = draft.inlineEngagement.solution_resources || '';
+                document.getElementById('inlineEngAcr').value = draft.inlineEngagement.estimated_acr || '';
+                document.getElementById('inlineEngTargetDate').value = draft.inlineEngagement.target_date || '';
+                card.style.display = '';
+                // Clean state will be set by syncInlineEngPanel on page load
             }
         }
 
@@ -7445,7 +7479,7 @@ function isInlineEngDirty() {
     return _inlineEngCleanState !== _getInlineEngState();
 }
 
-function syncInlineEngPanel() {
+function syncInlineEngPanel(skipFetch) {
     var card = document.getElementById('inlineEngCard');
     if (!card) return;
     var hiddenSelect = document.getElementById('engagement_ids');
@@ -7462,8 +7496,15 @@ function syncInlineEngPanel() {
     var engId = selected[0].value;
     var currentId = document.getElementById('inlineEngId').value;
     if (engId === currentId) {
-        // Already loaded
+        // Already loaded (or restored from draft) - initialize clean state if needed
         card.style.display = '';
+        if (!_inlineEngCleanState) _inlineEngCleanState = _getInlineEngState();
+        return;
+    }
+    // If draft already populated this engagement, just show the card
+    if (skipFetch && currentId) {
+        card.style.display = '';
+        if (!_inlineEngCleanState) _inlineEngCleanState = _getInlineEngState();
         return;
     }
     // Auto-save previous engagement if dirty before loading new one
@@ -7490,6 +7531,16 @@ function syncInlineEngPanel() {
             console.error('Failed to load engagement:', err);
         });
 }
+
+// Wire up draft auto-save on inline engagement field changes
+['inlineEngStatus', 'inlineEngKeyIndividuals', 'inlineEngTechProblem',
+ 'inlineEngBizImpact', 'inlineEngSolution', 'inlineEngAcr', 'inlineEngTargetDate'].forEach(function(id) {
+    var el = document.getElementById(id);
+    if (el) {
+        el.addEventListener('input', function() { if (typeof debouncedAutoSave === 'function') debouncedAutoSave(); });
+        el.addEventListener('change', function() { if (typeof debouncedAutoSave === 'function') debouncedAutoSave(); });
+    }
+});
 
 function saveInlineEngagement() {
     var engId = document.getElementById('inlineEngId').value;
