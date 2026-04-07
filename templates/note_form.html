@@ -33,14 +33,6 @@
 </style>
 {% if not note and previous_calls %}
 <style>
-    /* Override container for full-width layout when showing previous calls */
-    main.container {
-        max-width: min(100%, 1900px) !important;
-        padding-left: 2rem !important;
-        padding-right: 2rem !important;
-        width: 100% !important;
-    }
-    
     /* Previous calls section styling */
     .previous-calls-card {
         display: flex;
@@ -59,10 +51,22 @@
 {% set is_general_note = not preselect_customer_id and not (note and note.customer_id) %}
 
 {% if not is_general_note %}
+<style>
+    /* Widen container for 2-column layout */
+    main.container {
+        max-width: min(100%, 1900px) !important;
+        padding-left: 2rem !important;
+        padding-right: 2rem !important;
+        width: 100% !important;
+    }
+</style>
+{% endif %}
+
+{% if not is_general_note %}
 {% include 'partials/msx_auth_banner.html' %}
 {% endif %}
 
-<div class="row">
+<div class="row{% if is_general_note %} justify-content-center{% endif %}">
     <div class="col-md-{% if not is_general_note %}6{% else %}10{% endif %}">
         <div class="d-flex justify-content-between align-items-center mb-4">
             <h1 class="mb-0">
