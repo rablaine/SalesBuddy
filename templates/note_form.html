@@ -5705,8 +5705,14 @@ function restoreDraft() {
                 document.getElementById('inlineEngAcr').value = draft.inlineEngagement.estimated_acr || '';
                 document.getElementById('inlineEngTargetDate').value = draft.inlineEngagement.target_date || '';
                 card.style.display = '';
-                // Clean state will be set by syncInlineEngPanel on page load
+                // Clean state will be set by syncInlineEngPanel below
             }
+        }
+
+        // Trigger inline engagement panel sync (handles both draft-populated
+        // and legacy drafts that only have engagementIds without field data)
+        if (typeof syncInlineEngPanel === 'function') {
+            syncInlineEngPanel();
         }
 
         // Restore project selection (general notes)
