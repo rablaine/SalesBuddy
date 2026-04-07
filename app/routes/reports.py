@@ -1426,7 +1426,6 @@ def report_u2c():
 
     # Determine which snapshot to show
     selected_fq = request.args.get('fq')
-    workload_filter = request.args.get('workload', '')
     current_fq = current_fiscal_quarter()
 
     snapshot = None
@@ -1443,7 +1442,7 @@ def report_u2c():
 
     if snapshot:
         workload_prefixes = get_workload_prefixes(snapshot.id)
-        attainment = get_attainment(snapshot.id, workload_filter or None)
+        attainment = get_attainment(snapshot.id)
 
     # Check milestone sync freshness (relevant when no snapshot exists yet)
     from app.models import UserPreference
@@ -1466,7 +1465,6 @@ def report_u2c():
         snapshot=snapshot,
         attainment=attainment,
         workload_prefixes=workload_prefixes,
-        workload_filter=workload_filter,
         current_fq=current_fq,
         last_milestone_sync=last_sync,
         milestones_fresh=milestones_fresh,

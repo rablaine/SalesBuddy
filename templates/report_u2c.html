@@ -32,10 +32,10 @@
             {% if workload_prefixes %}
             <div class="d-flex align-items-center gap-2">
                 <label class="small text-muted fw-semibold mb-0">Workload:</label>
-                <select name="workload" class="form-select form-select-sm" style="width: auto;" onchange="this.form.submit()">
+                <select id="workloadFilter" class="form-select form-select-sm" style="width: auto;" onchange="applyWorkloadFilter()">
                     <option value="">All workloads</option>
                     {% for prefix in workload_prefixes %}
-                    <option value="{{ prefix }}" {% if workload_filter == prefix %}selected{% endif %}>{{ prefix }}</option>
+                    <option value="{{ prefix }}">{{ prefix }}</option>
                     {% endfor %}
                 </select>
             </div>
@@ -92,34 +92,32 @@
 
 {% if attainment %}
 <!-- Attainment Summary Cards -->
-<div class="row g-3 mb-4">
+<div class="row g-3 mb-4" id="summaryCards">
     <div class="col-md-3">
         <div class="card text-center h-100">
             <div class="card-body">
-                <h3 class="mb-1">${{ "{:,.0f}".format(attainment.target_total) }}</h3>
+                <h3 class="mb-1" id="cardTarget">${{ "{:,.0f}".format(attainment.target_total) }}</h3>
                 <small class="text-muted">Target Monthly ACR</small>
-                <div class="small text-muted mt-1">{{ attainment.total_in_scope }} milestones in scope</div>
+                <div class="small text-muted mt-1" id="cardTargetSub">{{ attainment.total_in_scope }} milestones in scope</div>
             </div>
         </div>
     </div>
     <div class="col-md-3">
         <div class="card text-center h-100">
             <div class="card-body">
-                <h3 class="mb-1 text-success">${{ "{:,.0f}".format(attainment.committed_total) }}</h3>
+                <h3 class="mb-1 text-success" id="cardCommitted">${{ "{:,.0f}".format(attainment.committed_total) }}</h3>
                 <small class="text-muted">Committed ACR</small>
-                <div class="small text-muted mt-1">{{ attainment.committed_count }} milestones committed</div>
+                <div class="small text-muted mt-1" id="cardCommittedSub">{{ attainment.committed_count }} milestones committed</div>
             </div>
         </div>
     </div>
     <div class="col-md-3">
         <div class="card text-center h-100">
             <div class="card-body">
-                <h3 class="mb-1 {% if attainment.attainment_pct >= 100 %}text-success{% elif attainment.attainment_pct >= 50 %}text-primary{% else %}text-warning{% endif %}">
-                    {{ attainment.attainment_pct }}%
-                </h3>
+                <h3 class="mb-1" id="cardPct">{{ attainment.attainment_pct }}%</h3>
                 <small class="text-muted">Attainment</small>
                 <div class="progress mt-2" style="height: 8px;">
-                    <div class="progress-bar {% if attainment.attainment_pct >= 100 %}bg-success{% elif attainment.attainment_pct >= 50 %}bg-primary{% else %}bg-warning{% endif %}"
+                    <div id="cardPctBar" class="progress-bar"
                          style="width: {{ [attainment.attainment_pct, 100]|min }}%"></div>
                 </div>
             </div>
@@ -128,9 +126,9 @@
     <div class="col-md-3">
         <div class="card text-center h-100">
             <div class="card-body">
-                <h3 class="mb-1 text-warning">${{ "{:,.0f}".format(attainment.target_total - attainment.committed_total) }}</h3>
+                <h3 class="mb-1 text-warning" id="cardRemaining">${{ "{:,.0f}".format(attainment.target_total - attainment.committed_total) }}</h3>
                 <small class="text-muted">Remaining ACR</small>
-                <div class="small text-muted mt-1">{{ attainment.remaining_count }} milestones to go</div>
+                <div class="small text-muted mt-1" id="cardRemainingSub">{{ attainment.remaining_count }} milestones to go</div>
             </div>
         </div>
     </div>
@@ -138,10 +136,10 @@
 
 <!-- Remaining Milestones (need to commit) -->
 {% if attainment.remaining_items %}
-<div class="card mb-4">
+<div class="card mb-4" id="remainingCard">
     <div class="card-header d-flex justify-content-between align-items-center">
         <h5 class="mb-0"><i class="bi bi-hourglass-split text-warning"></i> Remaining - Still Need to Commit</h5>
-        <span class="badge bg-warning text-dark">{{ attainment.remaining_count }} milestones - ${{ "{:,.0f}".format(attainment.target_total - attainment.committed_total) }}/mo</span>
+        <span class="badge bg-warning text-dark" id="remainingBadge">{{ attainment.remaining_count }} milestones - ${{ "{:,.0f}".format(attainment.target_total - attainment.committed_total) }}/mo</span>
     </div>
     <div class="table-responsive">
         <table class="table table-hover mb-0">
@@ -155,9 +153,9 @@
                     <th>Current Status</th>
                 </tr>
             </thead>
-            <tbody>
+            <tbody id="remainingBody">
                 {% for item in attainment.remaining_items %}
-                <tr>
+                <tr data-workload="{{ item.workload or '' }}" data-acr="{{ item.monthly_acr }}">
                     <td>
                         {% if item.customer_id %}
                         <a href="{{ url_for('customers.customer_view', id=item.customer_id) }}">
@@ -203,10 +201,10 @@
 
 <!-- Committed Milestones (attained) -->
 {% if attainment.committed_items %}
-<div class="card mb-4">
+<div class="card mb-4" id="committedCard">
     <div class="card-header d-flex justify-content-between align-items-center">
         <h5 class="mb-0"><i class="bi bi-check-circle text-success"></i> Committed - Attained</h5>
-        <span class="badge bg-success">{{ attainment.committed_count }} milestones - ${{ "{:,.0f}".format(attainment.committed_total) }}/mo</span>
+        <span class="badge bg-success" id="committedBadge">{{ attainment.committed_count }} milestones - ${{ "{:,.0f}".format(attainment.committed_total) }}/mo</span>
     </div>
     <div class="table-responsive">
         <table class="table table-hover mb-0">
@@ -220,9 +218,9 @@
                     <th>Status</th>
                 </tr>
             </thead>
-            <tbody>
+            <tbody id="committedBody">
                 {% for item in attainment.committed_items %}
-                <tr>
+                <tr data-workload="{{ item.workload or '' }}" data-acr="{{ item.monthly_acr }}">
                     <td>
                         {% if item.customer_id %}
                         <a href="{{ url_for('customers.customer_view', id=item.customer_id) }}">
@@ -289,11 +287,7 @@
         <i class="bi bi-check-circle display-1 text-success"></i>
         <h4 class="mt-3">No Milestones in Scope</h4>
         <p class="text-muted">
-            {% if workload_filter %}
-            No milestones with workload prefix "{{ workload_filter }}" and due dates in {{ snapshot.fiscal_quarter }}. Try a different workload filter.
-            {% else %}
             No uncommitted milestones with due dates in {{ snapshot.fiscal_quarter }} were captured in this snapshot.
-            {% endif %}
         </p>
     </div>
 </div>
@@ -303,6 +297,91 @@
 
 {% block extra_js %}
 <script>
+// Workload filter - client-side with localStorage persistence
+const STORAGE_KEY = 'u2c_workload_filter';
+
+function applyWorkloadFilter() {
+    const sel = document.getElementById('workloadFilter');
+    if (!sel) return;
+    const prefix = sel.value;
+
+    // Persist selection
+    if (prefix) {
+        localStorage.setItem(STORAGE_KEY, prefix);
+    } else {
+        localStorage.removeItem(STORAGE_KEY);
+    }
+
+    // Filter rows in both tables
+    let remainingAcr = 0, remainingCount = 0;
+    let committedAcr = 0, committedCount = 0;
+
+    document.querySelectorAll('#remainingBody tr[data-workload]').forEach(row => {
+        const wl = row.dataset.workload;
+        const match = !prefix || wl.startsWith(prefix + ':') || wl.startsWith(prefix + ' ');
+        row.style.display = match ? '' : 'none';
+        if (match) {
+            remainingAcr += parseFloat(row.dataset.acr) || 0;
+            remainingCount++;
+        }
+    });
+
+    document.querySelectorAll('#committedBody tr[data-workload]').forEach(row => {
+        const wl = row.dataset.workload;
+        const match = !prefix || wl.startsWith(prefix + ':') || wl.startsWith(prefix + ' ');
+        row.style.display = match ? '' : 'none';
+        if (match) {
+            committedAcr += parseFloat(row.dataset.acr) || 0;
+            committedCount++;
+        }
+    });
+
+    const targetAcr = remainingAcr + committedAcr;
+    const totalCount = remainingCount + committedCount;
+    const pct = targetAcr > 0 ? Math.round(committedAcr / targetAcr * 1000) / 10 : 0;
+
+    // Update summary cards
+    const fmt = v => '$' + Math.round(v).toLocaleString('en-US');
+    const el = id => document.getElementById(id);
+
+    if (el('cardTarget')) el('cardTarget').textContent = fmt(targetAcr);
+    if (el('cardTargetSub')) el('cardTargetSub').textContent = totalCount + ' milestones in scope';
+    if (el('cardCommitted')) el('cardCommitted').textContent = fmt(committedAcr);
+    if (el('cardCommittedSub')) el('cardCommittedSub').textContent = committedCount + ' milestones committed';
+    if (el('cardRemaining')) el('cardRemaining').textContent = fmt(remainingAcr);
+    if (el('cardRemainingSub')) el('cardRemainingSub').textContent = remainingCount + ' milestones to go';
+
+    // Attainment % + color
+    if (el('cardPct')) {
+        el('cardPct').textContent = pct + '%';
+        el('cardPct').className = 'mb-1 ' + (pct >= 100 ? 'text-success' : pct >= 50 ? 'text-primary' : 'text-warning');
+    }
+    if (el('cardPctBar')) {
+        el('cardPctBar').style.width = Math.min(pct, 100) + '%';
+        el('cardPctBar').className = 'progress-bar ' + (pct >= 100 ? 'bg-success' : pct >= 50 ? 'bg-primary' : 'bg-warning');
+    }
+
+    // Update table header badges
+    if (el('remainingBadge')) el('remainingBadge').textContent = remainingCount + ' milestones - ' + fmt(remainingAcr) + '/mo';
+    if (el('committedBadge')) el('committedBadge').textContent = committedCount + ' milestones - ' + fmt(committedAcr) + '/mo';
+
+    // Show/hide empty cards
+    if (el('remainingCard')) el('remainingCard').style.display = remainingCount > 0 ? '' : 'none';
+    if (el('committedCard')) el('committedCard').style.display = committedCount > 0 ? '' : 'none';
+}
+
+// Restore filter from localStorage on page load
+document.addEventListener('DOMContentLoaded', function() {
+    const sel = document.getElementById('workloadFilter');
+    if (sel) {
+        const saved = localStorage.getItem(STORAGE_KEY);
+        if (saved && [...sel.options].some(o => o.value === saved)) {
+            sel.value = saved;
+            applyWorkloadFilter();
+        }
+    }
+});
+
 function createSnapshot() {
     const btn = document.getElementById('createSnapshotBtn');
     if (btn) {
