@@ -7290,7 +7290,8 @@ function createEngTask() {
     .then(function(data) {
         if (data.success) {
             var task = data.task;
-            // Close flyout
+            // Clear dirty state before hide so the close guard doesn't fire
+            _engTaskCleanState = _getEngTaskFormState();
             if (_engTaskFlyoutInstance) _engTaskFlyoutInstance.hide();
             _resetEngTaskFlyout();
             // Add badge to toolbar area
