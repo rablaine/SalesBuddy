@@ -131,7 +131,7 @@
                 <option value="">All Opportunities</option>
             </select>
             <select id="msWorkloadFilter" class="form-select form-select-sm" style="width: 200px;">
-                <option value="">All Workloads</option>
+                <option value="">All Areas</option>
             </select>
         </div>
         <div class="table-responsive">
@@ -578,7 +578,7 @@
         if (selectedStatuses.length) params.set('status', selectedStatuses.join(','));
 
         if (msOppFilter.value) params.set('opportunity_id', msOppFilter.value);
-        if (msWorkloadFilter.value) params.set('workload', msWorkloadFilter.value);
+        if (msWorkloadFilter.value) params.set('workload_area', msWorkloadFilter.value);
 
         document.getElementById('msBody').innerHTML = '<tr><td colspan="10" class="text-center py-3"><div class="spinner-border spinner-border-sm"></div> Loading...</td></tr>';
 
@@ -609,12 +609,12 @@
     }
 
     function populateWorkloadFilter() {
-        const workloads = new Set();
-        msData.forEach(m => { if (m.workload) workloads.add(m.workload); });
+        const areas = new Set();
+        msData.forEach(m => { if (m.workload_area) areas.add(m.workload_area); });
         const current = msWorkloadFilter.value;
-        msWorkloadFilter.innerHTML = '<option value="">All Workloads</option>';
-        [...workloads].sort((a, b) => a.localeCompare(b)).forEach(w => {
-            msWorkloadFilter.innerHTML += `<option value="${escHtml(w)}">${escHtml(w)}</option>`;
+        msWorkloadFilter.innerHTML = '<option value="">All Areas</option>';
+        [...areas].sort((a, b) => a.localeCompare(b)).forEach(a => {
+            msWorkloadFilter.innerHTML += `<option value="${escHtml(a)}">${escHtml(a)}</option>`;
         });
         msWorkloadFilter.value = current;
     }
@@ -1040,6 +1040,7 @@
         msSortField = MS_SORT_DEFAULT.f; msSortDir = MS_SORT_DEFAULT.d;
         localStorage.removeItem('msxWsOppSort');
         localStorage.removeItem('msxWsMsSort');
+        localStorage.removeItem('msxWsMsWorkload');
         applyAll();
     });
 
@@ -1051,7 +1052,11 @@
     document.getElementById('msStatusNone').addEventListener('click', () => { msStatusFilter.querySelectorAll('.ms-status-cb').forEach(cb => cb.checked = false); updateMsStatusBtnLabel(); loadMilestones(); });
     msTeamFilter.addEventListener('change', loadMilestones);
     msOppFilter.addEventListener('change', loadMilestones);
-    msWorkloadFilter.addEventListener('change', loadMilestones);
+    msWorkloadFilter.addEventListener('change', () => {
+        if (msWorkloadFilter.value) localStorage.setItem('msxWsMsWorkload', msWorkloadFilter.value);
+        else localStorage.removeItem('msxWsMsWorkload');
+        loadMilestones();
+    });
 
     // Enter key in search
     filterSearch.addEventListener('keydown', e => { if (e.key === 'Enter') applyAll(); });
@@ -1090,6 +1095,10 @@
         const savedMsSort = JSON.parse(localStorage.getItem('msxWsMsSort'));
         if (savedMsSort) { msSortField = savedMsSort.f || ''; msSortDir = savedMsSort.d || 'asc'; }
     } catch(e) {}
+
+    // Restore workload area filter from localStorage
+    const savedWorkload = localStorage.getItem('msxWsMsWorkload');
+    if (savedWorkload) msWorkloadFilter.value = savedWorkload;
 
     // Set initial button label
     updateMsStatusBtnLabel();

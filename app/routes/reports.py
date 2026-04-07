@@ -1241,7 +1241,7 @@ def api_msx_workspace_milestones():
     opportunity_id = request.args.get('opportunity_id', type=int)
     status_filter = request.args.get('status', '')  # comma-separated
     team_filter = request.args.get('team', '')  # 'on', 'off', or ''
-    workload_filter = request.args.get('workload', '').strip()
+    workload_area_filter = request.args.get('workload_area', '').strip()
     search = request.args.get('search', '').strip()
 
     query = Milestone.query
@@ -1267,8 +1267,8 @@ def api_msx_workspace_milestones():
     elif team_filter == 'off':
         query = query.filter(Milestone.on_my_team.is_(False))
 
-    if workload_filter:
-        query = query.filter(Milestone.workload == workload_filter)
+    if workload_area_filter:
+        query = query.filter(Milestone.workload.like(f'{workload_area_filter}:%'))
 
     if search:
         pattern = f'%{search}%'
@@ -1304,6 +1304,7 @@ def api_msx_workspace_milestones():
             'dollar_value': ms.dollar_value,
             'monthly_usage': ms.monthly_usage,
             'workload': ms.workload,
+            'workload_area': ms.workload.split(':', 1)[0].strip() if ms.workload and ':' in ms.workload else (ms.workload.strip() if ms.workload else ''),
             'owner_name': ms.owner_name,
             'on_my_team': ms.on_my_team,
             'customer_name': cust.name if cust else None,
