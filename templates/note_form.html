@@ -374,7 +374,13 @@
                                 </button>
                             </div>
                         </div>
-                        <div id="engTaskBadges" class="mb-1 d-flex flex-wrap gap-1"></div>
+                        <div id="engTaskBadges" class="mb-1 d-flex flex-wrap gap-1">
+                            {% if note and note.action_items %}
+                            {% for ai in note.action_items %}
+                            <a href="javascript:void(0)" class="badge bg-success text-decoration-none" data-task-id="{{ ai.id }}" onclick="openEngTaskEdit({{ ai.id }})"><i class="bi bi-check2-square"></i> {{ ai.title }}</a>
+                            {% endfor %}
+                            {% endif %}
+                        </div>
                         <div id="editor" style="height: 400px;">{{ note.content|safe if note else '' }}</div>
                         <textarea name="content" id="content" style="display:none;"></textarea>
                         <div class="form-text">Use rich formatting to capture call details, action items, and follow-ups. Press <span class="border rounded px-1" style="font-size:0.75em; opacity:0.7;">Esc</span> to exit editor and Tab to next field.</div>
@@ -688,7 +694,7 @@
                                 {% endfor %}
                             </div>
                         {% endif %}
-                        <div>{{ call.content|safe }}</div>
+                        <div class="call-content">{{ call.content|safe }}</div>
                     </div>
                 {% endfor %}
             </div>
@@ -899,13 +905,17 @@
 <!-- Engagement Action Item Creation Flyout -->
 <div class="offcanvas offcanvas-end" tabindex="-1" id="engTaskFlyout" aria-labelledby="engTaskFlyoutLabel" data-bs-backdrop="false" data-bs-scroll="true" style="width: 400px;">
     <div class="offcanvas-header py-2 border-bottom">
-        <h6 class="offcanvas-title" id="engTaskFlyoutLabel"><i class="bi bi-check2-square"></i> New Action Item</h6>
+        <h6 class="offcanvas-title" id="engTaskFlyoutLabel"><i class="bi bi-check2-square"></i> <span id="engTaskFlyoutTitleText">New Action Item</span></h6>
         <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Close"></button>
     </div>
     <div class="offcanvas-body">
         <div class="mb-3">
             <label for="engTaskTitle" class="form-label">Title <span class="text-danger">*</span></label>
             <input type="text" class="form-control" id="engTaskTitle" placeholder="Follow up on POC results..." maxlength="300">
+        </div>
+        <div class="mb-3">
+            <label for="engTaskDescription" class="form-label">Description</label>
+            <textarea class="form-control" id="engTaskDescription" rows="3" placeholder="URLs, details, context..."></textarea>
         </div>
         <div class="mb-3">
             <label for="engTaskTarget" class="form-label">Engagement</label>
@@ -928,8 +938,11 @@
             <label for="engTaskContact" class="form-label">Contact</label>
             <input type="text" class="form-control" id="engTaskContact" placeholder="Point of contact" maxlength="200">
         </div>
-        <button type="button" class="btn btn-success w-100" onclick="createEngTask()">
+        <button type="button" class="btn btn-success w-100" id="engTaskCreateBtn" onclick="createEngTask()">
             <i class="bi bi-check-circle"></i> Create Action Item
+        </button>
+        <button type="button" class="btn btn-primary w-100" id="engTaskSaveBtn" onclick="saveEngTask()" style="display:none;">
+            <i class="bi bi-save"></i> Save Changes
         </button>
         <div id="engTaskResult" class="small mt-2" style="display:none;"></div>
     </div>
@@ -2360,6 +2373,12 @@ document.getElementById('noteForm').onsubmit = function(e) {
         e.preventDefault();
         e.stopImmediatePropagation();
         alert('You have unsaved changes in the project flyout. Please save or close it first.');
+        return false;
+    }
+    if (typeof isEngTaskFlyoutDirty === 'function' && isEngTaskFlyoutDirty()) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        alert('You have unsaved changes in the action item flyout. Please save or close it first.');
         return false;
     }
 
@@ -5440,7 +5459,8 @@ function saveDraft() {
         engagementIds: Array.from(document.getElementById('engagement_ids')?.selectedOptions || []).map(o => parseInt(o.value)),
         engTaskBadges: Array.from(document.getElementById('engTaskBadges').querySelectorAll('a')).map(a => ({
             title: a.textContent.trim(),
-            href: a.href
+            href: a.href,
+            taskId: a.getAttribute('data-task-id') || null
         })),
         task: taskData,
         pendingTaskSuggestion: pendingTaskSuggestion || null,
@@ -5593,11 +5613,15 @@ function restoreDraft() {
         if (draft.engTaskBadges && draft.engTaskBadges.length > 0) {
             var badges = document.getElementById('engTaskBadges');
             draft.engTaskBadges.forEach(function(b) {
-                var a = document.createElement('a');
-                a.href = b.href;
-                a.className = 'badge bg-success text-decoration-none';
-                a.innerHTML = '<i class="bi bi-check2-square"></i> ' + escapeHtml(b.title.replace(/^\u2611\s*/, ''));
-                badges.appendChild(a);
+                if (b.taskId) {
+                    badges.appendChild(_makeEngTaskBadge({id: parseInt(b.taskId), title: b.title.replace(/^\u2611\s*/, '')}));
+                } else {
+                    var a = document.createElement('a');
+                    a.href = b.href;
+                    a.className = 'badge bg-success text-decoration-none';
+                    a.innerHTML = '<i class="bi bi-check2-square"></i> ' + escapeHtml(b.title.replace(/^\u2611\s*/, ''));
+                    badges.appendChild(a);
+                }
             });
         }
 
@@ -7040,6 +7064,8 @@ function textToHtml(text) {
 // =============================================
 var _lastQuillCursorPos = null;
 var _engTaskFlyoutInstance = null;
+var _engTaskEditId = null;        // null = create mode, int = editing task ID
+var _engTaskCleanState = null;    // snapshot of form when opened/loaded for dirty check
 
 // Track cursor position continuously so we have it when Quill loses focus
 quill.on('selection-change', function(range) {
@@ -7054,6 +7080,39 @@ quill.on('text-change', function() {
         _lastQuillCursorPos = sel.index + sel.length;
     }
 });
+
+function _getEngTaskFormState() {
+    return JSON.stringify({
+        title: document.getElementById('engTaskTitle').value,
+        description: document.getElementById('engTaskDescription').value,
+        target: document.getElementById('engTaskTarget').value,
+        due: document.getElementById('engTaskDue').value,
+        priority: document.getElementById('engTaskPriority').value,
+        contact: document.getElementById('engTaskContact').value
+    });
+}
+
+function isEngTaskFlyoutDirty() {
+    var flyout = document.getElementById('engTaskFlyout');
+    if (!flyout || !flyout.classList.contains('show')) return false;
+    return _engTaskCleanState !== _getEngTaskFormState();
+}
+
+function _resetEngTaskFlyout() {
+    document.getElementById('engTaskTitle').value = '';
+    document.getElementById('engTaskDescription').value = '';
+    document.getElementById('engTaskDue').value = '';
+    document.getElementById('engTaskPriority').value = 'normal';
+    document.getElementById('engTaskContact').value = '';
+    document.getElementById('engTaskResult').style.display = 'none';
+    _engTaskEditId = null;
+    _engTaskCleanState = null;
+    // UI: create mode
+    document.getElementById('engTaskFlyoutTitleText').textContent = 'New Action Item';
+    document.getElementById('engTaskCreateBtn').style.display = '';
+    document.getElementById('engTaskSaveBtn').style.display = 'none';
+    document.getElementById('engTaskTarget').disabled = false;
+}
 
 function syncEngTaskButton() {
     var target = document.getElementById('engTaskTarget');
@@ -7078,19 +7137,136 @@ function syncEngTaskButton() {
 }
 
 function openEngTaskFlyout() {
+    // If flyout is already open with unsaved changes, warn
+    if (isEngTaskFlyoutDirty()) {
+        if (!confirm('You have unsaved changes to an action item. Discard them?')) return;
+    }
     // _lastQuillCursorPos is already tracked via selection-change listener
-    // Reset form
-    document.getElementById('engTaskTitle').value = '';
-    document.getElementById('engTaskDue').value = '';
-    document.getElementById('engTaskPriority').value = 'normal';
-    document.getElementById('engTaskContact').value = '';
-    document.getElementById('engTaskResult').style.display = 'none';
+    _resetEngTaskFlyout();
     syncEngTaskButton();
     if (!_engTaskFlyoutInstance) {
         _engTaskFlyoutInstance = new bootstrap.Offcanvas(document.getElementById('engTaskFlyout'));
     }
     _engTaskFlyoutInstance.show();
+    _engTaskCleanState = _getEngTaskFormState();
     setTimeout(function() { document.getElementById('engTaskTitle').focus(); }, 300);
+}
+
+function openEngTaskEdit(taskId) {
+    // If flyout is already open with unsaved changes (create or different edit), warn
+    if (_engTaskEditId !== taskId && isEngTaskFlyoutDirty()) {
+        if (!confirm('You have unsaved changes to an action item. Discard them?')) return;
+    }
+    _resetEngTaskFlyout();
+    syncEngTaskButton();
+    // Switch to edit mode UI
+    _engTaskEditId = taskId;
+    document.getElementById('engTaskFlyoutTitleText').textContent = 'Edit Action Item';
+    document.getElementById('engTaskCreateBtn').style.display = 'none';
+    document.getElementById('engTaskSaveBtn').style.display = '';
+    document.getElementById('engTaskTarget').disabled = true;
+
+    if (!_engTaskFlyoutInstance) {
+        _engTaskFlyoutInstance = new bootstrap.Offcanvas(document.getElementById('engTaskFlyout'));
+    }
+    _engTaskFlyoutInstance.show();
+
+    // Fetch task data
+    fetch('/action-item/' + taskId)
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.success) {
+                var t = data.task;
+                document.getElementById('engTaskTitle').value = t.title || '';
+                document.getElementById('engTaskDescription').value = t.description || '';
+                document.getElementById('engTaskDue').value = t.due_date || '';
+                document.getElementById('engTaskPriority').value = t.priority || 'normal';
+                document.getElementById('engTaskContact').value = t.contact || '';
+                // Set engagement dropdown
+                var sel = document.getElementById('engTaskTarget');
+                if (t.engagement_id) {
+                    var found = false;
+                    for (var i = 0; i < sel.options.length; i++) {
+                        if (parseInt(sel.options[i].value) === t.engagement_id) {
+                            sel.value = sel.options[i].value;
+                            found = true;
+                            break;
+                        }
+                    }
+                }
+                _engTaskCleanState = _getEngTaskFormState();
+                setTimeout(function() { document.getElementById('engTaskTitle').focus(); }, 100);
+            }
+        })
+        .catch(function(err) {
+            var result = document.getElementById('engTaskResult');
+            result.className = 'small mt-2 text-danger';
+            result.textContent = 'Failed to load action item: ' + err.message;
+            result.style.display = 'block';
+        });
+}
+
+function saveEngTask() {
+    var titleEl = document.getElementById('engTaskTitle');
+    var title = titleEl.value.trim();
+    if (!title) { titleEl.focus(); return; }
+    var description = document.getElementById('engTaskDescription').value.trim();
+    var due = document.getElementById('engTaskDue').value;
+    var priority = document.getElementById('engTaskPriority').value;
+    var contact = document.getElementById('engTaskContact').value.trim();
+
+    fetch('/action-item/' + _engTaskEditId, {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            title: title,
+            description: description || null,
+            due_date: due || null,
+            priority: priority,
+            contact: contact || null
+        })
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        if (data.success) {
+            var task = data.task;
+            // Update badge text if it exists
+            var badges = document.getElementById('engTaskBadges');
+            var badgeLinks = badges.querySelectorAll('a[data-task-id]');
+            badgeLinks.forEach(function(a) {
+                if (parseInt(a.getAttribute('data-task-id')) === _engTaskEditId) {
+                    a.innerHTML = '<i class="bi bi-check2-square"></i> ' + escapeHtml(task.title);
+                }
+            });
+            _engTaskCleanState = _getEngTaskFormState();
+            if (_engTaskFlyoutInstance) _engTaskFlyoutInstance.hide();
+            _resetEngTaskFlyout();
+        } else {
+            var result = document.getElementById('engTaskResult');
+            result.className = 'small mt-2 text-danger';
+            result.textContent = data.error || 'Failed.';
+            result.style.display = 'block';
+        }
+    })
+    .catch(function(err) {
+        var result = document.getElementById('engTaskResult');
+        result.className = 'small mt-2 text-danger';
+        result.textContent = 'Error: ' + err.message;
+        result.style.display = 'block';
+    });
+}
+
+function _makeEngTaskBadge(task) {
+    var a = document.createElement('a');
+    a.href = 'javascript:void(0)';
+    a.className = 'badge bg-success text-decoration-none';
+    a.setAttribute('data-task-id', task.id);
+    a.innerHTML = '<i class="bi bi-check2-square"></i> ' + escapeHtml(task.title);
+    a.onclick = function(e) {
+        e.preventDefault();
+        openEngTaskEdit(task.id);
+    };
+    return a;
 }
 
 function createEngTask() {
@@ -7099,6 +7275,7 @@ function createEngTask() {
     if (!title) { titleEl.focus(); return; }
     var engId = document.getElementById('engTaskTarget').value;
     if (!engId) { alert('Select an engagement first.'); return; }
+    var description = document.getElementById('engTaskDescription').value.trim();
     var due = document.getElementById('engTaskDue').value;
     var priority = document.getElementById('engTaskPriority').value;
     var contact = document.getElementById('engTaskContact').value.trim();
@@ -7107,21 +7284,19 @@ function createEngTask() {
     fetch('/engagement/' + engId + '/action-items', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({title: title, due_date: due || null, priority: priority, contact: contact || null, note_id: noteId})
+        body: JSON.stringify({title: title, description: description || null, due_date: due || null, priority: priority, contact: contact || null, note_id: noteId})
     })
     .then(function(r) { return r.json(); })
     .then(function(data) {
         if (data.success) {
             var task = data.task;
-            // Close flyout
+            // Clear dirty state before hide so the close guard doesn't fire
+            _engTaskCleanState = _getEngTaskFormState();
             if (_engTaskFlyoutInstance) _engTaskFlyoutInstance.hide();
+            _resetEngTaskFlyout();
             // Add badge to toolbar area
             var badges = document.getElementById('engTaskBadges');
-            var a = document.createElement('a');
-            a.href = '/engagement/' + task.engagement_id;
-            a.className = 'badge bg-success text-decoration-none';
-            a.innerHTML = '<i class="bi bi-check2-square"></i> ' + escapeHtml(task.title);
-            badges.appendChild(a);
+            badges.appendChild(_makeEngTaskBadge(task));
             // Insert link in Quill at saved cursor position
             var pos = _lastQuillCursorPos != null ? _lastQuillCursorPos : quill.getLength() - 1;
             var linkText = '\u2611 ' + task.title;
@@ -7152,6 +7327,15 @@ if (_engTaskTitleEl) {
         if (e.key === 'Enter') { e.preventDefault(); createEngTask(); }
     });
 }
+
+// Guard the action item flyout close (X button or backdrop click)
+document.getElementById('engTaskFlyout').addEventListener('hide.bs.offcanvas', function(e) {
+    if (isEngTaskFlyoutDirty()) {
+        if (!confirm('You have unsaved changes to an action item. Discard them?')) {
+            e.preventDefault();
+        }
+    }
+});
 
 // Hook into engagement selection changes
 var _origOnEngChange = window.onEngagementSelectionChanged;
