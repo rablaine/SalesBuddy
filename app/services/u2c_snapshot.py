@@ -195,12 +195,13 @@ def get_attainment(snapshot_id: int, workload_prefix: str | None = None) -> dict
 
     target_total = 0.0
     committed_total = 0.0
+    attainment_total = 0.0
     committed_items = []
     remaining_items = []
 
     for item in items:
-        # Check if milestone due date falls within the quarter
-        if item.due_date and not (q_start_dt <= item.due_date <= q_end_dt):
+        # Only include milestones due within the snapshot's fiscal quarter
+        if not item.due_date or not (q_start_dt <= item.due_date <= q_end_dt):
             continue
 
         target_total += item.monthly_acr
@@ -210,10 +211,12 @@ def get_attainment(snapshot_id: int, workload_prefix: str | None = None) -> dict
         is_committed = False
         current_status = item.msx_status  # fallback to snapshot status
         current_commitment = 'Uncommitted'
+        live_acr = item.monthly_acr  # fallback to snapshot ACR
 
         if live_ms:
             current_status = live_ms.msx_status
             current_commitment = live_ms.customer_commitment or 'Uncommitted'
+            live_acr = live_ms.monthly_usage or 0.0
             is_committed = (
                 current_commitment == 'Committed'
                 or current_status in ('Completed',)
@@ -229,6 +232,7 @@ def get_attainment(snapshot_id: int, workload_prefix: str | None = None) -> dict
             'workload': item.workload,
             'due_date': item.due_date.isoformat() if item.due_date else None,
             'monthly_acr': item.monthly_acr,
+            'live_acr': live_acr,
             'opportunity_name': item.opportunity_name,
             'snapshot_status': item.msx_status,
             'current_status': current_status,
@@ -237,7 +241,8 @@ def get_attainment(snapshot_id: int, workload_prefix: str | None = None) -> dict
         }
 
         if is_committed:
-            committed_total += item.monthly_acr
+            committed_total += item.monthly_acr   # snapshot ACR for U2C%
+            attainment_total += live_acr           # live ACR for Attainment%
             committed_items.append(item_data)
         else:
             remaining_items.append(item_data)
@@ -245,7 +250,10 @@ def get_attainment(snapshot_id: int, workload_prefix: str | None = None) -> dict
     # Sort remaining by monthly ACR descending (highest value first)
     remaining_items.sort(key=lambda x: x['monthly_acr'], reverse=True)
 
-    pct = round((committed_total / target_total * 100), 1) if target_total > 0 else 0.0
+    u2c_pct = round((committed_total / target_total * 100), 1) if target_total > 0 else 0.0
+    attainment_pct = round(
+        (attainment_total / target_total * 100), 1
+    ) if target_total > 0 else 0.0
 
     return {
         'success': True,
@@ -253,7 +261,9 @@ def get_attainment(snapshot_id: int, workload_prefix: str | None = None) -> dict
         'snapshot_date': snapshot.snapshot_date.isoformat(),
         'target_total': round(target_total, 2),
         'committed_total': round(committed_total, 2),
-        'attainment_pct': pct,
+        'attainment_total': round(attainment_total, 2),
+        'u2c_pct': u2c_pct,
+        'attainment_pct': attainment_pct,
         'committed_count': len(committed_items),
         'remaining_count': len(remaining_items),
         'total_in_scope': len(committed_items) + len(remaining_items),
