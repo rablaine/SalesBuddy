@@ -1702,6 +1702,7 @@ def api_apply_meeting_attendees():
     attendees = data.get('attendees', [])
     created_contacts = 0
     new_partners = []
+    linked_partner_ids = set()  # Track partner IDs to auto-add to the note
     attendee_results = []  # {type, id} for adding to NoteAttendee
 
     # Group new_partner attendees by domain
@@ -1764,6 +1765,12 @@ def api_apply_meeting_attendees():
                     if existing:
                         existing.title = att['title']
                 attendee_results.append({'type': 'partner_contact', 'id': att['ref_id'], 'name': att['name']})
+            # Track the partner so it can be auto-added to the note
+            if partner_id and partner_id not in linked_partner_ids:
+                linked_partner_ids.add(partner_id)
+                partner = db.session.get(Partner, partner_id)
+                if partner:
+                    new_partners.append({'id': partner.id, 'name': partner.name})
 
         elif cat == 'new_partner':
             domain = att.get('new_partner_domain', '')
@@ -1784,7 +1791,9 @@ def api_apply_meeting_attendees():
         )
         db.session.add(partner)
         db.session.flush()
-        new_partners.append({'id': partner.id, 'name': partner.name})
+        if partner.id not in linked_partner_ids:
+            new_partners.append({'id': partner.id, 'name': partner.name})
+            linked_partner_ids.add(partner.id)
 
         for att in group['contacts']:
             contact = PartnerContact(
