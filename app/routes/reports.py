@@ -1423,6 +1423,14 @@ def report_u2c():
         .order_by(U2CSnapshot.fiscal_quarter.desc())
         .all()
     )
+    # Convert UTC snapshot_date to local for display in <option> (can't use
+    # local-datetime JS inside <select>).  Attach as a transient attribute.
+    for s in snapshots:
+        if s.snapshot_date:
+            local_dt = s.snapshot_date.replace(tzinfo=timezone.utc).astimezone()
+            s.local_date = local_dt.strftime('%b %d, %Y')
+        else:
+            s.local_date = ''
 
     # Determine which snapshot to show
     selected_fq = request.args.get('fq')

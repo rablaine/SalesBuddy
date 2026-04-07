@@ -21,7 +21,7 @@
                 <select name="fq" class="form-select form-select-sm" style="width: auto;" onchange="this.form.submit()">
                     {% for s in snapshots %}
                     <option value="{{ s.fiscal_quarter }}" {% if snapshot and s.id == snapshot.id %}selected{% endif %}>
-                        {{ s.fiscal_quarter }} ({{ s.snapshot_date.strftime('%b %d, %Y') }})
+                        {{ s.fiscal_quarter }} ({{ s.local_date }})
                     </option>
                     {% endfor %}
                 </select>
