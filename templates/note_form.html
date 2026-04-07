@@ -5650,6 +5650,14 @@ function restoreDraft() {
             if (container) {
                 draftEngList.forEach(function(eng) {
                     if (!eng || !eng.id) return;
+                    // Check if a card already exists (created by initial syncInlineEngPanel)
+                    var existing = container.querySelector('.inline-eng-card[data-eng-id="' + eng.id + '"]');
+                    if (existing) {
+                        // Populate the existing card with draft data instead of creating a duplicate
+                        _populateEngCard(existing, eng);
+                        _inlineEngCleanStates[eng.id] = _getCardEngState(existing);
+                        return;
+                    }
                     var tmp = document.createElement('div');
                     tmp.innerHTML = _buildEngCardHtml(eng.id);
                     var card = tmp.firstChild;
