@@ -6851,7 +6851,7 @@ function renderMeetingList(meetings, autoSelectedIndex, autoSelectedReason) {
                     (meeting.attendees.length > 3 ? ' +' + (meeting.attendees.length - 3) + ' more' : '') + '</small>' 
                     : ''}
             </div>
-            <span class="badge bg-${index === autoSelectedIndex ? 'light text-dark' : 'primary'} rounded-pill">
+            <span class="badge bg-${index === autoSelectedIndex ? 'success' : 'primary'} rounded-pill">
                 ${index === autoSelectedIndex ? '<i class="bi bi-check"></i> Selected' : 'Select'}
             </span>
         `;
@@ -6878,7 +6878,7 @@ function selectMeeting(index) {
         if (i === index) {
             item.classList.add('active');
             // Update badge
-            item.querySelector('.badge').className = 'badge bg-light text-dark rounded-pill';
+            item.querySelector('.badge').className = 'badge bg-success rounded-pill';
             item.querySelector('.badge').innerHTML = '<i class="bi bi-check"></i> Selected';
             // Update text colors
             item.querySelectorAll('small').forEach(function(el) {
