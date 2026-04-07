@@ -40,10 +40,20 @@
                 </select>
             </div>
             {% endif %}
-            <div class="ms-auto">
-                <button type="button" class="btn btn-sm btn-outline-primary" id="createSnapshotBtn" onclick="createSnapshot()">
+            <div class="ms-auto d-flex align-items-center gap-3">
+                {% if not snapshot or snapshot.fiscal_quarter != current_fq %}
+                <span class="small text-muted">
+                    <i class="bi bi-clock-history"></i>
+                    {% if last_milestone_sync %}
+                    Last sync: {{ last_milestone_sync.strftime('%b %d, %Y %I:%M %p') }} UTC
+                    {% else %}
+                    Never synced
+                    {% endif %}
+                </span>
+                <button type="button" class="btn btn-sm btn-outline-primary" id="createSnapshotBtn" onclick="createSnapshot()" {% if not milestones_fresh %}disabled title="Sync milestones first"{% endif %}>
                     <i class="bi bi-camera"></i> Take {{ current_fq }} Snapshot
                 </button>
+                {% endif %}
             </div>
         </form>
     </div>
@@ -267,7 +277,7 @@
             Take a snapshot to capture your current uncommitted milestones as the baseline for this quarter.
             <br>Snapshots are also created automatically on the 5th of each fiscal quarter start month.
         </p>
-        <button class="btn btn-primary" onclick="createSnapshot()">
+        <button class="btn btn-primary" id="createSnapshotBtnEmpty" onclick="createSnapshot()" {% if not milestones_fresh %}disabled title="Sync milestones first"{% endif %}>
             <i class="bi bi-camera"></i> Take {{ current_fq }} Snapshot Now
         </button>
     </div>
@@ -411,6 +421,11 @@ function handleSyncEvent(type, data) {
             const syncBtn = document.getElementById('syncBtn');
             if (syncBtn) syncBtn.classList.add('d-none');
         }
+        // Enable snapshot buttons now that milestones are fresh
+        document.querySelectorAll('#createSnapshotBtn, #createSnapshotBtnEmpty').forEach(btn => {
+            btn.disabled = false;
+            btn.removeAttribute('title');
+        });
     } else if (type === 'vpn_blocked') {
         bar.classList.remove('progress-bar-animated');
         bar.classList.add('bg-danger');
