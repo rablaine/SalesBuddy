@@ -320,6 +320,7 @@
     let activeTaskMilestoneIds = [];  // MSX IDs for create task context
     let filteredMilestoneId = null;    // local Milestone.id when filtered to a single milestone
     let filteredMilestoneTitle = '';
+    let knownWorkloadAreas = new Set(); // accumulates all seen areas so filter doesn't shrink
 
     // DOM refs
     const filterSeller = document.getElementById('filterSeller');  // null in DSS mode
@@ -610,11 +611,10 @@
     }
 
     function populateWorkloadFilter() {
-        const areas = new Set();
-        msData.forEach(m => { if (m.workload_area) areas.add(m.workload_area); });
+        msData.forEach(m => { if (m.workload_area) knownWorkloadAreas.add(m.workload_area); });
         const current = msWorkloadFilter.value || localStorage.getItem('msxWsMsWorkload') || '';
         msWorkloadFilter.innerHTML = '<option value="">All Areas</option>';
-        [...areas].sort((a, b) => a.localeCompare(b)).forEach(a => {
+        [...knownWorkloadAreas].sort((a, b) => a.localeCompare(b)).forEach(a => {
             msWorkloadFilter.innerHTML += `<option value="${escHtml(a)}">${escHtml(a)}</option>`;
         });
         msWorkloadFilter.value = current;
