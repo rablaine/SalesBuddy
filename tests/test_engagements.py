@@ -475,6 +475,30 @@ class TestEngagementAPI:
             assert eng is not None
             assert eng.customer_id == cid
 
+    def test_note_form_renders_inline_engagement_panel(self, client, app, engagement_data):
+        """New note page for a customer renders the inline engagement container and JS."""
+        cid = engagement_data['customer_id']
+        resp = client.get(f'/note/new?customer_id={cid}')
+        assert resp.status_code == 200
+        html = resp.data.decode()
+        assert 'id="inlineEngContainer"' in html
+        assert 'syncInlineEngPanel' in html
+        assert '_buildEngCardHtml' in html
+
+    def test_note_edit_renders_inline_engagement_panel(self, client, app, engagement_data):
+        """Edit note page for a customer note renders the inline engagement container."""
+        cid = engagement_data['customer_id']
+        with app.app_context():
+            note = Note(customer_id=cid, call_date=datetime.now(), content='Test')
+            db.session.add(note)
+            db.session.commit()
+            nid = note.id
+        resp = client.get(f'/note/{nid}/edit')
+        assert resp.status_code == 200
+        html = resp.data.decode()
+        assert 'id="inlineEngContainer"' in html
+        assert 'syncInlineEngPanel' in html
+
 
 class TestAccountContext:
     """Test the overview -> account_context rename."""
