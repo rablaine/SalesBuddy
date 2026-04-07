@@ -7269,44 +7269,6 @@ function _makeEngTaskBadge(task) {
     return a;
 }
 
-function syncEngTaskButton() {
-    var target = document.getElementById('engTaskTarget');
-    var link = document.getElementById('engTaskToggleLink');
-    if (!target || !link) return;
-    var hiddenSelect = document.getElementById('engagement_ids');
-    if (!hiddenSelect) { link.style.display = 'none'; return; }
-    var selected = Array.from(hiddenSelect.selectedOptions);
-    if (selected.length === 0) {
-        link.style.display = 'none';
-        return;
-    }
-    // Rebuild target dropdown
-    target.innerHTML = '';
-    selected.forEach(function(opt) {
-        var o = document.createElement('option');
-        o.value = opt.value;
-        o.textContent = opt.textContent.trim();
-        target.appendChild(o);
-    });
-    link.style.display = 'inline';
-}
-
-function openEngTaskFlyout() {
-    // _lastQuillCursorPos is already tracked via selection-change listener
-    // Reset form
-    document.getElementById('engTaskTitle').value = '';
-    document.getElementById('engTaskDue').value = '';
-    document.getElementById('engTaskPriority').value = 'normal';
-    document.getElementById('engTaskContact').value = '';
-    document.getElementById('engTaskResult').style.display = 'none';
-    syncEngTaskButton();
-    if (!_engTaskFlyoutInstance) {
-        _engTaskFlyoutInstance = new bootstrap.Offcanvas(document.getElementById('engTaskFlyout'));
-    }
-    _engTaskFlyoutInstance.show();
-    setTimeout(function() { document.getElementById('engTaskTitle').focus(); }, 300);
-}
-
 function createEngTask() {
     var titleEl = document.getElementById('engTaskTitle');
     var title = titleEl.value.trim();
