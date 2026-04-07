@@ -255,6 +255,8 @@ class TestEngagementStoryPreviewAndApply:
                 customer_id=customer.id, title="Preview Engagement",
                 status="Active", key_individuals="Old contact",
                 technical_problem="Old problem",
+                ai_key_individuals="Old AI contact",
+                ai_technical_problem="Old AI problem",
             )
             db.session.add(engagement)
             db.session.flush()
@@ -289,16 +291,18 @@ class TestEngagementStoryPreviewAndApply:
         assert resp.status_code == 200
         data = resp.get_json()
         assert data['success'] is True
-        assert data['current']['key_individuals'] == 'Old contact'
-        assert data['current']['technical_problem'] == 'Old problem'
+        assert data['current']['key_individuals'] == 'Old AI contact'
+        assert data['current']['technical_problem'] == 'Old AI problem'
         assert data['story']['key_individuals'] == 'Jane Smith, CTO'
 
-        # Verify nothing was saved
+        # Verify nothing was saved (neither human nor AI fields changed)
         from app.models import Engagement
         with app.app_context():
             eng = Engagement.query.get(eid)
             assert eng.key_individuals == 'Old contact'
             assert eng.technical_problem == 'Old problem'
+            assert eng.ai_key_individuals == 'Old AI contact'
+            assert eng.ai_technical_problem == 'Old AI problem'
 
     @patch('app.routes.ai.gateway_call')
     def test_non_preview_still_saves(self, mock_gw, app, client):
@@ -321,7 +325,10 @@ class TestEngagementStoryPreviewAndApply:
         from app.models import Engagement
         with app.app_context():
             eng = Engagement.query.get(eid)
-            assert eng.key_individuals == 'Jane Smith, CTO'
+            # AI fields updated
+            assert eng.ai_key_individuals == 'Jane Smith, CTO'
+            # Human fields unchanged
+            assert eng.key_individuals == 'Old contact'
 
     def test_apply_updates_selected_fields(self, app, client):
         """Apply endpoint should update only the fields provided."""
@@ -343,9 +350,13 @@ class TestEngagementStoryPreviewAndApply:
         from app.models import Engagement
         with app.app_context():
             eng = Engagement.query.get(eid)
-            assert eng.key_individuals == 'Jane Smith, CTO'
-            assert eng.business_impact == 'Slow release velocity'
-            # technical_problem should remain unchanged
+            # AI fields updated
+            assert eng.ai_key_individuals == 'Jane Smith, CTO'
+            assert eng.ai_business_impact == 'Slow release velocity'
+            # AI technical_problem should remain from setup
+            assert eng.ai_technical_problem == 'Old AI problem'
+            # Human fields unchanged
+            assert eng.key_individuals == 'Old contact'
             assert eng.technical_problem == 'Old problem'
 
     def test_apply_rejects_empty_fields(self, app, client):
@@ -394,7 +405,8 @@ class TestEngagementStoryPreviewAndApply:
         from app.models import Engagement
         with app.app_context():
             eng = Engagement.query.get(eid)
-            assert eng.key_individuals == 'Jane'
+            assert eng.ai_key_individuals == 'Jane'
+            assert eng.key_individuals == 'Old contact'  # human field unchanged
             assert eng.title == 'Preview Engagement'  # unchanged
 
     def test_apply_handles_target_date(self, app, client):
@@ -414,7 +426,8 @@ class TestEngagementStoryPreviewAndApply:
         from datetime import date
         with app.app_context():
             eng = Engagement.query.get(eid)
-            assert eng.target_date == date(2025, 12, 31)
+            assert eng.ai_target_date == date(2025, 12, 31)
+            assert eng.target_date is None  # human field unchanged
 
 
 # ---------------------------------------------------------------------------

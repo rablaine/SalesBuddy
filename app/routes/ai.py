@@ -359,19 +359,19 @@ def api_ai_generate_engagement_story():
 
     preview = data.get('preview', False)
 
-    # Build current values for the review diff
+    # Build current values for the review diff (show AI fields as "current")
     current = {
-        'key_individuals': engagement.key_individuals or '',
-        'technical_problem': engagement.technical_problem or '',
-        'business_impact': engagement.business_impact or '',
-        'solution_resources': engagement.solution_resources or '',
+        'key_individuals': engagement.ai_key_individuals or '',
+        'technical_problem': engagement.ai_technical_problem or '',
+        'business_impact': engagement.ai_business_impact or '',
+        'solution_resources': engagement.ai_solution_resources or '',
         'estimated_acr': (
-            f"${int(engagement.estimated_acr):,}/mo"
-            if engagement.estimated_acr else ''
+            f"${int(engagement.ai_estimated_acr):,}/mo"
+            if engagement.ai_estimated_acr else ''
         ),
         'target_date': (
-            engagement.target_date.strftime('%Y-%m-%d')
-            if engagement.target_date else ''
+            engagement.ai_target_date.strftime('%Y-%m-%d')
+            if engagement.ai_target_date else ''
         ),
     }
 
@@ -417,24 +417,24 @@ def api_ai_generate_engagement_story():
                 'note_count': len(notes)
             })
 
-        # Non-preview: save all fields immediately (legacy behavior)
+        # Non-preview: save to AI fields only (legacy behavior)
         from datetime import datetime as _datetime
         if story_data.get('key_individuals'):
-            engagement.key_individuals = story_data['key_individuals']
+            engagement.ai_key_individuals = story_data['key_individuals']
         if story_data.get('technical_problem'):
-            engagement.technical_problem = story_data['technical_problem']
+            engagement.ai_technical_problem = story_data['technical_problem']
         if story_data.get('business_impact'):
-            engagement.business_impact = story_data['business_impact']
+            engagement.ai_business_impact = story_data['business_impact']
         if story_data.get('solution_resources'):
-            engagement.solution_resources = story_data['solution_resources']
+            engagement.ai_solution_resources = story_data['solution_resources']
         if story_data.get('estimated_acr'):
             try:
-                engagement.estimated_acr = int(float(story_data['estimated_acr']))
+                engagement.ai_estimated_acr = int(float(story_data['estimated_acr']))
             except (ValueError, TypeError):
                 pass
         if story_data.get('target_date'):
             try:
-                engagement.target_date = _datetime.strptime(
+                engagement.ai_target_date = _datetime.strptime(
                     story_data['target_date'], '%Y-%m-%d'
                 ).date()
             except (ValueError, TypeError):
@@ -512,20 +512,21 @@ def api_ai_apply_engagement_story():
     for field_name, value in fields.items():
         if field_name not in allowed_fields:
             continue
+        ai_field = f'ai_{field_name}'
         if field_name == 'target_date' and value:
             try:
-                engagement.target_date = _datetime.strptime(
+                engagement.ai_target_date = _datetime.strptime(
                     value, '%Y-%m-%d'
                 ).date()
             except (ValueError, TypeError):
                 pass
         elif field_name == 'estimated_acr' and value:
             try:
-                engagement.estimated_acr = int(float(value))
+                engagement.ai_estimated_acr = int(float(value))
             except (ValueError, TypeError):
                 pass
         else:
-            setattr(engagement, field_name, value or None)
+            setattr(engagement, ai_field, value or None)
 
     db.session.commit()
 
