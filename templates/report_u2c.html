@@ -148,9 +148,9 @@
                     <th>Customer</th>
                     <th>Milestone</th>
                     <th>Workload</th>
-                    <th>Due Date</th>
-                    <th class="text-end">Est. Monthly ACR</th>
-                    <th>Current Status</th>
+                    <th style="white-space: nowrap;">Due Date</th>
+                    <th class="text-end" style="white-space: nowrap;">Est. ACR</th>
+                    <th>Status</th>
                 </tr>
             </thead>
             <tbody id="remainingBody">
@@ -178,14 +178,14 @@
                         {% endif %}
                     </td>
                     <td><span class="small">{{ item.workload or '-' }}</span></td>
-                    <td>
+                    <td style="white-space: nowrap;">
                         {% if item.due_date %}
                         <span class="small">{{ item.due_date[:10] }}</span>
                         {% else %}
                         <span class="text-muted">-</span>
                         {% endif %}
                     </td>
-                    <td class="text-end fw-semibold">${{ "{:,.0f}".format(item.monthly_acr) }}</td>
+                    <td class="text-end fw-semibold" style="white-space: nowrap;">${{ "{:,.0f}".format(item.monthly_acr) }}</td>
                     <td>
                         <span class="badge {% if item.current_status == 'On Track' %}bg-success{% elif item.current_status == 'At Risk' %}bg-warning text-dark{% elif item.current_status == 'Blocked' %}bg-danger{% else %}bg-secondary{% endif %}">
                             {{ item.current_status }}
@@ -213,8 +213,8 @@
                     <th>Customer</th>
                     <th>Milestone</th>
                     <th>Workload</th>
-                    <th>Due Date</th>
-                    <th class="text-end">Est. Monthly ACR</th>
+                    <th style="white-space: nowrap;">Due Date</th>
+                    <th class="text-end" style="white-space: nowrap;">Est. ACR</th>
                     <th>Status</th>
                 </tr>
             </thead>
@@ -243,14 +243,14 @@
                         {% endif %}
                     </td>
                     <td><span class="small">{{ item.workload or '-' }}</span></td>
-                    <td>
+                    <td style="white-space: nowrap;">
                         {% if item.due_date %}
                         <span class="small">{{ item.due_date[:10] }}</span>
                         {% else %}
                         <span class="text-muted">-</span>
                         {% endif %}
                     </td>
-                    <td class="text-end fw-semibold text-success">${{ "{:,.0f}".format(item.monthly_acr) }}</td>
+                    <td class="text-end fw-semibold text-success" style="white-space: nowrap;">${{ "{:,.0f}".format(item.monthly_acr) }}</td>
                     <td>
                         <span class="badge bg-success">{{ item.current_commitment }}</span>
                         {% if item.current_status == 'Completed' %}
