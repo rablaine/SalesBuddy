@@ -159,6 +159,9 @@ def _run_sync(app):
 
             # Run marketing insights sync after milestone sync completes
             _run_marketing_sync(app)
+
+            # Check if a U2C snapshot is due (5th of FQ start month)
+            _check_u2c_snapshot()
     except Exception:
         logger.exception("Error during milestone sync")
     finally:
@@ -175,6 +178,26 @@ def _run_marketing_sync(app):
         logger.info("Marketing insights sync complete")
     except Exception:
         logger.exception("Error during marketing insights sync")
+
+
+def _check_u2c_snapshot():
+    """Create a U2C snapshot if today is the 5th of a fiscal quarter start month."""
+    try:
+        from app.services.u2c_snapshot import is_snapshot_due, create_snapshot
+        if is_snapshot_due():
+            logger.info("U2C snapshot due - creating automatically")
+            result = create_snapshot()
+            if result.get('success'):
+                logger.info(
+                    "U2C snapshot created: %s, %d milestones, $%.2f ACR",
+                    result['fiscal_quarter'],
+                    result['total_items'],
+                    result['total_monthly_acr'],
+                )
+            else:
+                logger.warning("U2C snapshot skipped: %s", result.get('error'))
+    except Exception:
+        logger.exception("Error checking U2C snapshot")
 
 
 def start_milestone_sync_background(app):

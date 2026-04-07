@@ -1,0 +1,515 @@
+{% extends "base.html" %}
+{% from 'partials/customer_favicon.html' import customer_favicon %}
+
+{% block title %}U2C Attainment - Sales Buddy{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-start mb-3">
+    <div>
+        <h2><i class="bi bi-bullseye"></i> U2C Attainment</h2>
+        <p class="text-muted mb-0">Track uncommitted-to-committed milestone attainment against a quarterly snapshot baseline.</p>
+    </div>
+</div>
+
+<!-- Controls: Quarter selector, workload filter, create snapshot -->
+<div class="card mb-3">
+    <div class="card-body py-2">
+        <form method="GET" action="{{ url_for('reports.report_u2c') }}" class="d-flex align-items-center gap-3 flex-wrap">
+            <div class="d-flex align-items-center gap-2">
+                <label class="small text-muted fw-semibold mb-0">Quarter:</label>
+                {% if snapshots %}
+                <select name="fq" class="form-select form-select-sm" style="width: auto;" onchange="this.form.submit()">
+                    {% for s in snapshots %}
+                    <option value="{{ s.fiscal_quarter }}" {% if snapshot and s.id == snapshot.id %}selected{% endif %}>
+                        {{ s.fiscal_quarter }} ({{ s.snapshot_date.strftime('%b %d, %Y') }})
+                    </option>
+                    {% endfor %}
+                </select>
+                {% else %}
+                <span class="text-muted small">No snapshots yet</span>
+                {% endif %}
+            </div>
+            {% if workload_prefixes %}
+            <div class="d-flex align-items-center gap-2">
+                <label class="small text-muted fw-semibold mb-0">Workload:</label>
+                <select id="workloadFilter" class="form-select form-select-sm" style="width: auto;" onchange="applyWorkloadFilter()">
+                    <option value="">All workloads</option>
+                    {% for prefix in workload_prefixes %}
+                    <option value="{{ prefix }}">{{ prefix }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            {% endif %}
+            <div class="ms-auto d-flex align-items-center gap-3">
+                {% if not snapshot or snapshot.fiscal_quarter != current_fq %}
+                <span class="small text-muted">
+                    <i class="bi bi-clock-history"></i>
+                    {% if last_milestone_sync %}
+                    Last sync: {{ last_milestone_sync.strftime('%b %d, %Y %I:%M %p') }} UTC
+                    {% else %}
+                    Never synced
+                    {% endif %}
+                </span>
+                <button type="button" class="btn btn-sm btn-outline-primary" id="createSnapshotBtn" onclick="createSnapshot()" {% if not milestones_fresh %}disabled title="Sync milestones first"{% endif %}>
+                    <i class="bi bi-camera"></i> Take {{ current_fq }} Snapshot
+                </button>
+                {% endif %}
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Stale milestone sync warning (only when no snapshot for current FQ) -->
+{% if not snapshot or snapshot.fiscal_quarter != current_fq %}
+{% if not milestones_fresh %}
+<div id="staleSyncAlert" class="alert alert-warning mb-4">
+    <i class="bi bi-exclamation-triangle"></i>
+    <strong>Stale milestone import</strong> -
+    {% if last_milestone_sync %}
+    last import was {{ last_milestone_sync.strftime('%b %d, %Y at %I:%M %p') }} UTC.
+    {% else %}
+    milestones have never been synced.
+    {% endif %}
+    Please perform a fresh sync before taking a snapshot.
+    <div class="mt-2">
+        <button id="syncBtn" class="btn btn-sm btn-primary" onclick="syncMilestones()">
+            <i class="bi bi-arrow-repeat"></i> Sync Milestones from MSX
+        </button>
+    </div>
+    <div id="syncProgressWrap" class="d-none mt-3">
+        <div class="progress" style="height: 22px;">
+            <div id="syncProgressBar" class="progress-bar progress-bar-striped progress-bar-animated"
+                 role="progressbar" style="width: 0%"
+                 aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">
+                0%
+            </div>
+        </div>
+        <div id="syncDetail" class="small text-muted mt-1"></div>
+    </div>
+</div>
+{% endif %}
+{% endif %}
+
+{% if attainment %}
+<!-- Attainment Summary Cards -->
+<div class="row g-3 mb-4" id="summaryCards">
+    <div class="col-md-3">
+        <div class="card text-center h-100">
+            <div class="card-body">
+                <h3 class="mb-1" id="cardTarget">${{ "{:,.0f}".format(attainment.target_total) }}</h3>
+                <small class="text-muted">Target Monthly ACR</small>
+                <div class="small text-muted mt-1" id="cardTargetSub">{{ attainment.total_in_scope }} milestones in scope</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-center h-100">
+            <div class="card-body">
+                <h3 class="mb-1 text-success" id="cardCommitted">${{ "{:,.0f}".format(attainment.committed_total) }}</h3>
+                <small class="text-muted">Committed ACR</small>
+                <div class="small text-muted mt-1" id="cardCommittedSub">{{ attainment.committed_count }} milestones committed</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-center h-100">
+            <div class="card-body">
+                <h3 class="mb-1" id="cardPct">{{ attainment.attainment_pct }}%</h3>
+                <small class="text-muted">Attainment</small>
+                <div class="progress mt-2" style="height: 8px;">
+                    <div id="cardPctBar" class="progress-bar"
+                         style="width: {{ [attainment.attainment_pct, 100]|min }}%"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-center h-100">
+            <div class="card-body">
+                <h3 class="mb-1 text-warning" id="cardRemaining">${{ "{:,.0f}".format(attainment.target_total - attainment.committed_total) }}</h3>
+                <small class="text-muted">Remaining ACR</small>
+                <div class="small text-muted mt-1" id="cardRemainingSub">{{ attainment.remaining_count }} milestones to go</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Remaining Milestones (need to commit) -->
+{% if attainment.remaining_items %}
+<div class="card mb-4" id="remainingCard">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h5 class="mb-0"><i class="bi bi-hourglass-split text-warning"></i> Remaining - Still Need to Commit</h5>
+        <span class="badge bg-warning text-dark" id="remainingBadge">{{ attainment.remaining_count }} milestones - ${{ "{:,.0f}".format(attainment.target_total - attainment.committed_total) }}/mo</span>
+    </div>
+    <div class="table-responsive">
+        <table class="table table-hover mb-0">
+            <thead>
+                <tr>
+                    <th>Customer</th>
+                    <th>Milestone</th>
+                    <th>Workload</th>
+                    <th style="white-space: nowrap;">Due Date</th>
+                    <th class="text-end" style="white-space: nowrap;">Est. ACR</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody id="remainingBody">
+                {% for item in attainment.remaining_items %}
+                <tr data-workload="{{ item.workload or '' }}" data-acr="{{ item.monthly_acr }}">
+                    <td>
+                        {% if item.customer_id %}
+                        <a href="{{ url_for('customers.customer_view', id=item.customer_id) }}">
+                            {{ item.customer_name }}
+                        </a>
+                        {% else %}
+                        {{ item.customer_name }}
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if item.milestone_id %}
+                        <a href="{{ url_for('milestones.milestone_view', id=item.milestone_id) }}">
+                            {{ item.milestone_title }}
+                        </a>
+                        {% else %}
+                        {{ item.milestone_title }}
+                        {% endif %}
+                        {% if item.opportunity_name %}
+                        <div class="small text-muted">{{ item.opportunity_name }}</div>
+                        {% endif %}
+                    </td>
+                    <td><span class="small">{{ item.workload or '-' }}</span></td>
+                    <td style="white-space: nowrap;">
+                        {% if item.due_date %}
+                        <span class="small">{{ item.due_date[:10] }}</span>
+                        {% else %}
+                        <span class="text-muted">-</span>
+                        {% endif %}
+                    </td>
+                    <td class="text-end fw-semibold" style="white-space: nowrap;">${{ "{:,.0f}".format(item.monthly_acr) }}</td>
+                    <td>
+                        <span class="badge {% if item.current_status == 'On Track' %}bg-success{% elif item.current_status == 'At Risk' %}bg-warning text-dark{% elif item.current_status == 'Blocked' %}bg-danger{% else %}bg-secondary{% endif %}">
+                            {{ item.current_status }}
+                        </span>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+
+<!-- Committed Milestones (attained) -->
+{% if attainment.committed_items %}
+<div class="card mb-4" id="committedCard">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h5 class="mb-0"><i class="bi bi-check-circle text-success"></i> Committed - Attained</h5>
+        <span class="badge bg-success" id="committedBadge">{{ attainment.committed_count }} milestones - ${{ "{:,.0f}".format(attainment.committed_total) }}/mo</span>
+    </div>
+    <div class="table-responsive">
+        <table class="table table-hover mb-0">
+            <thead>
+                <tr>
+                    <th>Customer</th>
+                    <th>Milestone</th>
+                    <th>Workload</th>
+                    <th style="white-space: nowrap;">Due Date</th>
+                    <th class="text-end" style="white-space: nowrap;">Est. ACR</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody id="committedBody">
+                {% for item in attainment.committed_items %}
+                <tr data-workload="{{ item.workload or '' }}" data-acr="{{ item.monthly_acr }}">
+                    <td>
+                        {% if item.customer_id %}
+                        <a href="{{ url_for('customers.customer_view', id=item.customer_id) }}">
+                            {{ item.customer_name }}
+                        </a>
+                        {% else %}
+                        {{ item.customer_name }}
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if item.milestone_id %}
+                        <a href="{{ url_for('milestones.milestone_view', id=item.milestone_id) }}">
+                            {{ item.milestone_title }}
+                        </a>
+                        {% else %}
+                        {{ item.milestone_title }}
+                        {% endif %}
+                        {% if item.opportunity_name %}
+                        <div class="small text-muted">{{ item.opportunity_name }}</div>
+                        {% endif %}
+                    </td>
+                    <td><span class="small">{{ item.workload or '-' }}</span></td>
+                    <td style="white-space: nowrap;">
+                        {% if item.due_date %}
+                        <span class="small">{{ item.due_date[:10] }}</span>
+                        {% else %}
+                        <span class="text-muted">-</span>
+                        {% endif %}
+                    </td>
+                    <td class="text-end fw-semibold text-success" style="white-space: nowrap;">${{ "{:,.0f}".format(item.monthly_acr) }}</td>
+                    <td>
+                        <span class="badge bg-success">{{ item.current_commitment }}</span>
+                        {% if item.current_status == 'Completed' %}
+                        <span class="badge bg-info">Completed</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+
+{% elif not snapshot %}
+<!-- No snapshot exists yet -->
+<div class="card">
+    <div class="card-body text-center py-5">
+        <i class="bi bi-camera display-1 text-muted"></i>
+        <h4 class="mt-3">No U2C Snapshot Yet</h4>
+        <p class="text-muted">
+            Take a snapshot to capture your current uncommitted milestones as the baseline for this quarter.
+            <br>Snapshots are also created automatically on the 5th of each fiscal quarter start month.
+        </p>
+        <button class="btn btn-primary" id="createSnapshotBtnEmpty" onclick="createSnapshot()" {% if not milestones_fresh %}disabled title="Sync milestones first"{% endif %}>
+            <i class="bi bi-camera"></i> Take {{ current_fq }} Snapshot Now
+        </button>
+    </div>
+</div>
+{% else %}
+<!-- Snapshot exists but no milestones in scope -->
+<div class="card">
+    <div class="card-body text-center py-5">
+        <i class="bi bi-check-circle display-1 text-success"></i>
+        <h4 class="mt-3">No Milestones in Scope</h4>
+        <p class="text-muted">
+            No uncommitted milestones with due dates in {{ snapshot.fiscal_quarter }} were captured in this snapshot.
+        </p>
+    </div>
+</div>
+{% endif %}
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// Workload filter - client-side with localStorage persistence
+const STORAGE_KEY = 'u2c_workload_filter';
+
+function applyWorkloadFilter() {
+    const sel = document.getElementById('workloadFilter');
+    if (!sel) return;
+    const prefix = sel.value;
+
+    // Persist selection
+    if (prefix) {
+        localStorage.setItem(STORAGE_KEY, prefix);
+    } else {
+        localStorage.removeItem(STORAGE_KEY);
+    }
+
+    // Filter rows in both tables
+    let remainingAcr = 0, remainingCount = 0;
+    let committedAcr = 0, committedCount = 0;
+
+    document.querySelectorAll('#remainingBody tr[data-workload]').forEach(row => {
+        const wl = row.dataset.workload;
+        const match = !prefix || wl.startsWith(prefix + ':') || wl.startsWith(prefix + ' ');
+        row.style.display = match ? '' : 'none';
+        if (match) {
+            remainingAcr += parseFloat(row.dataset.acr) || 0;
+            remainingCount++;
+        }
+    });
+
+    document.querySelectorAll('#committedBody tr[data-workload]').forEach(row => {
+        const wl = row.dataset.workload;
+        const match = !prefix || wl.startsWith(prefix + ':') || wl.startsWith(prefix + ' ');
+        row.style.display = match ? '' : 'none';
+        if (match) {
+            committedAcr += parseFloat(row.dataset.acr) || 0;
+            committedCount++;
+        }
+    });
+
+    const targetAcr = remainingAcr + committedAcr;
+    const totalCount = remainingCount + committedCount;
+    const pct = targetAcr > 0 ? Math.round(committedAcr / targetAcr * 1000) / 10 : 0;
+
+    // Update summary cards
+    const fmt = v => '$' + Math.round(v).toLocaleString('en-US');
+    const el = id => document.getElementById(id);
+
+    if (el('cardTarget')) el('cardTarget').textContent = fmt(targetAcr);
+    if (el('cardTargetSub')) el('cardTargetSub').textContent = totalCount + ' milestones in scope';
+    if (el('cardCommitted')) el('cardCommitted').textContent = fmt(committedAcr);
+    if (el('cardCommittedSub')) el('cardCommittedSub').textContent = committedCount + ' milestones committed';
+    if (el('cardRemaining')) el('cardRemaining').textContent = fmt(remainingAcr);
+    if (el('cardRemainingSub')) el('cardRemainingSub').textContent = remainingCount + ' milestones to go';
+
+    // Attainment % + color
+    if (el('cardPct')) {
+        el('cardPct').textContent = pct + '%';
+        el('cardPct').className = 'mb-1 ' + (pct >= 100 ? 'text-success' : pct >= 50 ? 'text-primary' : 'text-warning');
+    }
+    if (el('cardPctBar')) {
+        el('cardPctBar').style.width = Math.min(pct, 100) + '%';
+        el('cardPctBar').className = 'progress-bar ' + (pct >= 100 ? 'bg-success' : pct >= 50 ? 'bg-primary' : 'bg-warning');
+    }
+
+    // Update table header badges
+    if (el('remainingBadge')) el('remainingBadge').textContent = remainingCount + ' milestones - ' + fmt(remainingAcr) + '/mo';
+    if (el('committedBadge')) el('committedBadge').textContent = committedCount + ' milestones - ' + fmt(committedAcr) + '/mo';
+
+    // Show/hide empty cards
+    if (el('remainingCard')) el('remainingCard').style.display = remainingCount > 0 ? '' : 'none';
+    if (el('committedCard')) el('committedCard').style.display = committedCount > 0 ? '' : 'none';
+}
+
+// Restore filter from localStorage on page load
+document.addEventListener('DOMContentLoaded', function() {
+    const sel = document.getElementById('workloadFilter');
+    if (sel) {
+        const saved = localStorage.getItem(STORAGE_KEY);
+        if (saved && [...sel.options].some(o => o.value === saved)) {
+            sel.value = saved;
+            applyWorkloadFilter();
+        }
+    }
+});
+
+function createSnapshot() {
+    const btn = document.getElementById('createSnapshotBtn');
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Creating...';
+    }
+    fetch('{{ url_for("reports.api_u2c_create_snapshot") }}', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({})
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            location.href = '{{ url_for("reports.report_u2c") }}?fq=' + encodeURIComponent(data.fiscal_quarter);
+        } else {
+            alert(data.error || 'Failed to create snapshot');
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="bi bi-camera"></i> Take {{ current_fq }} Snapshot';
+            }
+        }
+    })
+    .catch(err => {
+        alert('Error: ' + err.message);
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-camera"></i> Take {{ current_fq }} Snapshot';
+        }
+    });
+}
+
+function syncMilestones() {
+    const btn = document.getElementById('syncBtn');
+    const wrap = document.getElementById('syncProgressWrap');
+    const bar = document.getElementById('syncProgressBar');
+    const detail = document.getElementById('syncDetail');
+
+    btn.disabled = true;
+    btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Syncing...';
+    wrap.classList.remove('d-none');
+
+    fetch('{{ url_for("milestones.api_sync_milestones") }}', {
+        method: 'POST',
+        headers: { 'Accept': 'text/event-stream' },
+    }).then(response => {
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        function processEvents(text) {
+            buffer += text;
+            const events = buffer.split('\n\n');
+            buffer = events.pop();
+            for (const block of events) {
+                if (!block.trim()) continue;
+                let eventType = 'message', eventData = '';
+                for (const line of block.split('\n')) {
+                    if (line.startsWith('event: ')) eventType = line.slice(7);
+                    else if (line.startsWith('data: ')) eventData = line.slice(6);
+                }
+                if (!eventData) continue;
+                try {
+                    const data = JSON.parse(eventData);
+                    handleSyncEvent(eventType, data);
+                } catch(e) {}
+            }
+        }
+
+        function pump() {
+            return reader.read().then(({ done, value }) => {
+                if (done) return;
+                processEvents(decoder.decode(value, { stream: true }));
+                return pump();
+            });
+        }
+        return pump();
+    }).catch(err => {
+        detail.textContent = 'Sync error: ' + err.message;
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> Retry Sync';
+    });
+}
+
+function handleSyncEvent(type, data) {
+    const bar = document.getElementById('syncProgressBar');
+    const detail = document.getElementById('syncDetail');
+    const alert = document.getElementById('staleSyncAlert');
+
+    if (type === 'progress') {
+        const pct = data.progress || 0;
+        bar.style.width = pct + '%';
+        bar.textContent = pct + '%';
+        bar.setAttribute('aria-valuenow', pct);
+        if (data.customer) {
+            detail.textContent = data.customer + (data.status === 'fetching' ? ' - fetching...' : '');
+        }
+    } else if (type === 'complete') {
+        bar.style.width = '100%';
+        bar.textContent = '100%';
+        bar.classList.remove('progress-bar-animated');
+        bar.classList.add('bg-success');
+        detail.textContent = 'Sync complete! You can now take the snapshot.';
+        // Replace the stale warning with a success message
+        if (alert) {
+            alert.classList.remove('alert-warning');
+            alert.classList.add('alert-success');
+            const msg = alert.querySelector('strong');
+            if (msg) msg.textContent = 'Milestones up to date';
+            const icon = alert.querySelector('.bi-exclamation-triangle');
+            if (icon) {
+                icon.classList.remove('bi-exclamation-triangle');
+                icon.classList.add('bi-check-circle');
+            }
+            // Hide the sync button, show ready state
+            const syncBtn = document.getElementById('syncBtn');
+            if (syncBtn) syncBtn.classList.add('d-none');
+        }
+        // Enable snapshot buttons now that milestones are fresh
+        document.querySelectorAll('#createSnapshotBtn, #createSnapshotBtnEmpty').forEach(btn => {
+            btn.disabled = false;
+            btn.removeAttribute('title');
+        });
+    } else if (type === 'vpn_blocked') {
+        bar.classList.remove('progress-bar-animated');
+        bar.classList.add('bg-danger');
+        detail.textContent = 'VPN required - cannot reach MSX API.';
+    }
+}
+</script>
+{% endblock %}
