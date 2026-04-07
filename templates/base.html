@@ -3834,8 +3834,36 @@
         }
 
         // --- Markdown rendering (lightweight) ---
+        function renderMarkdownTable(block) {
+            const lines = block.trim().split('\n');
+            if (lines.length < 2) return null;
+            // Verify separator row (2nd line must be like |---|---|)
+            if (!/^\|?[\s-:|]+\|[\s-:|]+\|?$/.test(lines[1])) return null;
+            function parseCells(line) {
+                return line.replace(/^\|/, '').replace(/\|$/, '').split('|').map(c => c.trim());
+            }
+            const headers = parseCells(lines[0]);
+            let tableHtml = '<table class="table table-sm table-bordered mb-2"><thead><tr>';
+            headers.forEach(h => { tableHtml += '<th>' + h + '</th>'; });
+            tableHtml += '</tr></thead><tbody>';
+            for (let i = 2; i < lines.length; i++) {
+                if (!lines[i].trim()) continue;
+                const cells = parseCells(lines[i]);
+                tableHtml += '<tr>';
+                cells.forEach(c => { tableHtml += '<td>' + c + '</td>'; });
+                tableHtml += '</tr>';
+            }
+            tableHtml += '</tbody></table>';
+            return tableHtml;
+        }
+
         function renderMarkdown(text) {
             if (!text) return '';
+            // Extract and render tables before other processing
+            text = text.replace(/((?:^\|.+\|[ ]*(?:\n|$)){2,})/gm, function(match) {
+                const table = renderMarkdownTable(match);
+                return table ? table : match;
+            });
             let html = text
                 // Code blocks
                 .replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>')
