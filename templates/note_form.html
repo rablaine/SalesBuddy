@@ -30,6 +30,17 @@
     #editor tr:nth-child(even) {
         background-color: rgba(128,128,128,0.06);
     }
+    /* Compact Quill toolbar for action item flyout */
+    #engTaskFlyout .ql-toolbar {
+        padding: 4px 6px;
+    }
+    #engTaskFlyout .ql-container {
+        font-size: 0.875rem;
+    }
+    #engTaskFlyout .ql-editor {
+        min-height: 60px;
+        padding: 6px 10px;
+    }
 </style>
 <style>
     .previous-calls-card {
@@ -883,8 +894,8 @@
             <input type="text" class="form-control" id="engTaskTitle" placeholder="Follow up on POC results..." maxlength="300">
         </div>
         <div class="mb-3">
-            <label for="engTaskDescription" class="form-label">Description</label>
-            <textarea class="form-control" id="engTaskDescription" rows="3" placeholder="URLs, details, context..."></textarea>
+            <label class="form-label">Description</label>
+            <div id="engTaskDescriptionEditor" style="min-height: 80px;"></div>
         </div>
         <div class="mb-3">
             <label for="engTaskTarget" class="form-label">Engagement</label>
@@ -7110,6 +7121,20 @@ var _engTaskFlyoutInstance = null;
 var _engTaskEditId = null;        // null = create mode, int = editing task ID
 var _engTaskCleanState = null;    // snapshot of form when opened/loaded for dirty check
 
+// Mini Quill editor for action item description
+var _engTaskQuill = new Quill('#engTaskDescriptionEditor', {
+    theme: 'snow',
+    placeholder: 'URLs, details, context...',
+    modules: {
+        toolbar: [
+            ['bold', 'italic', 'underline'],
+            [{ 'list': 'ordered'}, { 'list': 'bullet' }],
+            ['link'],
+            ['clean']
+        ]
+    }
+});
+
 // Track cursor position continuously so we have it when Quill loses focus
 quill.on('selection-change', function(range) {
     if (range) {
@@ -7127,7 +7152,7 @@ quill.on('text-change', function() {
 function _getEngTaskFormState() {
     return JSON.stringify({
         title: document.getElementById('engTaskTitle').value,
-        description: document.getElementById('engTaskDescription').value,
+        description: _engTaskQuill.root.innerHTML,
         target: document.getElementById('engTaskTarget').value,
         due: document.getElementById('engTaskDue').value,
         priority: document.getElementById('engTaskPriority').value,
@@ -7143,7 +7168,7 @@ function isEngTaskFlyoutDirty() {
 
 function _resetEngTaskFlyout() {
     document.getElementById('engTaskTitle').value = '';
-    document.getElementById('engTaskDescription').value = '';
+    _engTaskQuill.setContents([]);
     document.getElementById('engTaskDue').value = '';
     document.getElementById('engTaskPriority').value = 'normal';
     document.getElementById('engTaskContact').value = '';
@@ -7221,7 +7246,7 @@ function openEngTaskEdit(taskId) {
             if (data.success) {
                 var t = data.task;
                 document.getElementById('engTaskTitle').value = t.title || '';
-                document.getElementById('engTaskDescription').value = t.description || '';
+                _engTaskQuill.root.innerHTML = t.description || '';
                 document.getElementById('engTaskDue').value = t.due_date || '';
                 document.getElementById('engTaskPriority').value = t.priority || 'normal';
                 document.getElementById('engTaskContact').value = t.contact || '';
@@ -7253,7 +7278,7 @@ function saveEngTask() {
     var titleEl = document.getElementById('engTaskTitle');
     var title = titleEl.value.trim();
     if (!title) { titleEl.focus(); return; }
-    var description = document.getElementById('engTaskDescription').value.trim();
+    var description = _engTaskQuill.getText().trim() ? _engTaskQuill.root.innerHTML : '';
     var due = document.getElementById('engTaskDue').value;
     var priority = document.getElementById('engTaskPriority').value;
     var contact = document.getElementById('engTaskContact').value.trim();
@@ -7318,7 +7343,7 @@ function createEngTask() {
     if (!title) { titleEl.focus(); return; }
     var engId = document.getElementById('engTaskTarget').value;
     if (!engId) { alert('Select an engagement first.'); return; }
-    var description = document.getElementById('engTaskDescription').value.trim();
+    var description = _engTaskQuill.getText().trim() ? _engTaskQuill.root.innerHTML : '';
     var due = document.getElementById('engTaskDue').value;
     var priority = document.getElementById('engTaskPriority').value;
     var contact = document.getElementById('engTaskContact').value.trim();
