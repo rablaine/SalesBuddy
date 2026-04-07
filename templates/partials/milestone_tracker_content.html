@@ -289,8 +289,8 @@
                             {{ ms.due_date.strftime('%b %d, %Y') }}
                         </span>
                         {% if ms.days_until_due is not none %}
-                            <div class="small {% if ms.days_until_due < 0 %}text-danger{% elif ms.days_until_due <= 7 %}text-warning{% else %}text-muted{% endif %}">
-                                {% if ms.days_until_due < 0 %}
+                            <div class="small {% if ms.urgency == 'past_due' %}text-danger{% elif ms.days_until_due <= 7 %}text-warning{% else %}text-muted{% endif %}">
+                                {% if ms.urgency == 'past_due' %}
                                     {{ (-ms.days_until_due) }}d overdue
                                 {% elif ms.days_until_due == 0 %}
                                     Due today

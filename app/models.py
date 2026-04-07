@@ -1117,7 +1117,10 @@ class Milestone(db.Model):
     
     @property
     def due_date_urgency(self) -> str:
-        """Return urgency level based on due date: 'past_due', 'this_week', 'this_month', 'future', 'no_date'."""
+        """Return urgency level based on due date: 'past_due', 'this_week', 'this_month', 'future', 'no_date'.
+
+        Committed milestones are never 'past_due' - they already landed.
+        """
         if not self.due_date:
             return 'no_date'
         from datetime import datetime, timedelta, timezone
@@ -1125,6 +1128,8 @@ class Milestone(db.Model):
         due = self.due_date if self.due_date.tzinfo else self.due_date.replace(tzinfo=timezone.utc)
         days_until = (due - now).days
         if days_until < 0:
+            if self.customer_commitment == 'Committed':
+                return 'future'
             return 'past_due'
         elif days_until <= 7:
             return 'this_week'
