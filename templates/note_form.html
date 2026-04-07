@@ -31,9 +31,7 @@
         background-color: rgba(128,128,128,0.06);
     }
 </style>
-{% if not note and previous_calls %}
 <style>
-    /* Previous calls section styling */
     .previous-calls-card {
         display: flex;
         flex-direction: column;
@@ -43,7 +41,6 @@
         overflow-y: auto;
     }
 </style>
-{% endif %}
 {% endblock %}
 
 {% block content %}
@@ -669,33 +666,8 @@
         <!-- Inline Engagement Details (dynamically populated) -->
         <div id="inlineEngContainer"></div>
 
-        {% if not note and previous_calls %}
-        <div class="card previous-calls-card">
-            <div class="card-header">
-                <h5 class="mb-0">Previous Notes ({{ previous_calls|length }})</h5>
-            </div>
-            <div class="card-body previous-calls-body">
-                {% for call in previous_calls %}
-                    <div class="mb-4 pb-3 {% if not loop.last %}border-bottom{% endif %}">
-                        <div class="d-flex justify-content-between align-items-start mb-2">
-                            <h6 class="mb-0">{{ call.call_date.strftime('%b %d, %Y') }}{% if call.call_date.hour != 0 or call.call_date.minute != 0 %} {{ call.call_date.strftime('%I:%M %p') }}{% endif %}</h6>
-                            <a href="{{ url_for('notes.note_view', id=call.id) }}" class="btn btn-sm btn-outline-secondary" target="_blank">
-                                <i class="bi bi-box-arrow-up-right"></i> View
-                            </a>
-                        </div>
-                        {% if call.topics|length > 0 %}
-                            <div class="mb-2">
-                                {% for topic in call.topics %}
-                                    <span class="badge bg-warning text-dark"><i class="bi bi-tag"></i> {{ topic.name }}</span>
-                                {% endfor %}
-                            </div>
-                        {% endif %}
-                        <div class="call-content">{{ call.content|safe }}</div>
-                    </div>
-                {% endfor %}
-            </div>
-        </div>
-        {% endif %}
+        <!-- Related notes (dynamically populated via JS) -->
+        <div id="relatedNotesContainer"></div>
     </div>
     {% endif %}
 </div>
@@ -2576,6 +2548,7 @@ document.getElementById('noteForm').onsubmit = function(e) {
                 buildMenu();
                 updateLabel();
                 if (typeof syncEngTaskButton === 'function') syncEngTaskButton();
+                if (typeof loadRelatedNotes === 'function') loadRelatedNotes();
                 return;
             }
             
@@ -2595,12 +2568,14 @@ document.getElementById('noteForm').onsubmit = function(e) {
                     buildMenu();
                     updateLabel();
                     if (typeof syncEngTaskButton === 'function') syncEngTaskButton();
+                    if (typeof loadRelatedNotes === 'function') loadRelatedNotes();
                 })
                 .catch(err => {
                     console.error('Error loading engagements:', err);
                     buildMenu();
                     updateLabel();
                     if (typeof syncEngTaskButton === 'function') syncEngTaskButton();
+                    if (typeof loadRelatedNotes === 'function') loadRelatedNotes();
                 });
         });
     }
@@ -6071,30 +6046,30 @@ document.addEventListener('DOMContentLoaded', function() {
     })();
     {% endif %}
     
-    {% if previous_calls %}
-    // Match previous calls card height to new note card height
+    // Match related notes card height to main note card height
     function matchCardHeights() {
-        const newCallCard = document.querySelector('.col-md-6:first-child .card');
-        const previousCallsCard = document.querySelector('.previous-calls-card');
-        const previousCallsBody = document.querySelector('.previous-calls-body');
+        var newCallCard = document.querySelector('#noteFormLeftCol .card');
+        var previousCallsCard = document.querySelector('.previous-calls-card');
+        var previousCallsBody = document.querySelector('.previous-calls-body');
         
         if (newCallCard && previousCallsCard && previousCallsBody) {
-            const newCallHeight = newCallCard.offsetHeight;
+            var newCallHeight = newCallCard.offsetHeight;
             previousCallsCard.style.height = newCallHeight + 'px';
             
-            // Calculate available height for scrollable body
-            const cardHeader = previousCallsCard.querySelector('.card-header');
-            const headerHeight = cardHeader ? cardHeader.offsetHeight : 0;
-            const bodyPadding = 32; // Card body padding
+            var cardHeader = previousCallsCard.querySelector('.card-header');
+            var headerHeight = cardHeader ? cardHeader.offsetHeight : 0;
+            var bodyPadding = 32;
             previousCallsBody.style.maxHeight = (newCallHeight - headerHeight - bodyPadding) + 'px';
         }
     }
     
-    // Match heights on load and when Quill editor is initialized
     matchCardHeights();
-    setTimeout(matchCardHeights, 100); // Retry after Quill loads
+    setTimeout(matchCardHeights, 100);
     window.addEventListener('resize', matchCardHeights);
-    {% endif %}
+    // Re-match when related notes are loaded
+    var _rnObserver = new MutationObserver(function() { setTimeout(matchCardHeights, 50); });
+    var _rnContainer = document.getElementById('relatedNotesContainer');
+    if (_rnContainer) _rnObserver.observe(_rnContainer, { childList: true });
 });
 {% endif %}
 {% if note %}
@@ -7411,10 +7386,12 @@ window.onEngagementSelectionChanged = function() {
     if (_origOnEngChange) _origOnEngChange();
     syncEngTaskButton();
     syncInlineEngPanel();
+    loadRelatedNotes();
 };
 // Initial sync on page load
 syncEngTaskButton();
 syncInlineEngPanel();
+loadRelatedNotes();
 
 // =============================================
 // Inline Engagement Details Panel (multi-card)
@@ -7530,8 +7507,8 @@ function _updateColumnLayout() {
     if (!row || !leftCol || !rightCol) return;
 
     var hasEngCards = rightCol.querySelectorAll('.inline-eng-card').length > 0;
-    var hasPrevCalls = rightCol.querySelector('.previous-calls-card') !== null;
-    var rightHasContent = hasEngCards || hasPrevCalls;
+    var hasRelatedNotes = (rightCol.querySelector('#relatedNotesContainer') || {}).childElementCount > 0;
+    var rightHasContent = hasEngCards || hasRelatedNotes;
 
     if (rightHasContent) {
         leftCol.className = 'col-md-6';
@@ -7554,6 +7531,74 @@ function _updateColumnLayout() {
             mainContainer.style.paddingRight = '';
         }
     }
+}
+
+// =============================================
+// Related Notes (dynamically loaded)
+// =============================================
+var _relatedNotesAbort = null;
+
+function loadRelatedNotes() {
+    var container = document.getElementById('relatedNotesContainer');
+    if (!container) return;
+
+    // Get customer ID
+    var custSelect = document.getElementById('customer_id');
+    var customerId = custSelect ? custSelect.value : '';
+    if (!customerId) { container.innerHTML = ''; _updateColumnLayout(); return; }
+
+    // Get selected engagement IDs
+    var engSelect = document.getElementById('engagement_ids');
+    var engIds = engSelect ? Array.from(engSelect.selectedOptions).map(function(o) { return o.value; }) : [];
+
+    // Get current note ID (edit mode)
+    var excludeNoteId = {{ (note.id if note else 0)|tojson }};
+
+    // Abort previous request
+    if (_relatedNotesAbort) _relatedNotesAbort.abort();
+    _relatedNotesAbort = new AbortController();
+
+    var params = new URLSearchParams({ customer_id: customerId });
+    if (engIds.length > 0) params.set('engagement_ids', engIds.join(','));
+    if (excludeNoteId) params.set('exclude_note_id', excludeNoteId);
+
+    fetch('/api/notes/related?' + params.toString(), { signal: _relatedNotesAbort.signal })
+        .then(function(r) { return r.json(); })
+        .then(function(notes) {
+            if (notes.length === 0) {
+                container.innerHTML = '';
+                _updateColumnLayout();
+                return;
+            }
+            var label = engIds.length > 0 ? 'Engagement Notes' : 'Other Notes';
+            var html = '<div class="card previous-calls-card">' +
+                '<div class="card-header"><h5 class="mb-0">' + label + ' (' + notes.length + ')</h5></div>' +
+                '<div class="card-body previous-calls-body">';
+            notes.forEach(function(n, i) {
+                html += '<div class="mb-4 pb-3 ' + (i < notes.length - 1 ? 'border-bottom' : '') + '">';
+                html += '<div class="d-flex justify-content-between align-items-start mb-2">';
+                html += '<h6 class="mb-0">' + n.call_date + (n.call_time ? ' ' + n.call_time : '') + '</h6>';
+                html += '<a href="/note/' + n.id + '" class="btn btn-sm btn-outline-secondary" target="_blank">' +
+                    '<i class="bi bi-box-arrow-up-right"></i> View</a>';
+                html += '</div>';
+                if (n.topics && n.topics.length > 0) {
+                    html += '<div class="mb-2">';
+                    n.topics.forEach(function(t) {
+                        html += '<span class="badge bg-warning text-dark"><i class="bi bi-tag"></i> ' +
+                            t.name.replace(/</g, '&lt;') + '</span> ';
+                    });
+                    html += '</div>';
+                }
+                html += '<div class="call-content">' + n.content + '</div>';
+                html += '</div>';
+            });
+            html += '</div></div>';
+            container.innerHTML = html;
+            _updateColumnLayout();
+        })
+        .catch(function(err) {
+            if (err.name !== 'AbortError') console.error('Failed to load related notes:', err);
+        });
 }
 
 function syncInlineEngPanel() {
