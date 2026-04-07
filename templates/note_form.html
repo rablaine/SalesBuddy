@@ -63,7 +63,7 @@
 {% endif %}
 
 <div class="row">
-    <div class="col-md-{% if not note and previous_calls %}6{% else %}10{% endif %}">
+    <div class="col-md-{% if not is_general_note %}6{% else %}10{% endif %}">
         <div class="d-flex justify-content-between align-items-center mb-4">
             <h1 class="mb-0">
                 {% if is_general_note %}
@@ -672,8 +672,61 @@
     </div>
     {% endif %}
 
-    {% if not note and previous_calls %}
+    {% if not is_general_note %}
     <div class="col-md-6">
+        <!-- Inline Engagement Details -->
+        <div class="card mb-3" id="inlineEngCard" style="display: none;">
+            <div class="card-header d-flex justify-content-between align-items-center py-2">
+                <h6 class="mb-0"><i class="bi bi-diagram-3"></i> <span id="inlineEngHeaderTitle">Engagement</span></h6>
+                <a id="inlineEngViewLink" href="#" target="_blank" class="small text-decoration-none">
+                    open <i class="bi bi-box-arrow-up-right"></i>
+                </a>
+            </div>
+            <div class="card-body py-2">
+                <input type="hidden" id="inlineEngId" value="">
+                <div class="mb-2">
+                    <label class="form-label mb-0 small text-muted">Status</label>
+                    <select class="form-select form-select-sm" id="inlineEngStatus">
+                        <option value="Active">Active</option>
+                        <option value="On Hold">On Hold</option>
+                        <option value="Won">Won</option>
+                        <option value="Lost">Lost</option>
+                    </select>
+                </div>
+                <div class="mb-2">
+                    <label class="form-label mb-0 small text-muted">Key Individuals</label>
+                    <textarea class="form-control form-control-sm" id="inlineEngKeyIndividuals" rows="2" placeholder="Jane Smith (CTO), Bob (Infra Lead)"></textarea>
+                </div>
+                <div class="mb-2">
+                    <label class="form-label mb-0 small text-muted">Technical/Business Problem</label>
+                    <textarea class="form-control form-control-sm" id="inlineEngTechProblem" rows="2" placeholder="What challenge are they facing?"></textarea>
+                </div>
+                <div class="mb-2">
+                    <label class="form-label mb-0 small text-muted">Business Impact</label>
+                    <textarea class="form-control form-control-sm" id="inlineEngBizImpact" rows="2" placeholder="How does this affect their business?"></textarea>
+                </div>
+                <div class="mb-2">
+                    <label class="form-label mb-0 small text-muted">Solution Resources</label>
+                    <textarea class="form-control form-control-sm" id="inlineEngSolution" rows="2" placeholder="Azure Migrate, App Service, etc."></textarea>
+                </div>
+                <div class="row mb-2">
+                    <div class="col-7">
+                        <label class="form-label mb-0 small text-muted">Est. $ACR (monthly)</label>
+                        <div class="input-group input-group-sm">
+                            <span class="input-group-text">$</span>
+                            <input type="number" class="form-control" id="inlineEngAcr" placeholder="500" min="0" step="1">
+                            <span class="input-group-text">/mo</span>
+                        </div>
+                    </div>
+                    <div class="col-5">
+                        <label class="form-label mb-0 small text-muted">Target Date</label>
+                        <input type="date" class="form-control form-control-sm" id="inlineEngTargetDate">
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        {% if not note and previous_calls %}
         <div class="card previous-calls-card">
             <div class="card-header">
                 <h5 class="mb-0">Previous Notes ({{ previous_calls|length }})</h5>
@@ -699,6 +752,7 @@
                 {% endfor %}
             </div>
         </div>
+        {% endif %}
     </div>
     {% endif %}
 </div>
@@ -2350,6 +2404,11 @@ function saveCustNickname() {
 
 // Sync editor content to hidden textarea on form submit
 document.getElementById('noteForm').onsubmit = function(e) {
+    // After async engagement save, re-submit skips all checks
+    if (window._engSaveComplete) {
+        window._engSaveComplete = false;
+        return true;
+    }
     // Check for unsaved flyout changes before saving the note
     if (isPartnerFlyoutDirty()) {
         e.preventDefault();
@@ -2396,6 +2455,22 @@ document.getElementById('noteForm').onsubmit = function(e) {
         e.stopImmediatePropagation(); // Stop other submit handlers from running
         alert('Notes cannot be empty.');
         quill.focus();
+        return false;
+    }
+
+    // Save inline engagement changes before submitting the note
+    if (typeof isInlineEngDirty === 'function' && isInlineEngDirty()) {
+        e.preventDefault();
+        saveInlineEngagement().then(function() {
+            // Re-submit the form (skip this handler via flag)
+            window._engSaveComplete = true;
+            document.getElementById('noteForm').requestSubmit();
+        }).catch(function(err) {
+            console.error('Failed to save engagement:', err);
+            // Submit the note anyway
+            window._engSaveComplete = true;
+            document.getElementById('noteForm').requestSubmit();
+        });
         return false;
     }
     
@@ -7342,9 +7417,106 @@ var _origOnEngChange = window.onEngagementSelectionChanged;
 window.onEngagementSelectionChanged = function() {
     if (_origOnEngChange) _origOnEngChange();
     syncEngTaskButton();
+    syncInlineEngPanel();
 };
 // Initial sync on page load
 syncEngTaskButton();
+syncInlineEngPanel();
+
+// =============================================
+// Inline Engagement Details Panel
+// =============================================
+var _inlineEngCleanState = null;
+
+function _getInlineEngState() {
+    return JSON.stringify({
+        status: document.getElementById('inlineEngStatus').value,
+        key_individuals: document.getElementById('inlineEngKeyIndividuals').value,
+        technical_problem: document.getElementById('inlineEngTechProblem').value,
+        business_impact: document.getElementById('inlineEngBizImpact').value,
+        solution_resources: document.getElementById('inlineEngSolution').value,
+        estimated_acr: document.getElementById('inlineEngAcr').value,
+        target_date: document.getElementById('inlineEngTargetDate').value
+    });
+}
+
+function isInlineEngDirty() {
+    if (!_inlineEngCleanState) return false;
+    return _inlineEngCleanState !== _getInlineEngState();
+}
+
+function syncInlineEngPanel() {
+    var card = document.getElementById('inlineEngCard');
+    if (!card) return;
+    var hiddenSelect = document.getElementById('engagement_ids');
+    if (!hiddenSelect) { card.style.display = 'none'; return; }
+    var selected = Array.from(hiddenSelect.selectedOptions);
+    if (selected.length !== 1) {
+        // Auto-save if switching away from a dirty engagement
+        if (isInlineEngDirty()) saveInlineEngagement();
+        card.style.display = 'none';
+        document.getElementById('inlineEngId').value = '';
+        _inlineEngCleanState = null;
+        return;
+    }
+    var engId = selected[0].value;
+    var currentId = document.getElementById('inlineEngId').value;
+    if (engId === currentId) {
+        // Already loaded
+        card.style.display = '';
+        return;
+    }
+    // Auto-save previous engagement if dirty before loading new one
+    if (isInlineEngDirty()) saveInlineEngagement();
+    // Load engagement data
+    card.style.display = '';
+    document.getElementById('inlineEngId').value = engId;
+    document.getElementById('inlineEngHeaderTitle').textContent = selected[0].textContent.trim().replace(/\s*\(.*\)$/, '');
+    document.getElementById('inlineEngViewLink').href = '/engagement/' + engId;
+
+    fetch('/api/engagement/' + engId)
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            document.getElementById('inlineEngStatus').value = data.status || 'Active';
+            document.getElementById('inlineEngKeyIndividuals').value = data.key_individuals || '';
+            document.getElementById('inlineEngTechProblem').value = data.technical_problem || '';
+            document.getElementById('inlineEngBizImpact').value = data.business_impact || '';
+            document.getElementById('inlineEngSolution').value = data.solution_resources || '';
+            document.getElementById('inlineEngAcr').value = data.estimated_acr != null ? data.estimated_acr : '';
+            document.getElementById('inlineEngTargetDate').value = data.target_date || '';
+            _inlineEngCleanState = _getInlineEngState();
+        })
+        .catch(function(err) {
+            console.error('Failed to load engagement:', err);
+        });
+}
+
+function saveInlineEngagement() {
+    var engId = document.getElementById('inlineEngId').value;
+    if (!engId || !isInlineEngDirty()) return Promise.resolve();
+
+    var headerTitle = document.getElementById('inlineEngHeaderTitle').textContent.trim();
+    return fetch('/api/engagement/' + engId, {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            title: headerTitle,
+            status: document.getElementById('inlineEngStatus').value,
+            key_individuals: document.getElementById('inlineEngKeyIndividuals').value.trim(),
+            technical_problem: document.getElementById('inlineEngTechProblem').value.trim(),
+            business_impact: document.getElementById('inlineEngBizImpact').value.trim(),
+            solution_resources: document.getElementById('inlineEngSolution').value.trim(),
+            estimated_acr: document.getElementById('inlineEngAcr').value.trim(),
+            target_date: document.getElementById('inlineEngTargetDate').value || null
+        })
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        if (data.success) {
+            _inlineEngCleanState = _getInlineEngState();
+        }
+    });
+}
 </script>
 {% endblock %}
 
