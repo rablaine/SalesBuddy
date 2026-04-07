@@ -1300,6 +1300,7 @@ def api_msx_workspace_milestones():
             'dollar_value': ms.dollar_value,
             'monthly_usage': ms.monthly_usage,
             'workload': ms.workload,
+            'workload_area': ms.workload.split(':', 1)[0].strip() if ms.workload and ':' in ms.workload else (ms.workload.strip() if ms.workload else ''),
             'owner_name': ms.owner_name,
             'on_my_team': ms.on_my_team,
             'customer_name': cust.name if cust else None,

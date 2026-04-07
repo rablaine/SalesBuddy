@@ -130,6 +130,9 @@
             <select id="msOppFilter" class="form-select form-select-sm" style="width: 220px;">
                 <option value="">All Opportunities</option>
             </select>
+            <select id="msWorkloadFilter" class="form-select form-select-sm" style="width: 200px;">
+                <option value="">All Areas</option>
+            </select>
         </div>
         <div class="table-responsive">
             <table class="table table-sm table-hover align-middle" id="msTable">
@@ -177,6 +180,9 @@
                     <tbody id="tasksBody"></tbody>
                 </table>
             </div>
+            <button class="btn btn-outline-primary d-none mt-2" id="btnBackToMilestones">
+                <i class="bi bi-arrow-left"></i> Back to Milestones
+            </button>
         </div>
     </div>
 </div>
@@ -330,6 +336,7 @@
     const msStatusFilter = document.getElementById('msStatusFilterWrap');
     const msTeamFilter = document.getElementById('msTeamFilter');
     const msOppFilter = document.getElementById('msOppFilter');
+    const msWorkloadFilter = document.getElementById('msWorkloadFilter');
 
     // ----- Seller → Customer dropdown filtering -----
     function filterCustomerBySeller(sellerId) {
@@ -584,6 +591,7 @@
             document.getElementById('msCount').textContent = msData.length;
             renderMilestones();
             populateOppFilter();
+            populateWorkloadFilter();
         } catch (e) {
             document.getElementById('msBody').innerHTML = `<tr><td colspan="10" class="text-center text-danger py-3">Error: ${escHtml(e.message)}</td></tr>`;
         }
@@ -602,14 +610,29 @@
         msOppFilter.value = current;
     }
 
+    function populateWorkloadFilter() {
+        const areas = new Set();
+        msData.forEach(m => { if (m.workload_area) areas.add(m.workload_area); });
+        const current = msWorkloadFilter.value || localStorage.getItem('msxWsMsWorkload') || '';
+        msWorkloadFilter.innerHTML = '<option value="">All Areas</option>';
+        [...areas].sort((a, b) => a.localeCompare(b)).forEach(a => {
+            msWorkloadFilter.innerHTML += `<option value="${escHtml(a)}">${escHtml(a)}</option>`;
+        });
+        msWorkloadFilter.value = current;
+    }
+
     function renderMilestones() {
         const tbody = document.getElementById('msBody');
-        if (!msData.length) {
+        // Client-side workload area filter
+        const areaFilter = msWorkloadFilter.value || localStorage.getItem('msxWsMsWorkload') || '';
+        const filtered = areaFilter ? msData.filter(m => m.workload_area === areaFilter) : msData;
+        document.getElementById('msCount').textContent = filtered.length;
+        if (!filtered.length) {
             tbody.innerHTML = '<tr><td colspan="10" class="text-center text-muted py-4">No milestones found</td></tr>';
             return;
         }
 
-        const sorted = [...msData];
+        const sorted = [...filtered];
         if (msSortField) {
             sorted.sort((a, b) => {
                 let va = a[msSortField] ?? '', vb = b[msSortField] ?? '';
@@ -657,6 +680,7 @@
                 filteredMilestoneId = msId;
                 filteredMilestoneTitle = title;
                 document.getElementById('btnCreateTask').classList.remove('d-none');
+                document.getElementById('btnBackToMilestones').classList.remove('d-none');
                 // Load tasks filtered to this milestone
                 const params = new URLSearchParams();
                 params.set('milestone_id', msId);
@@ -994,6 +1018,7 @@
         document.getElementById('taskMilestoneId').value = '';
         document.getElementById('taskMilestoneName').value = '';
         document.getElementById('btnCreateTask').classList.add('d-none');
+        document.getElementById('btnBackToMilestones').classList.add('d-none');
     }
 
     // ----- Filter events -----
@@ -1017,11 +1042,13 @@
         updateMsStatusBtnLabel();
         msTeamFilter.value = '';
         msOppFilter.value = '';
+        msWorkloadFilter.value = '';
         // Reset sort state to defaults
         oppSortField = OPP_SORT_DEFAULT.f; oppSortDir = OPP_SORT_DEFAULT.d;
         msSortField = MS_SORT_DEFAULT.f; msSortDir = MS_SORT_DEFAULT.d;
         localStorage.removeItem('msxWsOppSort');
         localStorage.removeItem('msxWsMsSort');
+        localStorage.removeItem('msxWsMsWorkload');
         applyAll();
     });
 
@@ -1033,9 +1060,19 @@
     document.getElementById('msStatusNone').addEventListener('click', () => { msStatusFilter.querySelectorAll('.ms-status-cb').forEach(cb => cb.checked = false); updateMsStatusBtnLabel(); loadMilestones(); });
     msTeamFilter.addEventListener('change', loadMilestones);
     msOppFilter.addEventListener('change', loadMilestones);
+    msWorkloadFilter.addEventListener('change', () => {
+        if (msWorkloadFilter.value) localStorage.setItem('msxWsMsWorkload', msWorkloadFilter.value);
+        else localStorage.removeItem('msxWsMsWorkload');
+        renderMilestones();
+    });
 
     // Enter key in search
     filterSearch.addEventListener('keydown', e => { if (e.key === 'Enter') applyAll(); });
+
+    // Back to milestones button
+    document.getElementById('btnBackToMilestones').addEventListener('click', () => {
+        bootstrap.Tab.getOrCreateInstance(document.getElementById('ms-tab')).show();
+    });
 
     // ----- Update result count on tab switch + persist active tab -----
     document.querySelectorAll('[data-bs-toggle="tab"]').forEach(tab => {
