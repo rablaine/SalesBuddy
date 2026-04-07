@@ -253,7 +253,8 @@ def notes_list():
         db.joinedload(Note.customer).joinedload(Customer.seller),
         db.joinedload(Note.customer).joinedload(Customer.territory),
         db.joinedload(Note.topics),
-        db.joinedload(Note.partners)
+        db.joinedload(Note.partners),
+        db.joinedload(Note.engagements)
     )
     
     # Seller mode scoping
