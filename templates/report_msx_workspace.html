@@ -180,6 +180,9 @@
                     <tbody id="tasksBody"></tbody>
                 </table>
             </div>
+            <button class="btn btn-outline-primary d-none mt-2" id="btnBackToMilestones">
+                <i class="bi bi-arrow-left"></i> Back to Milestones
+            </button>
         </div>
     </div>
 </div>
@@ -677,6 +680,7 @@
                 filteredMilestoneId = msId;
                 filteredMilestoneTitle = title;
                 document.getElementById('btnCreateTask').classList.remove('d-none');
+                document.getElementById('btnBackToMilestones').classList.remove('d-none');
                 // Load tasks filtered to this milestone
                 const params = new URLSearchParams();
                 params.set('milestone_id', msId);
@@ -1014,6 +1018,7 @@
         document.getElementById('taskMilestoneId').value = '';
         document.getElementById('taskMilestoneName').value = '';
         document.getElementById('btnCreateTask').classList.add('d-none');
+        document.getElementById('btnBackToMilestones').classList.add('d-none');
     }
 
     // ----- Filter events -----
@@ -1063,6 +1068,11 @@
 
     // Enter key in search
     filterSearch.addEventListener('keydown', e => { if (e.key === 'Enter') applyAll(); });
+
+    // Back to milestones button
+    document.getElementById('btnBackToMilestones').addEventListener('click', () => {
+        bootstrap.Tab.getOrCreateInstance(document.getElementById('ms-tab')).show();
+    });
 
     // ----- Update result count on tab switch + persist active tab -----
     document.querySelectorAll('[data-bs-toggle="tab"]').forEach(tab => {
