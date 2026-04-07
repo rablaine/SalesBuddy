@@ -7151,8 +7151,8 @@ function openEngTaskFlyout() {
 }
 
 function openEngTaskEdit(taskId) {
-    // If flyout is already open with unsaved changes, warn
-    if (_engTaskEditId && _engTaskEditId !== taskId && _isEngTaskDirty()) {
+    // If flyout is already open with unsaved changes (create or different edit), warn
+    if (_engTaskEditId !== taskId && _isEngTaskDirty()) {
         if (!confirm('You have unsaved changes to an action item. Discard them?')) return;
     }
     _resetEngTaskFlyout();
