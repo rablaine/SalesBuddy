@@ -1077,11 +1077,33 @@ class TestActionItems:
         assert resp.status_code == 400
         assert resp.get_json()['error'] == 'Title is required.'
 
+    def test_create_task_with_description(self, client, app, eng_with_note):
+        """Create a task with a description field."""
+        eid = eng_with_note['engagement_id']
+        resp = client.post(
+            f'/engagement/{eid}/action-items',
+            data=json.dumps({
+                'title': 'Check link',
+                'description': 'https://example.com/poc-results',
+            }),
+            content_type='application/json',
+        )
+        assert resp.status_code == 201
+        data = resp.get_json()
+        assert data['task']['description'] == 'https://example.com/poc-results'
+
+        with app.app_context():
+            task = ActionItem.query.filter_by(engagement_id=eid).first()
+            assert task.description == 'https://example.com/poc-results'
+
     def test_get_task(self, client, app, eng_with_note):
         """Get a single task via JSON API."""
         eid = eng_with_note['engagement_id']
         with app.app_context():
-            task = ActionItem(engagement_id=eid, title='Fetch me')
+            task = ActionItem(
+                engagement_id=eid, title='Fetch me',
+                description='some details',
+            )
             db.session.add(task)
             db.session.commit()
             tid = task.id
@@ -1090,6 +1112,26 @@ class TestActionItems:
         assert resp.status_code == 200
         data = resp.get_json()
         assert data['task']['title'] == 'Fetch me'
+        assert data['task']['description'] == 'some details'
+
+    def test_note_edit_shows_action_item_badges(self, client, app, eng_with_note):
+        """Editing a note with linked action items renders badge tags."""
+        nid = eng_with_note['note_id']
+        eid = eng_with_note['engagement_id']
+        with app.app_context():
+            task = ActionItem(
+                engagement_id=eid, note_id=nid, title='Follow up on POC',
+            )
+            db.session.add(task)
+            db.session.commit()
+            tid = task.id
+
+        resp = client.get(f'/note/{nid}/edit')
+        assert resp.status_code == 200
+        html = resp.data.decode()
+        assert f'data-task-id="{tid}"' in html
+        assert 'Follow up on POC' in html
+        assert 'openEngTaskEdit' in html
 
     def test_update_task(self, client, app, eng_with_note):
         """Update a task via PUT."""
