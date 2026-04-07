@@ -1445,6 +1445,21 @@ def report_u2c():
         workload_prefixes = get_workload_prefixes(snapshot.id)
         attainment = get_attainment(snapshot.id, workload_filter or None)
 
+    # Check milestone sync freshness (relevant when no snapshot exists yet)
+    from app.models import UserPreference
+    pref = UserPreference.query.first()
+    last_sync = pref.last_milestone_sync if pref else None
+    # "Fresh" = synced on or after the 5th of this month
+    sync_threshold = datetime.combine(
+        date.today().replace(day=5), datetime.min.time(),
+    )
+    # last_sync is stored as naive UTC in SQLite, compare naive-to-naive
+    if last_sync and last_sync.tzinfo is not None:
+        last_sync_naive = last_sync.replace(tzinfo=None)
+    else:
+        last_sync_naive = last_sync
+    milestones_fresh = last_sync_naive is not None and last_sync_naive >= sync_threshold
+
     return render_template(
         'report_u2c.html',
         snapshots=snapshots,
@@ -1453,6 +1468,8 @@ def report_u2c():
         workload_prefixes=workload_prefixes,
         workload_filter=workload_filter,
         current_fq=current_fq,
+        last_milestone_sync=last_sync,
+        milestones_fresh=milestones_fresh,
     )
 
 

@@ -49,23 +49,40 @@
     </div>
 </div>
 
+<!-- Stale milestone sync warning (only when no snapshot for current FQ) -->
+{% if not snapshot or snapshot.fiscal_quarter != current_fq %}
+{% if not milestones_fresh %}
+<div id="staleSyncAlert" class="alert alert-warning mb-4">
+    <i class="bi bi-exclamation-triangle"></i>
+    <strong>Stale milestone import</strong> -
+    {% if last_milestone_sync %}
+    last import was {{ last_milestone_sync.strftime('%b %d, %Y at %I:%M %p') }} UTC.
+    {% else %}
+    milestones have never been synced.
+    {% endif %}
+    Please perform a fresh sync before taking a snapshot.
+    <div class="mt-2">
+        <button id="syncBtn" class="btn btn-sm btn-primary" onclick="syncMilestones()">
+            <i class="bi bi-arrow-repeat"></i> Sync Milestones from MSX
+        </button>
+    </div>
+    <div id="syncProgressWrap" class="d-none mt-3">
+        <div class="progress" style="height: 22px;">
+            <div id="syncProgressBar" class="progress-bar progress-bar-striped progress-bar-animated"
+                 role="progressbar" style="width: 0%"
+                 aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">
+                0%
+            </div>
+        </div>
+        <div id="syncDetail" class="small text-muted mt-1"></div>
+    </div>
+</div>
+{% endif %}
+{% endif %}
+
 {% if attainment %}
 <!-- Attainment Summary Cards -->
 <div class="row g-3 mb-4">
-    <div class="col-md-3">
-        <div class="card text-center h-100">
-            <div class="card-body">
-                <h3 class="mb-1 {% if attainment.attainment_pct >= 100 %}text-success{% elif attainment.attainment_pct >= 50 %}text-primary{% else %}text-warning{% endif %}">
-                    {{ attainment.attainment_pct }}%
-                </h3>
-                <small class="text-muted">Attainment</small>
-                <div class="progress mt-2" style="height: 8px;">
-                    <div class="progress-bar {% if attainment.attainment_pct >= 100 %}bg-success{% elif attainment.attainment_pct >= 50 %}bg-primary{% else %}bg-warning{% endif %}"
-                         style="width: {{ [attainment.attainment_pct, 100]|min }}%"></div>
-                </div>
-            </div>
-        </div>
-    </div>
     <div class="col-md-3">
         <div class="card text-center h-100">
             <div class="card-body">
@@ -81,6 +98,20 @@
                 <h3 class="mb-1 text-success">${{ "{:,.0f}".format(attainment.committed_total) }}</h3>
                 <small class="text-muted">Committed ACR</small>
                 <div class="small text-muted mt-1">{{ attainment.committed_count }} milestones committed</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-center h-100">
+            <div class="card-body">
+                <h3 class="mb-1 {% if attainment.attainment_pct >= 100 %}text-success{% elif attainment.attainment_pct >= 50 %}text-primary{% else %}text-warning{% endif %}">
+                    {{ attainment.attainment_pct }}%
+                </h3>
+                <small class="text-muted">Attainment</small>
+                <div class="progress mt-2" style="height: 8px;">
+                    <div class="progress-bar {% if attainment.attainment_pct >= 100 %}bg-success{% elif attainment.attainment_pct >= 50 %}bg-primary{% else %}bg-warning{% endif %}"
+                         style="width: {{ [attainment.attainment_pct, 100]|min }}%"></div>
+                </div>
             </div>
         </div>
     </div>
@@ -292,6 +323,99 @@ function createSnapshot() {
             btn.innerHTML = '<i class="bi bi-camera"></i> Take {{ current_fq }} Snapshot';
         }
     });
+}
+
+function syncMilestones() {
+    const btn = document.getElementById('syncBtn');
+    const wrap = document.getElementById('syncProgressWrap');
+    const bar = document.getElementById('syncProgressBar');
+    const detail = document.getElementById('syncDetail');
+
+    btn.disabled = true;
+    btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Syncing...';
+    wrap.classList.remove('d-none');
+
+    fetch('{{ url_for("milestones.api_sync_milestones") }}', {
+        method: 'POST',
+        headers: { 'Accept': 'text/event-stream' },
+    }).then(response => {
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        function processEvents(text) {
+            buffer += text;
+            const events = buffer.split('\n\n');
+            buffer = events.pop();
+            for (const block of events) {
+                if (!block.trim()) continue;
+                let eventType = 'message', eventData = '';
+                for (const line of block.split('\n')) {
+                    if (line.startsWith('event: ')) eventType = line.slice(7);
+                    else if (line.startsWith('data: ')) eventData = line.slice(6);
+                }
+                if (!eventData) continue;
+                try {
+                    const data = JSON.parse(eventData);
+                    handleSyncEvent(eventType, data);
+                } catch(e) {}
+            }
+        }
+
+        function pump() {
+            return reader.read().then(({ done, value }) => {
+                if (done) return;
+                processEvents(decoder.decode(value, { stream: true }));
+                return pump();
+            });
+        }
+        return pump();
+    }).catch(err => {
+        detail.textContent = 'Sync error: ' + err.message;
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> Retry Sync';
+    });
+}
+
+function handleSyncEvent(type, data) {
+    const bar = document.getElementById('syncProgressBar');
+    const detail = document.getElementById('syncDetail');
+    const alert = document.getElementById('staleSyncAlert');
+
+    if (type === 'progress') {
+        const pct = data.progress || 0;
+        bar.style.width = pct + '%';
+        bar.textContent = pct + '%';
+        bar.setAttribute('aria-valuenow', pct);
+        if (data.customer) {
+            detail.textContent = data.customer + (data.status === 'fetching' ? ' - fetching...' : '');
+        }
+    } else if (type === 'complete') {
+        bar.style.width = '100%';
+        bar.textContent = '100%';
+        bar.classList.remove('progress-bar-animated');
+        bar.classList.add('bg-success');
+        detail.textContent = 'Sync complete! You can now take the snapshot.';
+        // Replace the stale warning with a success message
+        if (alert) {
+            alert.classList.remove('alert-warning');
+            alert.classList.add('alert-success');
+            const msg = alert.querySelector('strong');
+            if (msg) msg.textContent = 'Milestones up to date';
+            const icon = alert.querySelector('.bi-exclamation-triangle');
+            if (icon) {
+                icon.classList.remove('bi-exclamation-triangle');
+                icon.classList.add('bi-check-circle');
+            }
+            // Hide the sync button, show ready state
+            const syncBtn = document.getElementById('syncBtn');
+            if (syncBtn) syncBtn.classList.add('d-none');
+        }
+    } else if (type === 'vpn_blocked') {
+        bar.classList.remove('progress-bar-animated');
+        bar.classList.add('bg-danger');
+        detail.textContent = 'VPN required - cannot reach MSX API.';
+    }
 }
 </script>
 {% endblock %}
