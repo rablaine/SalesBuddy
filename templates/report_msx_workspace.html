@@ -130,6 +130,9 @@
             <select id="msOppFilter" class="form-select form-select-sm" style="width: 220px;">
                 <option value="">All Opportunities</option>
             </select>
+            <select id="msWorkloadFilter" class="form-select form-select-sm" style="width: 200px;">
+                <option value="">All Workloads</option>
+            </select>
         </div>
         <div class="table-responsive">
             <table class="table table-sm table-hover align-middle" id="msTable">
@@ -330,6 +333,7 @@
     const msStatusFilter = document.getElementById('msStatusFilterWrap');
     const msTeamFilter = document.getElementById('msTeamFilter');
     const msOppFilter = document.getElementById('msOppFilter');
+    const msWorkloadFilter = document.getElementById('msWorkloadFilter');
 
     // ----- Seller → Customer dropdown filtering -----
     function filterCustomerBySeller(sellerId) {
@@ -574,6 +578,7 @@
         if (selectedStatuses.length) params.set('status', selectedStatuses.join(','));
 
         if (msOppFilter.value) params.set('opportunity_id', msOppFilter.value);
+        if (msWorkloadFilter.value) params.set('workload', msWorkloadFilter.value);
 
         document.getElementById('msBody').innerHTML = '<tr><td colspan="10" class="text-center py-3"><div class="spinner-border spinner-border-sm"></div> Loading...</td></tr>';
 
@@ -584,6 +589,7 @@
             document.getElementById('msCount').textContent = msData.length;
             renderMilestones();
             populateOppFilter();
+            populateWorkloadFilter();
         } catch (e) {
             document.getElementById('msBody').innerHTML = `<tr><td colspan="10" class="text-center text-danger py-3">Error: ${escHtml(e.message)}</td></tr>`;
         }
@@ -600,6 +606,17 @@
             msOppFilter.innerHTML += `<option value="${id}">${escHtml(name)}</option>`;
         });
         msOppFilter.value = current;
+    }
+
+    function populateWorkloadFilter() {
+        const workloads = new Set();
+        msData.forEach(m => { if (m.workload) workloads.add(m.workload); });
+        const current = msWorkloadFilter.value;
+        msWorkloadFilter.innerHTML = '<option value="">All Workloads</option>';
+        [...workloads].sort((a, b) => a.localeCompare(b)).forEach(w => {
+            msWorkloadFilter.innerHTML += `<option value="${escHtml(w)}">${escHtml(w)}</option>`;
+        });
+        msWorkloadFilter.value = current;
     }
 
     function renderMilestones() {
@@ -1017,6 +1034,7 @@
         updateMsStatusBtnLabel();
         msTeamFilter.value = '';
         msOppFilter.value = '';
+        msWorkloadFilter.value = '';
         // Reset sort state to defaults
         oppSortField = OPP_SORT_DEFAULT.f; oppSortDir = OPP_SORT_DEFAULT.d;
         msSortField = MS_SORT_DEFAULT.f; msSortDir = MS_SORT_DEFAULT.d;
@@ -1033,6 +1051,7 @@
     document.getElementById('msStatusNone').addEventListener('click', () => { msStatusFilter.querySelectorAll('.ms-status-cb').forEach(cb => cb.checked = false); updateMsStatusBtnLabel(); loadMilestones(); });
     msTeamFilter.addEventListener('change', loadMilestones);
     msOppFilter.addEventListener('change', loadMilestones);
+    msWorkloadFilter.addEventListener('change', loadMilestones);
 
     // Enter key in search
     filterSearch.addEventListener('keydown', e => { if (e.key === 'Enter') applyAll(); });
