@@ -7538,6 +7538,7 @@ function _updateColumnLayout() {
     var row = document.getElementById('noteFormRow');
     var leftCol = document.getElementById('noteFormLeftCol');
     var rightCol = document.getElementById('noteFormRightCol');
+    var mainContainer = document.querySelector('main.container');
     if (!row || !leftCol || !rightCol) return;
 
     var hasEngCards = rightCol.querySelectorAll('.inline-eng-card').length > 0;
@@ -7548,10 +7549,22 @@ function _updateColumnLayout() {
         leftCol.className = 'col-md-6';
         rightCol.style.display = '';
         row.classList.remove('justify-content-center');
+        if (mainContainer) {
+            mainContainer.style.maxWidth = 'min(100%, 1900px)';
+            mainContainer.style.width = '100%';
+            mainContainer.style.paddingLeft = '2rem';
+            mainContainer.style.paddingRight = '2rem';
+        }
     } else {
         leftCol.className = 'col-md-10';
         rightCol.style.display = 'none';
         row.classList.add('justify-content-center');
+        if (mainContainer) {
+            mainContainer.style.maxWidth = '';
+            mainContainer.style.width = '';
+            mainContainer.style.paddingLeft = '';
+            mainContainer.style.paddingRight = '';
+        }
     }
 }
 
