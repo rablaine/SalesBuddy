@@ -93,7 +93,7 @@
 {% if attainment %}
 <!-- Attainment Summary Cards -->
 <div class="row g-3 mb-4" id="summaryCards">
-    <div class="col-md-3">
+    <div class="col">
         <div class="card text-center h-100">
             <div class="card-body">
                 <h3 class="mb-1" id="cardTarget">${{ "{:,.0f}".format(attainment.target_total) }}</h3>
@@ -102,7 +102,7 @@
             </div>
         </div>
     </div>
-    <div class="col-md-3">
+    <div class="col">
         <div class="card text-center h-100">
             <div class="card-body">
                 <h3 class="mb-1 text-success" id="cardCommitted">${{ "{:,.0f}".format(attainment.committed_total) }}</h3>
@@ -111,19 +111,33 @@
             </div>
         </div>
     </div>
-    <div class="col-md-3">
+    <div class="col">
         <div class="card text-center h-100">
             <div class="card-body">
-                <h3 class="mb-1" id="cardPct">{{ attainment.attainment_pct }}%</h3>
-                <small class="text-muted">Attainment</small>
+                <h3 class="mb-1" id="cardU2cPct">{{ attainment.u2c_pct }}%</h3>
+                <small class="text-muted">U2C %</small>
                 <div class="progress mt-2" style="height: 8px;">
-                    <div id="cardPctBar" class="progress-bar"
-                         style="width: {{ [attainment.attainment_pct, 100]|min }}%"></div>
+                    <div id="cardU2cPctBar" class="progress-bar"
+                         style="width: {{ [attainment.u2c_pct, 100]|min }}%"></div>
                 </div>
+                <div class="small text-muted mt-1">Snapshot ACR basis</div>
             </div>
         </div>
     </div>
-    <div class="col-md-3">
+    <div class="col">
+        <div class="card text-center h-100">
+            <div class="card-body">
+                <h3 class="mb-1" id="cardPct">{{ attainment.attainment_pct }}%</h3>
+                <small class="text-muted">Attainment %</small>
+                <div class="progress mt-2" style="height: 8px;">
+                    <div id="cardPctBar" class="progress-bar bg-info"
+                         style="width: {{ [attainment.attainment_pct, 100]|min }}%"></div>
+                </div>
+                <div class="small text-muted mt-1">Live ACR at commit</div>
+            </div>
+        </div>
+    </div>
+    <div class="col">
         <div class="card text-center h-100">
             <div class="card-body">
                 <h3 class="mb-1 text-warning" id="cardRemaining">${{ "{:,.0f}".format(attainment.target_total - attainment.committed_total) }}</h3>
@@ -155,7 +169,7 @@
             </thead>
             <tbody id="remainingBody">
                 {% for item in attainment.remaining_items %}
-                <tr data-workload="{{ item.workload or '' }}" data-acr="{{ item.monthly_acr }}">
+                <tr data-workload="{{ item.workload or '' }}" data-acr="{{ item.monthly_acr }}" data-live-acr="{{ item.live_acr }}">
                     <td>
                         {% if item.customer_id %}
                         <a href="{{ url_for('customers.customer_view', id=item.customer_id) }}">
@@ -220,7 +234,7 @@
             </thead>
             <tbody id="committedBody">
                 {% for item in attainment.committed_items %}
-                <tr data-workload="{{ item.workload or '' }}" data-acr="{{ item.monthly_acr }}">
+                <tr data-workload="{{ item.workload or '' }}" data-acr="{{ item.monthly_acr }}" data-live-acr="{{ item.live_acr }}">
                     <td>
                         {% if item.customer_id %}
                         <a href="{{ url_for('customers.customer_view', id=item.customer_id) }}">
@@ -315,6 +329,7 @@ function applyWorkloadFilter() {
     // Filter rows in both tables
     let remainingAcr = 0, remainingCount = 0;
     let committedAcr = 0, committedCount = 0;
+    let committedLiveAcr = 0;
 
     document.querySelectorAll('#remainingBody tr[data-workload]').forEach(row => {
         const wl = row.dataset.workload;
@@ -332,13 +347,15 @@ function applyWorkloadFilter() {
         row.style.display = match ? '' : 'none';
         if (match) {
             committedAcr += parseFloat(row.dataset.acr) || 0;
+            committedLiveAcr += parseFloat(row.dataset.liveAcr) || 0;
             committedCount++;
         }
     });
 
     const targetAcr = remainingAcr + committedAcr;
     const totalCount = remainingCount + committedCount;
-    const pct = targetAcr > 0 ? Math.round(committedAcr / targetAcr * 1000) / 10 : 0;
+    const u2cPct = targetAcr > 0 ? Math.round(committedAcr / targetAcr * 1000) / 10 : 0;
+    const attPct = targetAcr > 0 ? Math.round(committedLiveAcr / targetAcr * 1000) / 10 : 0;
 
     // Update summary cards
     const fmt = v => '$' + Math.round(v).toLocaleString('en-US');
@@ -351,14 +368,24 @@ function applyWorkloadFilter() {
     if (el('cardRemaining')) el('cardRemaining').textContent = fmt(remainingAcr);
     if (el('cardRemainingSub')) el('cardRemainingSub').textContent = remainingCount + ' milestones to go';
 
-    // Attainment % + color
+    // U2C %
+    if (el('cardU2cPct')) {
+        el('cardU2cPct').textContent = u2cPct + '%';
+        el('cardU2cPct').className = 'mb-1 ' + (u2cPct >= 100 ? 'text-success' : u2cPct >= 50 ? 'text-primary' : 'text-warning');
+    }
+    if (el('cardU2cPctBar')) {
+        el('cardU2cPctBar').style.width = Math.min(u2cPct, 100) + '%';
+        el('cardU2cPctBar').className = 'progress-bar ' + (u2cPct >= 100 ? 'bg-success' : u2cPct >= 50 ? 'bg-primary' : 'bg-warning');
+    }
+
+    // Attainment %
     if (el('cardPct')) {
-        el('cardPct').textContent = pct + '%';
-        el('cardPct').className = 'mb-1 ' + (pct >= 100 ? 'text-success' : pct >= 50 ? 'text-primary' : 'text-warning');
+        el('cardPct').textContent = attPct + '%';
+        el('cardPct').className = 'mb-1 ' + (attPct >= 100 ? 'text-success' : attPct >= 50 ? 'text-primary' : 'text-warning');
     }
     if (el('cardPctBar')) {
-        el('cardPctBar').style.width = Math.min(pct, 100) + '%';
-        el('cardPctBar').className = 'progress-bar ' + (pct >= 100 ? 'bg-success' : pct >= 50 ? 'bg-primary' : 'bg-warning');
+        el('cardPctBar').style.width = Math.min(attPct, 100) + '%';
+        el('cardPctBar').className = 'progress-bar bg-info';
     }
 
     // Update table header badges
