@@ -155,29 +155,36 @@ def _handle_milestone_and_task(note):
         
         logger.info(f"Linking pre-created MSX task {created_task_id} to note")
         
-        # Parse due date
-        task_due_date = None
-        if task_due_date_str:
-            try:
-                task_due_date = datetime.strptime(task_due_date_str, '%Y-%m-%d')
-            except ValueError:
-                pass
-        
-        msx_task = MsxTask(
-            msx_task_id=created_task_id,
-            msx_task_url=created_task_url,
-            subject=task_subject,
-            description=task_description if task_description else None,
-            task_category=task_category_int,
-            task_category_name=created_task_category_name or 'Unknown',
-            duration_minutes=duration_minutes,
-            is_hok=created_task_is_hok,
-            due_date=task_due_date,
-            note=note,
-            milestone=first_milestone
-        )
-        db.session.add(msx_task)
-        logger.info(f"Pre-created MSX task linked successfully: {created_task_id}")
+        # The API endpoint already saves the task locally on creation.
+        # Just link the existing record to this note instead of creating a duplicate.
+        existing_task = MsxTask.query.filter_by(msx_task_id=created_task_id).first()
+        if existing_task:
+            existing_task.note = note
+            logger.info(f"Linked existing MSX task {created_task_id} to note")
+        else:
+            # Fallback: task wasn't saved locally yet (shouldn't happen normally)
+            task_due_date = None
+            if task_due_date_str:
+                try:
+                    task_due_date = datetime.strptime(task_due_date_str, '%Y-%m-%d')
+                except ValueError:
+                    pass
+            
+            msx_task = MsxTask(
+                msx_task_id=created_task_id,
+                msx_task_url=created_task_url,
+                subject=task_subject,
+                description=task_description if task_description else None,
+                task_category=task_category_int,
+                task_category_name=created_task_category_name or 'Unknown',
+                duration_minutes=duration_minutes,
+                is_hok=created_task_is_hok,
+                due_date=task_due_date,
+                note=note,
+                milestone=first_milestone
+            )
+            db.session.add(msx_task)
+            logger.info(f"Created and linked MSX task {created_task_id} to note")
     
     return True, None
 
