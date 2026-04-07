@@ -224,7 +224,7 @@
                 <div class="d-flex align-items-center gap-2">
                     <span class="badge bg-secondary">{{ tasks|length }}</span>
                     {% if milestone.msx_milestone_id %}
-                    <button type="button" class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#newTaskModal">
+                    <button type="button" class="btn btn-primary btn-sm" onclick="openNewTaskModal()">
                         <i class="bi bi-plus-circle"></i>
                     </button>
                     {% endif %}
@@ -567,17 +567,17 @@ function populateTaskCategories() {
     });
 }
 
-function showTaskError(msg) {
+window.showTaskError = function(msg) {
     const el = document.getElementById('task_error');
     el.textContent = msg;
     el.style.display = 'block';
 }
 
-function hideTaskError() {
+window.hideTaskError = function() {
     document.getElementById('task_error').style.display = 'none';
 }
 
-function createTask() {
+window.createTask = function() {
     const subject = document.getElementById('modal_task_subject').value.trim();
     const category = document.getElementById('modal_task_category').value;
     const description = document.getElementById('modal_task_description').value.trim();
@@ -620,12 +620,53 @@ function createTask() {
     });
 }
 
+// Modal chaining: if the task modal is inside a parent modal (e.g. milestone
+// detail opened from milestone tracker), hide the parent first, show the task
+// modal, and re-show the parent when the task modal closes.
+var _taskModal = null;
+var _parentModalEl = null;
+
+window.openNewTaskModal = function() {
+    var taskModalEl = document.getElementById('newTaskModal');
+    // Find the closest visible parent modal that contains us
+    _parentModalEl = taskModalEl.closest('.modal.show');
+    if (_parentModalEl) {
+        var parentModal = bootstrap.Modal.getInstance(_parentModalEl);
+        if (parentModal) {
+            var onceHidden = function() {
+                _parentModalEl.removeEventListener('hidden.bs.modal', onceHidden);
+                _showTaskModal(taskModalEl);
+            };
+            _parentModalEl.addEventListener('hidden.bs.modal', onceHidden);
+            parentModal.hide();
+            return;
+        }
+    }
+    _showTaskModal(taskModalEl);
+}
+
+window._showTaskModal = function(taskModalEl) {
+    // If the task modal is nested inside a (now-hidden) parent modal,
+    // move it to <body> so it can render independently.
+    if (taskModalEl.parentElement !== document.body) {
+        document.body.appendChild(taskModalEl);
+    }
+    if (!_taskModal) _taskModal = new bootstrap.Modal(taskModalEl);
+    _taskModal.show();
+}
+
 document.getElementById('newTaskModal').addEventListener('hidden.bs.modal', function() {
     document.getElementById('modal_task_subject').value = '';
     document.getElementById('modal_task_category').value = '';
     document.getElementById('modal_task_description').value = '';
     document.getElementById('modal_task_due_date').value = getTomorrowDate();
     hideTaskError();
+    // Re-show the parent modal if we came from one
+    if (_parentModalEl) {
+        var parentModal = bootstrap.Modal.getInstance(_parentModalEl);
+        if (parentModal) parentModal.show();
+        _parentModalEl = null;
+    }
 });
 {% endif %}
 </script>
