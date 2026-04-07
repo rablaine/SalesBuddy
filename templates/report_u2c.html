@@ -151,9 +151,8 @@
 <!-- Remaining Milestones (need to commit) -->
 {% if attainment.remaining_items %}
 <div class="card mb-4" id="remainingCard">
-    <div class="card-header d-flex justify-content-between align-items-center">
+    <div class="card-header">
         <h5 class="mb-0"><i class="bi bi-hourglass-split text-warning"></i> Remaining - Still Need to Commit</h5>
-        <span class="badge bg-warning text-dark" id="remainingBadge">{{ attainment.remaining_count }} milestones - ${{ "{:,.0f}".format(attainment.target_total - attainment.committed_total) }}/mo</span>
     </div>
     <div class="table-responsive">
         <table class="table table-hover mb-0">
@@ -389,7 +388,6 @@ function applyWorkloadFilter() {
     }
 
     // Update table header badges
-    if (el('remainingBadge')) el('remainingBadge').textContent = remainingCount + ' milestones - ' + fmt(remainingAcr) + '/mo';
     if (el('committedBadge')) el('committedBadge').textContent = committedCount + ' milestones - ' + fmt(committedAcr) + '/mo';
 
     // Show/hide empty cards
