@@ -476,21 +476,17 @@ class TestEngagementAPI:
             assert eng.customer_id == cid
 
     def test_note_form_renders_inline_engagement_panel(self, client, app, engagement_data):
-        """New note page for a customer renders the inline engagement card."""
+        """New note page for a customer renders the inline engagement container and JS."""
         cid = engagement_data['customer_id']
         resp = client.get(f'/note/new?customer_id={cid}')
         assert resp.status_code == 200
         html = resp.data.decode()
-        assert 'id="inlineEngCard"' in html
-        assert 'id="inlineEngStatus"' in html
-        assert 'id="inlineEngKeyIndividuals"' in html
-        assert 'id="inlineEngTechProblem"' in html
-        assert 'id="inlineEngBizImpact"' in html
-        assert 'id="inlineEngSolution"' in html
-        assert 'id="inlineEngAcr"' in html
+        assert 'id="inlineEngContainer"' in html
+        assert 'syncInlineEngPanel' in html
+        assert '_buildEngCardHtml' in html
 
     def test_note_edit_renders_inline_engagement_panel(self, client, app, engagement_data):
-        """Edit note page for a customer note renders the inline engagement card."""
+        """Edit note page for a customer note renders the inline engagement container."""
         cid = engagement_data['customer_id']
         with app.app_context():
             note = Note(customer_id=cid, call_date=datetime.now(), content='Test')
@@ -500,7 +496,7 @@ class TestEngagementAPI:
         resp = client.get(f'/note/{nid}/edit')
         assert resp.status_code == 200
         html = resp.data.decode()
-        assert 'id="inlineEngCard"' in html
+        assert 'id="inlineEngContainer"' in html
         assert 'syncInlineEngPanel' in html
 
 

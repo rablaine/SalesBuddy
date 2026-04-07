@@ -674,57 +674,8 @@
 
     {% if not is_general_note %}
     <div class="col-md-6">
-        <!-- Inline Engagement Details -->
-        <div class="card mb-3" id="inlineEngCard" style="display: none;">
-            <div class="card-header d-flex justify-content-between align-items-center py-2">
-                <h6 class="mb-0"><i class="bi bi-diagram-3"></i> <span id="inlineEngHeaderTitle">Engagement</span></h6>
-                <a id="inlineEngViewLink" href="#" target="_blank" class="small text-decoration-none">
-                    open <i class="bi bi-box-arrow-up-right"></i>
-                </a>
-            </div>
-            <div class="card-body py-2">
-                <input type="hidden" id="inlineEngId" value="">
-                <div class="mb-2">
-                    <label class="form-label mb-0 small text-muted">Status</label>
-                    <select class="form-select form-select-sm" id="inlineEngStatus">
-                        <option value="Active">Active</option>
-                        <option value="On Hold">On Hold</option>
-                        <option value="Won">Won</option>
-                        <option value="Lost">Lost</option>
-                    </select>
-                </div>
-                <div class="mb-2">
-                    <label class="form-label mb-0 small text-muted">Key Individuals</label>
-                    <textarea class="form-control form-control-sm" id="inlineEngKeyIndividuals" rows="2" placeholder="Jane Smith (CTO), Bob (Infra Lead)"></textarea>
-                </div>
-                <div class="mb-2">
-                    <label class="form-label mb-0 small text-muted">Technical/Business Problem</label>
-                    <textarea class="form-control form-control-sm" id="inlineEngTechProblem" rows="2" placeholder="What challenge are they facing?"></textarea>
-                </div>
-                <div class="mb-2">
-                    <label class="form-label mb-0 small text-muted">Business Impact</label>
-                    <textarea class="form-control form-control-sm" id="inlineEngBizImpact" rows="2" placeholder="How does this affect their business?"></textarea>
-                </div>
-                <div class="mb-2">
-                    <label class="form-label mb-0 small text-muted">Solution Resources</label>
-                    <textarea class="form-control form-control-sm" id="inlineEngSolution" rows="2" placeholder="Azure Migrate, App Service, etc."></textarea>
-                </div>
-                <div class="row mb-2">
-                    <div class="col-7">
-                        <label class="form-label mb-0 small text-muted">Est. $ACR (monthly)</label>
-                        <div class="input-group input-group-sm">
-                            <span class="input-group-text">$</span>
-                            <input type="number" class="form-control" id="inlineEngAcr" placeholder="500" min="0" step="1">
-                            <span class="input-group-text">/mo</span>
-                        </div>
-                    </div>
-                    <div class="col-5">
-                        <label class="form-label mb-0 small text-muted">Target Date</label>
-                        <input type="date" class="form-control form-control-sm" id="inlineEngTargetDate">
-                    </div>
-                </div>
-            </div>
-        </div>
+        <!-- Inline Engagement Details (dynamically populated) -->
+        <div id="inlineEngContainer"></div>
 
         {% if not note and previous_calls %}
         <div class="card previous-calls-card">
@@ -5537,20 +5488,22 @@ function saveDraft() {
             href: a.href,
             taskId: a.getAttribute('data-task-id') || null
         })),
-        inlineEngagement: (function() {
-            var engIdEl = document.getElementById('inlineEngId');
-            if (!engIdEl || !engIdEl.value) return null;
-            return {
-                id: engIdEl.value,
-                title: document.getElementById('inlineEngHeaderTitle').textContent.trim(),
-                status: document.getElementById('inlineEngStatus').value,
-                key_individuals: document.getElementById('inlineEngKeyIndividuals').value,
-                technical_problem: document.getElementById('inlineEngTechProblem').value,
-                business_impact: document.getElementById('inlineEngBizImpact').value,
-                solution_resources: document.getElementById('inlineEngSolution').value,
-                estimated_acr: document.getElementById('inlineEngAcr').value,
-                target_date: document.getElementById('inlineEngTargetDate').value
-            };
+        inlineEngagements: (function() {
+            var container = document.getElementById('inlineEngContainer');
+            if (!container) return [];
+            return Array.from(container.querySelectorAll('.inline-eng-card')).map(function(card) {
+                return {
+                    id: card.getAttribute('data-eng-id'),
+                    title: card.querySelector('.eng-header-title').textContent.trim(),
+                    status: card.querySelector('.eng-status').value,
+                    key_individuals: card.querySelector('.eng-key-individuals').value,
+                    technical_problem: card.querySelector('.eng-tech-problem').value,
+                    business_impact: card.querySelector('.eng-biz-impact').value,
+                    solution_resources: card.querySelector('.eng-solution').value,
+                    estimated_acr: card.querySelector('.eng-acr').value,
+                    target_date: card.querySelector('.eng-target-date').value
+                };
+            });
         })(),
         task: taskData,
         pendingTaskSuggestion: pendingTaskSuggestion || null,
@@ -5690,22 +5643,22 @@ function restoreDraft() {
             }
         }
 
-        // Restore inline engagement panel fields from draft
-        if (draft.inlineEngagement && draft.inlineEngagement.id) {
-            var card = document.getElementById('inlineEngCard');
-            if (card) {
-                document.getElementById('inlineEngId').value = draft.inlineEngagement.id;
-                document.getElementById('inlineEngHeaderTitle').textContent = draft.inlineEngagement.title || 'Engagement';
-                document.getElementById('inlineEngViewLink').href = '/engagement/' + draft.inlineEngagement.id;
-                document.getElementById('inlineEngStatus').value = draft.inlineEngagement.status || 'Active';
-                document.getElementById('inlineEngKeyIndividuals').value = draft.inlineEngagement.key_individuals || '';
-                document.getElementById('inlineEngTechProblem').value = draft.inlineEngagement.technical_problem || '';
-                document.getElementById('inlineEngBizImpact').value = draft.inlineEngagement.business_impact || '';
-                document.getElementById('inlineEngSolution').value = draft.inlineEngagement.solution_resources || '';
-                document.getElementById('inlineEngAcr').value = draft.inlineEngagement.estimated_acr || '';
-                document.getElementById('inlineEngTargetDate').value = draft.inlineEngagement.target_date || '';
-                card.style.display = '';
-                // Clean state will be set by syncInlineEngPanel below
+        // Restore inline engagement panel cards from draft
+        var draftEngList = draft.inlineEngagements || (draft.inlineEngagement ? [draft.inlineEngagement] : []);
+        if (draftEngList.length > 0) {
+            var container = document.getElementById('inlineEngContainer');
+            if (container) {
+                draftEngList.forEach(function(eng) {
+                    if (!eng || !eng.id) return;
+                    var tmp = document.createElement('div');
+                    tmp.innerHTML = _buildEngCardHtml(eng.id);
+                    var card = tmp.firstChild;
+                    card.querySelector('.eng-header-title').textContent = eng.title || 'Engagement';
+                    card.querySelector('.eng-view-link').href = '/engagement/' + eng.id;
+                    _populateEngCard(card, eng);
+                    container.appendChild(card);
+                    _inlineEngCleanStates[eng.id] = _getCardEngState(card);
+                });
             }
         }
 
@@ -7464,115 +7417,200 @@ syncEngTaskButton();
 syncInlineEngPanel();
 
 // =============================================
-// Inline Engagement Details Panel
+// Inline Engagement Details Panel (multi-card)
 // =============================================
-var _inlineEngCleanState = null;
+var _inlineEngCleanStates = {}; // { engId: JSON string }
 
-function _getInlineEngState() {
+function _buildEngCardHtml(engId) {
+    return '<div class="card mb-3 inline-eng-card" data-eng-id="' + engId + '">' +
+        '<div class="card-header d-flex justify-content-between align-items-center py-2">' +
+            '<h6 class="mb-0"><i class="bi bi-diagram-3"></i> <span class="eng-header-title">Engagement</span></h6>' +
+            '<a class="eng-view-link small text-decoration-none" href="/engagement/' + engId + '" target="_blank">' +
+                'open <i class="bi bi-box-arrow-up-right"></i></a>' +
+        '</div>' +
+        '<div class="card-body py-2">' +
+            '<div class="mb-2">' +
+                '<label class="form-label mb-0 small text-muted">Status</label>' +
+                '<select class="form-select form-select-sm eng-status">' +
+                    '<option value="Active">Active</option>' +
+                    '<option value="On Hold">On Hold</option>' +
+                    '<option value="Won">Won</option>' +
+                    '<option value="Lost">Lost</option>' +
+                '</select>' +
+            '</div>' +
+            '<div class="mb-2">' +
+                '<label class="form-label mb-0 small text-muted">Key Individuals</label>' +
+                '<textarea class="form-control form-control-sm eng-key-individuals" rows="2" placeholder="Jane Smith (CTO), Bob (Infra Lead)"></textarea>' +
+            '</div>' +
+            '<div class="mb-2">' +
+                '<label class="form-label mb-0 small text-muted">Technical/Business Problem</label>' +
+                '<textarea class="form-control form-control-sm eng-tech-problem" rows="2" placeholder="What challenge are they facing?"></textarea>' +
+            '</div>' +
+            '<div class="mb-2">' +
+                '<label class="form-label mb-0 small text-muted">Business Impact</label>' +
+                '<textarea class="form-control form-control-sm eng-biz-impact" rows="2" placeholder="How does this affect their business?"></textarea>' +
+            '</div>' +
+            '<div class="mb-2">' +
+                '<label class="form-label mb-0 small text-muted">Solution Resources</label>' +
+                '<textarea class="form-control form-control-sm eng-solution" rows="2" placeholder="Azure Migrate, App Service, etc."></textarea>' +
+            '</div>' +
+            '<div class="row mb-2">' +
+                '<div class="col-7">' +
+                    '<label class="form-label mb-0 small text-muted">Est. $ACR (monthly)</label>' +
+                    '<div class="input-group input-group-sm">' +
+                        '<span class="input-group-text">$</span>' +
+                        '<input type="number" class="form-control eng-acr" placeholder="500" min="0" step="1">' +
+                        '<span class="input-group-text">/mo</span>' +
+                    '</div>' +
+                '</div>' +
+                '<div class="col-5">' +
+                    '<label class="form-label mb-0 small text-muted">Target Date</label>' +
+                    '<input type="date" class="form-control form-control-sm eng-target-date">' +
+                '</div>' +
+            '</div>' +
+        '</div></div>';
+}
+
+function _getCardEngState(card) {
     return JSON.stringify({
-        status: document.getElementById('inlineEngStatus').value,
-        key_individuals: document.getElementById('inlineEngKeyIndividuals').value,
-        technical_problem: document.getElementById('inlineEngTechProblem').value,
-        business_impact: document.getElementById('inlineEngBizImpact').value,
-        solution_resources: document.getElementById('inlineEngSolution').value,
-        estimated_acr: document.getElementById('inlineEngAcr').value,
-        target_date: document.getElementById('inlineEngTargetDate').value
+        status: card.querySelector('.eng-status').value,
+        key_individuals: card.querySelector('.eng-key-individuals').value,
+        technical_problem: card.querySelector('.eng-tech-problem').value,
+        business_impact: card.querySelector('.eng-biz-impact').value,
+        solution_resources: card.querySelector('.eng-solution').value,
+        estimated_acr: card.querySelector('.eng-acr').value,
+        target_date: card.querySelector('.eng-target-date').value
     });
 }
 
-function isInlineEngDirty() {
-    if (!_inlineEngCleanState) return false;
-    return _inlineEngCleanState !== _getInlineEngState();
+function isAnyInlineEngDirty() {
+    var container = document.getElementById('inlineEngContainer');
+    if (!container) return false;
+    var cards = container.querySelectorAll('.inline-eng-card');
+    for (var i = 0; i < cards.length; i++) {
+        var engId = cards[i].getAttribute('data-eng-id');
+        var clean = _inlineEngCleanStates[engId];
+        if (clean && clean !== _getCardEngState(cards[i])) return true;
+    }
+    return false;
+}
+// Keep old name as alias for onsubmit handler
+var isInlineEngDirty = isAnyInlineEngDirty;
+
+function _populateEngCard(card, data) {
+    card.querySelector('.eng-status').value = data.status || 'Active';
+    card.querySelector('.eng-key-individuals').value = data.key_individuals || '';
+    card.querySelector('.eng-tech-problem').value = data.technical_problem || '';
+    card.querySelector('.eng-biz-impact').value = data.business_impact || '';
+    card.querySelector('.eng-solution').value = data.solution_resources || '';
+    card.querySelector('.eng-acr').value = data.estimated_acr != null ? data.estimated_acr : '';
+    card.querySelector('.eng-target-date').value = data.target_date || '';
 }
 
-function syncInlineEngPanel(skipFetch) {
-    var card = document.getElementById('inlineEngCard');
-    if (!card) return;
-    var hiddenSelect = document.getElementById('engagement_ids');
-    if (!hiddenSelect) { card.style.display = 'none'; return; }
-    var selected = Array.from(hiddenSelect.selectedOptions);
-    if (selected.length !== 1) {
-        // Auto-save if switching away from a dirty engagement
-        if (isInlineEngDirty()) saveInlineEngagement();
-        card.style.display = 'none';
-        document.getElementById('inlineEngId').value = '';
-        _inlineEngCleanState = null;
-        return;
-    }
-    var engId = selected[0].value;
-    var currentId = document.getElementById('inlineEngId').value;
-    if (engId === currentId) {
-        // Already loaded (or restored from draft) - initialize clean state if needed
-        card.style.display = '';
-        if (!_inlineEngCleanState) _inlineEngCleanState = _getInlineEngState();
-        return;
-    }
-    // If draft already populated this engagement, just show the card
-    if (skipFetch && currentId) {
-        card.style.display = '';
-        if (!_inlineEngCleanState) _inlineEngCleanState = _getInlineEngState();
-        return;
-    }
-    // Auto-save previous engagement if dirty before loading new one
-    if (isInlineEngDirty()) saveInlineEngagement();
-    // Load engagement data
-    card.style.display = '';
-    document.getElementById('inlineEngId').value = engId;
-    document.getElementById('inlineEngHeaderTitle').textContent = selected[0].textContent.trim().replace(/\s*\(.*\)$/, '');
-    document.getElementById('inlineEngViewLink').href = '/engagement/' + engId;
-
+function _loadEngCard(card, engId) {
     fetch('/api/engagement/' + engId)
         .then(function(r) { return r.json(); })
         .then(function(data) {
-            document.getElementById('inlineEngStatus').value = data.status || 'Active';
-            document.getElementById('inlineEngKeyIndividuals').value = data.key_individuals || '';
-            document.getElementById('inlineEngTechProblem').value = data.technical_problem || '';
-            document.getElementById('inlineEngBizImpact').value = data.business_impact || '';
-            document.getElementById('inlineEngSolution').value = data.solution_resources || '';
-            document.getElementById('inlineEngAcr').value = data.estimated_acr != null ? data.estimated_acr : '';
-            document.getElementById('inlineEngTargetDate').value = data.target_date || '';
-            _inlineEngCleanState = _getInlineEngState();
+            _populateEngCard(card, data);
+            _inlineEngCleanStates[engId] = _getCardEngState(card);
         })
         .catch(function(err) {
-            console.error('Failed to load engagement:', err);
+            console.error('Failed to load engagement ' + engId + ':', err);
         });
 }
 
-// Wire up draft auto-save on inline engagement field changes
-['inlineEngStatus', 'inlineEngKeyIndividuals', 'inlineEngTechProblem',
- 'inlineEngBizImpact', 'inlineEngSolution', 'inlineEngAcr', 'inlineEngTargetDate'].forEach(function(id) {
-    var el = document.getElementById(id);
-    if (el) {
-        el.addEventListener('input', function() { if (typeof debouncedAutoSave === 'function') debouncedAutoSave(); });
-        el.addEventListener('change', function() { if (typeof debouncedAutoSave === 'function') debouncedAutoSave(); });
-    }
-});
+function syncInlineEngPanel() {
+    var container = document.getElementById('inlineEngContainer');
+    if (!container) return;
+    var hiddenSelect = document.getElementById('engagement_ids');
+    if (!hiddenSelect) { container.innerHTML = ''; return; }
+    var selectedIds = Array.from(hiddenSelect.selectedOptions).map(function(o) { return o.value; });
 
-function saveInlineEngagement() {
-    var engId = document.getElementById('inlineEngId').value;
-    if (!engId || !isInlineEngDirty()) return Promise.resolve();
+    // Save any dirty cards that are being removed
+    var existingCards = container.querySelectorAll('.inline-eng-card');
+    existingCards.forEach(function(card) {
+        var engId = card.getAttribute('data-eng-id');
+        if (selectedIds.indexOf(engId) === -1) {
+            var clean = _inlineEngCleanStates[engId];
+            if (clean && clean !== _getCardEngState(card)) {
+                _saveOneEngagement(card, engId);
+            }
+            card.remove();
+            delete _inlineEngCleanStates[engId];
+        }
+    });
 
-    var headerTitle = document.getElementById('inlineEngHeaderTitle').textContent.trim();
+    // Add cards for newly selected engagements
+    var shownIds = Array.from(container.querySelectorAll('.inline-eng-card')).map(function(c) { return c.getAttribute('data-eng-id'); });
+    selectedIds.forEach(function(engId) {
+        if (shownIds.indexOf(engId) === -1) {
+            // Build a new card
+            var tmp = document.createElement('div');
+            tmp.innerHTML = _buildEngCardHtml(engId);
+            var card = tmp.firstChild;
+            var opt = hiddenSelect.querySelector('option[value="' + engId + '"]');
+            card.querySelector('.eng-header-title').textContent = opt ? opt.textContent.trim().replace(/\s*\(.*\)$/, '') : 'Engagement';
+            container.appendChild(card);
+            // Load data from API
+            _loadEngCard(card, engId);
+        }
+    });
+
+    // Reorder cards to match selection order
+    selectedIds.forEach(function(engId) {
+        var card = container.querySelector('.inline-eng-card[data-eng-id="' + engId + '"]');
+        if (card) container.appendChild(card);
+    });
+}
+
+// Event delegation for auto-save on inline engagement field changes
+(function() {
+    var container = document.getElementById('inlineEngContainer');
+    if (!container) return;
+    container.addEventListener('input', function() { if (typeof debouncedAutoSave === 'function') debouncedAutoSave(); });
+    container.addEventListener('change', function() { if (typeof debouncedAutoSave === 'function') debouncedAutoSave(); });
+})();
+
+function _saveOneEngagement(card, engId) {
+    var title = card.querySelector('.eng-header-title').textContent.trim();
     return fetch('/api/engagement/' + engId, {
         method: 'PUT',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({
-            title: headerTitle,
-            status: document.getElementById('inlineEngStatus').value,
-            key_individuals: document.getElementById('inlineEngKeyIndividuals').value.trim(),
-            technical_problem: document.getElementById('inlineEngTechProblem').value.trim(),
-            business_impact: document.getElementById('inlineEngBizImpact').value.trim(),
-            solution_resources: document.getElementById('inlineEngSolution').value.trim(),
-            estimated_acr: document.getElementById('inlineEngAcr').value.trim(),
-            target_date: document.getElementById('inlineEngTargetDate').value || null
+            title: title,
+            status: card.querySelector('.eng-status').value,
+            key_individuals: card.querySelector('.eng-key-individuals').value.trim(),
+            technical_problem: card.querySelector('.eng-tech-problem').value.trim(),
+            business_impact: card.querySelector('.eng-biz-impact').value.trim(),
+            solution_resources: card.querySelector('.eng-solution').value.trim(),
+            estimated_acr: card.querySelector('.eng-acr').value.trim(),
+            target_date: card.querySelector('.eng-target-date').value || null
         })
     })
     .then(function(r) { return r.json(); })
     .then(function(data) {
         if (data.success) {
-            _inlineEngCleanState = _getInlineEngState();
+            _inlineEngCleanStates[engId] = _getCardEngState(card);
         }
     });
+}
+
+function saveAllInlineEngagements() {
+    var container = document.getElementById('inlineEngContainer');
+    if (!container) return Promise.resolve();
+    var cards = container.querySelectorAll('.inline-eng-card');
+    var promises = [];
+    cards.forEach(function(card) {
+        var engId = card.getAttribute('data-eng-id');
+        var clean = _inlineEngCleanStates[engId];
+        if (clean && clean !== _getCardEngState(card)) {
+            promises.push(_saveOneEngagement(card, engId));
+        }
+    });
+    return promises.length > 0 ? Promise.all(promises) : Promise.resolve();
+}
+// Keep old name as alias for onsubmit handler
+var saveInlineEngagement = saveAllInlineEngagements;
 }
 </script>
 {% endblock %}
