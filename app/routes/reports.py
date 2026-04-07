@@ -1241,7 +1241,6 @@ def api_msx_workspace_milestones():
     opportunity_id = request.args.get('opportunity_id', type=int)
     status_filter = request.args.get('status', '')  # comma-separated
     team_filter = request.args.get('team', '')  # 'on', 'off', or ''
-    workload_area_filter = request.args.get('workload_area', '').strip()
     search = request.args.get('search', '').strip()
 
     query = Milestone.query
@@ -1266,9 +1265,6 @@ def api_msx_workspace_milestones():
         query = query.filter(Milestone.on_my_team.is_(True))
     elif team_filter == 'off':
         query = query.filter(Milestone.on_my_team.is_(False))
-
-    if workload_area_filter:
-        query = query.filter(Milestone.workload.like(f'{workload_area_filter}:%'))
 
     if search:
         pattern = f'%{search}%'

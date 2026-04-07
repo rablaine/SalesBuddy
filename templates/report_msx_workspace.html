@@ -320,7 +320,6 @@
     let activeTaskMilestoneIds = [];  // MSX IDs for create task context
     let filteredMilestoneId = null;    // local Milestone.id when filtered to a single milestone
     let filteredMilestoneTitle = '';
-    let knownWorkloadAreas = new Set(); // accumulates all seen areas so filter doesn't shrink
 
     // DOM refs
     const filterSeller = document.getElementById('filterSeller');  // null in DSS mode
@@ -579,8 +578,6 @@
         if (selectedStatuses.length) params.set('status', selectedStatuses.join(','));
 
         if (msOppFilter.value) params.set('opportunity_id', msOppFilter.value);
-        const workloadArea = msWorkloadFilter.value || localStorage.getItem('msxWsMsWorkload') || '';
-        if (workloadArea) params.set('workload_area', workloadArea);
 
         document.getElementById('msBody').innerHTML = '<tr><td colspan="10" class="text-center py-3"><div class="spinner-border spinner-border-sm"></div> Loading...</td></tr>';
 
@@ -611,10 +608,11 @@
     }
 
     function populateWorkloadFilter() {
-        msData.forEach(m => { if (m.workload_area) knownWorkloadAreas.add(m.workload_area); });
+        const areas = new Set();
+        msData.forEach(m => { if (m.workload_area) areas.add(m.workload_area); });
         const current = msWorkloadFilter.value || localStorage.getItem('msxWsMsWorkload') || '';
         msWorkloadFilter.innerHTML = '<option value="">All Areas</option>';
-        [...knownWorkloadAreas].sort((a, b) => a.localeCompare(b)).forEach(a => {
+        [...areas].sort((a, b) => a.localeCompare(b)).forEach(a => {
             msWorkloadFilter.innerHTML += `<option value="${escHtml(a)}">${escHtml(a)}</option>`;
         });
         msWorkloadFilter.value = current;
@@ -622,12 +620,16 @@
 
     function renderMilestones() {
         const tbody = document.getElementById('msBody');
-        if (!msData.length) {
+        // Client-side workload area filter
+        const areaFilter = msWorkloadFilter.value || localStorage.getItem('msxWsMsWorkload') || '';
+        const filtered = areaFilter ? msData.filter(m => m.workload_area === areaFilter) : msData;
+        document.getElementById('msCount').textContent = filtered.length;
+        if (!filtered.length) {
             tbody.innerHTML = '<tr><td colspan="10" class="text-center text-muted py-4">No milestones found</td></tr>';
             return;
         }
 
-        const sorted = [...msData];
+        const sorted = [...filtered];
         if (msSortField) {
             sorted.sort((a, b) => {
                 let va = a[msSortField] ?? '', vb = b[msSortField] ?? '';
@@ -1056,7 +1058,7 @@
     msWorkloadFilter.addEventListener('change', () => {
         if (msWorkloadFilter.value) localStorage.setItem('msxWsMsWorkload', msWorkloadFilter.value);
         else localStorage.removeItem('msxWsMsWorkload');
-        loadMilestones();
+        renderMilestones();
     });
 
     // Enter key in search
