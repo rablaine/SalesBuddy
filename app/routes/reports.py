@@ -145,6 +145,23 @@ def reports_hub():
             ],
         },
         {
+            'title': 'Connect Prep',
+            'icon': 'bi-trophy',
+            'reports': [
+                {
+                    'id': 'connect-impact',
+                    'name': 'Connect Impact',
+                    'description': (
+                        'Customers ranked by total estimated ACR/mo from '
+                        'committed milestones you are on the team for this '
+                        'quarter. Know your highest-impact accounts for Connect.'
+                    ),
+                    'icon': 'bi-trophy',
+                    'url': url_for('reports.report_connect_impact'),
+                },
+            ],
+        },
+        {
             'title': 'Workload Coverage',
             'icon': 'bi-diagram-3',
             'reports': [
@@ -1491,3 +1508,72 @@ def api_u2c_create_snapshot():
     result = create_snapshot(fq)
     status = 200 if result.get('success') else 409
     return jsonify(result), status
+
+
+@bp.route('/reports/connect-impact')
+def report_connect_impact():
+    """Connect Impact report.
+
+    Ranks customers by total estimated ACR/mo from committed milestones
+    where the user is on the milestone team, committed on or after a
+    configurable start date. Helps identify highest-impact customers
+    for Connect prep.
+    """
+    since_str = request.args.get('since', '')
+    try:
+        since_date = datetime.strptime(since_str, '%Y-%m-%d').date() if since_str else None
+    except ValueError:
+        since_date = None
+
+    # Default: 5 months ago (client sends this from localStorage)
+    if not since_date:
+        since_date = (date.today().replace(day=1) - timedelta(days=1)).replace(day=1)
+        # Go back 5 months from today
+        m = date.today().month - 5
+        y = date.today().year
+        while m < 1:
+            m += 12
+            y -= 1
+        since_date = date(y, m, date.today().day if date.today().day <= 28 else 28)
+
+    # Milestones committed since the start date where I'm on the team
+    milestones = (
+        Milestone.query
+        .filter(
+            Milestone.on_my_team == True,
+            Milestone.customer_commitment == 'Committed',
+            Milestone.committed_at >= datetime(
+                since_date.year, since_date.month, since_date.day,
+            ),
+        )
+        .options(db.joinedload(Milestone.customer))
+        .all()
+    )
+
+    # Group by customer and sum monthly_usage
+    customer_map: dict[int, dict] = {}
+    for ms in milestones:
+        if not ms.customer_id:
+            continue
+        cid = ms.customer_id
+        if cid not in customer_map:
+            customer_map[cid] = {
+                'customer': ms.customer,
+                'total_acr': 0.0,
+                'milestones': [],
+            }
+        customer_map[cid]['total_acr'] += ms.monthly_usage or 0.0
+        customer_map[cid]['milestones'].append(ms)
+
+    # Sort by total ACR descending
+    ranked = sorted(customer_map.values(), key=lambda x: x['total_acr'], reverse=True)
+
+    # Grand total
+    grand_total = sum(r['total_acr'] for r in ranked)
+
+    return render_template(
+        'report_connect_impact.html',
+        since_date=since_date.isoformat(),
+        ranked=ranked,
+        grand_total=grand_total,
+    )

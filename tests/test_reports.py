@@ -811,3 +811,153 @@ class TestReportExportPartial:
             resp = client.get('/reports/milestone-tracker')
             assert b'data-export-skip="always"' in resp.data
             assert b'data-export-skip="if-links"' in resp.data
+
+
+class TestConnectImpactReport:
+    """Tests for /reports/connect-impact."""
+
+    def test_page_loads_empty(self, client, app):
+        """Connect Impact with no milestones returns 200 with zero total."""
+        with app.app_context():
+            resp = client.get('/reports/connect-impact')
+            assert resp.status_code == 200
+            assert b'Connect Impact' in resp.data
+            assert b'$0/mo' in resp.data
+
+    def test_page_loads_with_since_param(self, client, app):
+        """Connect Impact accepts a ?since= query parameter."""
+        with app.app_context():
+            resp = client.get('/reports/connect-impact?since=2025-11-01')
+            assert resp.status_code == 200
+            assert b'2025-11-01' in resp.data
+
+    def test_invalid_since_param_uses_default(self, client, app):
+        """Invalid since param falls back to 5 month default."""
+        with app.app_context():
+            resp = client.get('/reports/connect-impact?since=not-a-date')
+            assert resp.status_code == 200
+            assert b'Connect Impact' in resp.data
+
+    def test_committed_milestone_on_team_appears(self, client, app, sample_data):
+        """Milestone committed recently with on_my_team=True shows in report."""
+        with app.app_context():
+            ms = Milestone(
+                title='Fabric Migration',
+                url='https://msx.example.com/ms/1',
+                customer_id=sample_data['customer1_id'],
+                on_my_team=True,
+                customer_commitment='Committed',
+                committed_at=datetime.now(timezone.utc) - timedelta(days=10),
+                monthly_usage=5000.0,
+                msx_status='On Track',
+            )
+            db.session.add(ms)
+            db.session.commit()
+
+            resp = client.get('/reports/connect-impact?since=2020-01-01')
+            assert resp.status_code == 200
+            assert b'Fabric Migration' in resp.data
+            assert b'Acme Corp' in resp.data
+            assert b'$5,000' in resp.data
+
+    def test_uncommitted_milestone_excluded(self, client, app, sample_data):
+        """Milestone with commitment=Uncommitted should not appear."""
+        with app.app_context():
+            ms = Milestone(
+                title='Uncommitted Work',
+                url='https://msx.example.com/ms/2',
+                customer_id=sample_data['customer1_id'],
+                on_my_team=True,
+                customer_commitment='Uncommitted',
+                committed_at=datetime.now(timezone.utc) - timedelta(days=10),
+                monthly_usage=3000.0,
+                msx_status='On Track',
+            )
+            db.session.add(ms)
+            db.session.commit()
+
+            resp = client.get('/reports/connect-impact?since=2020-01-01')
+            assert resp.status_code == 200
+            assert b'Uncommitted Work' not in resp.data
+
+    def test_not_on_team_excluded(self, client, app, sample_data):
+        """Milestone with on_my_team=False should not appear."""
+        with app.app_context():
+            ms = Milestone(
+                title='Not My Team',
+                url='https://msx.example.com/ms/3',
+                customer_id=sample_data['customer1_id'],
+                on_my_team=False,
+                customer_commitment='Committed',
+                committed_at=datetime.now(timezone.utc) - timedelta(days=10),
+                monthly_usage=2000.0,
+                msx_status='On Track',
+            )
+            db.session.add(ms)
+            db.session.commit()
+
+            resp = client.get('/reports/connect-impact?since=2020-01-01')
+            assert resp.status_code == 200
+            assert b'Not My Team' not in resp.data
+
+    def test_committed_before_since_excluded(self, client, app, sample_data):
+        """Milestone committed before the since date should not appear."""
+        with app.app_context():
+            ms = Milestone(
+                title='Old Commitment',
+                url='https://msx.example.com/ms/4',
+                customer_id=sample_data['customer1_id'],
+                on_my_team=True,
+                customer_commitment='Committed',
+                committed_at=datetime(2024, 1, 1),
+                monthly_usage=8000.0,
+                msx_status='On Track',
+            )
+            db.session.add(ms)
+            db.session.commit()
+
+            resp = client.get('/reports/connect-impact?since=2025-06-01')
+            assert resp.status_code == 200
+            assert b'Old Commitment' not in resp.data
+
+    def test_customers_ranked_by_total_acr(self, client, app, sample_data):
+        """Customers should be ranked by total ACR descending."""
+        with app.app_context():
+            # Customer 1 gets $2000
+            ms1 = Milestone(
+                title='Small MS',
+                url='https://msx.example.com/ms/5',
+                customer_id=sample_data['customer1_id'],
+                on_my_team=True,
+                customer_commitment='Committed',
+                committed_at=datetime.now(timezone.utc) - timedelta(days=5),
+                monthly_usage=2000.0,
+                msx_status='On Track',
+            )
+            # Customer 2 gets $10000
+            ms2 = Milestone(
+                title='Big MS',
+                url='https://msx.example.com/ms/6',
+                customer_id=sample_data['customer2_id'],
+                on_my_team=True,
+                customer_commitment='Committed',
+                committed_at=datetime.now(timezone.utc) - timedelta(days=5),
+                monthly_usage=10000.0,
+                msx_status='On Track',
+            )
+            db.session.add_all([ms1, ms2])
+            db.session.commit()
+
+            resp = client.get('/reports/connect-impact?since=2020-01-01')
+            html = resp.data.decode()
+            # Customer 2 (Globex - $10k) should appear before Customer 1 (Acme - $2k)
+            pos_globex = html.index('Globex')
+            pos_acme = html.index('Acme')
+            assert pos_globex < pos_acme
+
+    def test_hub_has_connect_impact_link(self, client, app):
+        """Reports hub should include Connect Impact in the Connect Prep group."""
+        with app.app_context():
+            resp = client.get('/reports')
+            assert b'Connect Impact' in resp.data
+            assert b'/reports/connect-impact' in resp.data

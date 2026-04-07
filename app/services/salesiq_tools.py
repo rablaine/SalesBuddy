@@ -1716,3 +1716,80 @@ def get_u2c_attainment(
     if result.get('committed_items'):
         result['committed_items'] = result['committed_items'][:10]
     return result
+
+
+@tool(
+    'report_connect_impact',
+    'Get Connect Impact report: customers ranked by total estimated ACR/mo '
+    'from committed milestones you are on the team for. Defaults to last 5 months.',
+    {
+        'type': 'object',
+        'properties': {
+            'since': {
+                'type': 'string',
+                'description': 'Start date (YYYY-MM-DD). Defaults to 5 months ago.',
+            },
+        },
+    },
+)
+def report_connect_impact(since: str | None = None) -> dict:
+    """Return Connect Impact data."""
+    from app.models import Milestone, Customer
+    from datetime import datetime, date, timedelta
+
+    if since:
+        try:
+            since_date = datetime.strptime(since, '%Y-%m-%d').date()
+        except ValueError:
+            since_date = None
+    else:
+        since_date = None
+
+    if not since_date:
+        m = date.today().month - 5
+        y = date.today().year
+        while m < 1:
+            m += 12
+            y -= 1
+        since_date = date(y, m, min(date.today().day, 28))
+
+    milestones = (
+        Milestone.query
+        .filter(
+            Milestone.on_my_team == True,
+            Milestone.customer_commitment == 'Committed',
+            Milestone.committed_at >= datetime(
+                since_date.year, since_date.month, since_date.day,
+            ),
+        )
+        .join(Customer, Milestone.customer_id == Customer.id)
+        .all()
+    )
+
+    customer_map: dict[int, dict] = {}
+    for ms in milestones:
+        if not ms.customer_id:
+            continue
+        cid = ms.customer_id
+        if cid not in customer_map:
+            customer_map[cid] = {
+                'customer_id': cid,
+                'customer': ms.customer.nickname or ms.customer.name,
+                'total_acr_mo': 0.0,
+                'milestones': [],
+            }
+        customer_map[cid]['total_acr_mo'] += ms.monthly_usage or 0.0
+        customer_map[cid]['milestones'].append({
+            'id': ms.id,
+            'title': ms.title,
+            'workload': ms.workload,
+            'monthly_usage': ms.monthly_usage or 0,
+            'status': ms.msx_status,
+        })
+
+    ranked = sorted(customer_map.values(), key=lambda x: x['total_acr_mo'], reverse=True)
+    return {
+        'since': since_date.isoformat(),
+        'grand_total_acr_mo': sum(r['total_acr_mo'] for r in ranked),
+        'customers': ranked,
+    }

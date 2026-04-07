@@ -1,0 +1,193 @@
+{% extends "base.html" %}
+
+{% block title %}Connect Impact - Sales Buddy{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h3 class="mb-1"><i class="bi bi-trophy"></i> Connect Impact</h3>
+            <p class="text-muted mb-0">
+                Customers ranked by total estimated ACR/mo from committed milestones you are on the team for since
+                <input type="date" id="impactSinceDate" class="form-control form-control-sm d-inline-block" style="width: auto;" value="{{ since_date }}">
+            </p>
+        </div>
+        <div class="text-end">
+            <span class="fs-5 fw-semibold text-success">
+                {{ "${:,.0f}".format(grand_total) }}/mo
+            </span>
+            <br>
+            <small class="text-muted">{{ ranked|length }} customer{{ 's' if ranked|length != 1 else '' }}</small>
+        </div>
+    </div>
+
+    {% if ranked %}
+    <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0">
+            <thead>
+                <tr>
+                    <th style="width: 40px;">#</th>
+                    <th>Customer</th>
+                    <th class="text-end" style="width: 160px;">Est ACR/mo</th>
+                    <th class="text-center" style="width: 120px;">Milestones</th>
+                    <th style="width: 40px;"></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for entry in ranked %}
+                <tr style="cursor: pointer;" onclick="toggleImpactRow(this, 'impact-ms-{{ entry.customer.id }}')">
+                    <td class="text-muted">{{ loop.index }}</td>
+                    <td>
+                        {% if entry.customer.favicon_b64 %}
+                        <img src="data:image/png;base64,{{ entry.customer.favicon_b64 }}" width="16" height="16" class="me-1" alt="">
+                        {% endif %}
+                        <a href="{{ url_for('customers.customer_view', id=entry.customer.id) }}" class="text-decoration-none fw-semibold" onclick="event.stopPropagation();">
+                            {{ entry.customer.nickname or entry.customer.name }}
+                        </a>
+                    </td>
+                    <td class="text-end fw-semibold text-success">${{ "{:,.0f}".format(entry.total_acr) }}</td>
+                    <td class="text-center">
+                        <span class="badge bg-primary rounded-pill">{{ entry.milestones|length }}</span>
+                    </td>
+                    <td class="text-center">
+                        <i class="bi bi-chevron-right text-muted small" id="chevron-{{ entry.customer.id }}" style="transition: transform 0.2s; display: inline-block;"></i>
+                    </td>
+                </tr>
+                <tr id="impact-ms-{{ entry.customer.id }}" style="display: none;">
+                    <td colspan="5" class="p-0">
+                        <div class="px-4 py-2 bg-body-secondary">
+                            <table class="table table-sm table-borderless mb-0">
+                                <thead>
+                                    <tr class="text-muted small">
+                                        <th>Milestone</th>
+                                        <th>Workload</th>
+                                        <th>Status</th>
+                                        <th class="text-end">Est ACR/mo</th>
+                                        <th>Due Date</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for ms in entry.milestones|sort(attribute='monthly_usage', reverse=True) %}
+                                    <tr>
+                                        <td>
+                                            <a href="javascript:void(0)" class="text-decoration-none" onclick="openMilestoneModal({{ ms.id }})">
+                                                {{ ms.title }}
+                                            </a>
+                                        </td>
+                                        <td class="text-muted">{{ ms.workload or '-' }}</td>
+                                        <td>
+                                            {% if ms.msx_status == 'On Track' %}
+                                            <span class="badge bg-success">{{ ms.msx_status }}</span>
+                                            {% elif ms.msx_status == 'At Risk' %}
+                                            <span class="badge bg-warning text-dark">{{ ms.msx_status }}</span>
+                                            {% elif ms.msx_status == 'Blocked' %}
+                                            <span class="badge bg-danger">{{ ms.msx_status }}</span>
+                                            {% elif ms.msx_status == 'Completed' %}
+                                            <span class="badge bg-info">{{ ms.msx_status }}</span>
+                                            {% else %}
+                                            <span class="badge bg-secondary">{{ ms.msx_status or 'Unknown' }}</span>
+                                            {% endif %}
+                                        </td>
+                                        <td class="text-end">${{ "{:,.0f}".format(ms.monthly_usage or 0) }}</td>
+                                        <td class="text-muted">{{ ms.due_date.strftime('%Y-%m-%d') if ms.due_date else '-' }}</td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="alert alert-info">
+        <i class="bi bi-info-circle"></i> No committed milestones found since {{ since_date }} where you are on the team.
+        <br><small class="text-muted">Run an MSX sync to pull the latest milestone data.</small>
+    </div>
+    {% endif %}
+</div>
+
+<!-- Milestone detail modal -->
+<div class="modal fade" id="milestoneDetailModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-flag"></i> Milestone Detail</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body" id="milestoneDetailBody">
+                <div class="text-center py-4">
+                    <div class="spinner-border text-primary" role="status"></div>
+                    <p class="mt-2 text-muted">Loading milestone...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+var _msModal = null;
+
+function openMilestoneModal(msId) {
+    if (!_msModal) _msModal = new bootstrap.Modal(document.getElementById('milestoneDetailModal'));
+    var bodyEl = document.getElementById('milestoneDetailBody');
+    bodyEl.innerHTML = '<div class="text-center py-4"><div class="spinner-border text-primary" role="status"></div><p class="mt-2 text-muted">Loading milestone...</p></div>';
+    _msModal.show();
+    fetch('/api/milestone/' + msId + '/detail')
+        .then(function(r) { if (!r.ok) throw new Error(); return r.text(); })
+        .then(function(html) {
+            bodyEl.innerHTML = html;
+            bodyEl.querySelectorAll('script').forEach(function(old) {
+                var s = document.createElement('script');
+                if (old.src) { s.src = old.src; } else { s.textContent = '(function(){' + old.textContent + '})();'; }
+                old.replaceWith(s);
+            });
+        })
+        .catch(function() { bodyEl.innerHTML = '<div class="text-danger p-3"><i class="bi bi-exclamation-triangle"></i> Failed to load milestone details.</div>'; });
+}
+
+function toggleImpactRow(clickedRow, targetId) {
+    if (event.target.closest('a')) return;
+    var detail = document.getElementById(targetId);
+    if (!detail) return;
+    var chevron = document.getElementById('chevron-' + targetId.replace('impact-ms-', ''));
+    var isOpen = detail.style.display !== 'none';
+    detail.style.display = isOpen ? 'none' : '';
+    if (chevron) chevron.style.transform = isOpen ? '' : 'rotate(90deg)';
+}
+
+// Date picker: save to localStorage and reload on change
+(function() {
+    var LS_KEY = 'connectImpactSinceDate';
+    var input = document.getElementById('impactSinceDate');
+    if (!input) return;
+
+    // On first load with no query param, apply saved or default
+    var params = new URLSearchParams(window.location.search);
+    if (!params.has('since')) {
+        var saved = localStorage.getItem(LS_KEY);
+        if (saved) {
+            // Redirect with the saved date
+            window.location.replace('{{ url_for("reports.report_connect_impact") }}?since=' + saved);
+            return;
+        }
+        // No saved date - server used the 5-month default, store it
+        localStorage.setItem(LS_KEY, input.value);
+    } else {
+        // URL has ?since= - persist it
+        localStorage.setItem(LS_KEY, params.get('since'));
+    }
+
+    input.addEventListener('change', function() {
+        var val = this.value;
+        if (!val) return;
+        localStorage.setItem(LS_KEY, val);
+        window.location.href = '{{ url_for("reports.report_connect_impact") }}?since=' + val;
+    });
+})();
+</script>
+{% endblock %}
