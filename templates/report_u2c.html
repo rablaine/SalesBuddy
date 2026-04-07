@@ -1,0 +1,297 @@
+{% extends "base.html" %}
+{% from 'partials/customer_favicon.html' import customer_favicon %}
+
+{% block title %}U2C Attainment - Sales Buddy{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-start mb-3">
+    <div>
+        <h2><i class="bi bi-bullseye"></i> U2C Attainment</h2>
+        <p class="text-muted mb-0">Track uncommitted-to-committed milestone attainment against a quarterly snapshot baseline.</p>
+    </div>
+</div>
+
+<!-- Controls: Quarter selector, workload filter, create snapshot -->
+<div class="card mb-3">
+    <div class="card-body py-2">
+        <form method="GET" action="{{ url_for('reports.report_u2c') }}" class="d-flex align-items-center gap-3 flex-wrap">
+            <div class="d-flex align-items-center gap-2">
+                <label class="small text-muted fw-semibold mb-0">Quarter:</label>
+                {% if snapshots %}
+                <select name="fq" class="form-select form-select-sm" style="width: auto;" onchange="this.form.submit()">
+                    {% for s in snapshots %}
+                    <option value="{{ s.fiscal_quarter }}" {% if snapshot and s.id == snapshot.id %}selected{% endif %}>
+                        {{ s.fiscal_quarter }} ({{ s.snapshot_date.strftime('%b %d, %Y') }})
+                    </option>
+                    {% endfor %}
+                </select>
+                {% else %}
+                <span class="text-muted small">No snapshots yet</span>
+                {% endif %}
+            </div>
+            {% if workload_prefixes %}
+            <div class="d-flex align-items-center gap-2">
+                <label class="small text-muted fw-semibold mb-0">Workload:</label>
+                <select name="workload" class="form-select form-select-sm" style="width: auto;" onchange="this.form.submit()">
+                    <option value="">All workloads</option>
+                    {% for prefix in workload_prefixes %}
+                    <option value="{{ prefix }}" {% if workload_filter == prefix %}selected{% endif %}>{{ prefix }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            {% endif %}
+            <div class="ms-auto">
+                <button type="button" class="btn btn-sm btn-outline-primary" id="createSnapshotBtn" onclick="createSnapshot()">
+                    <i class="bi bi-camera"></i> Take {{ current_fq }} Snapshot
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+{% if attainment %}
+<!-- Attainment Summary Cards -->
+<div class="row g-3 mb-4">
+    <div class="col-md-3">
+        <div class="card text-center h-100">
+            <div class="card-body">
+                <h3 class="mb-1 {% if attainment.attainment_pct >= 100 %}text-success{% elif attainment.attainment_pct >= 50 %}text-primary{% else %}text-warning{% endif %}">
+                    {{ attainment.attainment_pct }}%
+                </h3>
+                <small class="text-muted">Attainment</small>
+                <div class="progress mt-2" style="height: 8px;">
+                    <div class="progress-bar {% if attainment.attainment_pct >= 100 %}bg-success{% elif attainment.attainment_pct >= 50 %}bg-primary{% else %}bg-warning{% endif %}"
+                         style="width: {{ [attainment.attainment_pct, 100]|min }}%"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-center h-100">
+            <div class="card-body">
+                <h3 class="mb-1">${{ "{:,.0f}".format(attainment.target_total) }}</h3>
+                <small class="text-muted">Target Monthly ACR</small>
+                <div class="small text-muted mt-1">{{ attainment.total_in_scope }} milestones in scope</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-center h-100">
+            <div class="card-body">
+                <h3 class="mb-1 text-success">${{ "{:,.0f}".format(attainment.committed_total) }}</h3>
+                <small class="text-muted">Committed ACR</small>
+                <div class="small text-muted mt-1">{{ attainment.committed_count }} milestones committed</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-center h-100">
+            <div class="card-body">
+                <h3 class="mb-1 text-warning">${{ "{:,.0f}".format(attainment.target_total - attainment.committed_total) }}</h3>
+                <small class="text-muted">Remaining ACR</small>
+                <div class="small text-muted mt-1">{{ attainment.remaining_count }} milestones to go</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Remaining Milestones (need to commit) -->
+{% if attainment.remaining_items %}
+<div class="card mb-4">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h5 class="mb-0"><i class="bi bi-hourglass-split text-warning"></i> Remaining - Still Need to Commit</h5>
+        <span class="badge bg-warning text-dark">{{ attainment.remaining_count }} milestones - ${{ "{:,.0f}".format(attainment.target_total - attainment.committed_total) }}/mo</span>
+    </div>
+    <div class="table-responsive">
+        <table class="table table-hover mb-0">
+            <thead>
+                <tr>
+                    <th>Customer</th>
+                    <th>Milestone</th>
+                    <th>Workload</th>
+                    <th>Due Date</th>
+                    <th class="text-end">Est. Monthly ACR</th>
+                    <th>Current Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in attainment.remaining_items %}
+                <tr>
+                    <td>
+                        {% if item.customer_id %}
+                        <a href="{{ url_for('customers.customer_view', id=item.customer_id) }}">
+                            {{ item.customer_name }}
+                        </a>
+                        {% else %}
+                        {{ item.customer_name }}
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if item.milestone_id %}
+                        <a href="{{ url_for('milestones.milestone_view', id=item.milestone_id) }}">
+                            {{ item.milestone_title }}
+                        </a>
+                        {% else %}
+                        {{ item.milestone_title }}
+                        {% endif %}
+                        {% if item.opportunity_name %}
+                        <div class="small text-muted">{{ item.opportunity_name }}</div>
+                        {% endif %}
+                    </td>
+                    <td><span class="small">{{ item.workload or '-' }}</span></td>
+                    <td>
+                        {% if item.due_date %}
+                        <span class="small">{{ item.due_date[:10] }}</span>
+                        {% else %}
+                        <span class="text-muted">-</span>
+                        {% endif %}
+                    </td>
+                    <td class="text-end fw-semibold">${{ "{:,.0f}".format(item.monthly_acr) }}</td>
+                    <td>
+                        <span class="badge {% if item.current_status == 'On Track' %}bg-success{% elif item.current_status == 'At Risk' %}bg-warning text-dark{% elif item.current_status == 'Blocked' %}bg-danger{% else %}bg-secondary{% endif %}">
+                            {{ item.current_status }}
+                        </span>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+
+<!-- Committed Milestones (attained) -->
+{% if attainment.committed_items %}
+<div class="card mb-4">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h5 class="mb-0"><i class="bi bi-check-circle text-success"></i> Committed - Attained</h5>
+        <span class="badge bg-success">{{ attainment.committed_count }} milestones - ${{ "{:,.0f}".format(attainment.committed_total) }}/mo</span>
+    </div>
+    <div class="table-responsive">
+        <table class="table table-hover mb-0">
+            <thead>
+                <tr>
+                    <th>Customer</th>
+                    <th>Milestone</th>
+                    <th>Workload</th>
+                    <th>Due Date</th>
+                    <th class="text-end">Est. Monthly ACR</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in attainment.committed_items %}
+                <tr>
+                    <td>
+                        {% if item.customer_id %}
+                        <a href="{{ url_for('customers.customer_view', id=item.customer_id) }}">
+                            {{ item.customer_name }}
+                        </a>
+                        {% else %}
+                        {{ item.customer_name }}
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if item.milestone_id %}
+                        <a href="{{ url_for('milestones.milestone_view', id=item.milestone_id) }}">
+                            {{ item.milestone_title }}
+                        </a>
+                        {% else %}
+                        {{ item.milestone_title }}
+                        {% endif %}
+                        {% if item.opportunity_name %}
+                        <div class="small text-muted">{{ item.opportunity_name }}</div>
+                        {% endif %}
+                    </td>
+                    <td><span class="small">{{ item.workload or '-' }}</span></td>
+                    <td>
+                        {% if item.due_date %}
+                        <span class="small">{{ item.due_date[:10] }}</span>
+                        {% else %}
+                        <span class="text-muted">-</span>
+                        {% endif %}
+                    </td>
+                    <td class="text-end fw-semibold text-success">${{ "{:,.0f}".format(item.monthly_acr) }}</td>
+                    <td>
+                        <span class="badge bg-success">{{ item.current_commitment }}</span>
+                        {% if item.current_status == 'Completed' %}
+                        <span class="badge bg-info">Completed</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+
+{% elif not snapshot %}
+<!-- No snapshot exists yet -->
+<div class="card">
+    <div class="card-body text-center py-5">
+        <i class="bi bi-camera display-1 text-muted"></i>
+        <h4 class="mt-3">No U2C Snapshot Yet</h4>
+        <p class="text-muted">
+            Take a snapshot to capture your current uncommitted milestones as the baseline for this quarter.
+            <br>Snapshots are also created automatically on the 5th of each fiscal quarter start month.
+        </p>
+        <button class="btn btn-primary" onclick="createSnapshot()">
+            <i class="bi bi-camera"></i> Take {{ current_fq }} Snapshot Now
+        </button>
+    </div>
+</div>
+{% else %}
+<!-- Snapshot exists but no milestones in scope -->
+<div class="card">
+    <div class="card-body text-center py-5">
+        <i class="bi bi-check-circle display-1 text-success"></i>
+        <h4 class="mt-3">No Milestones in Scope</h4>
+        <p class="text-muted">
+            {% if workload_filter %}
+            No milestones with workload prefix "{{ workload_filter }}" and due dates in {{ snapshot.fiscal_quarter }}. Try a different workload filter.
+            {% else %}
+            No uncommitted milestones with due dates in {{ snapshot.fiscal_quarter }} were captured in this snapshot.
+            {% endif %}
+        </p>
+    </div>
+</div>
+{% endif %}
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function createSnapshot() {
+    const btn = document.getElementById('createSnapshotBtn');
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Creating...';
+    }
+    fetch('{{ url_for("reports.api_u2c_create_snapshot") }}', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({})
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            location.href = '{{ url_for("reports.report_u2c") }}?fq=' + encodeURIComponent(data.fiscal_quarter);
+        } else {
+            alert(data.error || 'Failed to create snapshot');
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="bi bi-camera"></i> Take {{ current_fq }} Snapshot';
+            }
+        }
+    })
+    .catch(err => {
+        alert('Error: ' + err.message);
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-camera"></i> Take {{ current_fq }} Snapshot';
+        }
+    });
+}
+</script>
+{% endblock %}

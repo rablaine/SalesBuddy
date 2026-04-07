@@ -2037,3 +2037,63 @@ class MarketingContact(db.Model):
 
     def __repr__(self) -> str:
         return f'<MarketingContact {self.contact_name} mail={self.mail_interactions}>'
+
+
+# =============================================================================
+# U2C Snapshot Models
+# =============================================================================
+
+class U2CSnapshot(db.Model):
+    """Header for a fiscal quarter U2C milestone snapshot.
+
+    Captured on the 5th of each fiscal quarter's first month (or manually).
+    Records the set of uncommitted milestones on open opportunities at that
+    point in time so attainment can be tracked against a fixed baseline.
+    """
+    __tablename__ = 'u2c_snapshots'
+
+    id = db.Column(db.Integer, primary_key=True)
+    fiscal_quarter = db.Column(db.String(10), nullable=False, unique=True)  # e.g. "FY26 Q4"
+    snapshot_date = db.Column(db.DateTime, nullable=False, default=utc_now)
+    total_items = db.Column(db.Integer, default=0, nullable=False)
+    total_monthly_acr = db.Column(db.Float, default=0.0, nullable=False)
+    created_at = db.Column(db.DateTime, default=utc_now, nullable=False)
+
+    items = db.relationship(
+        'U2CSnapshotItem', back_populates='snapshot',
+        cascade='all, delete-orphan', lazy='dynamic',
+    )
+
+    def __repr__(self) -> str:
+        return f'<U2CSnapshot {self.fiscal_quarter} items={self.total_items}>'
+
+
+class U2CSnapshotItem(db.Model):
+    """Individual milestone captured in a U2C snapshot.
+
+    Stores a frozen copy of milestone data at snapshot time so the baseline
+    never changes even if the live milestone is later edited or deleted.
+    """
+    __tablename__ = 'u2c_snapshot_items'
+
+    id = db.Column(db.Integer, primary_key=True)
+    snapshot_id = db.Column(db.Integer, db.ForeignKey('u2c_snapshots.id'), nullable=False)
+    milestone_id = db.Column(db.Integer, db.ForeignKey('milestones.id'), nullable=True)  # nullable if milestone deleted later
+    customer_id = db.Column(db.Integer, db.ForeignKey('customers.id'), nullable=True)
+
+    # Frozen milestone data at snapshot time
+    customer_name = db.Column(db.String(500), nullable=False)
+    milestone_title = db.Column(db.String(500), nullable=False)
+    milestone_number = db.Column(db.String(50), nullable=True)
+    workload = db.Column(db.String(200), nullable=True)
+    due_date = db.Column(db.DateTime, nullable=True)
+    monthly_acr = db.Column(db.Float, default=0.0, nullable=False)
+    opportunity_name = db.Column(db.String(500), nullable=True)
+    msx_status = db.Column(db.String(50), nullable=True)  # Status at snapshot time
+
+    snapshot = db.relationship('U2CSnapshot', back_populates='items')
+    milestone = db.relationship('Milestone', lazy='select')
+    customer = db.relationship('Customer', lazy='select')
+
+    def __repr__(self) -> str:
+        return f'<U2CSnapshotItem {self.milestone_title} ${self.monthly_acr}>'

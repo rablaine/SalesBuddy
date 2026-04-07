@@ -8,6 +8,7 @@ from app.models import (
     Topic, RevenueAnalysis, HygieneNote, CustomerRevenueData, ProductRevenueData,
     notes_engagements, notes_milestones, notes_topics,
     MarketingSummary, MarketingInteraction, MarketingContact,
+    U2CSnapshot, U2CSnapshotItem,
 )
 from sqlalchemy import func, desc, or_
 
@@ -24,6 +25,17 @@ def reports_hub():
             'title': 'Data Hygiene',
             'icon': 'bi-clipboard-check',
             'reports': [
+                {
+                    'id': 'u2c-attainment',
+                    'name': 'U2C Attainment',
+                    'description': (
+                        'Track uncommitted-to-committed milestone attainment '
+                        'against a quarterly snapshot baseline. See what you '
+                        'started with and how far you have come.'
+                    ),
+                    'icon': 'bi-bullseye',
+                    'url': url_for('reports.report_u2c'),
+                },
                 {
                     'id': 'milestone-tracker',
                     'name': 'Milestone Tracker',
@@ -1392,3 +1404,67 @@ def report_marketing_insights():
         total_contacts=total_contacts,
         sync_status=sync_status,
     )
+
+
+# =============================================================================
+# U2C Attainment Report
+# =============================================================================
+
+@bp.route('/reports/u2c')
+def report_u2c():
+    """U2C Attainment report - quarterly milestone commitment tracking."""
+    from app.services.u2c_snapshot import (
+        current_fiscal_quarter, get_attainment, get_workload_prefixes,
+    )
+
+    # Get all snapshots for the dropdown
+    snapshots = (
+        U2CSnapshot.query
+        .order_by(U2CSnapshot.fiscal_quarter.desc())
+        .all()
+    )
+
+    # Determine which snapshot to show
+    selected_fq = request.args.get('fq')
+    workload_filter = request.args.get('workload', '')
+    current_fq = current_fiscal_quarter()
+
+    snapshot = None
+    attainment = None
+    workload_prefixes = []
+
+    if selected_fq:
+        snapshot = U2CSnapshot.query.filter_by(fiscal_quarter=selected_fq).first()
+    elif snapshots:
+        # Default to current FQ snapshot, or most recent
+        snapshot = U2CSnapshot.query.filter_by(fiscal_quarter=current_fq).first()
+        if not snapshot:
+            snapshot = snapshots[0]
+
+    if snapshot:
+        workload_prefixes = get_workload_prefixes(snapshot.id)
+        attainment = get_attainment(snapshot.id, workload_filter or None)
+
+    return render_template(
+        'report_u2c.html',
+        snapshots=snapshots,
+        snapshot=snapshot,
+        attainment=attainment,
+        workload_prefixes=workload_prefixes,
+        workload_filter=workload_filter,
+        current_fq=current_fq,
+    )
+
+
+@bp.route('/api/reports/u2c/create-snapshot', methods=['POST'])
+def api_u2c_create_snapshot():
+    """Create a U2C snapshot for the current (or specified) fiscal quarter."""
+    from app.services.u2c_snapshot import create_snapshot, current_fiscal_quarter
+
+    fq = request.json.get('fiscal_quarter') if request.is_json else None
+    if not fq:
+        fq = current_fiscal_quarter()
+
+    result = create_snapshot(fq)
+    status = 200 if result.get('success') else 409
+    return jsonify(result), status

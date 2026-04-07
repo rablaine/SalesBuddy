@@ -1673,3 +1673,46 @@ def get_marketing_insights(customer_id: int | None = None) -> dict:
             for s in summaries
         ],
     }
+
+
+@tool(
+    'get_u2c_attainment',
+    'Get U2C (uncommitted-to-committed) milestone attainment for the current '
+    'or specified fiscal quarter. Shows target ACR, committed ACR, attainment '
+    'percentage, and lists remaining milestones to commit.',
+    {
+        'type': 'object',
+        'properties': {
+            'fiscal_quarter': {
+                'type': 'string',
+                'description': 'Fiscal quarter label, e.g. "FY26 Q4". Defaults to current quarter.',
+            },
+            'workload': {
+                'type': 'string',
+                'description': 'Workload prefix filter, e.g. "Data" or "Infra".',
+            },
+        },
+    },
+)
+def get_u2c_attainment(
+    fiscal_quarter: str | None = None,
+    workload: str | None = None,
+) -> dict:
+    """Return U2C attainment data for a fiscal quarter."""
+    from app.models import U2CSnapshot
+    from app.services.u2c_snapshot import (
+        current_fiscal_quarter, get_attainment,
+    )
+
+    fq = fiscal_quarter or current_fiscal_quarter()
+    snapshot = U2CSnapshot.query.filter_by(fiscal_quarter=fq).first()
+    if not snapshot:
+        return {'fiscal_quarter': fq, 'message': f'No U2C snapshot exists for {fq}.'}
+
+    result = get_attainment(snapshot.id, workload or None)
+    # Trim item details for tool response (keep top 10 remaining)
+    if result.get('remaining_items'):
+        result['remaining_items'] = result['remaining_items'][:10]
+    if result.get('committed_items'):
+        result['committed_items'] = result['committed_items'][:10]
+    return result
