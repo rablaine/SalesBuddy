@@ -950,10 +950,6 @@
             </select>
         </div>
         <div class="mb-3">
-            <label for="flyout_eng_key_individuals" class="form-label">Key Individuals & Titles</label>
-            <textarea class="form-control" id="flyout_eng_key_individuals" rows="2" placeholder="Jane Smith (CTO), Bob (Infra Lead)"></textarea>
-        </div>
-        <div class="mb-3">
             <label for="flyout_eng_technical_problem" class="form-label">Technical/Business Problem</label>
             <textarea class="form-control" id="flyout_eng_technical_problem" rows="2" placeholder="What challenge are they facing?"></textarea>
         </div>
@@ -3969,7 +3965,6 @@ function _getEngFlyoutState() {
     return JSON.stringify({
         title: document.getElementById('flyout_eng_title').value.trim(),
         status: document.getElementById('flyout_eng_status').value,
-        key_individuals: document.getElementById('flyout_eng_key_individuals').value.trim(),
         technical_problem: document.getElementById('flyout_eng_technical_problem').value.trim(),
         business_impact: document.getElementById('flyout_eng_business_impact').value.trim(),
         solution_resources: document.getElementById('flyout_eng_solution_resources').value.trim(),
@@ -3992,7 +3987,6 @@ function openEngagementFlyout() {
     document.getElementById('flyout_eng_title').value = '';
     document.getElementById('flyout_eng_title').classList.remove('is-invalid');
     document.getElementById('flyout_eng_status').value = 'Active';
-    document.getElementById('flyout_eng_key_individuals').value = '';
     document.getElementById('flyout_eng_technical_problem').value = '';
     document.getElementById('flyout_eng_business_impact').value = '';
     document.getElementById('flyout_eng_solution_resources').value = '';
@@ -4050,7 +4044,6 @@ function openEngagementEditFlyout() {
         .then(data => {
             document.getElementById('flyout_eng_title').value = data.title || '';
             document.getElementById('flyout_eng_status').value = data.status || 'Active';
-            document.getElementById('flyout_eng_key_individuals').value = data.key_individuals || '';
             document.getElementById('flyout_eng_technical_problem').value = data.technical_problem || '';
             document.getElementById('flyout_eng_business_impact').value = data.business_impact || '';
             document.getElementById('flyout_eng_solution_resources').value = data.solution_resources || '';
@@ -4089,7 +4082,6 @@ function saveEngagementFromFlyout() {
     const payload = {
         title,
         status: document.getElementById('flyout_eng_status').value,
-        key_individuals: document.getElementById('flyout_eng_key_individuals').value.trim(),
         technical_problem: document.getElementById('flyout_eng_technical_problem').value.trim(),
         business_impact: document.getElementById('flyout_eng_business_impact').value.trim(),
         solution_resources: document.getElementById('flyout_eng_solution_resources').value.trim(),
@@ -5474,7 +5466,6 @@ function saveDraft() {
                     id: card.getAttribute('data-eng-id'),
                     title: card.querySelector('.eng-header-title').textContent.trim(),
                     status: card.querySelector('.eng-status').value,
-                    key_individuals: card.querySelector('.eng-key-individuals').value,
                     technical_problem: card.querySelector('.eng-tech-problem').value,
                     business_impact: card.querySelector('.eng-biz-impact').value,
                     solution_resources: card.querySelector('.eng-solution').value,
@@ -7553,10 +7544,6 @@ function _buildEngCardHtml(engId) {
                         '<option value="Lost">Lost</option>' +
                     '</select>' +
                 '</div>' +
-                '<div class="col-6">' +
-                    '<label class="form-label mb-0 small text-muted">Key Individuals</label>' +
-                    '<textarea class="form-control form-control-sm eng-key-individuals" rows="1" placeholder="Jane (CTO), Bob (Infra)"></textarea>' +
-                '</div>' +
             '</div>' +
             '<div class="row g-2 mb-2">' +
                 '<div class="col-6">' +
@@ -7591,7 +7578,6 @@ function _buildEngCardHtml(engId) {
 function _getCardEngState(card) {
     return JSON.stringify({
         status: card.querySelector('.eng-status').value,
-        key_individuals: card.querySelector('.eng-key-individuals').value,
         technical_problem: card.querySelector('.eng-tech-problem').value,
         business_impact: card.querySelector('.eng-biz-impact').value,
         solution_resources: card.querySelector('.eng-solution').value,
@@ -7616,7 +7602,6 @@ var isInlineEngDirty = isAnyInlineEngDirty;
 
 function _populateEngCard(card, data) {
     card.querySelector('.eng-status').value = data.status || 'Active';
-    card.querySelector('.eng-key-individuals').value = data.key_individuals || '';
     card.querySelector('.eng-tech-problem').value = data.technical_problem || '';
     card.querySelector('.eng-biz-impact').value = data.business_impact || '';
     card.querySelector('.eng-solution').value = data.solution_resources || '';
@@ -7801,7 +7786,6 @@ function _saveOneEngagement(card, engId) {
         body: JSON.stringify({
             title: title,
             status: card.querySelector('.eng-status').value,
-            key_individuals: card.querySelector('.eng-key-individuals').value.trim(),
             technical_problem: card.querySelector('.eng-tech-problem').value.trim(),
             business_impact: card.querySelector('.eng-biz-impact').value.trim(),
             solution_resources: card.querySelector('.eng-solution').value.trim(),

@@ -254,8 +254,9 @@ def _build_engagement_plain_text(engagement) -> str:
     view is still readable.
     """
     lines = []
-    if engagement.key_individuals:
-        lines.append(f"Key Individuals: {_strip_html(engagement.key_individuals)}")
+    if engagement.contacts:
+        contact_names = ', '.join(c.display_name for c in engagement.contacts)
+        lines.append(f"Key Individuals: {contact_names}")
     if engagement.technical_problem:
         lines.append(f"Technical Problem: {_strip_html(engagement.technical_problem)}")
     if engagement.business_impact:
@@ -305,7 +306,9 @@ def _build_engagement_html_table(engagement) -> str:
                 f'</tr>'
             )
 
-    add_row('Key Individuals', engagement.key_individuals)
+    add_row('Key Individuals',
+            ', '.join(c.display_name for c in engagement.contacts)
+            if engagement.contacts else None)
     add_row('Technical Problem', engagement.technical_problem)
     add_row('Business Impact', engagement.business_impact)
     add_row('Solution Resources', engagement.solution_resources)
@@ -580,7 +583,7 @@ def track_engagement_on_milestones(engagement, background: bool = True) -> list[
 
     # Skip if no story fields are filled out yet (just title/status isn't enough)
     has_story = any([
-        engagement.key_individuals,
+        engagement.contacts,
         engagement.technical_problem,
         engagement.business_impact,
         engagement.solution_resources,

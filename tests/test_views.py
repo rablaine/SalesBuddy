@@ -376,7 +376,7 @@ class TestSellerEngagementsAPI:
     def test_api_engagement_includes_expected_fields(self, app, client, sample_data):
         """API returns all expected fields on each engagement."""
         with app.app_context():
-            from app.models import db, Engagement
+            from app.models import db, Engagement, EngagementContact
             from datetime import date
 
             eng = Engagement(
@@ -385,11 +385,15 @@ class TestSellerEngagementsAPI:
                 status='Active',
                 estimated_acr=50000,
                 target_date=date(2026, 6, 15),
-                key_individuals='John Doe',
                 technical_problem='Migration issues',
                 business_impact='Revenue delay',
             )
             db.session.add(eng)
+            db.session.flush()
+            ec = EngagementContact(
+                engagement_id=eng.id, external_name='John Doe'
+            )
+            db.session.add(ec)
             db.session.commit()
 
         response = client.get(f'/api/seller/{sample_data["seller1_id"]}/engagements')

@@ -316,6 +316,9 @@ def run_migrations(db):
     # Migration: Add stale_since column to customers (M&A detection)
     _add_column_if_not_exists(db, inspector, 'customers', 'stale_since', 'DATETIME')
 
+    # Migration: Create engagement_contacts table and migrate key_individuals data
+    _migrate_engagement_contacts(db, inspector)
+
     # =========================================================================
     # End migrations
     # =========================================================================
@@ -1470,3 +1473,73 @@ def _migrate_estimated_acr_to_int(db, inspector):
 
         if converted:
             print(f"  Converted {converted} estimated_acr values to integer")
+
+
+def _migrate_engagement_contacts(db, inspector):
+    """Create engagement_contacts table and migrate key_individuals text data.
+
+    Moves existing key_individuals text into technical_problem (with separator)
+    so the data is preserved. The engagement_contacts table replaces it with
+    a many-to-many contact association.
+    """
+    # Step 1: Create the table if it doesn't exist (db.create_all handles this
+    # for new installs, but existing DBs need the explicit CREATE)
+    if 'engagement_contacts' not in inspector.get_table_names():
+        db.session.execute(db.text('''
+            CREATE TABLE engagement_contacts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                engagement_id INTEGER NOT NULL REFERENCES engagements(id),
+                customer_contact_id INTEGER REFERENCES customer_contacts(id),
+                partner_contact_id INTEGER REFERENCES partner_contacts(id),
+                solution_engineer_id INTEGER REFERENCES solution_engineers(id),
+                seller_id INTEGER REFERENCES sellers(id),
+                internal_contact_id INTEGER REFERENCES internal_contacts(id),
+                external_name VARCHAR(200),
+                external_email VARCHAR(255),
+                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        '''))
+        db.session.execute(db.text(
+            'CREATE INDEX idx_engagement_contacts_engagement_id '
+            'ON engagement_contacts(engagement_id)'
+        ))
+        db.session.commit()
+        print("  Created engagement_contacts table")
+
+    # Step 2: Migrate existing key_individuals text into technical_problem
+    if not _table_exists(inspector, 'engagements'):
+        return
+    if not _column_exists(inspector, 'engagements', 'key_individuals'):
+        return
+
+    rows = db.session.execute(db.text(
+        "SELECT id, key_individuals, technical_problem FROM engagements "
+        "WHERE key_individuals IS NOT NULL AND key_individuals != ''"
+    )).fetchall()
+
+    if rows:
+        migrated = 0
+        for row in rows:
+            eng_id, ki_text, tp_text = row
+            # Append key_individuals to technical_problem with separator
+            if tp_text:
+                new_tp = f"{tp_text}\n\n--saved individuals--\n{ki_text}"
+            else:
+                new_tp = f"--saved individuals--\n{ki_text}"
+            db.session.execute(db.text(
+                "UPDATE engagements SET technical_problem = :tp, key_individuals = NULL "
+                "WHERE id = :id"
+            ), {"tp": new_tp, "id": eng_id})
+            migrated += 1
+        db.session.commit()
+        print(f"  Migrated {migrated} key_individuals values into technical_problem")
+
+    # Step 3: Clear ai_key_individuals (feature removed)
+    if _column_exists(inspector, 'engagements', 'ai_key_individuals'):
+        result = db.session.execute(db.text(
+            "UPDATE engagements SET ai_key_individuals = NULL "
+            "WHERE ai_key_individuals IS NOT NULL"
+        ))
+        if result.rowcount > 0:
+            db.session.commit()
+            print(f"  Cleared {result.rowcount} ai_key_individuals values")

@@ -393,6 +393,17 @@ def _customer_to_dict(customer: Customer) -> Dict[str, Any]:
                 "target_date": eng.target_date.isoformat() if eng.target_date else None,
                 "created_at": eng.created_at.isoformat() if eng.created_at else None,
                 "updated_at": eng.updated_at.isoformat() if eng.updated_at else None,
+                "contacts": [
+                    {
+                        "person_type": c.person_type,
+                        "display_name": c.display_name,
+                        "email": c.email,
+                        "ref_id": c.ref_id,
+                        "external_name": c.external_name,
+                        "external_email": c.external_email,
+                    }
+                    for c in eng.contacts
+                ],
                 "linked_notes": [
                     n.call_date.isoformat() for n in eng.notes
                 ],
@@ -1178,6 +1189,25 @@ def restore_from_backup(data: Dict[str, Any]) -> Dict[str, Any]:
         )
         db.session.add(eng)
         db.session.flush()
+
+        # Restore contacts (v5+)
+        from app.models import EngagementContact
+        for contact_data in eng_data.get("contacts", []):
+            ptype = contact_data.get("person_type", "external")
+            if ptype == "external":
+                ec = EngagementContact(
+                    engagement_id=eng.id,
+                    external_name=contact_data.get("external_name"),
+                    external_email=contact_data.get("external_email"),
+                )
+            else:
+                # Try to match by display_name for known types
+                ec = EngagementContact(
+                    engagement_id=eng.id,
+                    external_name=contact_data.get("display_name"),
+                    external_email=contact_data.get("email"),
+                )
+            db.session.add(ec)
 
         _restore_engagement_links(eng, eng_data, note_index, Milestone, Opportunity)
         engagements_created += 1

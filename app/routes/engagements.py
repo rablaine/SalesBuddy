@@ -7,7 +7,9 @@ from datetime import datetime, timezone
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify
 
 from app.models import (
-    db, Engagement, ActionItem, Customer, Note, Opportunity, Milestone, Topic, Favorite
+    db, Engagement, EngagementContact, ActionItem, Customer, Note, Opportunity,
+    Milestone, Topic, Favorite, CustomerContact, PartnerContact,
+    SolutionEngineer, Seller, InternalContact,
 )
 from app.services.milestone_tracking import track_engagement_on_milestones
 from app.services.seller_mode import get_seller_mode_seller_id
@@ -190,7 +192,6 @@ def engagement_create(customer_id: int):
     if request.method == 'POST':
         title = request.form.get('title', '').strip()
         status = request.form.get('status', 'Active').strip()
-        key_individuals = request.form.get('key_individuals', '').strip() or None
         technical_problem = request.form.get('technical_problem', '').strip() or None
         business_impact = request.form.get('business_impact', '').strip() or None
         solution_resources = request.form.get('solution_resources', '').strip() or None
@@ -216,13 +217,15 @@ def engagement_create(customer_id: int):
             customer_id=customer_id,
             title=title,
             status=status,
-            key_individuals=key_individuals,
             technical_problem=technical_problem,
             business_impact=business_impact,
             solution_resources=solution_resources,
             estimated_acr=estimated_acr,
             target_date=target_date,
         )
+
+        # Add contacts
+        _sync_engagement_contacts(engagement, request.form)
 
         # Link selected notes
         note_ids = request.form.getlist('note_ids')
@@ -281,7 +284,6 @@ def engagement_edit(id: int):
     if request.method == 'POST':
         title = request.form.get('title', '').strip()
         status = request.form.get('status', 'Active').strip()
-        key_individuals = request.form.get('key_individuals', '').strip() or None
         technical_problem = request.form.get('technical_problem', '').strip() or None
         business_impact = request.form.get('business_impact', '').strip() or None
         solution_resources = request.form.get('solution_resources', '').strip() or None
@@ -303,12 +305,14 @@ def engagement_edit(id: int):
 
         engagement.title = title
         engagement.status = status
-        engagement.key_individuals = key_individuals
         engagement.technical_problem = technical_problem
         engagement.business_impact = business_impact
         engagement.solution_resources = solution_resources
         engagement.estimated_acr = estimated_acr
         engagement.target_date = target_date
+
+        # Update contacts
+        _sync_engagement_contacts(engagement, request.form)
 
         # Update linked notes
         note_ids = request.form.getlist('note_ids')
@@ -502,7 +506,7 @@ def engagement_create_inline(customer_id: int):
     )
     # Optional story fields
     if data:
-        for field in ('key_individuals', 'technical_problem', 'business_impact',
+        for field in ('technical_problem', 'business_impact',
                        'solution_resources'):
             val = data.get(field, '').strip()
             if val:
@@ -534,7 +538,6 @@ def engagement_get_json(id: int):
         id=eng.id,
         title=eng.title,
         status=eng.status,
-        key_individuals=eng.key_individuals or '',
         technical_problem=eng.technical_problem or '',
         business_impact=eng.business_impact or '',
         solution_resources=eng.solution_resources or '',
@@ -560,7 +563,7 @@ def engagement_update_inline(id: int):
     if status in ('Active', 'On Hold', 'Won', 'Lost'):
         eng.status = status
 
-    for field in ('key_individuals', 'technical_problem', 'business_impact',
+    for field in ('technical_problem', 'business_impact',
                    'solution_resources'):
         val = data.get(field, '').strip()
         setattr(eng, field, val or None)
@@ -580,6 +583,195 @@ def engagement_update_inline(id: int):
 
     db.session.commit()
     return jsonify(success=True, id=eng.id, title=eng.title, status=eng.status)
+
+
+# =============================================================================
+# Engagement Contact Helpers & API
+# =============================================================================
+
+def _make_engagement_contact(atype: str, ref_id: str) -> 'EngagementContact | None':
+    """Create an EngagementContact from a type string and reference ID."""
+    try:
+        rid = int(ref_id)
+    except (ValueError, TypeError):
+        return None
+    if atype == 'customer_contact':
+        return EngagementContact(customer_contact_id=rid)
+    elif atype == 'partner_contact':
+        return EngagementContact(partner_contact_id=rid)
+    elif atype == 'se':
+        return EngagementContact(solution_engineer_id=rid)
+    elif atype == 'seller':
+        return EngagementContact(seller_id=rid)
+    elif atype == 'internal_contact':
+        return EngagementContact(internal_contact_id=rid)
+    return None
+
+
+def _sync_engagement_contacts(engagement: Engagement, form) -> None:
+    """Sync engagement contacts from form data (create or edit)."""
+    engagement.contacts.clear()
+    contact_types = form.getlist('contact_types')
+    contact_ref_ids = form.getlist('contact_ref_ids')
+    ext_names = form.getlist('contact_ext_names')
+    ext_emails = form.getlist('contact_ext_emails')
+
+    ext_idx = 0
+    for ctype, ref_id in zip(contact_types, contact_ref_ids):
+        if ctype == 'external':
+            name = ext_names[ext_idx] if ext_idx < len(ext_names) else ''
+            email = ext_emails[ext_idx] if ext_idx < len(ext_emails) else ''
+            ext_idx += 1
+            contact = EngagementContact(
+                external_name=name or None,
+                external_email=email or None,
+            )
+        else:
+            contact = _make_engagement_contact(ctype, ref_id)
+            if not contact:
+                continue
+        engagement.contacts.append(contact)
+
+
+@engagements_bp.route('/api/engagement/<int:id>/contacts')
+def api_engagement_contacts(id: int):
+    """List contacts for an engagement."""
+    engagement = Engagement.query.get_or_404(id)
+    return jsonify([c.to_dict() for c in engagement.contacts])
+
+
+@engagements_bp.route('/api/engagement/<int:id>/contacts', methods=['POST'])
+def api_add_engagement_contact(id: int):
+    """Add a contact to an engagement."""
+    engagement = Engagement.query.get_or_404(id)
+    data = request.get_json()
+    if not data:
+        return jsonify({'success': False, 'error': 'No data'}), 400
+
+    atype = data.get('type', '')
+    ref_id = data.get('id')
+
+    if atype == 'external':
+        contact = EngagementContact(
+            engagement_id=engagement.id,
+            external_name=data.get('name', '').strip() or None,
+            external_email=data.get('email', '').strip() or None,
+        )
+    else:
+        contact = _make_engagement_contact(atype, ref_id)
+        if not contact:
+            return jsonify({'success': False, 'error': 'Invalid contact'}), 400
+        contact.engagement_id = engagement.id
+
+    db.session.add(contact)
+    db.session.commit()
+    return jsonify({'success': True, 'contact': contact.to_dict()})
+
+
+@engagements_bp.route('/api/engagement/<int:id>/contacts/<int:contact_id>',
+                       methods=['DELETE'])
+def api_remove_engagement_contact(id: int, contact_id: int):
+    """Remove a contact from an engagement."""
+    contact = EngagementContact.query.filter_by(
+        id=contact_id, engagement_id=id
+    ).first_or_404()
+    db.session.delete(contact)
+    db.session.commit()
+    return jsonify({'success': True})
+
+
+@engagements_bp.route('/api/engagement-contact-search')
+def api_engagement_contact_search():
+    """Search across all person types for the engagement contact picker.
+
+    Query params:
+        q: search string (required)
+        customer_id: filter customer contacts to this customer
+    """
+    q = request.args.get('q', '').strip().lower()
+    if len(q) < 1:
+        return jsonify({'results': []})
+
+    customer_id = request.args.get('customer_id', type=int)
+    results = []
+
+    # Customer contacts (filtered to engagement's customer)
+    if customer_id:
+        contacts = CustomerContact.query.filter(
+            CustomerContact.customer_id == customer_id,
+            db.or_(
+                db.func.lower(CustomerContact.name).contains(q),
+                db.func.lower(CustomerContact.email).contains(q),
+            )
+        ).limit(10).all()
+        for c in contacts:
+            results.append({
+                'type': 'customer_contact', 'id': c.id,
+                'name': c.name, 'email': c.email, 'detail': c.title,
+                'icon': 'bi-person-circle', 'color': 'success',
+            })
+
+    # Partner contacts (all partners - engagements may span partners)
+    pcontacts = PartnerContact.query.filter(
+        db.or_(
+            db.func.lower(PartnerContact.name).contains(q),
+            db.func.lower(PartnerContact.email).contains(q),
+        )
+    ).limit(10).all()
+    for c in pcontacts:
+        results.append({
+            'type': 'partner_contact', 'id': c.id,
+            'name': c.name, 'email': c.email,
+            'detail': c.partner.name if c.partner else None,
+            'icon': 'bi-building', 'color': 'purple',
+        })
+
+    # Solution engineers
+    ses = SolutionEngineer.query.filter(
+        db.or_(
+            db.func.lower(SolutionEngineer.name).contains(q),
+            db.func.lower(SolutionEngineer.alias).contains(q),
+        )
+    ).limit(10).all()
+    for se in ses:
+        results.append({
+            'type': 'se', 'id': se.id,
+            'name': se.name, 'email': se.get_email(),
+            'detail': se.specialty,
+            'icon': 'bi-tools', 'color': 'info',
+        })
+
+    # Sellers
+    sellers = Seller.query.filter(
+        db.or_(
+            db.func.lower(Seller.name).contains(q),
+            db.func.lower(Seller.alias).contains(q),
+        )
+    ).limit(10).all()
+    for s in sellers:
+        results.append({
+            'type': 'seller', 'id': s.id,
+            'name': s.name, 'email': s.get_email(),
+            'detail': s.seller_type,
+            'icon': 'bi-person', 'color': 'primary',
+        })
+
+    # Internal contacts
+    internals = InternalContact.query.filter(
+        db.or_(
+            db.func.lower(InternalContact.name).contains(q),
+            db.func.lower(InternalContact.alias).contains(q),
+        )
+    ).limit(10).all()
+    for ic in internals:
+        results.append({
+            'type': 'internal_contact', 'id': ic.id,
+            'name': ic.name, 'email': ic.get_email(),
+            'detail': ic.role,
+            'icon': 'bi-person-badge', 'color': 'warning',
+        })
+
+    return jsonify({'results': results})
 
 
 # =============================================================================

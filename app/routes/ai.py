@@ -320,8 +320,9 @@ def api_ai_generate_engagement_story():
         call_text = call_text[:MAX_CHARS] + '\n\n[... additional notes truncated ...]'
 
     engagement_context = f"Engagement: {engagement.title}\n"
-    if engagement.key_individuals:
-        engagement_context += f"Current Key Individuals: {engagement.key_individuals}\n"
+    if engagement.contacts:
+        contact_names = ', '.join(c.display_name for c in engagement.contacts)
+        engagement_context += f"Key Individuals: {contact_names}\n"
     if engagement.technical_problem:
         engagement_context += f"Current Technical Problem: {engagement.technical_problem}\n"
 
@@ -361,7 +362,6 @@ def api_ai_generate_engagement_story():
 
     # Build current values for the review diff (show AI fields as "current")
     current = {
-        'key_individuals': engagement.ai_key_individuals or '',
         'technical_problem': engagement.ai_technical_problem or '',
         'business_impact': engagement.ai_business_impact or '',
         'solution_resources': engagement.ai_solution_resources or '',
@@ -419,8 +419,6 @@ def api_ai_generate_engagement_story():
 
         # Non-preview: save to AI fields only (legacy behavior)
         from datetime import datetime as _datetime
-        if story_data.get('key_individuals'):
-            engagement.ai_key_individuals = story_data['key_individuals']
         if story_data.get('technical_problem'):
             engagement.ai_technical_problem = story_data['technical_problem']
         if story_data.get('business_impact'):
@@ -504,7 +502,7 @@ def api_ai_apply_engagement_story():
         return jsonify({'success': False, 'error': 'Engagement not found'}), 404
 
     allowed_fields = {
-        'key_individuals', 'technical_problem', 'business_impact',
+        'technical_problem', 'business_impact',
         'solution_resources', 'estimated_acr', 'target_date',
     }
 
