@@ -387,6 +387,74 @@
         {% include 'partials/_fy_management_card.html' %}
         {% endif %}
 
+        <!-- Customer M&A: Stale Customers & Merge Tool -->
+        <div class="card mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-arrow-left-right"></i> Customer Merge Tool</h5>
+                {% if stats.stale_customers > 0 %}
+                <span class="badge bg-warning text-dark">{{ stats.stale_customers }} stale</span>
+                {% endif %}
+            </div>
+            <div class="card-body">
+                <p class="text-muted small mb-3">
+                    When customers undergo M&amp;A in MSX, their TPIDs can change or disappear. Use this tool to merge
+                    data from an old customer into a new one, or dismiss false positives.
+                </p>
+
+                <!-- Stale Customers Section -->
+                <div id="staleSection">
+                    <h6 class="mb-2">Stale Customers <span id="staleBadge" class="badge bg-secondary">loading...</span></h6>
+                    <div id="staleList" class="mb-3">
+                        <div class="text-muted small"><span class="spinner-border spinner-border-sm"></span> Loading...</div>
+                    </div>
+                </div>
+
+                <hr>
+
+                <!-- Manual Merge Tool -->
+                <h6 class="mb-2">Manual Merge</h6>
+                <div class="row g-2 mb-2">
+                    <div class="col-md-5">
+                        <label class="form-label small">Source (will be deleted)</label>
+                        <input type="text" class="form-control form-control-sm" id="mergeSourceSearch"
+                               placeholder="Search customer name..." autocomplete="off">
+                        <div id="mergeSourceResults" class="list-group position-absolute" style="z-index: 1050; max-height: 200px; overflow-y: auto; display: none;"></div>
+                        <input type="hidden" id="mergeSourceId">
+                        <div id="mergeSourceSelected" class="mt-1 small"></div>
+                    </div>
+                    <div class="col-md-2 d-flex align-items-end justify-content-center pb-2">
+                        <i class="bi bi-arrow-right fs-4 text-muted"></i>
+                    </div>
+                    <div class="col-md-5">
+                        <label class="form-label small">Destination (keeps data)</label>
+                        <input type="text" class="form-control form-control-sm" id="mergeDestSearch"
+                               placeholder="Search customer name..." autocomplete="off">
+                        <div id="mergeDestResults" class="list-group position-absolute" style="z-index: 1050; max-height: 200px; overflow-y: auto; display: none;"></div>
+                        <input type="hidden" id="mergeDestId">
+                        <div id="mergeDestSelected" class="mt-1 small"></div>
+                    </div>
+                </div>
+
+                <div id="mergePreview" class="d-none mb-3">
+                    <div class="alert alert-info small mb-2">
+                        <strong>Preview:</strong> The following data will be moved:
+                    </div>
+                    <div id="mergePreviewCounts" class="small"></div>
+                </div>
+
+                <div class="d-flex gap-2">
+                    <button class="btn btn-sm btn-outline-primary" id="mergePreviewBtn" onclick="previewMerge()" disabled>
+                        <i class="bi bi-eye"></i> Preview
+                    </button>
+                    <button class="btn btn-sm btn-danger" id="mergeExecuteBtn" onclick="executeMerge()" disabled style="display: none;">
+                        <i class="bi bi-arrow-left-right"></i> Merge
+                    </button>
+                </div>
+
+                <div id="mergeResult" class="mt-3 d-none"></div>
+            </div>
+        </div>
+
         <!-- Backups -->
         <div class="card mb-4">
             <div class="card-header">
@@ -1859,6 +1927,7 @@ document.addEventListener('DOMContentLoaded', function() {
     loadSyncStatus('accounts', 'accountsSyncStatus');
     loadSyncStatus('marketing', 'marketingSyncStatus');
     loadTelemetryStats();
+    loadStaleCustomers();
 
     document.getElementById('telemetryDays').addEventListener('change', function() {
         loadTelemetryStats();
@@ -3766,6 +3835,267 @@ document.getElementById('archiveTreeSearch').addEventListener('input', function(
 
 // Load FY status on page load
 loadFYStatus();
+
+// ==============================================================================
+// Customer M&A: Stale Customers + Merge Tool
+// ==============================================================================
+
+function loadStaleCustomers() {
+    fetch('/api/admin/stale-customers')
+        .then(r => r.json())
+        .then(data => {
+            const badge = document.getElementById('staleBadge');
+            const list = document.getElementById('staleList');
+            badge.textContent = data.length;
+            badge.className = 'badge ' + (data.length > 0 ? 'bg-warning text-dark' : 'bg-secondary');
+
+            if (data.length === 0) {
+                list.innerHTML = '<div class="text-muted small">No stale customers detected. Run an MSX sync to check.</div>';
+                return;
+            }
+
+            let html = '<div class="list-group">';
+            data.forEach(c => {
+                const staleDays = Math.floor((Date.now() - new Date(c.stale_since).getTime()) / 86400000);
+                html += `
+                    <div class="list-group-item d-flex justify-content-between align-items-center py-2" id="stale-${c.id}">
+                        <div>
+                            <strong>${escapeHtmlMerge(c.name)}</strong>
+                            <span class="text-muted small ms-2">TPID ${c.tpid}</span>
+                            <span class="badge bg-secondary ms-2">${staleDays}d ago</span>
+                            ${c.notes_count > 0 ? `<span class="badge bg-info text-dark ms-1">${c.notes_count} notes</span>` : ''}
+                            ${c.engagements_count > 0 ? `<span class="badge bg-info text-dark ms-1">${c.engagements_count} engagements</span>` : ''}
+                        </div>
+                        <div class="btn-group btn-group-sm">
+                            <button class="btn btn-outline-primary" onclick="startMergeFrom(${c.id}, '${escapeHtmlMerge(c.name)}', ${c.tpid})" title="Merge into another customer">
+                                <i class="bi bi-arrow-left-right"></i> Merge
+                            </button>
+                            <button class="btn btn-outline-secondary" onclick="dismissStale(${c.id})" title="Not stale, keep as-is">
+                                <i class="bi bi-x-lg"></i> Dismiss
+                            </button>
+                            ${!c.has_data ? `<button class="btn btn-outline-danger" onclick="deleteStaleCustomer(${c.id}, '${escapeHtmlMerge(c.name)}')" title="Delete (no linked data)"><i class="bi bi-trash"></i></button>` : ''}
+                        </div>
+                    </div>`;
+            });
+            html += '</div>';
+            list.innerHTML = html;
+        })
+        .catch(() => {
+            document.getElementById('staleList').innerHTML = '<div class="text-muted small">Failed to load stale customers.</div>';
+        });
+}
+
+function dismissStale(customerId) {
+    fetch(`/api/admin/stale-customers/${customerId}/dismiss`, { method: 'POST' })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                const el = document.getElementById(`stale-${customerId}`);
+                if (el) el.remove();
+                // Update badge count
+                const badge = document.getElementById('staleBadge');
+                const current = parseInt(badge.textContent) - 1;
+                badge.textContent = current;
+                if (current === 0) {
+                    badge.className = 'badge bg-secondary';
+                    document.getElementById('staleList').innerHTML = '<div class="text-muted small">No stale customers detected.</div>';
+                }
+            }
+        });
+}
+
+function deleteStaleCustomer(customerId, name) {
+    if (!confirm(`Delete "${name}"? This customer has no linked data and will be permanently removed.`)) return;
+    fetch(`/api/admin/stale-customers/${customerId}`, { method: 'DELETE' })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                const el = document.getElementById(`stale-${customerId}`);
+                if (el) el.remove();
+                const badge = document.getElementById('staleBadge');
+                const current = parseInt(badge.textContent) - 1;
+                badge.textContent = current;
+                if (current === 0) {
+                    badge.className = 'badge bg-secondary';
+                    document.getElementById('staleList').innerHTML = '<div class="text-muted small">No stale customers detected.</div>';
+                }
+            }
+        });
+}
+
+function startMergeFrom(sourceId, sourceName, sourceTpid) {
+    document.getElementById('mergeSourceId').value = sourceId;
+    document.getElementById('mergeSourceSearch').value = '';
+    document.getElementById('mergeSourceSelected').innerHTML =
+        `<span class="badge bg-danger">${escapeHtmlMerge(sourceName)}</span> <span class="text-muted">TPID ${sourceTpid}</span>`;
+    document.getElementById('mergeDestSearch').focus();
+    updateMergeButtons();
+}
+
+function escapeHtmlMerge(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+// Customer search for merge tool
+let mergeSearchTimeout;
+function setupMergeSearch(inputId, resultsId, hiddenId, selectedId) {
+    const input = document.getElementById(inputId);
+    const results = document.getElementById(resultsId);
+
+    input.addEventListener('input', function() {
+        clearTimeout(mergeSearchTimeout);
+        const q = this.value.trim();
+        if (q.length < 2) { results.style.display = 'none'; return; }
+
+        mergeSearchTimeout = setTimeout(() => {
+            const excludeId = document.getElementById(
+                inputId === 'mergeSourceSearch' ? 'mergeDestId' : 'mergeSourceId'
+            ).value;
+            let url = `/api/admin/customers-search?q=${encodeURIComponent(q)}`;
+            if (excludeId) url += `&exclude_id=${excludeId}`;
+
+            fetch(url).then(r => r.json()).then(data => {
+                if (data.length === 0) {
+                    results.innerHTML = '<div class="list-group-item text-muted small">No results</div>';
+                } else {
+                    results.innerHTML = data.map(c =>
+                        `<button type="button" class="list-group-item list-group-item-action small py-1"
+                            onclick="selectMergeCustomer('${hiddenId}', '${selectedId}', ${c.id}, '${escapeHtmlMerge(c.name)}', ${c.tpid})">
+                            ${escapeHtmlMerge(c.name)} <span class="text-muted">TPID ${c.tpid}</span>
+                        </button>`
+                    ).join('');
+                }
+                results.style.display = 'block';
+            });
+        }, 300);
+    });
+
+    // Hide results when clicking outside
+    document.addEventListener('click', function(e) {
+        if (!input.contains(e.target) && !results.contains(e.target)) {
+            results.style.display = 'none';
+        }
+    });
+}
+
+function selectMergeCustomer(hiddenId, selectedId, id, name, tpid) {
+    document.getElementById(hiddenId).value = id;
+    const badgeClass = hiddenId === 'mergeSourceId' ? 'bg-danger' : 'bg-success';
+    document.getElementById(selectedId).innerHTML =
+        `<span class="badge ${badgeClass}">${escapeHtmlMerge(name)}</span> <span class="text-muted">TPID ${tpid}</span>`;
+    // Hide the results dropdown
+    const resultsId = hiddenId === 'mergeSourceId' ? 'mergeSourceResults' : 'mergeDestResults';
+    document.getElementById(resultsId).style.display = 'none';
+    // Clear the search input
+    const inputId = hiddenId === 'mergeSourceId' ? 'mergeSourceSearch' : 'mergeDestSearch';
+    document.getElementById(inputId).value = '';
+    updateMergeButtons();
+}
+
+function updateMergeButtons() {
+    const sourceId = document.getElementById('mergeSourceId').value;
+    const destId = document.getElementById('mergeDestId').value;
+    document.getElementById('mergePreviewBtn').disabled = !(sourceId && destId);
+    document.getElementById('mergePreview').classList.add('d-none');
+    document.getElementById('mergeExecuteBtn').style.display = 'none';
+}
+
+function previewMerge() {
+    const sourceId = document.getElementById('mergeSourceId').value;
+    const destId = document.getElementById('mergeDestId').value;
+
+    fetch(`/api/admin/merge-preview?source_id=${sourceId}&dest_id=${destId}`)
+        .then(r => r.json())
+        .then(data => {
+            if (data.error) {
+                document.getElementById('mergeResult').className = 'mt-3 alert alert-danger';
+                document.getElementById('mergeResult').textContent = data.error;
+                return;
+            }
+
+            const counts = data.counts;
+            const total = Object.values(counts).reduce((a, b) => a + b, 0);
+
+            let html = '<table class="table table-sm mb-0"><tbody>';
+            const labels = {
+                notes: 'Notes', engagements: 'Engagements', milestones: 'Milestones',
+                opportunities: 'Opportunities', contacts: 'Contacts',
+                revenue_data: 'Revenue Data', product_revenue: 'Product Revenue',
+                revenue_analyses: 'Revenue Analyses', marketing_summary: 'Marketing Summary',
+                marketing_interactions: 'Marketing Interactions',
+                marketing_contacts: 'Marketing Contacts', u2c_items: 'U2C Snapshots',
+            };
+            for (const [key, label] of Object.entries(labels)) {
+                if (counts[key] > 0) {
+                    html += `<tr><td>${label}</td><td class="text-end"><strong>${counts[key]}</strong></td></tr>`;
+                }
+            }
+            if (total === 0) {
+                html += '<tr><td colspan="2" class="text-muted">No linked data to migrate</td></tr>';
+            }
+            html += `<tr class="table-active"><td><strong>Total</strong></td><td class="text-end"><strong>${total}</strong></td></tr>`;
+            html += '</tbody></table>';
+
+            document.getElementById('mergePreviewCounts').innerHTML = html;
+            document.getElementById('mergePreview').classList.remove('d-none');
+            document.getElementById('mergeExecuteBtn').style.display = '';
+            document.getElementById('mergeExecuteBtn').disabled = false;
+        });
+}
+
+function executeMerge() {
+    const sourceId = document.getElementById('mergeSourceId').value;
+    const destId = document.getElementById('mergeDestId').value;
+
+    const sourceName = document.getElementById('mergeSourceSelected').textContent;
+    if (!confirm(`Permanently merge "${sourceName.trim()}" into the destination? The source customer will be deleted. This cannot be undone.`)) return;
+
+    const btn = document.getElementById('mergeExecuteBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Merging...';
+
+    fetch('/api/admin/merge-customer', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ source_id: parseInt(sourceId), dest_id: parseInt(destId) }),
+    })
+    .then(r => r.json())
+    .then(data => {
+        const resultEl = document.getElementById('mergeResult');
+        if (data.success) {
+            resultEl.className = 'mt-3 alert alert-success';
+            resultEl.innerHTML = `<i class="bi bi-check-circle"></i> Merged <strong>${escapeHtmlMerge(data.source_name)}</strong> (TPID ${data.source_tpid}) into <strong>${escapeHtmlMerge(data.dest_name)}</strong>. <a href="/customers/${data.dest_id}">View customer</a>`;
+            // Reset the form
+            document.getElementById('mergeSourceId').value = '';
+            document.getElementById('mergeDestId').value = '';
+            document.getElementById('mergeSourceSelected').innerHTML = '';
+            document.getElementById('mergeDestSelected').innerHTML = '';
+            document.getElementById('mergePreview').classList.add('d-none');
+            btn.style.display = 'none';
+            document.getElementById('mergePreviewBtn').disabled = true;
+            // Reload stale list
+            loadStaleCustomers();
+        } else {
+            resultEl.className = 'mt-3 alert alert-danger';
+            resultEl.innerHTML = `<i class="bi bi-exclamation-triangle"></i> ${escapeHtmlMerge(data.error)}`;
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-arrow-left-right"></i> Merge';
+        }
+    })
+    .catch(err => {
+        const resultEl = document.getElementById('mergeResult');
+        resultEl.className = 'mt-3 alert alert-danger';
+        resultEl.textContent = 'Network error: ' + err.message;
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-arrow-left-right"></i> Merge';
+    });
+}
+
+// Initialize merge search inputs
+setupMergeSearch('mergeSourceSearch', 'mergeSourceResults', 'mergeSourceId', 'mergeSourceSelected');
+setupMergeSearch('mergeDestSearch', 'mergeDestResults', 'mergeDestId', 'mergeDestSelected');
 </script>
 {% endblock %}
 

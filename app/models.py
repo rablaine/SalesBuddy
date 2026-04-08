@@ -413,6 +413,7 @@ class Customer(db.Model):
     dae_alias = db.Column(db.String(100), nullable=True)  # DAE email alias (part before @microsoft.com)
     csam_id = db.Column(db.Integer, db.ForeignKey('customer_csams.id'), nullable=True)  # User-selected primary CSAM
     created_at = db.Column(db.DateTime, default=utc_now, nullable=False)
+    stale_since = db.Column(db.DateTime, nullable=True)  # Set when TPID disappears from MSX sync
 
     # Relationships
     seller = db.relationship('Seller', back_populates='customers')

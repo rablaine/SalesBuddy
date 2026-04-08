@@ -1793,3 +1793,39 @@ def report_connect_impact(since: str | None = None) -> dict:
         'grand_total_acr_mo': sum(r['total_acr_mo'] for r in ranked),
         'customers': ranked,
     }
+
+
+# ---------------------------------------------------------------------------
+# Stale Customers / M&A
+# ---------------------------------------------------------------------------
+
+@tool(
+    'get_stale_customers',
+    'Get customers flagged as stale (TPID disappeared from MSX sync). '
+    'These may have been merged, acquired, or reassigned in MSX.',
+    {
+        'type': 'object',
+        'properties': {},
+    },
+)
+def get_stale_customers() -> dict:
+    """Return all customers with stale_since set."""
+    from app.models import db, Customer, Note, Engagement
+    stale = Customer.query.filter(
+        Customer.stale_since.isnot(None)
+    ).order_by(Customer.stale_since).all()
+
+    return {
+        'count': len(stale),
+        'customers': [
+            {
+                'id': c.id,
+                'name': c.get_display_name(),
+                'tpid': c.tpid,
+                'stale_since': c.stale_since.isoformat() if c.stale_since else None,
+                'notes_count': Note.query.filter_by(customer_id=c.id).count(),
+                'engagements_count': Engagement.query.filter_by(customer_id=c.id).count(),
+            }
+            for c in stale
+        ],
+    }

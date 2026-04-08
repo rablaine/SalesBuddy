@@ -66,6 +66,7 @@ def admin_panel():
         'customers_with_favicon': Customer.query.filter(
             Customer.favicon_b64.isnot(None), Customer.favicon_b64 != '').count(),
         'favicon_sync_status': favicon_sync,
+        'stale_customers': Customer.query.filter(Customer.stale_since.isnot(None)).count(),
     }
     
     # FY season: promote the FY card Jul 1 - Aug 31, unless already transitioned
@@ -1394,4 +1395,129 @@ def api_diagnostic_log_clear():
     if log_path:
         os.remove(log_path)
     return jsonify({'success': True})
+
+
+# -------------------------------------------------------------------------
+# Customer M&A: Stale Customers + Merge Tool
+# -------------------------------------------------------------------------
+
+@admin_bp.route('/api/admin/stale-customers')
+def api_stale_customers():
+    """Get customers flagged as stale (TPID disappeared from MSX sync)."""
+    from app.services.customer_merge import _count_linked_records
+
+    stale = Customer.query.filter(
+        Customer.stale_since.isnot(None)
+    ).order_by(Customer.stale_since).all()
+
+    result = []
+    for c in stale:
+        counts = _count_linked_records(c.id)
+        # Marketing data is auto-imported and cascade-deleted, so exclude from has_data
+        auto_imported = {'marketing_summary', 'marketing_contacts', 'marketing_interactions'}
+        user_data = sum(v for k, v in counts.items() if k not in auto_imported)
+
+        result.append({
+            "id": c.id,
+            "name": c.get_display_name(),
+            "tpid": c.tpid,
+            "stale_since": c.stale_since.isoformat() if c.stale_since else None,
+            "notes_count": counts.get('notes', 0),
+            "engagements_count": counts.get('engagements', 0),
+            "has_data": user_data > 0,
+        })
+
+    return jsonify(result)
+
+
+@admin_bp.route('/api/admin/stale-customers/<int:customer_id>/dismiss', methods=['POST'])
+def api_dismiss_stale(customer_id: int):
+    """Clear the stale flag on a customer (user confirmed it's fine)."""
+    customer = Customer.query.get_or_404(customer_id)
+    customer.stale_since = None
+    db.session.commit()
+    return jsonify({"success": True, "name": customer.get_display_name()})
+
+
+@admin_bp.route('/api/admin/stale-customers/<int:customer_id>', methods=['DELETE'])
+def api_delete_stale_customer(customer_id: int):
+    """Delete a stale customer, cascading auto-imported marketing data."""
+    from app.services.customer_merge import _count_linked_records
+    from app.models import MarketingSummary, MarketingContact, MarketingInteraction
+    customer = Customer.query.get_or_404(customer_id)
+    counts = _count_linked_records(customer_id)
+    # Marketing data is auto-imported and safe to cascade-delete
+    auto_imported = {'marketing_summary', 'marketing_contacts', 'marketing_interactions'}
+    user_data = sum(v for k, v in counts.items() if k not in auto_imported)
+    if user_data > 0:
+        return jsonify({"error": "Customer has linked data and cannot be deleted directly. Use merge instead."}), 400
+    # Clean up auto-imported marketing data first
+    MarketingInteraction.query.filter_by(customer_id=customer_id).delete()
+    MarketingContact.query.filter_by(customer_id=customer_id).delete()
+    MarketingSummary.query.filter_by(customer_id=customer_id).delete()
+    db.session.delete(customer)
+    db.session.commit()
+    return jsonify({"success": True, "name": customer.get_display_name()})
+
+
+@admin_bp.route('/api/admin/merge-preview')
+def api_merge_preview():
+    """Preview a customer merge before executing it."""
+    source_id = request.args.get('source_id', type=int)
+    dest_id = request.args.get('dest_id', type=int)
+    if not source_id or not dest_id:
+        return jsonify({"error": "source_id and dest_id are required"}), 400
+
+    from app.services.customer_merge import get_merge_preview
+    preview = get_merge_preview(source_id, dest_id)
+    if "error" in preview:
+        return jsonify(preview), 400
+    return jsonify(preview)
+
+
+@admin_bp.route('/api/admin/merge-customer', methods=['POST'])
+def api_merge_customer():
+    """Execute a customer merge (source absorbed into destination)."""
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "JSON body required"}), 400
+
+    source_id = data.get('source_id')
+    dest_id = data.get('dest_id')
+    if not source_id or not dest_id:
+        return jsonify({"error": "source_id and dest_id are required"}), 400
+
+    from app.services.customer_merge import merge_customer
+    try:
+        result = merge_customer(source_id, dest_id)
+        return jsonify(result)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": f"Merge failed: {str(e)}"}), 500
+
+
+@admin_bp.route('/api/admin/customers-search')
+def api_customers_search():
+    """Search customers by name for merge destination picker."""
+    q = request.args.get('q', '').strip()
+    exclude_id = request.args.get('exclude_id', type=int)
+    if len(q) < 2:
+        return jsonify([])
+
+    query = Customer.query.filter(
+        db.or_(
+            Customer.name.ilike(f'%{q}%'),
+            Customer.nickname.ilike(f'%{q}%'),
+        )
+    )
+    if exclude_id:
+        query = query.filter(Customer.id != exclude_id)
+    customers = query.order_by(Customer.name).limit(20).all()
+
+    return jsonify([
+        {"id": c.id, "name": c.get_display_name(), "tpid": c.tpid}
+        for c in customers
+    ])
 

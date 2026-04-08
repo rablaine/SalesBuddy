@@ -313,6 +313,9 @@ def run_migrations(db):
     _add_column_if_not_exists(db, inspector, 'engagements', 'ai_estimated_acr', 'INTEGER')
     _add_column_if_not_exists(db, inspector, 'engagements', 'ai_target_date', 'DATE')
 
+    # Migration: Add stale_since column to customers (M&A detection)
+    _add_column_if_not_exists(db, inspector, 'customers', 'stale_since', 'DATETIME')
+
     # =========================================================================
     # End migrations
     # =========================================================================
