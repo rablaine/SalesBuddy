@@ -11,6 +11,7 @@ database sequentially. Same architecture as the milestone sync.
 import json
 import logging
 import math
+import os
 import queue
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -30,6 +31,17 @@ logger = logging.getLogger(__name__)
 
 SYNC_TYPE = 'marketing'
 _WORKERS = 4  # Concurrent API fetch workers
+
+_DIAG_FILE = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(
+        os.path.abspath(__file__)))), 'logs', 'marketing_diagnostics.txt')
+
+
+def _diag(msg: str) -> None:
+    """Append a timestamped line to the marketing diagnostics log file."""
+    os.makedirs(os.path.dirname(_DIAG_FILE), exist_ok=True)
+    with open(_DIAG_FILE, 'a', encoding='utf-8') as f:
+        f.write(f'{datetime.now(timezone.utc).isoformat()} {msg}\n')
 
 
 def _sse_event(event_type: str, data: Dict[str, Any]) -> str:
@@ -218,6 +230,7 @@ def sync_marketing_stream() -> Generator[str, None, None]:
         return
 
     SyncStatus.mark_started(SYNC_TYPE)
+    _diag(f'--- Sync started: {total} customers with TPIDs ---')
     yield _sse_event('start', {'total': total})
 
     # Build task list: (customer_id, display_name, tpid_string)
@@ -321,6 +334,8 @@ def sync_marketing_stream() -> Generator[str, None, None]:
             if summary_result.get('data'):
                 _upsert_summary(customer, tpid, summary_result['data'])
                 total_interactions += summary_result['data'].get('total_interactions', 0)
+            else:
+                _diag(f'  {cust_name} (TPID {tpid}): no summary data from API')
 
             # Upsert interactions
             _upsert_interactions(customer, tpid, breakdown_result.get('data', []))
@@ -349,6 +364,18 @@ def sync_marketing_stream() -> Generator[str, None, None]:
             logger.exception(f"Error writing marketing data for {cust_name} (TPID {tpid})")
 
     duration = round(time.time() - start_time, 1)
+
+    duration = round(time.time() - start_time, 1)
+
+    # Diagnostic: count rows in DB after sync
+    summary_count = MarketingSummary.query.count()
+    interaction_count = MarketingInteraction.query.count()
+    contact_count = MarketingContact.query.count()
+    _diag(
+        f'Sync finished: synced={synced} failed={failed} duration={duration}s '
+        f'DB rows: summaries={summary_count} interactions={interaction_count} '
+        f'contacts={contact_count}'
+    )
 
     SyncStatus.mark_completed(
         SYNC_TYPE, success=(failed == 0), items_synced=synced,
