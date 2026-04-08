@@ -161,6 +161,12 @@ The source template should become a near-empty shell that just `{% extends "base
 
 **The test:** After extraction, the original page must look and behave 100% identically. If it doesn't, you extracted wrong.
 
+### Debugging User-Reported Errors
+- **If the user says there's a bug or error, BELIEVE THEM.** Do not ask them to hard-refresh, clear cache, try a different browser, or re-verify the problem. They already did that.
+- **IMMEDIATELY render the page yourself** with browser tools (`open_browser_page` / `navigate_page`) and see the error firsthand.
+- If your fix doesn't seem to work from reading code alone, RENDER THE PAGE. The browser doesn't lie - template code can be misleading (e.g., Jinja `{% set %}` is block-scoped and invisible across `{% block %}` boundaries).
+- **Never ask the user to re-verify something they've already verified.** Use the tools instead.
+
 ### Error Handling
 - Use try-except blocks for database operations
 - Log errors with context (use Python logging module)
