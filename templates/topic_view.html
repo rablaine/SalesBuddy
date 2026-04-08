@@ -91,7 +91,7 @@
                                         <a href="{{ url_for('topics.topic_view', id=topic.id) }}" class="badge bg-warning text-dark text-decoration-none" onclick="event.stopPropagation();"><i class="bi bi-tag"></i> {{ topic.name }}</a>
                                     {% endfor %}
                                     {% for partner in call.partners %}
-                                        <a href="{{ url_for('partners.partner_view', id=partner.id) }}" class="badge text-decoration-none" style="background-color: #6f42c1;" onclick="event.stopPropagation();"><i class="bi bi-building"></i> {{ partner.name }}</a>
+                                        <a href="{{ url_for('partners.partner_view', id=partner.id) }}" class="badge bg-purple text-decoration-none" onclick="event.stopPropagation();"><i class="bi bi-building"></i> {{ partner.name }}</a>
                                     {% endfor %}
                                 </div>
                                 <div class="text-muted">{{ call.content|striptags|truncate(200, true) }}</div>

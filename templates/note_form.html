@@ -281,7 +281,7 @@
                             <div id="selected_partners" class="mt-2 d-flex flex-wrap gap-2">
                                 {% if note %}
                                     {% for partner in note.partners %}
-                                        <span class="badge d-flex align-items-center" style="background-color: #6f42c1;" data-partner-id="{{ partner.id }}">
+                                        <span class="badge bg-purple d-flex align-items-center" data-partner-id="{{ partner.id }}">
                                             <a href="javascript:void(0)" class="text-decoration-none" style="color: inherit;" onclick="openPartnerFlyoutForEdit({{ partner.id }})">
                                                 <i class="bi bi-building me-1"></i> {{ partner.name }}
                                             </a>
@@ -3493,8 +3493,7 @@ function addPartner(partnerId, partnerName) {
     if (isPartnerSelected(partnerId)) return;
     
     const badge = document.createElement('span');
-    badge.className = 'badge d-flex align-items-center';
-    badge.style.backgroundColor = '#6f42c1'; // Purple color
+    badge.className = 'badge bg-purple d-flex align-items-center';
     badge.setAttribute('data-partner-id', partnerId);
     badge.innerHTML = `
         <a href="javascript:void(0)" class="text-decoration-none" style="color: inherit;" onclick="openPartnerFlyoutForEdit(${partnerId})">

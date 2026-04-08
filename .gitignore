@@ -54,6 +54,38 @@ Thumbs.db
 # Sentinel reports
 .sentinel/
 
+# npx skills agent folders (we only use .agents/ for VS Code Copilot)
+/skills/
+skills-lock.json
+.augment/
+.bob/
+.claude/
+.codebuddy/
+.commandcode/
+.continue/
+.cortex/
+.crush/
+.factory/
+.goose/
+.iflow/
+.junie/
+.kilocode/
+.kiro/
+.kode/
+.mcpjam/
+.mux/
+.neovate/
+.openhands/
+.pi/
+.pochi/
+.qoder/
+.qwen/
+.roo/
+.trae/
+.vibe/
+.windsurf/
+.zencoder/
+
 # Logs
 logs/
 *.log

@@ -352,7 +352,7 @@
                             <div class="text-muted small">Partners</div>
                             <div>
                                 {% for partner_id, partner in partner_dict.items()|sort(attribute='1.name') %}
-                                    <a href="{{ url_for('partners.partner_view', id=partner.id) }}" class="text-decoration-none" style="color: #a78bfa;">
+                                    <a href="{{ url_for('partners.partner_view', id=partner.id) }}" class="text-decoration-none text-purple">
                                         <i class="bi bi-building"></i> {{ partner.name }}
                                     </a>{% if not loop.last %}, {% endif %}
                                 {% endfor %}
@@ -484,7 +484,7 @@
                                             <a href="{{ url_for('topics.topic_view', id=topic.id) }}" class="badge bg-warning text-dark text-decoration-none" onclick="event.stopPropagation();"><i class="bi bi-tag"></i> {{ topic.name }}</a>
                                         {% endfor %}
                                         {% for partner in call.partners %}
-                                            <a href="{{ url_for('partners.partner_view', id=partner.id) }}" class="badge text-decoration-none" style="background-color: #6f42c1;" onclick="event.stopPropagation();"><i class="bi bi-building"></i> {{ partner.name }}</a>
+                                            <a href="{{ url_for('partners.partner_view', id=partner.id) }}" class="badge bg-purple text-decoration-none" onclick="event.stopPropagation();"><i class="bi bi-building"></i> {{ partner.name }}</a>
                                         {% endfor %}
                                         {% for milestone in call.milestones %}
                                             <a href="{{ url_for('milestones.milestone_view', id=milestone.id) }}" class="badge bg-success text-decoration-none" title="{{ milestone.display_text }}" onclick="event.stopPropagation();"><i class="bi bi-flag"></i> {{ milestone.display_text[:25] }}{% if milestone.display_text|length > 25 %}...{% endif %}</a>
