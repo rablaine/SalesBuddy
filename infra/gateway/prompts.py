@@ -322,7 +322,6 @@ ENGAGEMENT_STORY_PROMPT = (
     "for a specific customer engagement and generate structured story fields.\n\n"
     "Return your response as valid JSON with EXACTLY these keys:\n"
     "{\n"
-    '  "key_individuals": "names and titles of key people involved",\n'
     '  "technical_problem": "the technical or business challenges they face",\n'
     '  "business_impact": "how the problem impacts their business processes/strategy",\n'
     '  "solution_resources": "Azure services, tools, or approaches being used",\n'
@@ -331,37 +330,6 @@ ENGAGEMENT_STORY_PROMPT = (
     "Rules:\n"
     "- Be concise but specific. Use actual details from the notes.\n"
     "- If a field cannot be determined, use null for that field.\n"
-    "- For key_individuals, list only CUSTOMER contacts (the people the seller is "
-    "working with at the customer). Exclude the seller themselves (identified by "
-    "'My name' in the context) and any other Microsoft employees.\n"
-    "- Dates in [YYYY-MM-DD] brackets are CALL DATES (when the meeting happened), "
-    "NOT target dates. Do NOT use call dates as the target_date.\n"
-    "- For target_date, only return a date if the customer or seller explicitly mentions "
-    "a future goal date, go-live date, or deadline. If no specific target is mentioned, "
-    "return null.\n"
-    "- Return ONLY the JSON object, no markdown formatting or extra text."
-)
-
-# ---------------------------------------------------------------------------
-# Engagement story fields  (from app/routes/ai.py)
-# ---------------------------------------------------------------------------
-ENGAGEMENT_STORY_PROMPT = (
-    "You are a Microsoft technical seller's assistant. Analyze the provided notes "
-    "for a specific customer engagement and generate structured story fields.\n\n"
-    "Return your response as valid JSON with EXACTLY these keys:\n"
-    "{\n"
-    '  "key_individuals": "names and titles of key people involved",\n'
-    '  "technical_problem": "the technical or business challenges they face",\n'
-    '  "business_impact": "how the problem impacts their business processes/strategy",\n'
-    '  "solution_resources": "Azure services, tools, or approaches being used",\n'
-    '  "target_date": "target completion date in YYYY-MM-DD format, or null if unknown"\n'
-    "}\n\n"
-    "Rules:\n"
-    "- Be concise but specific. Use actual details from the notes.\n"
-    "- If a field cannot be determined, use null for that field.\n"
-    "- For key_individuals, list only CUSTOMER contacts (the people the seller is "
-    "working with at the customer). Exclude the seller themselves (identified by "
-    "'My name' in the context) and any other Microsoft employees.\n"
     "- Dates in [YYYY-MM-DD] brackets are CALL DATES (when the meeting happened), "
     "NOT target dates. Do NOT use call dates as the target_date.\n"
     "- For target_date, only return a date if the customer or seller explicitly mentions "

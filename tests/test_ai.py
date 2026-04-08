@@ -253,9 +253,8 @@ class TestEngagementStoryPreviewAndApply:
             db.session.flush()
             engagement = Engagement(
                 customer_id=customer.id, title="Preview Engagement",
-                status="Active", key_individuals="Old contact",
+                status="Active",
                 technical_problem="Old problem",
-                ai_key_individuals="Old AI contact",
                 ai_technical_problem="Old AI problem",
             )
             db.session.add(engagement)
@@ -277,7 +276,6 @@ class TestEngagementStoryPreviewAndApply:
         eid = self._create_engagement_with_notes(app)
         mock_gw.return_value = {
             'story': {
-                'key_individuals': 'Jane Smith, CTO',
                 'technical_problem': 'Legacy monolith',
                 'business_impact': 'Slow releases',
             },
@@ -291,17 +289,14 @@ class TestEngagementStoryPreviewAndApply:
         assert resp.status_code == 200
         data = resp.get_json()
         assert data['success'] is True
-        assert data['current']['key_individuals'] == 'Old AI contact'
         assert data['current']['technical_problem'] == 'Old AI problem'
-        assert data['story']['key_individuals'] == 'Jane Smith, CTO'
+        assert data['story']['technical_problem'] == 'Legacy monolith'
 
         # Verify nothing was saved (neither human nor AI fields changed)
         from app.models import Engagement
         with app.app_context():
             eng = Engagement.query.get(eid)
-            assert eng.key_individuals == 'Old contact'
             assert eng.technical_problem == 'Old problem'
-            assert eng.ai_key_individuals == 'Old AI contact'
             assert eng.ai_technical_problem == 'Old AI problem'
 
     @patch('app.routes.ai.gateway_call')
@@ -310,7 +305,6 @@ class TestEngagementStoryPreviewAndApply:
         eid = self._create_engagement_with_notes(app)
         mock_gw.return_value = {
             'story': {
-                'key_individuals': 'Jane Smith, CTO',
                 'technical_problem': 'Legacy monolith',
             },
             'usage': {},
@@ -326,9 +320,7 @@ class TestEngagementStoryPreviewAndApply:
         with app.app_context():
             eng = Engagement.query.get(eid)
             # AI fields updated
-            assert eng.ai_key_individuals == 'Jane Smith, CTO'
-            # Human fields unchanged
-            assert eng.key_individuals == 'Old contact'
+            assert eng.ai_technical_problem == 'Legacy monolith'
 
     def test_apply_updates_selected_fields(self, app, client):
         """Apply endpoint should update only the fields provided."""
@@ -339,7 +331,7 @@ class TestEngagementStoryPreviewAndApply:
             json={
                 'engagement_id': eid,
                 'fields': {
-                    'key_individuals': 'Jane Smith, CTO',
+                    'technical_problem': 'Legacy monolith',
                     'business_impact': 'Slow release velocity',
                 },
             },
@@ -351,12 +343,9 @@ class TestEngagementStoryPreviewAndApply:
         with app.app_context():
             eng = Engagement.query.get(eid)
             # AI fields updated
-            assert eng.ai_key_individuals == 'Jane Smith, CTO'
+            assert eng.ai_technical_problem == 'Legacy monolith'
             assert eng.ai_business_impact == 'Slow release velocity'
-            # AI technical_problem should remain from setup
-            assert eng.ai_technical_problem == 'Old AI problem'
             # Human fields unchanged
-            assert eng.key_individuals == 'Old contact'
             assert eng.technical_problem == 'Old problem'
 
     def test_apply_rejects_empty_fields(self, app, client):
@@ -374,7 +363,7 @@ class TestEngagementStoryPreviewAndApply:
         """Apply should return 400 when engagement_id is missing."""
         resp = client.post(
             '/api/ai/apply-engagement-story',
-            json={'fields': {'key_individuals': 'test'}},
+            json={'fields': {'technical_problem': 'test'}},
         )
         assert resp.status_code == 400
 
@@ -382,7 +371,7 @@ class TestEngagementStoryPreviewAndApply:
         """Apply should return 404 for nonexistent engagement."""
         resp = client.post(
             '/api/ai/apply-engagement-story',
-            json={'engagement_id': 999999, 'fields': {'key_individuals': 'test'}},
+            json={'engagement_id': 999999, 'fields': {'technical_problem': 'test'}},
         )
         assert resp.status_code == 404
 
@@ -395,7 +384,7 @@ class TestEngagementStoryPreviewAndApply:
             json={
                 'engagement_id': eid,
                 'fields': {
-                    'key_individuals': 'Jane',
+                    'technical_problem': 'Updated problem',
                     'title': 'HACKED TITLE',
                 },
             },
@@ -405,8 +394,7 @@ class TestEngagementStoryPreviewAndApply:
         from app.models import Engagement
         with app.app_context():
             eng = Engagement.query.get(eid)
-            assert eng.ai_key_individuals == 'Jane'
-            assert eng.key_individuals == 'Old contact'  # human field unchanged
+            assert eng.ai_technical_problem == 'Updated problem'
             assert eng.title == 'Preview Engagement'  # unchanged
 
     def test_apply_handles_target_date(self, app, client):

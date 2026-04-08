@@ -268,17 +268,22 @@ class TestSellerEngagementsAPI:
             from app.models import db, Engagement
             from datetime import date
 
+            from app.models import EngagementContact
             eng = Engagement(
                 customer_id=sample_data['customer1_id'],
                 title='Full Fields Test',
                 status='Active',
                 estimated_acr=50000,
                 target_date=date(2026, 6, 15),
-                key_individuals='John Doe',
                 technical_problem='Migration issues',
                 business_impact='Revenue delay',
             )
             db.session.add(eng)
+            db.session.flush()
+            ec = EngagementContact(
+                engagement_id=eng.id, external_name='John Doe'
+            )
+            db.session.add(ec)
             db.session.commit()
 
         response = client.get(f'/api/seller/{sample_data["seller1_id"]}/engagements')

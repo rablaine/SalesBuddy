@@ -82,49 +82,8 @@
                     <i class="bi bi-people"></i> Contacts
                 </button>
                 {% endif %}
-                {% if not note %}
-                <button type="button" class="btn btn-success" id="autoFillBtn" onclick="startAutoFill()" title="Auto-fill from meeting transcript">
-                    <i class="bi bi-magic"></i> Auto-fill
-                </button>
-                {% endif %}
             </div>
         </div>
-
-        <!-- Auto-fill Progress Panel -->
-        {% if not note %}
-        <div id="autoFillProgress" class="alert alert-info mb-4" style="display: none;">
-            <div class="d-flex justify-content-between align-items-center mb-2">
-                <h5 class="mb-0"><i class="bi bi-magic"></i> Auto-fill in Progress</h5>
-                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="cancelAutoFill()">
-                    <i class="bi bi-x"></i> Cancel
-                </button>
-            </div>
-            <div id="autoFillSteps">
-                <div id="afStep1" class="d-flex align-items-center mb-1">
-                    <span class="spinner-border spinner-border-sm me-2" style="display: none;"></span>
-                    <i class="bi bi-check-circle-fill text-success me-2" style="display: none;"></i>
-                    <i class="bi bi-circle text-muted me-2"></i>
-                    <span>Finding meetings...</span>
-                </div>
-                <div id="afStep2" class="d-flex align-items-center mb-1 text-muted">
-                    <span class="spinner-border spinner-border-sm me-2" style="display: none;"></span>
-                    <i class="bi bi-check-circle-fill text-success me-2" style="display: none;"></i>
-                    <i class="bi bi-circle me-2"></i>
-                    <span>Getting meeting summary...</span>
-                </div>
-                <div id="afStep3" class="d-flex align-items-center mb-1 text-muted">
-                    <span class="spinner-border spinner-border-sm me-2" style="display: none;"></span>
-                    <i class="bi bi-check-circle-fill text-success me-2" style="display: none;"></i>
-                    <i class="bi bi-circle me-2"></i>
-                    <span>Matching milestone...</span>
-                </div>
-            </div>
-            <div id="autoFillMeetingInfo" class="mt-2 small" style="display: none;">
-                <strong>Selected meeting:</strong> <span id="afSelectedMeetingTitle"></span>
-            </div>
-            <div id="autoFillError" class="text-danger mt-2" style="display: none;"></div>
-        </div>
-        {% endif %}
 
         <div class="card" style="position: relative; overflow: visible;">
             <!-- Meeting Import Status (floating overlay) -->
@@ -949,9 +908,16 @@
                 <option value="Lost">Lost</option>
             </select>
         </div>
+        <!-- Key Individuals contact picker -->
         <div class="mb-3">
-            <label for="flyout_eng_key_individuals" class="form-label">Key Individuals & Titles</label>
-            <textarea class="form-control" id="flyout_eng_key_individuals" rows="2" placeholder="Jane Smith (CTO), Bob (Infra Lead)"></textarea>
+            <label class="form-label">Key Individuals</label>
+            <div style="position: relative;">
+                <input type="text" class="form-control form-control-sm" id="flyout_eng_contact_search"
+                       placeholder="Search contacts to add..." autocomplete="off">
+                <div id="flyout_eng_contact_dropdown" class="list-group mt-1"
+                     style="display:none; position:absolute; z-index:1050; max-height:200px; overflow-y:auto; width:100%;"></div>
+            </div>
+            <div id="flyout_eng_contacts" class="mt-2 d-flex flex-wrap gap-1"></div>
         </div>
         <div class="mb-3">
             <label for="flyout_eng_technical_problem" class="form-label">Technical/Business Problem</label>
@@ -3964,12 +3930,13 @@ document.getElementById('partnerFlyout').addEventListener('hide.bs.offcanvas', f
 // Track flyout mode: null = create, engagement ID = edit
 var _flyoutEditEngagementId = null;
 var _engFlyoutCleanState = null;
+var _flyoutPendingContacts = []; // For create mode: [{type, id, name, email}]
+var _flyoutContactSearchWired = false;
 
 function _getEngFlyoutState() {
     return JSON.stringify({
         title: document.getElementById('flyout_eng_title').value.trim(),
         status: document.getElementById('flyout_eng_status').value,
-        key_individuals: document.getElementById('flyout_eng_key_individuals').value.trim(),
         technical_problem: document.getElementById('flyout_eng_technical_problem').value.trim(),
         business_impact: document.getElementById('flyout_eng_business_impact').value.trim(),
         solution_resources: document.getElementById('flyout_eng_solution_resources').value.trim(),
@@ -3986,18 +3953,21 @@ function isEngFlyoutDirty() {
 
 function openEngagementFlyout() {
     _flyoutEditEngagementId = null;
+    _flyoutPendingContacts = [];
     const flyout = document.getElementById('engagementFlyout');
     const offcanvas = bootstrap.Offcanvas.getOrCreateInstance(flyout);
     document.getElementById('engagementFlyoutLabel').innerHTML = '<i class="bi bi-diagram-3"></i> New Engagement';
     document.getElementById('flyout_eng_title').value = '';
     document.getElementById('flyout_eng_title').classList.remove('is-invalid');
     document.getElementById('flyout_eng_status').value = 'Active';
-    document.getElementById('flyout_eng_key_individuals').value = '';
+    document.getElementById('flyout_eng_contact_search').value = '';
+    document.getElementById('flyout_eng_contacts').innerHTML = '';
     document.getElementById('flyout_eng_technical_problem').value = '';
     document.getElementById('flyout_eng_business_impact').value = '';
     document.getElementById('flyout_eng_solution_resources').value = '';
     document.getElementById('flyout_eng_estimated_acr').value = '';
     document.getElementById('flyout_eng_target_date').value = '';
+    _initFlyoutContactSearch();
     const saveBtn = document.getElementById('flyout_eng_save');
     saveBtn.innerHTML = '<i class="bi bi-check-circle"></i> Create Engagement';
     saveBtn.disabled = false;
@@ -4006,6 +3976,58 @@ function openEngagementFlyout() {
         document.getElementById('flyout_eng_title').focus();
         _engFlyoutCleanState = _getEngFlyoutState();
         flyout.removeEventListener('shown.bs.offcanvas', handler);
+    });
+}
+
+function _initFlyoutContactSearch() {
+    if (_flyoutContactSearchWired) return;
+    _flyoutContactSearchWired = true;
+    var searchInput = document.getElementById('flyout_eng_contact_search');
+    var dropdown = document.getElementById('flyout_eng_contact_dropdown');
+    var container = document.getElementById('flyout_eng_contacts');
+    var customerId = document.getElementById('customer_id') ? document.getElementById('customer_id').value : null;
+
+    _wireEngContactSearch(searchInput, dropdown, container, customerId, {
+        onAdd: function(result) {
+            if (_flyoutEditEngagementId) {
+                // Edit mode: add via API
+                fetch('/api/engagement/' + _flyoutEditEngagementId + '/contacts', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({type: result.type, id: result.id, name: result.name, email: result.email || ''})
+                }).then(function(r) { return r.json(); }).then(function(data) {
+                    if (data.success && data.contact) {
+                        var badge = _buildContactBadge(data.contact, {
+                            onRemove: function(b, c) {
+                                fetch('/api/engagement/' + _flyoutEditEngagementId + '/contacts/' + c.id, {method: 'DELETE'})
+                                    .then(function() { b.remove(); });
+                            }
+                        });
+                        container.appendChild(badge);
+                    }
+                });
+            } else {
+                // Create mode: store locally
+                var pending = {type: result.type, id: result.id, name: result.name, email: result.email || '',
+                               person_type: result.type, display_name: result.name, ref_id: result.id};
+                _flyoutPendingContacts.push(pending);
+                var badge = _buildContactBadge(pending, {
+                    onRemove: function(b, c) {
+                        _flyoutPendingContacts = _flyoutPendingContacts.filter(function(p) {
+                            return !(p.type === c.person_type && String(p.id) === String(c.ref_id));
+                        });
+                        b.remove();
+                    }
+                });
+                container.appendChild(badge);
+            }
+        },
+        getExisting: function() {
+            var badges = container.querySelectorAll('.badge');
+            return Array.from(badges).map(function(b) {
+                return {type: b.getAttribute('data-contact-type'), ref_id: b.getAttribute('data-contact-ref')};
+            });
+        }
     });
 }
 
@@ -4040,9 +4062,12 @@ function openEngagementEditFlyout() {
     document.getElementById('engagementFlyoutLabel').innerHTML = '<i class="bi bi-diagram-3"></i> Edit Engagement';
     document.getElementById('flyout_eng_title').value = '';
     document.getElementById('flyout_eng_title').classList.remove('is-invalid');
+    document.getElementById('flyout_eng_contact_search').value = '';
+    document.getElementById('flyout_eng_contacts').innerHTML = '';
     const saveBtn = document.getElementById('flyout_eng_save');
     saveBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Loading...';
     saveBtn.disabled = true;
+    _initFlyoutContactSearch();
     _engFlyoutInstance.toggle();
 
     fetch(`/api/engagement/${engId}`)
@@ -4050,12 +4075,27 @@ function openEngagementEditFlyout() {
         .then(data => {
             document.getElementById('flyout_eng_title').value = data.title || '';
             document.getElementById('flyout_eng_status').value = data.status || 'Active';
-            document.getElementById('flyout_eng_key_individuals').value = data.key_individuals || '';
             document.getElementById('flyout_eng_technical_problem').value = data.technical_problem || '';
             document.getElementById('flyout_eng_business_impact').value = data.business_impact || '';
             document.getElementById('flyout_eng_solution_resources').value = data.solution_resources || '';
             document.getElementById('flyout_eng_estimated_acr').value = data.estimated_acr != null ? data.estimated_acr : '';
             document.getElementById('flyout_eng_target_date').value = data.target_date || '';
+            // Load contacts for edit mode
+            var contactContainer = document.getElementById('flyout_eng_contacts');
+            fetch('/api/engagement/' + engId + '/contacts')
+                .then(function(r) { return r.json(); })
+                .then(function(contacts) {
+                    contactContainer.innerHTML = '';
+                    contacts.forEach(function(c) {
+                        var badge = _buildContactBadge(c, {
+                            onRemove: function(b, contact) {
+                                fetch('/api/engagement/' + engId + '/contacts/' + contact.id, {method: 'DELETE'})
+                                    .then(function() { b.remove(); });
+                            }
+                        });
+                        contactContainer.appendChild(badge);
+                    });
+                });
             saveBtn.innerHTML = '<i class="bi bi-check-circle"></i> Save Changes';
             saveBtn.disabled = false;
             _engFlyoutCleanState = _getEngFlyoutState();
@@ -4089,7 +4129,6 @@ function saveEngagementFromFlyout() {
     const payload = {
         title,
         status: document.getElementById('flyout_eng_status').value,
-        key_individuals: document.getElementById('flyout_eng_key_individuals').value.trim(),
         technical_problem: document.getElementById('flyout_eng_technical_problem').value.trim(),
         business_impact: document.getElementById('flyout_eng_business_impact').value.trim(),
         solution_resources: document.getElementById('flyout_eng_solution_resources').value.trim(),
@@ -4148,6 +4187,18 @@ function saveEngagementFromFlyout() {
         .then(r => r.json())
         .then(data => {
             if (data.id) {
+                // Sync pending contacts to the new engagement
+                var contactPromises = _flyoutPendingContacts.map(function(pc) {
+                    return fetch('/api/engagement/' + data.id + '/contacts', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({type: pc.type, id: pc.id, name: pc.name, email: pc.email || ''})
+                    });
+                });
+                Promise.all(contactPromises).then(function() {
+                    _flyoutPendingContacts = [];
+                });
+
                 const hiddenSelect = document.getElementById('engagement_ids');
                 const opt = document.createElement('option');
                 opt.value = data.id;
@@ -5474,7 +5525,6 @@ function saveDraft() {
                     id: card.getAttribute('data-eng-id'),
                     title: card.querySelector('.eng-header-title').textContent.trim(),
                     status: card.querySelector('.eng-status').value,
-                    key_individuals: card.querySelector('.eng-key-individuals').value,
                     technical_problem: card.querySelector('.eng-tech-problem').value,
                     business_impact: card.querySelector('.eng-biz-impact').value,
                     solution_resources: card.querySelector('.eng-solution').value,
@@ -7523,6 +7573,7 @@ window.onEngagementSelectionChanged = function() {
     syncEngTaskButton();
     syncInlineEngPanel();
     loadRelatedNotes();
+    if (typeof debouncedAutoSave === 'function') debouncedAutoSave();
 };
 // Initial sync on page load
 syncEngTaskButton();
@@ -7544,7 +7595,7 @@ function _buildEngCardHtml(engId) {
         '</div>' +
         '<div class="card-body py-2">' +
             '<div class="row g-2 mb-2">' +
-                '<div class="col-6">' +
+                '<div class="col-4">' +
                     '<label class="form-label mb-0 small text-muted">Status</label>' +
                     '<select class="form-select form-select-sm eng-status">' +
                         '<option value="Active">Active</option>' +
@@ -7553,9 +7604,13 @@ function _buildEngCardHtml(engId) {
                         '<option value="Lost">Lost</option>' +
                     '</select>' +
                 '</div>' +
-                '<div class="col-6">' +
+                '<div class="col-8">' +
                     '<label class="form-label mb-0 small text-muted">Key Individuals</label>' +
-                    '<textarea class="form-control form-control-sm eng-key-individuals" rows="1" placeholder="Jane (CTO), Bob (Infra)"></textarea>' +
+                    '<div style="position:relative;">' +
+                        '<input type="text" class="form-control form-control-sm eng-contact-search" placeholder="Search contacts..." autocomplete="off">' +
+                        '<div class="eng-contact-dropdown list-group mt-1" style="display:none; position:absolute; z-index:1050; max-height:200px; overflow-y:auto; width:100%;"></div>' +
+                    '</div>' +
+                    '<div class="eng-contacts mt-1 d-flex flex-wrap gap-1"></div>' +
                 '</div>' +
             '</div>' +
             '<div class="row g-2 mb-2">' +
@@ -7591,7 +7646,6 @@ function _buildEngCardHtml(engId) {
 function _getCardEngState(card) {
     return JSON.stringify({
         status: card.querySelector('.eng-status').value,
-        key_individuals: card.querySelector('.eng-key-individuals').value,
         technical_problem: card.querySelector('.eng-tech-problem').value,
         business_impact: card.querySelector('.eng-biz-impact').value,
         solution_resources: card.querySelector('.eng-solution').value,
@@ -7616,12 +7670,201 @@ var isInlineEngDirty = isAnyInlineEngDirty;
 
 function _populateEngCard(card, data) {
     card.querySelector('.eng-status').value = data.status || 'Active';
-    card.querySelector('.eng-key-individuals').value = data.key_individuals || '';
     card.querySelector('.eng-tech-problem').value = data.technical_problem || '';
     card.querySelector('.eng-biz-impact').value = data.business_impact || '';
     card.querySelector('.eng-solution').value = data.solution_resources || '';
     card.querySelector('.eng-acr').value = data.estimated_acr != null ? data.estimated_acr : '';
     card.querySelector('.eng-target-date').value = data.target_date || '';
+}
+
+// --- Engagement Contact Picker Helpers (shared by inline card + flyout) ---
+var _engContactColorMap = {
+    customer_contact: 'bg-success', partner_contact: 'bg-purple', se: 'bg-info',
+    seller: 'bg-primary', internal_contact: 'bg-warning text-dark', external: 'bg-secondary'
+};
+var _engContactIconMap = {
+    customer_contact: 'bi-person-circle', partner_contact: 'bi-building', se: 'bi-tools',
+    seller: 'bi-person', internal_contact: 'bi-person-badge', external: 'bi-person-dash'
+};
+
+function _escContactHtml(s) {
+    var d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML;
+}
+
+function _buildContactBadge(contact, opts) {
+    // contact: {person_type, display_name, email, id, ref_id}
+    // opts: {onRemove: fn(badge, contact)}
+    var colorCls = _engContactColorMap[contact.person_type] || 'bg-secondary';
+    var iconCls = _engContactIconMap[contact.person_type] || 'bi-person-dash';
+    var badge = document.createElement('span');
+    badge.className = 'badge d-flex align-items-center ' + colorCls;
+    badge.setAttribute('data-contact-id', contact.id || '');
+    badge.setAttribute('data-contact-type', contact.person_type || '');
+    badge.setAttribute('data-contact-ref', contact.ref_id || '');
+    badge.setAttribute('data-contact-name', contact.display_name || '');
+    badge.innerHTML = '<i class="bi ' + iconCls + ' me-1"></i>' + _escContactHtml(contact.display_name) +
+        '<button type="button" class="btn-close btn-close-white ms-2" style="font-size:0.5rem;"></button>';
+    badge.querySelector('.btn-close').addEventListener('click', function() {
+        if (opts && opts.onRemove) opts.onRemove(badge, contact);
+    });
+    return badge;
+}
+
+function _wireEngContactSearch(searchInput, dropdown, container, customerId, opts) {
+    // opts: {onAdd: fn(result), getExisting: fn() -> [{type,ref_id}]}
+    var debounceTimer = null;
+    var results = [];
+    var selectedIdx = -1;
+
+    searchInput.addEventListener('input', function() {
+        clearTimeout(debounceTimer);
+        var q = searchInput.value.trim();
+        if (q.length < 1) { dropdown.style.display = 'none'; return; }
+        debounceTimer = setTimeout(function() {
+            var url = '/api/engagement-contact-search?q=' + encodeURIComponent(q);
+            if (customerId) url += '&customer_id=' + customerId;
+            fetch(url).then(function(r) { return r.json(); }).then(function(data) {
+                results = data.results || [];
+                // Filter out already-added contacts
+                var existing = opts && opts.getExisting ? opts.getExisting() : [];
+                results = results.filter(function(r) {
+                    return !existing.some(function(e) { return e.type === r.type && String(e.ref_id) === String(r.id); });
+                });
+                selectedIdx = -1;
+                _renderEngContactDropdown(dropdown, results, selectedIdx, q, opts);
+            });
+        }, 200);
+    });
+
+    searchInput.addEventListener('keydown', function(e) {
+        if (dropdown.style.display === 'none') return;
+        var totalItems = results.length + (searchInput.value.trim().length >= 2 ? 1 : 0);
+        if (e.key === 'ArrowDown') {
+            e.preventDefault(); selectedIdx = Math.min(selectedIdx + 1, totalItems - 1);
+            _renderEngContactDropdown(dropdown, results, selectedIdx, searchInput.value.trim(), opts);
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault(); selectedIdx = Math.max(selectedIdx - 1, 0);
+            _renderEngContactDropdown(dropdown, results, selectedIdx, searchInput.value.trim(), opts);
+        } else if (e.key === 'Enter') {
+            e.preventDefault();
+            if (selectedIdx >= 0 && selectedIdx < results.length) {
+                opts.onAdd(results[selectedIdx]);
+            } else if (selectedIdx === results.length && searchInput.value.trim().length >= 2) {
+                _addInternalContactFromEngSearch(searchInput.value.trim(), opts);
+            }
+            dropdown.style.display = 'none'; searchInput.value = '';
+        } else if (e.key === 'Escape') {
+            dropdown.style.display = 'none';
+        }
+    });
+
+    document.addEventListener('click', function(e) {
+        if (!searchInput.contains(e.target) && !dropdown.contains(e.target)) {
+            dropdown.style.display = 'none';
+        }
+    });
+}
+
+function _renderEngContactDropdown(dropdown, results, selectedIdx, query, opts) {
+    if (results.length === 0 && (!query || query.length < 2)) {
+        dropdown.style.display = 'none'; return;
+    }
+    var html = '';
+    results.forEach(function(r, i) {
+        var cls = i === selectedIdx ? 'list-group-item list-group-item-action active' : 'list-group-item list-group-item-action';
+        var detail = r.detail ? ' <small class="text-muted">(' + _escContactHtml(r.detail) + ')</small>' : '';
+        html += '<button type="button" class="' + cls + ' py-1 px-2 small" data-idx="' + i + '">' +
+            '<i class="bi ' + (r.icon || 'bi-person') + ' me-1"></i>' +
+            _escContactHtml(r.name) + detail + '</button>';
+    });
+    if (query && query.length >= 2) {
+        var addCls = selectedIdx === results.length ? 'list-group-item list-group-item-action active' : 'list-group-item list-group-item-action';
+        html += '<button type="button" class="' + addCls + ' py-1 px-2 small text-info" data-action="add-internal">' +
+            '<i class="bi bi-plus-circle me-1"></i>Add "<strong>' + _escContactHtml(query) + '</strong>" as internal contact</button>';
+    }
+    dropdown.innerHTML = html;
+    dropdown.style.display = html ? '' : 'none';
+
+    dropdown.querySelectorAll('[data-idx]').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            var idx = parseInt(btn.getAttribute('data-idx'));
+            if (results[idx]) opts.onAdd(results[idx]);
+            dropdown.style.display = 'none';
+            dropdown.closest('.mb-2, .mb-3').querySelector('input[type="text"]').value = '';
+        });
+    });
+    var addBtn = dropdown.querySelector('[data-action="add-internal"]');
+    if (addBtn) {
+        addBtn.addEventListener('click', function() {
+            _addInternalContactFromEngSearch(query, opts);
+            dropdown.style.display = 'none';
+            dropdown.closest('.mb-2, .mb-3').querySelector('input[type="text"]').value = '';
+        });
+    }
+}
+
+function _addInternalContactFromEngSearch(name, opts) {
+    fetch('/api/internal-contacts', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({name: name})
+    }).then(function(r) { return r.json(); }).then(function(data) {
+        if (data.id) {
+            opts.onAdd({type: 'internal_contact', id: data.id, name: data.name, email: data.email || '', icon: 'bi-person-badge', color: 'warning'});
+        }
+    });
+}
+
+// --- Inline Card Contact Picker (uses API directly since engagement exists) ---
+function _wireInlineCardContacts(card, engId) {
+    var searchInput = card.querySelector('.eng-contact-search');
+    var dropdown = card.querySelector('.eng-contact-dropdown');
+    var container = card.querySelector('.eng-contacts');
+    var customerId = document.getElementById('customer_id') ? document.getElementById('customer_id').value : null;
+
+    _wireEngContactSearch(searchInput, dropdown, container, customerId, {
+        onAdd: function(result) {
+            fetch('/api/engagement/' + engId + '/contacts', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({type: result.type, id: result.id, name: result.name, email: result.email || ''})
+            }).then(function(r) { return r.json(); }).then(function(data) {
+                if (data.success && data.contact) {
+                    var badge = _buildContactBadge(data.contact, {
+                        onRemove: function(b, c) {
+                            fetch('/api/engagement/' + engId + '/contacts/' + c.id, {method: 'DELETE'})
+                                .then(function() { b.remove(); });
+                        }
+                    });
+                    container.appendChild(badge);
+                }
+            });
+        },
+        getExisting: function() {
+            var badges = container.querySelectorAll('.badge');
+            return Array.from(badges).map(function(b) {
+                return {type: b.getAttribute('data-contact-type'), ref_id: b.getAttribute('data-contact-ref')};
+            });
+        }
+    });
+}
+
+function _loadEngCardContacts(card, engId) {
+    var container = card.querySelector('.eng-contacts');
+    fetch('/api/engagement/' + engId + '/contacts')
+        .then(function(r) { return r.json(); })
+        .then(function(contacts) {
+            container.innerHTML = '';
+            contacts.forEach(function(c) {
+                var badge = _buildContactBadge(c, {
+                    onRemove: function(b, contact) {
+                        fetch('/api/engagement/' + engId + '/contacts/' + contact.id, {method: 'DELETE'})
+                            .then(function() { b.remove(); });
+                    }
+                });
+                container.appendChild(badge);
+            });
+        });
 }
 
 function _loadEngCard(card, engId) {
@@ -7630,6 +7873,8 @@ function _loadEngCard(card, engId) {
         .then(function(data) {
             _populateEngCard(card, data);
             _inlineEngCleanStates[engId] = _getCardEngState(card);
+            _wireInlineCardContacts(card, engId);
+            _loadEngCardContacts(card, engId);
         })
         .catch(function(err) {
             console.error('Failed to load engagement ' + engId + ':', err);
@@ -7801,7 +8046,6 @@ function _saveOneEngagement(card, engId) {
         body: JSON.stringify({
             title: title,
             status: card.querySelector('.eng-status').value,
-            key_individuals: card.querySelector('.eng-key-individuals').value.trim(),
             technical_problem: card.querySelector('.eng-tech-problem').value.trim(),
             business_impact: card.querySelector('.eng-biz-impact').value.trim(),
             solution_resources: card.querySelector('.eng-solution').value.trim(),

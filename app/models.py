@@ -770,6 +770,100 @@ class NoteAttendee(db.Model):
         return f'<NoteAttendee {self.id}: {self.display_name}>'
 
 
+class EngagementContact(db.Model):
+    """Person associated with an engagement. Polymorphic - links to one person type."""
+    __tablename__ = 'engagement_contacts'
+
+    id = db.Column(db.Integer, primary_key=True)
+    engagement_id = db.Column(db.Integer, db.ForeignKey('engagements.id'), nullable=False)
+
+    # Exactly one of these should be set (or none for external)
+    customer_contact_id = db.Column(db.Integer, db.ForeignKey('customer_contacts.id'), nullable=True)
+    partner_contact_id = db.Column(db.Integer, db.ForeignKey('partner_contacts.id'), nullable=True)
+    solution_engineer_id = db.Column(db.Integer, db.ForeignKey('solution_engineers.id'), nullable=True)
+    seller_id = db.Column(db.Integer, db.ForeignKey('sellers.id'), nullable=True)
+    internal_contact_id = db.Column(db.Integer, db.ForeignKey('internal_contacts.id'), nullable=True)
+
+    # For ad-hoc contacts not in any contact list
+    external_name = db.Column(db.String(200), nullable=True)
+    external_email = db.Column(db.String(255), nullable=True)
+
+    created_at = db.Column(db.DateTime, default=utc_now, nullable=False)
+
+    # Relationships
+    engagement = db.relationship('Engagement', back_populates='contacts')
+    customer_contact = db.relationship('CustomerContact', lazy='select')
+    partner_contact = db.relationship('PartnerContact', lazy='select')
+    solution_engineer = db.relationship('SolutionEngineer', lazy='select')
+    seller = db.relationship('Seller', lazy='select')
+    internal_contact = db.relationship('InternalContact', lazy='select')
+
+    @property
+    def person_type(self) -> str:
+        """Return the type of person this contact represents."""
+        if self.customer_contact_id:
+            return 'customer_contact'
+        elif self.partner_contact_id:
+            return 'partner_contact'
+        elif self.solution_engineer_id:
+            return 'se'
+        elif self.seller_id:
+            return 'seller'
+        elif self.internal_contact_id:
+            return 'internal_contact'
+        return 'external'
+
+    @property
+    def display_name(self) -> str:
+        """Return the display name for this contact."""
+        if self.customer_contact_id and self.customer_contact:
+            return self.customer_contact.name
+        elif self.partner_contact_id and self.partner_contact:
+            return self.partner_contact.name
+        elif self.solution_engineer_id and self.solution_engineer:
+            return self.solution_engineer.name
+        elif self.seller_id and self.seller:
+            return self.seller.name
+        elif self.internal_contact_id and self.internal_contact:
+            return self.internal_contact.name
+        return self.external_name or 'Unknown'
+
+    @property
+    def email(self) -> Optional[str]:
+        """Return the email for this contact."""
+        if self.customer_contact_id and self.customer_contact:
+            return self.customer_contact.email
+        elif self.partner_contact_id and self.partner_contact:
+            return self.partner_contact.email
+        elif self.solution_engineer_id and self.solution_engineer:
+            return self.solution_engineer.get_email()
+        elif self.seller_id and self.seller:
+            return self.seller.get_email()
+        elif self.internal_contact_id and self.internal_contact:
+            return self.internal_contact.get_email()
+        return self.external_email
+
+    @property
+    def ref_id(self) -> Optional[int]:
+        """Return the FK id for this contact's person type."""
+        return (self.customer_contact_id or self.partner_contact_id
+                or self.solution_engineer_id or self.seller_id
+                or self.internal_contact_id)
+
+    def to_dict(self) -> dict:
+        """Serialize for API responses."""
+        return {
+            'id': self.id,
+            'person_type': self.person_type,
+            'display_name': self.display_name,
+            'email': self.email,
+            'ref_id': self.ref_id,
+        }
+
+    def __repr__(self) -> str:
+        return f'<EngagementContact {self.id}: {self.display_name}>'
+
+
 class Engagement(db.Model):
     """Engagement thread representing a workstream or project with a customer.
 
@@ -832,12 +926,18 @@ class Engagement(db.Model):
         cascade='all, delete-orphan',
         order_by='ActionItem.sort_order, ActionItem.created_at'
     )
+    contacts = db.relationship(
+        'EngagementContact',
+        back_populates='engagement',
+        lazy='select',
+        cascade='all, delete-orphan',
+    )
 
     @property
     def story_completeness(self) -> int:
         """Return percentage of story fields filled (0-100)."""
         fields = [
-            self.key_individuals, self.technical_problem, self.business_impact,
+            bool(self.contacts), self.technical_problem, self.business_impact,
             self.solution_resources, self.estimated_acr, self.target_date
         ]
         filled = sum(1 for f in fields if f)

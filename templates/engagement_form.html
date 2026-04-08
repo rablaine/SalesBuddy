@@ -40,12 +40,45 @@
                     <h6 class="text-muted mt-4 mb-3"><i class="bi bi-journal-text"></i> The Story</h6>
 
                     <div class="mb-3">
-                        <label for="key_individuals" class="form-label">
-                            Key Individuals & Titles
+                        <label class="form-label">
+                            Key Individuals
                             <small class="text-muted fw-normal ms-1">"I've been working with..."</small>
                         </label>
-                        <textarea class="form-control" id="key_individuals" name="key_individuals"
-                                  rows="2" placeholder="Names, titles, and roles of key contacts">{{ engagement.key_individuals or '' if engagement else '' }}</textarea>
+                        <div class="d-flex gap-2 align-items-center">
+                            <input type="text" class="form-control flex-grow-1" id="contact_search"
+                                   placeholder="Search contacts to add..." autocomplete="off">
+                        </div>
+                        <div id="contact_dropdown" class="list-group mt-1" style="display: none; position: absolute; z-index: 1000; max-height: 200px; overflow-y: auto; width: calc(66% - 3rem);"></div>
+                        <div id="selected_contacts" class="mt-2 d-flex flex-wrap gap-2">
+                            {% if engagement and engagement.contacts %}
+                                {% for c in engagement.contacts %}
+                                    <span class="badge d-flex align-items-center
+                                        {% if c.person_type == 'customer_contact' %}bg-success
+                                        {% elif c.person_type == 'partner_contact' %}bg-purple
+                                        {% elif c.person_type == 'se' %}bg-info
+                                        {% elif c.person_type == 'seller' %}bg-primary
+                                        {% elif c.person_type == 'internal_contact' %}bg-warning text-dark
+                                        {% else %}bg-secondary{% endif %}"
+                                        data-contact-type="{{ c.person_type }}"
+                                        data-contact-id="{{ c.ref_id or '' }}">
+                                        <i class="bi {% if c.person_type == 'customer_contact' %}bi-person-circle
+                                            {% elif c.person_type == 'partner_contact' %}bi-building
+                                            {% elif c.person_type == 'se' %}bi-tools
+                                            {% elif c.person_type == 'seller' %}bi-person
+                                            {% elif c.person_type == 'internal_contact' %}bi-person-badge
+                                            {% else %}bi-person-dash{% endif %} me-1"></i>
+                                        {{ c.display_name }}
+                                        <button type="button" class="btn-close btn-close-white ms-2" style="font-size: 0.6rem;" onclick="removeContact(this)"></button>
+                                        <input type="hidden" name="contact_types" value="{{ c.person_type }}">
+                                        <input type="hidden" name="contact_ref_ids" value="{{ c.ref_id or '' }}">
+                                        {% if c.person_type == 'external' %}
+                                        <input type="hidden" name="contact_ext_names" value="{{ c.external_name or '' }}">
+                                        <input type="hidden" name="contact_ext_emails" value="{{ c.external_email or '' }}">
+                                        {% endif %}
+                                    </span>
+                                {% endfor %}
+                            {% endif %}
+                        </div>
                     </div>
 
                     <div class="mb-3">
@@ -193,4 +226,237 @@
     </div>
 </div>
 {% endif %}
+
+<script>
+function escHtml(text) {
+    var div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+function removeContact(btn) {
+    btn.closest('.badge').remove();
+}
+
+// ---- Contact Search & Add ----
+(function() {
+    var searchInput = document.getElementById('contact_search');
+    var dropdown = document.getElementById('contact_dropdown');
+    var container = document.getElementById('selected_contacts');
+    if (!searchInput) return;
+
+    var debounceTimer = null;
+    var currentResults = [];
+    var selectedIndex = -1;
+
+    function isAlreadyAdded(type, id) {
+        var badges = container.querySelectorAll('[data-contact-type]');
+        for (var i = 0; i < badges.length; i++) {
+            if (badges[i].dataset.contactType === type &&
+                badges[i].dataset.contactId === String(id)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    var colorMap = {
+        'customer_contact': 'bg-success',
+        'partner_contact': 'bg-purple',
+        'se': 'bg-info',
+        'seller': 'bg-primary',
+        'internal_contact': 'bg-warning text-dark',
+        'external': 'bg-secondary'
+    };
+    var iconMap = {
+        'customer_contact': 'bi-person-circle',
+        'partner_contact': 'bi-building',
+        'se': 'bi-tools',
+        'seller': 'bi-person',
+        'internal_contact': 'bi-person-badge',
+        'external': 'bi-person-dash'
+    };
+
+    function addContact(type, id, name, email) {
+        if (type !== 'external' && isAlreadyAdded(type, id)) return;
+        var badge = document.createElement('span');
+        badge.className = 'badge d-flex align-items-center ' + (colorMap[type] || 'bg-secondary');
+        badge.dataset.contactType = type;
+        badge.dataset.contactId = String(id || '');
+        var hiddenInputs = '<input type="hidden" name="contact_types" value="' + type + '">' +
+            '<input type="hidden" name="contact_ref_ids" value="' + (id || '') + '">';
+        if (type === 'external') {
+            hiddenInputs += '<input type="hidden" name="contact_ext_names" value="' + escHtml(name || '') + '">' +
+                '<input type="hidden" name="contact_ext_emails" value="' + escHtml(email || '') + '">';
+        }
+        badge.innerHTML =
+            '<i class="bi ' + (iconMap[type] || 'bi-person') + ' me-1"></i>' +
+            escHtml(name) +
+            '<button type="button" class="btn-close btn-close-white ms-2" style="font-size: 0.6rem;" onclick="removeContact(this)"></button>' +
+            hiddenInputs;
+        container.appendChild(badge);
+        searchInput.value = '';
+        dropdown.style.display = 'none';
+        currentResults = [];
+        selectedIndex = -1;
+        searchInput.focus();
+    }
+
+    function renderDropdown() {
+        var filtered = currentResults.filter(function(r) {
+            return !isAlreadyAdded(r.type, r.id);
+        });
+        var q = searchInput.value.trim();
+        var addNewHtml = q.length >= 2
+            ? '<button type="button" class="list-group-item list-group-item-action small py-1 text-warning-emphasis" data-action="add-internal">' +
+              '<i class="bi bi-person-plus me-1"></i>Add <strong>' + escHtml(q) + '</strong> as internal contact</button>'
+            : '';
+        if (filtered.length === 0) {
+            dropdown.innerHTML = '<div class="list-group-item text-muted small">No matches</div>' + addNewHtml;
+            dropdown.style.display = 'block';
+            selectedIndex = -1;
+            return;
+        }
+        if (selectedIndex < 0 || selectedIndex >= filtered.length) {
+            selectedIndex = 0;
+        }
+        dropdown.innerHTML = filtered.map(function(r, idx) {
+            var active = (idx === selectedIndex) ? ' enter-target' : '';
+            return '<button type="button" class="list-group-item list-group-item-action small py-1' + active + '" data-idx="' + idx + '">' +
+                '<i class="bi ' + r.icon + ' text-' + r.color + ' me-1"></i>' +
+                '<span class="fw-semibold">' + escHtml(r.name) + '</span>' +
+                (r.detail ? ' <span class="text-muted">- ' + escHtml(r.detail) + '</span>' : '') +
+                (r.email ? ' <span class="text-muted small">(' + escHtml(r.email) + ')</span>' : '') +
+                '</button>';
+        }).join('') + addNewHtml;
+        dropdown.style.display = 'block';
+        dropdown._filtered = filtered;
+
+        var active = dropdown.querySelector('.enter-target');
+        if (active) active.scrollIntoView({ block: 'nearest' });
+    }
+
+    function selectCurrent() {
+        var filtered = dropdown._filtered || [];
+        if (selectedIndex < 0 || selectedIndex >= filtered.length) return;
+        var r = filtered[selectedIndex];
+        addContact(r.type, r.id, r.name);
+    }
+
+    function moveSel(delta) {
+        var filtered = dropdown._filtered || [];
+        if (filtered.length === 0) return;
+        var next = selectedIndex + delta;
+        if (next < 0) next = 0;
+        if (next >= filtered.length) next = filtered.length - 1;
+        selectedIndex = next;
+        renderDropdown();
+    }
+
+    searchInput.addEventListener('input', function() {
+        var q = this.value.trim();
+        if (q.length < 1) {
+            dropdown.style.display = 'none';
+            currentResults = [];
+            selectedIndex = -1;
+            return;
+        }
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(function() {
+            var customerId = {{ customer.id }};
+            var url = '/api/engagement-contact-search?q=' + encodeURIComponent(q) +
+                      '&customer_id=' + customerId;
+
+            fetch(url)
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    currentResults = data.results || [];
+                    selectedIndex = -1;
+                    renderDropdown();
+                });
+        }, 200);
+    });
+
+    searchInput.addEventListener('keydown', function(e) {
+        if (e.key === 'ArrowDown' || (e.key === 'Tab' && !e.shiftKey)) {
+            if (dropdown.style.display === 'block' && currentResults.length > 0) {
+                e.preventDefault();
+                moveSel(1);
+            }
+        } else if (e.key === 'ArrowUp' || (e.key === 'Tab' && e.shiftKey)) {
+            if (dropdown.style.display === 'block' && currentResults.length > 0) {
+                e.preventDefault();
+                moveSel(-1);
+            }
+        } else if (e.key === 'Enter') {
+            e.preventDefault();
+            e.stopPropagation();
+            selectCurrent();
+        } else if (e.key === 'Escape') {
+            dropdown.style.display = 'none';
+            this.value = '';
+            currentResults = [];
+            selectedIndex = -1;
+        }
+    });
+
+    // Click on dropdown item
+    dropdown.addEventListener('click', function(e) {
+        // "Add as new internal contact" button
+        var addBtn = e.target.closest('[data-action="add-internal"]');
+        if (addBtn) {
+            e.preventDefault();
+            var q = searchInput.value.trim();
+            if (!q) return;
+            var isAlias = q.includes('@') || /^[a-z0-9._-]+$/i.test(q);
+            var payload = {};
+            if (isAlias) {
+                payload.alias = q;
+                payload.name = q.split('@')[0];
+            } else {
+                payload.name = q;
+            }
+            fetch('/api/internal-contacts', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(payload),
+            })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.success && data.contact) {
+                    addContact('internal_contact', data.contact.id, data.contact.name,
+                               data.contact.alias ? data.contact.alias + '@microsoft.com' : null);
+                }
+            });
+            return;
+        }
+
+        var btn = e.target.closest('[data-idx]');
+        if (!btn) return;
+        e.preventDefault();
+        var idx = parseInt(btn.dataset.idx);
+        var filtered = dropdown._filtered || [];
+        if (idx >= 0 && idx < filtered.length) {
+            addContact(filtered[idx].type, filtered[idx].id, filtered[idx].name);
+        }
+    });
+
+    // Hover updates selection
+    dropdown.addEventListener('mouseover', function(e) {
+        var btn = e.target.closest('[data-idx]');
+        if (btn) {
+            selectedIndex = parseInt(btn.dataset.idx);
+            dropdown.querySelectorAll('.list-group-item').forEach(function(el) { el.classList.remove('enter-target'); });
+            btn.classList.add('enter-target');
+        }
+    });
+
+    // Close dropdown on outside click
+    document.addEventListener('click', function(e) {
+        if (!searchInput.contains(e.target) && !dropdown.contains(e.target)) {
+            dropdown.style.display = 'none';
+        }
+    });
+})();
+</script>
 {% endblock %}

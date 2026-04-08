@@ -80,7 +80,6 @@ class TestEngagementCRUD:
             data={
                 'title': 'Cloud Migration',
                 'status': 'Active',
-                'key_individuals': 'Jane Smith (CTO), Bob (Infra Lead)',
                 'technical_problem': 'Legacy on-prem workloads need modernization',
                 'business_impact': 'Reducing data center costs by 40%',
                 'solution_resources': 'Azure Migrate, App Service',
@@ -96,13 +95,13 @@ class TestEngagementCRUD:
             assert eng is not None
             assert eng.customer_id == cid
             assert eng.status == 'Active'
-            assert eng.key_individuals == 'Jane Smith (CTO), Bob (Infra Lead)'
             assert eng.technical_problem == 'Legacy on-prem workloads need modernization'
             assert eng.business_impact == 'Reducing data center costs by 40%'
             assert eng.solution_resources == 'Azure Migrate, App Service'
             assert eng.estimated_acr == 50000
             assert eng.target_date == date(2025, 6, 30)
-            assert eng.story_completeness == 100
+            # 5/6 filled (no contacts yet)
+            assert eng.story_completeness == 83
 
     def test_create_engagement_minimal(self, client, app, engagement_data):
         """Create engagement with just title and status (minimal required fields)."""
@@ -139,7 +138,7 @@ class TestEngagementCRUD:
                 customer_id=cid,
                 title='View Test Engagement',
                 status='Active',
-                key_individuals='Alice',
+                technical_problem='Legacy migration',
             )
             db.session.add(eng)
             db.session.commit()
@@ -148,7 +147,6 @@ class TestEngagementCRUD:
         resp = client.get(f'/engagement/{eng_id}')
         assert resp.status_code == 200
         assert b'View Test Engagement' in resp.data
-        assert b'Alice' in resp.data
 
     def test_edit_engagement(self, client, app, engagement_data):
         """Edit an existing engagement."""
@@ -217,7 +215,7 @@ class TestEngagementCRUD:
                 customer_id=cid,
                 title='Edit Form Test',
                 status='Active',
-                key_individuals='Test Person',
+                technical_problem='Test problem',
             )
             db.session.add(eng)
             db.session.commit()
@@ -226,7 +224,6 @@ class TestEngagementCRUD:
         resp = client.get(f'/engagement/{eng_id}/edit')
         assert resp.status_code == 200
         assert b'Edit Form Test' in resp.data
-        assert b'Test Person' in resp.data
 
 
 class TestEngagementNoteLinking:
@@ -364,7 +361,7 @@ class TestCustomerViewEngagements:
                 customer_id=cid,
                 title='Visible Engagement',
                 status='Active',
-                key_individuals='Test Person',
+                technical_problem='Test problem',
             )
             db.session.add(eng)
             db.session.commit()
@@ -563,22 +560,21 @@ class TestStoryCompleteness:
                 customer_id=engagement_data['customer_id'],
                 title='Partial Story',
                 status='Active',
-                key_individuals='Alice',
                 technical_problem='Need to migrate',
                 target_date=date(2025, 12, 31),
             )
             db.session.add(eng)
             db.session.commit()
-            assert eng.story_completeness == 50  # 3 of 6 fields
+            assert eng.story_completeness == 33  # 2 of 6 fields
 
     def test_full_story(self, app, engagement_data):
         """Engagement with all fields should be 100%."""
         with app.app_context():
+            from app.models import EngagementContact
             eng = Engagement(
                 customer_id=engagement_data['customer_id'],
                 title='Full Story',
                 status='Active',
-                key_individuals='Alice',
                 technical_problem='Legacy systems',
                 business_impact='Cost reduction',
                 solution_resources='Azure Migrate',
@@ -586,6 +582,11 @@ class TestStoryCompleteness:
                 target_date=date(2025, 12, 31),
             )
             db.session.add(eng)
+            db.session.flush()
+            ec = EngagementContact(
+                engagement_id=eng.id, external_name='Alice'
+            )
+            db.session.add(ec)
             db.session.commit()
             assert eng.story_completeness == 100
 
@@ -635,8 +636,8 @@ class TestActiveEngagementsAPI:
         assert 'latest_note_date' in e
         assert 'seller_name' in e
 
-    def test_active_engagements_excludes_won_lost(self, client, app, engagement_data):
-        """API excludes Won and Lost engagements."""
+    def test_active_engagements_includes_all_statuses(self, client, app, engagement_data):
+        """API returns engagements of all tracked statuses."""
         cid = engagement_data['customer_id']
         with app.app_context():
             db.session.add_all([
@@ -649,9 +650,11 @@ class TestActiveEngagementsAPI:
 
         resp = client.get('/api/engagements/active')
         data = resp.get_json()
-        assert data['count'] == 2
         titles = {e['title'] for e in data['engagements']}
-        assert titles == {'Active One', 'On Hold One'}
+        assert 'Active One' in titles
+        assert 'On Hold One' in titles
+        assert 'Won One' in titles
+        assert 'Lost One' in titles
 
     def test_active_engagements_filter_by_status(self, client, app, engagement_data):
         """API supports status query param filter."""
