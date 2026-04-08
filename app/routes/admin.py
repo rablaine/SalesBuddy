@@ -1404,24 +1404,27 @@ def api_diagnostic_log_clear():
 @admin_bp.route('/api/admin/stale-customers')
 def api_stale_customers():
     """Get customers flagged as stale (TPID disappeared from MSX sync)."""
+    from app.services.customer_merge import _count_linked_records
+
     stale = Customer.query.filter(
         Customer.stale_since.isnot(None)
     ).order_by(Customer.stale_since).all()
 
     result = []
     for c in stale:
-        notes_count = Note.query.filter_by(customer_id=c.id).count()
-        from app.models import Engagement
-        engagements_count = Engagement.query.filter_by(customer_id=c.id).count()
+        counts = _count_linked_records(c.id)
+        # Marketing data is auto-imported and cascade-deleted, so exclude from has_data
+        auto_imported = {'marketing_summary', 'marketing_contacts', 'marketing_interactions'}
+        user_data = sum(v for k, v in counts.items() if k not in auto_imported)
 
         result.append({
             "id": c.id,
             "name": c.get_display_name(),
             "tpid": c.tpid,
             "stale_since": c.stale_since.isoformat() if c.stale_since else None,
-            "notes_count": notes_count,
-            "engagements_count": engagements_count,
-            "has_data": notes_count > 0 or engagements_count > 0,
+            "notes_count": counts.get('notes', 0),
+            "engagements_count": counts.get('engagements', 0),
+            "has_data": user_data > 0,
         })
 
     return jsonify(result)
@@ -1438,13 +1441,20 @@ def api_dismiss_stale(customer_id: int):
 
 @admin_bp.route('/api/admin/stale-customers/<int:customer_id>', methods=['DELETE'])
 def api_delete_stale_customer(customer_id: int):
-    """Delete a stale customer with no linked data."""
+    """Delete a stale customer, cascading auto-imported marketing data."""
     from app.services.customer_merge import _count_linked_records
+    from app.models import MarketingSummary, MarketingContact, MarketingInteraction
     customer = Customer.query.get_or_404(customer_id)
     counts = _count_linked_records(customer_id)
-    total = sum(counts.values())
-    if total > 0:
+    # Marketing data is auto-imported and safe to cascade-delete
+    auto_imported = {'marketing_summary', 'marketing_contacts', 'marketing_interactions'}
+    user_data = sum(v for k, v in counts.items() if k not in auto_imported)
+    if user_data > 0:
         return jsonify({"error": "Customer has linked data and cannot be deleted directly. Use merge instead."}), 400
+    # Clean up auto-imported marketing data first
+    MarketingInteraction.query.filter_by(customer_id=customer_id).delete()
+    MarketingContact.query.filter_by(customer_id=customer_id).delete()
+    MarketingSummary.query.filter_by(customer_id=customer_id).delete()
     db.session.delete(customer)
     db.session.commit()
     return jsonify({"success": True, "name": customer.get_display_name()})

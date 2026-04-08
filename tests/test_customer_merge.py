@@ -297,15 +297,37 @@ class TestMergeAPI:
         assert len(data) >= 1
 
     def test_delete_stale_no_data(self, client, app):
-        from app.models import db, Customer, utc_now
+        from app.models import db, Customer, MarketingSummary, utc_now
 
         with app.app_context():
             c = Customer(name='Empty Stale', tpid=66666,
                          stale_since=utc_now())
             db.session.add(c)
+            db.session.flush()
+            # Add auto-imported marketing data (should be cascade-deleted)
+            ms = MarketingSummary(customer_id=c.id, tpid='66666',
+                                  total_interactions=5)
+            db.session.add(ms)
             db.session.commit()
             cid = c.id
 
         resp = client.delete(f'/api/admin/stale-customers/{cid}')
         assert resp.status_code == 200
         assert resp.get_json()['success']
+
+        with app.app_context():
+            assert Customer.query.get(cid) is None
+            assert MarketingSummary.query.filter_by(customer_id=cid).count() == 0
+
+    def test_delete_stale_with_user_data_blocked(self, client, app, two_customers):
+        """Cannot delete a customer that has notes/engagements."""
+        from app.models import db, Customer, utc_now
+
+        with app.app_context():
+            source = Customer.query.get(two_customers['source_id'])
+            source.stale_since = utc_now()
+            db.session.commit()
+
+        resp = client.delete(f'/api/admin/stale-customers/{two_customers["source_id"]}')
+        assert resp.status_code == 400
+        assert 'linked data' in resp.get_json()['error']
