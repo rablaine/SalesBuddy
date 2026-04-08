@@ -222,11 +222,20 @@ def get_attainment(snapshot_id: int, workload_prefix: str | None = None) -> dict
                 or current_status in ('Completed',)
             )
 
+        # Look up seller via customer relationship
+        seller_name = None
+        seller_id = None
+        if item.customer and item.customer.seller:
+            seller_name = item.customer.seller.name
+            seller_id = item.customer.seller_id
+
         item_data = {
             'id': item.id,
             'milestone_id': item.milestone_id,
             'customer_name': item.customer_name,
             'customer_id': item.customer_id,
+            'seller_name': seller_name,
+            'seller_id': seller_id,
             'milestone_title': item.milestone_title,
             'milestone_number': item.milestone_number,
             'workload': item.workload,

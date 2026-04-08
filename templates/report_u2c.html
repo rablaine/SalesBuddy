@@ -32,7 +32,7 @@
             {% if workload_prefixes %}
             <div class="d-flex align-items-center gap-2">
                 <label class="small text-muted fw-semibold mb-0">Workload:</label>
-                <select id="workloadFilter" class="form-select form-select-sm" style="width: auto;" onchange="applyWorkloadFilter()">
+                <select id="workloadFilter" class="form-select form-select-sm" style="width: auto;">
                     <option value="">All workloads</option>
                     {% for prefix in workload_prefixes %}
                     <option value="{{ prefix }}">{{ prefix }}</option>
@@ -151,24 +151,47 @@
 <!-- Remaining Milestones (need to commit) -->
 {% if attainment.remaining_items %}
 <div class="card mb-4" id="remainingCard">
-    <div class="card-header">
-        <h5 class="mb-0"><i class="bi bi-hourglass-split text-warning"></i> Remaining - Still Need to Commit</h5>
+    <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <h5 class="mb-0"><i class="bi bi-hourglass-split text-warning"></i> Remaining</h5>
+        <div class="d-flex align-items-center gap-2 flex-wrap">
+            <select id="filterSeller" class="form-select form-select-sm" style="width: 180px;">
+                <option value="">All Sellers</option>
+            </select>
+            <select id="filterCustomer" class="form-select form-select-sm" style="width: 220px;">
+                <option value="">All Customers</option>
+            </select>
+            <div class="form-check form-switch ms-2">
+                <input class="form-check-input" type="checkbox" id="committedBottomToggle" checked>
+                <label class="form-check-label small" for="committedBottomToggle">Committed to bottom</label>
+            </div>
+            <span class="badge bg-warning text-dark" id="remainingBadge">{{ attainment.remaining_count }} milestones - ${{ "{:,.0f}".format(attainment.target_total - attainment.committed_total) }}/mo</span>
+        </div>
     </div>
     <div class="table-responsive">
-        <table class="table table-hover mb-0">
+        <table class="table table-hover mb-0" id="remainingTable">
             <thead>
                 <tr>
-                    <th>Customer</th>
-                    <th>Milestone</th>
-                    <th>Workload</th>
-                    <th style="white-space: nowrap;">Due Date</th>
-                    <th class="text-end" style="white-space: nowrap;">Est. ACR</th>
-                    <th>Status</th>
+                    <th class="sortable text-nowrap" data-sort="customer" style="cursor: pointer; min-width: 140px;">Customer <i class="bi bi-arrow-down-up text-muted small"></i></th>
+                    <th class="sortable text-nowrap" data-sort="milestone" style="cursor: pointer; min-width: 160px;">Milestone <i class="bi bi-arrow-down-up text-muted small"></i></th>
+                    <th class="sortable text-nowrap" data-sort="workload" style="cursor: pointer; min-width: 110px;">Workload <i class="bi bi-arrow-down-up text-muted small"></i></th>
+                    <th class="sortable text-nowrap" data-sort="due_date" style="cursor: pointer; min-width: 110px;">Due Date <i class="bi bi-arrow-down-up text-muted small"></i></th>
+                    <th class="sortable text-nowrap text-end" data-sort="acr" style="cursor: pointer; min-width: 110px;">Est. ACR <i class="bi bi-arrow-down-up text-muted small"></i></th>
+                    <th class="sortable text-nowrap" data-sort="status" style="cursor: pointer; min-width: 90px;">Status <i class="bi bi-arrow-down-up text-muted small"></i></th>
                 </tr>
             </thead>
             <tbody id="remainingBody">
                 {% for item in attainment.remaining_items %}
-                <tr data-workload="{{ item.workload or '' }}" data-acr="{{ item.monthly_acr }}" data-live-acr="{{ item.live_acr }}">
+                <tr data-workload="{{ item.workload or '' }}"
+                    data-acr="{{ item.monthly_acr }}"
+                    data-live-acr="{{ item.live_acr }}"
+                    data-customer="{{ item.customer_name|lower }}"
+                    data-milestone="{{ item.milestone_title|lower }}"
+                    data-due-date="{{ item.due_date[:10] if item.due_date else '9999-12-31' }}"
+                    data-status="{{ item.current_status|lower }}"
+                    data-seller="{{ item.seller_name|lower if item.seller_name else '' }}"
+                    data-seller-id="{{ item.seller_id or '' }}"
+                    data-customer-id="{{ item.customer_id or '' }}"
+                    data-committed="0">
                     <td>
                         {% if item.customer_id %}
                         <a href="{{ url_for('customers.customer_view', id=item.customer_id) }}">
@@ -233,7 +256,17 @@
             </thead>
             <tbody id="committedBody">
                 {% for item in attainment.committed_items %}
-                <tr data-workload="{{ item.workload or '' }}" data-acr="{{ item.monthly_acr }}" data-live-acr="{{ item.live_acr }}">
+                <tr data-workload="{{ item.workload or '' }}"
+                    data-acr="{{ item.monthly_acr }}"
+                    data-live-acr="{{ item.live_acr }}"
+                    data-customer="{{ item.customer_name|lower }}"
+                    data-milestone="{{ item.milestone_title|lower }}"
+                    data-due-date="{{ item.due_date[:10] if item.due_date else '9999-12-31' }}"
+                    data-status="{{ item.current_status|lower }}"
+                    data-seller="{{ item.seller_name|lower if item.seller_name else '' }}"
+                    data-seller-id="{{ item.seller_id or '' }}"
+                    data-customer-id="{{ item.customer_id or '' }}"
+                    data-committed="1">
                     <td>
                         {% if item.customer_id %}
                         <a href="{{ url_for('customers.customer_view', id=item.customer_id) }}">
@@ -310,41 +343,213 @@
 
 {% block extra_js %}
 <script>
-// Workload filter - client-side with localStorage persistence
-const STORAGE_KEY = 'u2c_workload_filter';
+// ==========================================================================
+// Storage keys
+// ==========================================================================
+const WL_KEY = 'u2c_workload_filter';
+const SORT_KEY = 'u2c_sort';
+const FILTER_KEY = 'u2c_filters';
+const COMMIT_BOTTOM_KEY = 'u2c_committed_bottom';
 
-function applyWorkloadFilter() {
-    const sel = document.getElementById('workloadFilter');
-    if (!sel) return;
-    const prefix = sel.value;
+// ==========================================================================
+// State
+// ==========================================================================
+var currentSort = { column: 'acr', direction: 'desc' };
+var currentFilters = { seller: '', customer: '' };
+var committedBottom = true;
 
-    // Persist selection
-    if (prefix) {
-        localStorage.setItem(STORAGE_KEY, prefix);
+// ==========================================================================
+// Helper
+// ==========================================================================
+const el = id => document.getElementById(id);
+const fmt = v => '$' + Math.round(v).toLocaleString('en-US');
+const titleCase = s => s.replace(/\b\w/g, c => c.toUpperCase());
+
+// ==========================================================================
+// 1) Populate seller/customer dropdowns from table data attributes
+// ==========================================================================
+function populateFilterDropdowns() {
+    const sellerSel = el('filterSeller');
+    const custSel = el('filterCustomer');
+    if (!sellerSel || !custSel) return;
+
+    const sellers = new Map(); // id -> name
+    const customers = new Map(); // id -> { name, sellerId }
+
+    document.querySelectorAll('#remainingBody tr[data-customer-id], #committedBody tr[data-customer-id]').forEach(row => {
+        const sid = row.dataset.sellerId;
+        const sname = row.dataset.seller;
+        if (sid && sname && !sellers.has(sid)) sellers.set(sid, sname);
+
+        const cid = row.dataset.customerId;
+        const cname = row.dataset.customer;
+        if (cid && cname && !customers.has(cid)) customers.set(cid, { name: cname, sellerId: sid || '' });
+    });
+
+    // Sort and populate seller options
+    const sortedSellers = [...sellers.entries()].sort((a, b) => a[1].localeCompare(b[1]));
+    sortedSellers.forEach(([id, name]) => {
+        const opt = document.createElement('option');
+        opt.value = id;
+        opt.textContent = titleCase(name);
+        sellerSel.appendChild(opt);
+    });
+
+    // Sort and populate customer options with data-seller-id
+    const sortedCustomers = [...customers.entries()].sort((a, b) => a[1].name.localeCompare(b[1].name));
+    sortedCustomers.forEach(([id, obj]) => {
+        const opt = document.createElement('option');
+        opt.value = id;
+        opt.textContent = titleCase(obj.name);
+        opt.dataset.sellerId = obj.sellerId;
+        custSel.appendChild(opt);
+    });
+}
+
+// ==========================================================================
+// 2) Seller-to-Customer linked filtering
+// ==========================================================================
+function filterCustomerBySeller(sellerId) {
+    const custSel = el('filterCustomer');
+    if (!custSel) return;
+    const opts = custSel.querySelectorAll('option[data-seller-id]');
+    opts.forEach(opt => {
+        if (!sellerId || opt.dataset.sellerId === sellerId) {
+            opt.style.display = '';
+            opt.disabled = false;
+        } else {
+            opt.style.display = 'none';
+            opt.disabled = true;
+        }
+    });
+    const selected = custSel.options[custSel.selectedIndex];
+    if (selected && selected.disabled) custSel.value = '';
+}
+
+// ==========================================================================
+// 3) Column sorting
+// ==========================================================================
+function sortTable(column) {
+    const tbody = el('remainingBody');
+    if (!tbody) return;
+
+    if (currentSort.column === column) {
+        currentSort.direction = currentSort.direction === 'asc' ? 'desc' : 'asc';
     } else {
-        localStorage.removeItem(STORAGE_KEY);
+        currentSort.column = column;
+        currentSort.direction = (column === 'acr') ? 'desc' : 'asc';
     }
 
-    // Filter rows in both tables
+    localStorage.setItem(SORT_KEY, JSON.stringify(currentSort));
+    applySortToBody(tbody);
+    updateSortIndicators();
+}
+
+function applySortToBody(tbody) {
+    const rows = Array.from(tbody.querySelectorAll('tr'));
+    const col = currentSort.column;
+    const dir = currentSort.direction === 'asc' ? 1 : -1;
+    const pushCommitted = committedBottom;
+
+    rows.sort(function(a, b) {
+        // Committed-to-bottom: committed rows always go after non-committed
+        if (pushCommitted) {
+            const ac = a.dataset.committed === '1' ? 1 : 0;
+            const bc = b.dataset.committed === '1' ? 1 : 0;
+            if (ac !== bc) return ac - bc;
+        }
+
+        var va, vb;
+        switch (col) {
+            case 'customer':
+                va = a.dataset.customer || '';
+                vb = b.dataset.customer || '';
+                return dir * va.localeCompare(vb);
+            case 'milestone':
+                va = a.dataset.milestone || '';
+                vb = b.dataset.milestone || '';
+                return dir * va.localeCompare(vb);
+            case 'workload':
+                va = a.dataset.workload || '';
+                vb = b.dataset.workload || '';
+                return dir * va.localeCompare(vb);
+            case 'due_date':
+                va = a.dataset.dueDate || '9999-12-31';
+                vb = b.dataset.dueDate || '9999-12-31';
+                return dir * va.localeCompare(vb);
+            case 'acr':
+                va = parseFloat(a.dataset.acr) || 0;
+                vb = parseFloat(b.dataset.acr) || 0;
+                return dir * (va - vb);
+            case 'status':
+                va = a.dataset.status || '';
+                vb = b.dataset.status || '';
+                return dir * va.localeCompare(vb);
+            default:
+                return 0;
+        }
+    });
+    rows.forEach(r => tbody.appendChild(r));
+}
+
+function updateSortIndicators() {
+    document.querySelectorAll('#remainingTable .sortable').forEach(th => {
+        const icon = th.querySelector('i');
+        if (!icon) return;
+        if (th.dataset.sort === currentSort.column) {
+            icon.className = currentSort.direction === 'asc'
+                ? 'bi bi-sort-up small text-info'
+                : 'bi bi-sort-down small text-info';
+        } else {
+            icon.className = 'bi bi-arrow-down-up text-muted small';
+        }
+    });
+}
+
+// ==========================================================================
+// 4) Apply all filters (seller + customer + workload) and update summaries
+// ==========================================================================
+function applyAllFilters() {
+    const workloadSel = el('workloadFilter');
+    const sellerSel = el('filterSeller');
+    const custSel = el('filterCustomer');
+
+    const wlPrefix = workloadSel ? workloadSel.value : '';
+    const sellerId = sellerSel ? sellerSel.value : '';
+    const customerId = custSel ? custSel.value : '';
+
+    // Save filter state
+    if (wlPrefix) localStorage.setItem(WL_KEY, wlPrefix);
+    else localStorage.removeItem(WL_KEY);
+    localStorage.setItem(FILTER_KEY, JSON.stringify({ seller: sellerId, customer: customerId }));
+
     let remainingAcr = 0, remainingCount = 0;
     let committedAcr = 0, committedCount = 0;
     let committedLiveAcr = 0;
 
+    // Filter remaining rows
     document.querySelectorAll('#remainingBody tr[data-workload]').forEach(row => {
         const wl = row.dataset.workload;
-        const match = !prefix || wl.startsWith(prefix + ':') || wl.startsWith(prefix + ' ');
-        row.style.display = match ? '' : 'none';
-        if (match) {
+        const wlMatch = !wlPrefix || wl.startsWith(wlPrefix + ':') || wl.startsWith(wlPrefix + ' ');
+        const sMatch = !sellerId || row.dataset.sellerId === sellerId;
+        const cMatch = !customerId || row.dataset.customerId === customerId;
+        const visible = wlMatch && sMatch && cMatch;
+        row.style.display = visible ? '' : 'none';
+        if (visible) {
             remainingAcr += parseFloat(row.dataset.acr) || 0;
             remainingCount++;
         }
     });
 
+    // Filter committed rows
     document.querySelectorAll('#committedBody tr[data-workload]').forEach(row => {
         const wl = row.dataset.workload;
-        const match = !prefix || wl.startsWith(prefix + ':') || wl.startsWith(prefix + ' ');
-        row.style.display = match ? '' : 'none';
-        if (match) {
+        const wlMatch = !wlPrefix || wl.startsWith(wlPrefix + ':') || wl.startsWith(wlPrefix + ' ');
+        const sMatch = !sellerId || row.dataset.sellerId === sellerId;
+        const cMatch = !customerId || row.dataset.customerId === customerId;
+        const visible = wlMatch && sMatch && cMatch;
+        row.style.display = visible ? '' : 'none';
+        if (visible) {
             committedAcr += parseFloat(row.dataset.acr) || 0;
             committedLiveAcr += parseFloat(row.dataset.liveAcr) || 0;
             committedCount++;
@@ -357,9 +562,6 @@ function applyWorkloadFilter() {
     const attPct = targetAcr > 0 ? Math.round(committedLiveAcr / targetAcr * 1000) / 10 : 0;
 
     // Update summary cards
-    const fmt = v => '$' + Math.round(v).toLocaleString('en-US');
-    const el = id => document.getElementById(id);
-
     if (el('cardTarget')) el('cardTarget').textContent = fmt(targetAcr);
     if (el('cardTargetSub')) el('cardTargetSub').textContent = totalCount + ' milestones in scope';
     if (el('cardCommitted')) el('cardCommitted').textContent = fmt(committedAcr);
@@ -387,23 +589,123 @@ function applyWorkloadFilter() {
         el('cardPctBar').className = 'progress-bar bg-info';
     }
 
-    // Update table header badges
+    // Remaining badge
+    if (el('remainingBadge')) el('remainingBadge').textContent = remainingCount + ' milestones - ' + fmt(remainingAcr) + '/mo';
     if (el('committedBadge')) el('committedBadge').textContent = committedCount + ' milestones - ' + fmt(committedAcr) + '/mo';
 
     // Show/hide empty cards
     if (el('remainingCard')) el('remainingCard').style.display = remainingCount > 0 ? '' : 'none';
     if (el('committedCard')) el('committedCard').style.display = committedCount > 0 ? '' : 'none';
+
+    // Re-sort remaining after filter change
+    const tbody = el('remainingBody');
+    if (tbody) applySortToBody(tbody);
 }
 
-// Restore filter from localStorage on page load
+// Legacy wrapper for workload filter onchange
+function applyWorkloadFilter() {
+    applyAllFilters();
+}
+
+// ==========================================================================
+// 5) Committed-to-bottom toggle
+// ==========================================================================
+function applyCommittedBottom() {
+    const tbody = el('remainingBody');
+    if (!tbody) return;
+    applySortToBody(tbody);
+
+    // Visual dimming for committed rows at bottom
+    tbody.querySelectorAll('tr[data-committed="1"]').forEach(row => {
+        row.style.opacity = committedBottom ? '0.55' : '';
+    });
+}
+
+// ==========================================================================
+// 6) Event wiring + state restore
+// ==========================================================================
 document.addEventListener('DOMContentLoaded', function() {
-    const sel = document.getElementById('workloadFilter');
-    if (sel) {
-        const saved = localStorage.getItem(STORAGE_KEY);
-        if (saved && [...sel.options].some(o => o.value === saved)) {
-            sel.value = saved;
-            applyWorkloadFilter();
+    populateFilterDropdowns();
+
+    // --- Restore sort state ---
+    try {
+        const saved = JSON.parse(localStorage.getItem(SORT_KEY));
+        if (saved && saved.column) {
+            currentSort.column = saved.column;
+            currentSort.direction = saved.direction || 'asc';
         }
+    } catch(e) {}
+
+    // --- Restore committed-bottom toggle ---
+    try {
+        const savedCB = localStorage.getItem(COMMIT_BOTTOM_KEY);
+        if (savedCB !== null) committedBottom = savedCB === 'true';
+    } catch(e) {}
+    const cbToggle = el('committedBottomToggle');
+    if (cbToggle) cbToggle.checked = committedBottom;
+
+    // --- Restore filter state ---
+    try {
+        const savedF = JSON.parse(localStorage.getItem(FILTER_KEY));
+        if (savedF) {
+            currentFilters = savedF;
+            const sellerSel = el('filterSeller');
+            if (sellerSel && savedF.seller) sellerSel.value = savedF.seller;
+            filterCustomerBySeller(savedF.seller || '');
+            const custSel = el('filterCustomer');
+            if (custSel && savedF.customer) custSel.value = savedF.customer;
+        }
+    } catch(e) {}
+
+    // --- Restore workload filter ---
+    const wlSel = el('workloadFilter');
+    if (wlSel) {
+        const savedWl = localStorage.getItem(WL_KEY);
+        if (savedWl && [...wlSel.options].some(o => o.value === savedWl)) {
+            wlSel.value = savedWl;
+        }
+    }
+
+    // Apply sort indicators, filters, and sort order
+    updateSortIndicators();
+    applyAllFilters();
+    applyCommittedBottom();
+
+    // --- Wire sort header clicks ---
+    document.querySelectorAll('#remainingTable .sortable').forEach(th => {
+        th.addEventListener('click', function() {
+            sortTable(this.dataset.sort);
+        });
+    });
+
+    // --- Wire filter dropdowns ---
+    const sellerSel = el('filterSeller');
+    if (sellerSel) {
+        sellerSel.addEventListener('change', function() {
+            filterCustomerBySeller(this.value);
+            applyAllFilters();
+        });
+    }
+    const custSel = el('filterCustomer');
+    if (custSel) {
+        custSel.addEventListener('change', function() {
+            applyAllFilters();
+        });
+    }
+    if (wlSel) {
+        wlSel.addEventListener('change', function() {
+            applyAllFilters();
+        });
+        // Remove inline onchange since we wire it here
+    }
+
+    // --- Wire committed-bottom toggle ---
+    if (cbToggle) {
+        cbToggle.addEventListener('change', function() {
+            committedBottom = this.checked;
+            localStorage.setItem(COMMIT_BOTTOM_KEY, committedBottom);
+            applyCommittedBottom();
+        });
     }
 });
 

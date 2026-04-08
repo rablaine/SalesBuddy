@@ -477,7 +477,7 @@
                                         <a href="{{ url_for('sellers.seller_view', id=call.seller.id) }}" class="badge {{ get_seller_color(call.seller.id) }} text-decoration-none" onclick="event.stopPropagation();"><i class="bi bi-person"></i> {{ call.seller.name }}</a>
                                     {% endif %}
                                 </div>
-                                <div class="mb-2">{{ call.content|safe }}</div>
+                                <div class="mb-2 call-content">{{ call.content|safe }}</div>
                                 {% if call.topics|length > 0 or call.partners|length > 0 or call.milestones|length > 0 or call.msx_tasks.count() > 0 %}
                                     <div>
                                         {% for topic in call.topics %}
