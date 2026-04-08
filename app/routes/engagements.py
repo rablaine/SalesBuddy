@@ -48,10 +48,17 @@ def engagements_hub():
 
     # Internal projects
     from app.models import Project
-    active_projects = Project.query.filter(
-        Project.status.in_(['Active', 'On Hold']),
+    from sqlalchemy import case as sa_case
+    all_projects = Project.query.filter(
+        Project.status.in_(['Active', 'On Hold', 'Completed']),
         Project.project_type != 'copilot_saved',
-    ).order_by(Project.updated_at.desc()).all()
+    ).order_by(
+        sa_case(
+            (Project.status == 'Completed', 1),
+            else_=0,
+        ),
+        Project.updated_at.desc(),
+    ).all()
 
     return render_template(
         'engagements_hub.html',
@@ -65,7 +72,7 @@ def engagements_hub():
             'story_partial': story_partial,
             'story_complete': story_complete,
         },
-        projects=active_projects,
+        projects=all_projects,
     )
 
 
