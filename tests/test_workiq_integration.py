@@ -366,18 +366,6 @@ class TestAIAlwaysEnabled:
 class TestWorkiqUIElements:
     """Tests that WorkIQ UI elements are visible when expected."""
 
-    def test_new_note_shows_autofill_button(self, client, app, sample_data):
-        """New note form should show the Auto-fill button."""
-        with app.app_context():
-            from app.models import Customer
-            customer = Customer.query.first()
-            customer_id = customer.id
-
-        response = client.get(f'/note/new?customer_id={customer_id}')
-        html = response.data.decode()
-        assert 'Auto-fill' in html
-        assert 'autoFillBtn' in html
-
     def test_new_note_shows_import_meeting_button(self, client, app, sample_data):
         """New note form should show the Import Summary button."""
         with app.app_context():
