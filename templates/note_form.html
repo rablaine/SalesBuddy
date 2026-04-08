@@ -7635,7 +7635,7 @@ function _buildEngCardHtml(engId) {
         '</div>' +
         '<div class="card-body py-2">' +
             '<div class="row g-2 mb-2">' +
-                '<div class="col-6">' +
+                '<div class="col-4">' +
                     '<label class="form-label mb-0 small text-muted">Status</label>' +
                     '<select class="form-select form-select-sm eng-status">' +
                         '<option value="Active">Active</option>' +
@@ -7644,14 +7644,14 @@ function _buildEngCardHtml(engId) {
                         '<option value="Lost">Lost</option>' +
                     '</select>' +
                 '</div>' +
-            '</div>' +
-            '<div class="mb-2">' +
-                '<label class="form-label mb-0 small text-muted">Key Individuals</label>' +
-                '<div style="position:relative;">' +
-                    '<input type="text" class="form-control form-control-sm eng-contact-search" placeholder="Search contacts..." autocomplete="off">' +
-                    '<div class="eng-contact-dropdown list-group mt-1" style="display:none; position:absolute; z-index:1050; max-height:200px; overflow-y:auto; width:100%;"></div>' +
+                '<div class="col-8">' +
+                    '<label class="form-label mb-0 small text-muted">Key Individuals</label>' +
+                    '<div style="position:relative;">' +
+                        '<input type="text" class="form-control form-control-sm eng-contact-search" placeholder="Search contacts..." autocomplete="off">' +
+                        '<div class="eng-contact-dropdown list-group mt-1" style="display:none; position:absolute; z-index:1050; max-height:200px; overflow-y:auto; width:100%;"></div>' +
+                    '</div>' +
+                    '<div class="eng-contacts mt-1 d-flex flex-wrap gap-1"></div>' +
                 '</div>' +
-                '<div class="eng-contacts mt-1 d-flex flex-wrap gap-1"></div>' +
             '</div>' +
             '<div class="row g-2 mb-2">' +
                 '<div class="col-6">' +
