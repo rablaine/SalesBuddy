@@ -7573,6 +7573,7 @@ window.onEngagementSelectionChanged = function() {
     syncEngTaskButton();
     syncInlineEngPanel();
     loadRelatedNotes();
+    if (typeof debouncedAutoSave === 'function') debouncedAutoSave();
 };
 // Initial sync on page load
 syncEngTaskButton();
