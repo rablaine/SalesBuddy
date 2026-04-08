@@ -82,49 +82,8 @@
                     <i class="bi bi-people"></i> Contacts
                 </button>
                 {% endif %}
-                {% if not note %}
-                <button type="button" class="btn btn-success" id="autoFillBtn" onclick="startAutoFill()" title="Auto-fill from meeting transcript">
-                    <i class="bi bi-magic"></i> Auto-fill
-                </button>
-                {% endif %}
             </div>
         </div>
-
-        <!-- Auto-fill Progress Panel -->
-        {% if not note %}
-        <div id="autoFillProgress" class="alert alert-info mb-4" style="display: none;">
-            <div class="d-flex justify-content-between align-items-center mb-2">
-                <h5 class="mb-0"><i class="bi bi-magic"></i> Auto-fill in Progress</h5>
-                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="cancelAutoFill()">
-                    <i class="bi bi-x"></i> Cancel
-                </button>
-            </div>
-            <div id="autoFillSteps">
-                <div id="afStep1" class="d-flex align-items-center mb-1">
-                    <span class="spinner-border spinner-border-sm me-2" style="display: none;"></span>
-                    <i class="bi bi-check-circle-fill text-success me-2" style="display: none;"></i>
-                    <i class="bi bi-circle text-muted me-2"></i>
-                    <span>Finding meetings...</span>
-                </div>
-                <div id="afStep2" class="d-flex align-items-center mb-1 text-muted">
-                    <span class="spinner-border spinner-border-sm me-2" style="display: none;"></span>
-                    <i class="bi bi-check-circle-fill text-success me-2" style="display: none;"></i>
-                    <i class="bi bi-circle me-2"></i>
-                    <span>Getting meeting summary...</span>
-                </div>
-                <div id="afStep3" class="d-flex align-items-center mb-1 text-muted">
-                    <span class="spinner-border spinner-border-sm me-2" style="display: none;"></span>
-                    <i class="bi bi-check-circle-fill text-success me-2" style="display: none;"></i>
-                    <i class="bi bi-circle me-2"></i>
-                    <span>Matching milestone...</span>
-                </div>
-            </div>
-            <div id="autoFillMeetingInfo" class="mt-2 small" style="display: none;">
-                <strong>Selected meeting:</strong> <span id="afSelectedMeetingTitle"></span>
-            </div>
-            <div id="autoFillError" class="text-danger mt-2" style="display: none;"></div>
-        </div>
-        {% endif %}
 
         <div class="card" style="position: relative; overflow: visible;">
             <!-- Meeting Import Status (floating overlay) -->
