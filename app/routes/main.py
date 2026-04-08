@@ -349,7 +349,7 @@ def index():
             })
 
     engagement_q = Engagement.query.filter(
-        Engagement.status.in_(['Active', 'On Hold'])
+        Engagement.status.in_(['Active', 'On Hold', 'Won', 'Lost'])
     )
     if seller_mode_sid:
         engagement_q = engagement_q.join(Customer, Engagement.customer_id == Customer.id).filter(
@@ -358,7 +358,7 @@ def index():
     engagement_count = engagement_q.count()
 
     project_count = Project.query.filter(
-        Project.status.in_(['Active', 'On Hold']),
+        Project.status.in_(['Active', 'On Hold', 'Completed']),
         Project.project_type != 'copilot_saved',
     ).count()
 
@@ -511,9 +511,9 @@ def api_active_engagements():
     status_filter = request.args.get('status', '').strip()
 
     query = Engagement.query.filter(
-        Engagement.status.in_(['Active', 'On Hold'])
+        Engagement.status.in_(['Active', 'On Hold', 'Won', 'Lost'])
     )
-    if status_filter in ('Active', 'On Hold'):
+    if status_filter in ('Active', 'On Hold', 'Won', 'Lost'):
         query = query.filter(Engagement.status == status_filter)
 
     seller_mode_sid = get_seller_mode_seller_id()
@@ -562,10 +562,17 @@ def api_active_engagements():
 @main_bp.route('/api/projects/active')
 def api_active_projects():
     """Return active/on-hold projects for the homepage tab."""
+    from sqlalchemy import case as sa_case
     projects = Project.query.filter(
-        Project.status.in_(['Active', 'On Hold']),
+        Project.status.in_(['Active', 'On Hold', 'Completed']),
         Project.project_type != 'copilot_saved',
-    ).order_by(Project.updated_at.desc()).all()
+    ).order_by(
+        sa_case(
+            (Project.status == 'Completed', 1),
+            else_=0,
+        ),
+        Project.updated_at.desc(),
+    ).all()
 
     results = []
     for p in projects:

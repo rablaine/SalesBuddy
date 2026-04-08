@@ -80,6 +80,8 @@ def _upsert_summary(customer: Customer, tpid: str, data: Dict[str, Any]) -> bool
 
 def _upsert_interactions(customer: Customer, tpid: str, rows: list) -> int:
     """Upsert MarketingInteraction rows. Returns count of rows upserted."""
+    if not rows:
+        return 0
     # Delete existing rows for this customer, then insert fresh
     MarketingInteraction.query.filter_by(customer_id=customer.id).delete()
     count = 0
@@ -108,6 +110,8 @@ def _upsert_interactions(customer: Customer, tpid: str, rows: list) -> int:
 
 def _upsert_contacts(customer: Customer, contacts: list) -> int:
     """Upsert MarketingContact rows. Returns count of rows upserted."""
+    if not contacts:
+        return 0
     # Delete existing rows for this customer, then insert fresh
     MarketingContact.query.filter_by(customer_id=customer.id).delete()
     count = 0
@@ -317,8 +321,6 @@ def sync_marketing_stream() -> Generator[str, None, None]:
             if summary_result.get('data'):
                 _upsert_summary(customer, tpid, summary_result['data'])
                 total_interactions += summary_result['data'].get('total_interactions', 0)
-            else:
-                MarketingSummary.query.filter_by(customer_id=customer.id).delete()
 
             # Upsert interactions
             _upsert_interactions(customer, tpid, breakdown_result.get('data', []))
