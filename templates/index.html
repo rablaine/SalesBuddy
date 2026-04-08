@@ -482,6 +482,7 @@
                 {% set eng_api_url = '/api/engagements/active' %}
                 {% set eng_auto_load = false %}
                 {% set eng_show_seller = not seller_mode %}
+                {% set eng_show_closed = true %}
                 {% set eng_body_id = 'engagementsListBody' %}
                 {% set eng_count_id = 'eng-panel-count' %}
                 {% set eng_empty_msg = 'No engagements match the current filter.' %}
@@ -985,6 +986,7 @@
                     html += '<div class="fw-semibold">' + p.title;
                     html += ' <span class="badge bg-info ms-1" style="font-size: 0.65rem;">' + p.project_type + '</span>';
                     if (p.status === 'On Hold') html += ' <span class="badge bg-warning text-dark ms-1" style="font-size: 0.65rem;">On Hold</span>';
+                    if (p.status === 'Completed') html += ' <span class="badge bg-success ms-1" style="font-size: 0.65rem;">Completed</span>';
                     html += '</div>';
                     if (p.description) html += '<small class="text-muted">' + p.description + '</small>';
                     html += '</div>';

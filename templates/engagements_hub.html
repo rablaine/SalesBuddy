@@ -107,6 +107,7 @@
                         {{ p.title }}
                         <span class="badge bg-info ms-1" style="font-size: 0.65rem;">{{ p.project_type|replace('_', ' ')|title }}</span>
                         {% if p.status == 'On Hold' %}<span class="badge bg-warning text-dark ms-1" style="font-size: 0.65rem;">On Hold</span>{% endif %}
+                        {% if p.status == 'Completed' %}<span class="badge bg-success ms-1" style="font-size: 0.65rem;">Completed</span>{% endif %}
                     </div>
                     {% if p.description %}<small class="text-muted">{{ p.description[:100] }}{% if p.description|length > 100 %}...{% endif %}</small>{% endif %}
                 </div>
