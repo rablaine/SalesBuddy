@@ -98,6 +98,7 @@ FUTURE_*.md
 # Personal import scripts (contain sensitive data)
 import_call_logs.py
 import_alignment_sheet.py
+marketing_diagnostics.txt
 
 # Revenue data files (contain customer financial data)
 *.csv

@@ -6103,6 +6103,11 @@ var pendingTaskSuggestion = null;  // Stores task title/description from meeting
 // so the user can retry import without re-fetching meetings. Cleared on page refresh.
 var _lastMeetingContext = null;
 
+// Pre-fetch state: background meeting list fetch kicked off on new-note page load.
+// _prefetchMeetingsPromise resolves to the /api/meetings JSON response.
+var _prefetchMeetingsPromise = null;
+var _prefetchDate = null;  // The date the prefetch was issued for
+
 // Apply pending task suggestion to task fields if milestones are already selected
 function applyPendingTaskSuggestion() {
     if (typeof pendingTaskSuggestion === 'undefined' || !pendingTaskSuggestion) return;
@@ -6154,8 +6159,63 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 // =============================================================================
+// PREFETCH MEETINGS ON PAGE LOAD
+// =============================================================================
+(function() {
+    var dateStr = document.getElementById('call_date').value;
+    if (!dateStr) return;
+    _prefetchDate = dateStr;
+    var url = '/api/meetings?date=' + encodeURIComponent(dateStr);
+    _prefetchMeetingsPromise = fetch(url)
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.error) return null;
+            return data;
+        })
+        .catch(function() { return null; });
+})();
+
+// =============================================================================
 // AUTO-FILL ORCHESTRATION
 // =============================================================================
+
+// Client-side fuzzy match: find the meeting whose title or customer field
+// best matches the given customer name. Returns index or null.
+function _findBestMeetingMatch(meetings, customerName) {
+    if (!customerName || !meetings || meetings.length === 0) return null;
+    var target = customerName.toLowerCase();
+    var bestIdx = null;
+    var bestScore = 0;
+    for (var i = 0; i < meetings.length; i++) {
+        var fields = [(meetings[i].title || ''), (meetings[i].customer || '')];
+        for (var f = 0; f < fields.length; f++) {
+            var haystack = fields[f].toLowerCase();
+            if (haystack.indexOf(target) !== -1) return i; // Exact substring = instant win
+            // Simple word overlap score
+            var targetWords = target.split(/\s+/);
+            var matchCount = 0;
+            for (var w = 0; w < targetWords.length; w++) {
+                if (targetWords[w].length > 2 && haystack.indexOf(targetWords[w]) !== -1) matchCount++;
+            }
+            var score = targetWords.length > 0 ? matchCount / targetWords.length : 0;
+            if (score > bestScore) { bestScore = score; bestIdx = i; }
+        }
+    }
+    return bestScore >= 0.5 ? bestIdx : null;
+}
+
+// Check if we can reuse the prefetch for the given date.
+// Returns a Promise that resolves to the meetings data, or null if no usable prefetch.
+function _consumePrefetch(dateStr) {
+    if (_prefetchMeetingsPromise && _prefetchDate === dateStr) {
+        var p = _prefetchMeetingsPromise;
+        // Clear so it's not reused after being consumed
+        _prefetchMeetingsPromise = null;
+        _prefetchDate = null;
+        return p;
+    }
+    return null;
+}
 
 function startAutoFill() {
     // Validate prerequisites
@@ -6189,16 +6249,33 @@ function startAutoFill() {
     resetAutoFillSteps();
     setAutoFillStep(1, 'loading');
     
-    // Step 1: Fetch meetings
-    var url = '/api/meetings?date=' + encodeURIComponent(dateStr) + '&customer_name=' + encodeURIComponent(customerName);
-    
-    fetch(url)
-        .then(response => response.json())
+    // Try to reuse prefetch, otherwise fetch fresh
+    var prefetch = _consumePrefetch(dateStr);
+    var meetingsPromise;
+    if (prefetch) {
+        meetingsPromise = prefetch.then(function(cached) {
+            if (!cached) return null;
+            // Re-compute auto_selected_index with the customer name
+            var idx = _findBestMeetingMatch(cached.meetings, customerName);
+            return {
+                meetings: cached.meetings,
+                auto_selected_index: idx,
+                auto_selected_reason: idx !== null
+                    ? "Auto-selected: '" + (cached.meetings[idx].customer || cached.meetings[idx].title) + "' matches '" + customerName + "'"
+                    : null
+            };
+        });
+    } else {
+        var url = '/api/meetings?date=' + encodeURIComponent(dateStr) + '&customer_name=' + encodeURIComponent(customerName);
+        meetingsPromise = fetch(url).then(function(r) { return r.json(); });
+    }
+
+    meetingsPromise
         .then(data => {
             if (autoFillAborted) return;
             
-            if (data.error) {
-                showAutoFillError('Failed to fetch meetings: ' + data.error);
+            if (!data || data.error) {
+                showAutoFillError('Failed to fetch meetings: ' + (data ? data.error : 'No response'));
                 return;
             }
             
@@ -6709,6 +6786,38 @@ function openMeetingImport() {
         return;
     }
     
+    // Check if we have a usable prefetch for this date
+    var prefetch = _consumePrefetch(dateStr);
+    if (prefetch) {
+        document.getElementById('importMeetingBtn').disabled = true;
+        showMeetingStatusCard(
+            '<div class="d-flex align-items-center">' +
+            '<span class="spinner-border spinner-border-sm text-primary me-2"></span>' +
+            '<div><strong>Loading meetings...</strong><br><small class="text-muted">Pre-fetch in progress</small></div>' +
+            '</div>'
+        );
+        prefetch.then(function(cached) {
+            document.getElementById('importMeetingBtn').disabled = false;
+            hideMeetingStatusCard();
+            if (!cached || !cached.meetings) {
+                showMeetingImportModalWithError('Failed to pre-fetch meetings. Try again.');
+                return;
+            }
+            loadedMeetings = cached.meetings;
+            _lastMeetingContext = { meetings: loadedMeetings, selectedIndex: null };
+            var autoIdx = customerName ? _findBestMeetingMatch(loadedMeetings, customerName) : null;
+            var autoReason = autoIdx !== null
+                ? "Auto-selected: '" + (loadedMeetings[autoIdx].customer || loadedMeetings[autoIdx].title) + "' matches '" + customerName + "'"
+                : null;
+            showMeetingImportModalReady(loadedMeetings, autoIdx, autoReason);
+        }).catch(function() {
+            document.getElementById('importMeetingBtn').disabled = false;
+            hideMeetingStatusCard();
+            showMeetingImportModalWithError('Failed to pre-fetch meetings. Try again.');
+        });
+        return;
+    }
+
     // Show non-blocking docked status card while loading meetings
     document.getElementById('importMeetingBtn').disabled = true;
     showMeetingStatusCard(
@@ -6738,6 +6847,7 @@ function openMeetingImport() {
             }
             
             loadedMeetings = data.meetings || [];
+            _lastMeetingContext = { meetings: loadedMeetings, selectedIndex: null };
             
             // Meetings loaded — hide status card
             hideMeetingStatusCard();
