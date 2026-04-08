@@ -4,7 +4,29 @@
 {% block title %}{{ engagement.title }} - {{ customer.get_display_name() }} - Sales Buddy{% endblock %}
 
 {% block content %}
-<style>.sortable-ghost-highlight { background: rgba(var(--bs-primary-rgb), 0.1) !important; }</style>
+<style>
+.sortable-ghost-highlight { background: rgba(var(--bs-primary-rgb), 0.1) !important; }
+
+/* Story field accent colors - theme-aware */
+:root, [data-bs-theme="light"] {
+    --story-individuals: var(--bs-body-color);
+    --story-problem: #7c4dff;
+    --story-impact: #e65100;
+    --story-resources: #f57f17;
+    --story-acr: #2e7d32;
+    --story-date: #1565c0;
+    --story-border: var(--bs-border-color);
+}
+[data-bs-theme="dark"] {
+    --story-individuals: var(--bs-body-color);
+    --story-problem: #b388ff;
+    --story-impact: #ff9800;
+    --story-resources: #ffe135;
+    --story-acr: #69f0ae;
+    --story-date: #64b5f6;
+    --story-border: rgba(255,255,255,0.15);
+}
+</style>
 <div class="d-flex justify-content-between align-items-center mb-4">
     <div style="min-width: 0; flex: 1;">
         <nav aria-label="breadcrumb">
@@ -99,19 +121,19 @@ function toggleEngagementFavorite(btn, engId) {
                 </div>
                 {% endmacro %}
 
-                {{ story_field("Key Individuals & Titles", '"I\'ve been working with..."', engagement.key_individuals, engagement.ai_key_individuals, '#ffffff') }}
-                {{ story_field("Technical/Business Problem", '"...they have run into..."', engagement.technical_problem, engagement.ai_technical_problem, '#b388ff') }}
-                {{ story_field("Business Process/Strategy Impact", '"...and it\'s impacting..."', engagement.business_impact, engagement.ai_business_impact, '#ff9800') }}
-                {{ story_field("Solution Resources", '"We are addressing the Opportunity with..."', engagement.solution_resources, engagement.ai_solution_resources, '#ffe135') }}
+                {{ story_field("Key Individuals & Titles", '"I\'ve been working with..."', engagement.key_individuals, engagement.ai_key_individuals, 'var(--story-individuals)') }}
+                {{ story_field("Technical/Business Problem", '"...they have run into..."', engagement.technical_problem, engagement.ai_technical_problem, 'var(--story-problem)') }}
+                {{ story_field("Business Process/Strategy Impact", '"...and it\'s impacting..."', engagement.business_impact, engagement.ai_business_impact, 'var(--story-impact)') }}
+                {{ story_field("Solution Resources", '"We are addressing the Opportunity with..."', engagement.solution_resources, engagement.ai_solution_resources, 'var(--story-resources)') }}
 
                 <div class="row">
                     <div class="col-6">
                         <strong class="small">Business Outcome</strong>
                         <small class="text-muted d-block fst-italic">"...which will result in..."</small>
                         {% if engagement.estimated_acr %}
-                        <p class="mb-0 mt-1" style="color: #69f0ae;">${{ "{:,}".format(engagement.estimated_acr | int) }}/mo</p>
+                        <p class="mb-0 mt-1" style="color: var(--story-acr);">${{ "{:,}".format(engagement.estimated_acr | int) }}/mo</p>
                         {% elif engagement.ai_estimated_acr %}
-                        <p class="mb-0 mt-1" style="color: #69f0ae; opacity: 0.45;" title="AI-generated value (not manually confirmed)">${{ "{:,}".format(engagement.ai_estimated_acr | int) }}/mo</p>
+                        <p class="mb-0 mt-1" style="color: var(--story-acr); opacity: 0.45;" title="AI-generated value (not manually confirmed)">${{ "{:,}".format(engagement.ai_estimated_acr | int) }}/mo</p>
                         {% else %}
                         <p class="text-muted mb-0 mt-1 fst-italic small">Not yet filled in</p>
                         {% endif %}
@@ -120,9 +142,9 @@ function toggleEngagementFavorite(btn, engId) {
                         <strong class="small">Target Date</strong>
                         <small class="text-muted d-block fst-italic">"...by..."</small>
                         {% if engagement.target_date %}
-                        <p class="mb-0 mt-1" style="color: #64b5f6;">{{ engagement.target_date.strftime('%b %d, %Y') }}</p>
+                        <p class="mb-0 mt-1" style="color: var(--story-date);">{{ engagement.target_date.strftime('%b %d, %Y') }}</p>
                         {% elif engagement.ai_target_date %}
-                        <p class="mb-0 mt-1" style="color: #64b5f6; opacity: 0.45;" title="AI-generated value (not manually confirmed)">{{ engagement.ai_target_date.strftime('%b %d, %Y') }}</p>
+                        <p class="mb-0 mt-1" style="color: var(--story-date); opacity: 0.45;" title="AI-generated value (not manually confirmed)">{{ engagement.ai_target_date.strftime('%b %d, %Y') }}</p>
                         {% else %}
                         <p class="text-muted mb-0 mt-1 fst-italic small">Not yet set</p>
                         {% endif %}
@@ -486,12 +508,12 @@ function recommendPartners() {
 
 <script>
 const STORY_FIELDS = [
-    {key: 'key_individuals', label: 'Key Individuals & Titles', color: '#ffffff'},
-    {key: 'technical_problem', label: 'Technical/Business Problem', color: '#b388ff'},
-    {key: 'business_impact', label: 'Business Process/Strategy Impact', color: '#ff9800'},
-    {key: 'solution_resources', label: 'Solution Resources', color: '#ffe135'},
-    {key: 'estimated_acr', label: 'Business Outcome / Estimated ACR', color: '#69f0ae'},
-    {key: 'target_date', label: 'Target Date/Timeline', color: '#64b5f6'},
+    {key: 'key_individuals', label: 'Key Individuals & Titles', color: 'var(--story-individuals)'},
+    {key: 'technical_problem', label: 'Technical/Business Problem', color: 'var(--story-problem)'},
+    {key: 'business_impact', label: 'Business Process/Strategy Impact', color: 'var(--story-impact)'},
+    {key: 'solution_resources', label: 'Solution Resources', color: 'var(--story-resources)'},
+    {key: 'estimated_acr', label: 'Business Outcome / Estimated ACR', color: 'var(--story-acr)'},
+    {key: 'target_date', label: 'Target Date/Timeline', color: 'var(--story-date)'},
 ];
 
 let pendingStory = null;
@@ -576,7 +598,7 @@ function showReviewModal(current, generated) {
                         <div class="small fw-semibold mb-1" style="color: ${field.color};">Generated</div>
                         ${isEmpty
                             ? '<div class="small"><em class="text-muted">-</em></div>'
-                            : `<textarea class="form-control form-control-sm" id="gen_${field.key}" rows="3" style="color: ${field.color}; background: transparent; border-color: rgba(255,255,255,0.15); font-size: 0.85em;">${escapeHtml(newVal)}</textarea>`
+                            : `<textarea class="form-control form-control-sm" id="gen_${field.key}" rows="3" style="color: ${field.color}; background: transparent; border-color: var(--story-border); font-size: 0.85em;">${escapeHtml(newVal)}</textarea>`
                         }
                     </div>
                 </div>
