@@ -71,7 +71,7 @@ from app.services.msx_api import (
     get_user_alias,
     get_user_info,
 )
-from app.models import Customer, CustomerCSAM, InternalContact, Milestone, MsxTask, Opportunity, Territory, Seller, POD, SolutionEngineer, SyncStatus, Vertical, db
+from app.models import Customer, CustomerCSAM, InternalContact, Milestone, MsxTask, Opportunity, Territory, Seller, POD, SolutionEngineer, SyncStatus, Vertical, db, utc_now
 
 
 logger = logging.getLogger(__name__)
@@ -2523,6 +2523,29 @@ def import_stream():
                 logger.info("Saved %d synced TPIDs to %s", len(seen_tpids), tpid_file)
             except Exception as e:
                 logger.warning("Failed to save synced TPIDs: %s", e)
+
+            # Stale detection: flag customers whose TPIDs disappeared from MSX
+            stale_flagged = 0
+            stale_cleared = 0
+            known_tpids = set(existing_customers_by_tpid.keys())
+            disappeared = known_tpids - seen_tpids
+            reappeared = known_tpids & seen_tpids
+            for tpid_val in disappeared:
+                cust = existing_customers_by_tpid[tpid_val]
+                if not cust.stale_since:
+                    cust.stale_since = utc_now()
+                    stale_flagged += 1
+            for tpid_val in reappeared:
+                cust = existing_customers_by_tpid[tpid_val]
+                if cust.stale_since:
+                    cust.stale_since = None
+                    stale_cleared += 1
+            if stale_flagged or stale_cleared:
+                db.session.commit()
+                logger.info(
+                    "Stale detection: %d flagged, %d cleared",
+                    stale_flagged, stale_cleared,
+                )
 
             duration = round(time.time() - import_start_time, 1)
             yield _sse({
