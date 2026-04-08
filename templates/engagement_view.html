@@ -121,8 +121,6 @@ function toggleEngagementFavorite(btn, engId) {
                 </div>
                 {% endmacro %}
 
-                {{ story_field("Technical/Business Problem", '"...they have run into..."', engagement.technical_problem, engagement.ai_technical_problem, 'var(--story-problem)') }}
-
                 <div class="mb-3">
                     <strong class="small">Key Individuals</strong>
                     <small class="text-muted d-block fst-italic">"I've been working with..."</small>
@@ -151,6 +149,7 @@ function toggleEngagementFavorite(btn, engId) {
                     {% endif %}
                 </div>
 
+                {{ story_field("Technical/Business Problem", '"...they have run into..."', engagement.technical_problem, engagement.ai_technical_problem, 'var(--story-problem)') }}
                 {{ story_field("Business Process/Strategy Impact", '"...and it\'s impacting..."', engagement.business_impact, engagement.ai_business_impact, 'var(--story-impact)') }}
                 {{ story_field("Solution Resources", '"We are addressing the Opportunity with..."', engagement.solution_resources, engagement.ai_solution_resources, 'var(--story-resources)') }}
 
