@@ -562,6 +562,16 @@ def api_customer_info(customer_id):
             'milestones': milestones,
         })
 
+    # Compute known email domains from website + existing contact emails
+    email_domains = set()
+    if customer.website:
+        d = customer.website.lower().replace('https://', '').replace('http://', '').replace('www.', '').split('/')[0]
+        if d:
+            email_domains.add(d)
+    for c in customer.contacts:
+        if c.email and '@' in c.email:
+            email_domains.add(c.email.split('@')[1].lower())
+
     return jsonify({
         'id': customer.id,
         'name': customer.name,
@@ -574,6 +584,7 @@ def api_customer_info(customer_id):
         'dae_name': customer.dae_name,
         'dae_alias': customer.dae_alias,
         'verticals': [v.name for v in sorted(customer.verticals, key=lambda v: v.name)],
+        'email_domains': sorted(email_domains),
         'opportunities': opps,
     }), 200
 

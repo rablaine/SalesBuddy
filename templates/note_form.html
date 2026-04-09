@@ -1344,20 +1344,49 @@ updateAiButtonState();
             return !isAlreadyAdded(r.type, r.id);
         });
         var q = searchInput.value.trim();
-        var addNewHtml = q.length >= 2
-            ? '<button type="button" class="list-group-item list-group-item-action small py-1 text-warning-emphasis" data-action="add-internal">' +
-              '<i class="bi bi-person-plus me-1"></i>Add <strong>' + escHtmlNote(q) + '</strong> as internal contact</button>'
-            : '';
-        if (filtered.length === 0) {
-            dropdown.innerHTML = '<div class="list-group-item text-muted small">No matches</div>' + addNewHtml;
+        var addButtons = [];  // {html, action, ...}
+        if (q.length >= 2) {
+            var detected = _detectContactType(q);
+            var detType = detected ? detected.type : null;
+            var custId = getCustomerId();
+            var pids = getPartnerIds();
+            // "Add as customer contact" (shown when customer exists and not detected as internal/partner)
+            if (custId && detType !== 'internal' && detType !== 'partner') {
+                addButtons.push({action: 'add-customer-contact', label:
+                  '<i class="bi bi-building me-1"></i>Add <strong>' + escHtmlNote(q) + '</strong> as customer contact',
+                  cls: 'text-success-emphasis'});
+            }
+            // "Add as partner contact" (shown when partners attached and detected or no detection)
+            if (pids.length && (detType === 'partner' || !detType)) {
+                var partnerLabel = detected && detected.partnerName ? ' (' + escHtmlNote(detected.partnerName) + ')' : '';
+                var partnerAttrs = detected && detected.partnerId ? ' data-partner-id="' + detected.partnerId + '"' : '';
+                addButtons.push({action: 'add-partner-contact', label:
+                  '<i class="bi bi-briefcase me-1"></i>Add <strong>' + escHtmlNote(q) + '</strong> as partner contact' + partnerLabel,
+                  cls: 'text-purple', extra: partnerAttrs || ''});
+            }
+            // "Add as internal contact" (shown unless detected as customer/partner)
+            if (detType !== 'customer' && detType !== 'partner') {
+                addButtons.push({action: 'add-internal', label:
+                  '<i class="bi bi-person-badge me-1"></i>Add <strong>' + escHtmlNote(q) + '</strong> as internal contact',
+                  cls: 'text-warning-emphasis'});
+            }
+        }
+        var totalItems = filtered.length + addButtons.length;
+        // Default selection: first result, or first add button if no results
+        if (selectedIndex < 0 || selectedIndex >= totalItems) {
+            selectedIndex = 0;
+        }
+        if (filtered.length === 0 && addButtons.length === 0) {
+            dropdown.innerHTML = '<div class="list-group-item text-muted small">No matches</div>';
             dropdown.style.display = 'block';
             selectedIndex = -1;
             return;
         }
-        if (selectedIndex < 0 || selectedIndex >= filtered.length) {
-            selectedIndex = 0;
+        var html = '';
+        if (filtered.length === 0 && addButtons.length > 0) {
+            html += '<div class="list-group-item text-muted small">No matches</div>';
         }
-        dropdown.innerHTML = filtered.map(function(r, idx) {
+        html += filtered.map(function(r, idx) {
             var active = (idx === selectedIndex) ? ' enter-target' : '';
             return '<button type="button" class="list-group-item list-group-item-action small py-1' + active + '" data-idx="' + idx + '">' +
                 '<i class="bi ' + r.icon + ' text-' + r.color + ' me-1"></i>' +
@@ -1365,10 +1394,18 @@ updateAiButtonState();
                 (r.detail ? ' <span class="text-muted">- ' + escHtmlNote(r.detail) + '</span>' : '') +
                 (r.email ? ' <span class="text-muted small">(' + escHtmlNote(r.email) + ')</span>' : '') +
                 '</button>';
-        }).join('') + addNewHtml;
+        }).join('');
+        addButtons.forEach(function(ab, i) {
+            var globalIdx = filtered.length + i;
+            var active = (globalIdx === selectedIndex) ? ' enter-target' : '';
+            html += '<button type="button" class="list-group-item list-group-item-action small py-1 ' + ab.cls + active + '" data-action="' + ab.action + '"' + (ab.extra || '') + '>' +
+                ab.label + '</button>';
+        });
+        dropdown.innerHTML = html;
         dropdown.style.display = 'block';
-        // Store filtered list for selection
+        // Store filtered list and add buttons for selection
         dropdown._filtered = filtered;
+        dropdown._addButtons = addButtons;
 
         var active = dropdown.querySelector('.enter-target');
         if (active) active.scrollIntoView({ block: 'nearest' });
@@ -1376,17 +1413,30 @@ updateAiButtonState();
 
     function selectCurrent() {
         var filtered = dropdown._filtered || [];
-        if (selectedIndex < 0 || selectedIndex >= filtered.length) return;
-        var r = filtered[selectedIndex];
-        addAttendee(r.type, r.id, r.name);
+        var addButtons = dropdown._addButtons || [];
+        if (selectedIndex >= 0 && selectedIndex < filtered.length) {
+            var r = filtered[selectedIndex];
+            addAttendee(r.type, r.id, r.name);
+        } else if (selectedIndex >= filtered.length) {
+            // Click the active add button
+            var activeBtn = dropdown.querySelector('.enter-target[data-action]');
+            if (activeBtn) activeBtn.click();
+        }
     }
 
-    function moveSel(delta) {
+    function moveSel(delta, wrap) {
         var filtered = dropdown._filtered || [];
-        if (filtered.length === 0) return;
+        var addButtons = dropdown._addButtons || [];
+        var total = filtered.length + addButtons.length;
+        if (total === 0) return;
         var next = selectedIndex + delta;
-        if (next < 0) next = 0;
-        if (next >= filtered.length) next = filtered.length - 1;
+        if (wrap) {
+            if (next < 0) next = total - 1;
+            if (next >= total) next = 0;
+        } else {
+            if (next < 0) next = 0;
+            if (next >= total) next = total - 1;
+        }
         selectedIndex = next;
         renderDropdown();
     }
@@ -1418,15 +1468,17 @@ updateAiButtonState();
     });
 
     searchInput.addEventListener('keydown', function(e) {
+        var hasItems = dropdown.style.display === 'block' &&
+            ((dropdown._filtered && dropdown._filtered.length) || (dropdown._addButtons && dropdown._addButtons.length));
         if (e.key === 'ArrowDown' || (e.key === 'Tab' && !e.shiftKey)) {
-            if (dropdown.style.display === 'block' && currentResults.length > 0) {
+            if (hasItems) {
                 e.preventDefault();
-                moveSel(1);
+                moveSel(1, e.key === 'Tab');
             }
         } else if (e.key === 'ArrowUp' || (e.key === 'Tab' && e.shiftKey)) {
-            if (dropdown.style.display === 'block' && currentResults.length > 0) {
+            if (hasItems) {
                 e.preventDefault();
-                moveSel(-1);
+                moveSel(-1, e.key === 'Tab');
             }
         } else if (e.key === 'Enter') {
             e.preventDefault();
@@ -1442,6 +1494,63 @@ updateAiButtonState();
 
     // Click on dropdown item
     dropdown.addEventListener('click', function(e) {
+        // "Add as new customer contact" button
+        var custBtn = e.target.closest('[data-action="add-customer-contact"]');
+        if (custBtn) {
+            e.preventDefault();
+            var q = searchInput.value.trim();
+            if (!q) return;
+            var custId = getCustomerId();
+            if (!custId) return;
+            var payload = {name: q};
+            if (q.includes('@')) {
+                payload.email = q;
+                payload.name = q.split('@')[0].replace(/[._-]/g, ' ').replace(/\b\w/g, function(c) { return c.toUpperCase(); });
+            }
+            fetch('/api/customer/' + custId + '/contacts', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(payload),
+            })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.id) {
+                    addAttendee('customer_contact', data.id, data.name, data.email || null);
+                }
+            });
+            return;
+        }
+
+        // "Add as new partner contact" button
+        var partnerBtn = e.target.closest('[data-action="add-partner-contact"]');
+        if (partnerBtn) {
+            e.preventDefault();
+            var q = searchInput.value.trim();
+            if (!q) return;
+            var pids = getPartnerIds();
+            // Use detected partner or fall back to first attached partner
+            var detected = _detectContactType(q);
+            var partnerId = (partnerBtn.dataset.partnerId) || (detected && detected.partnerId) || pids[0];
+            if (!partnerId) return;
+            var payload = {name: q};
+            if (q.includes('@')) {
+                payload.email = q;
+                payload.name = q.split('@')[0].replace(/[._-]/g, ' ').replace(/\b\w/g, function(c) { return c.toUpperCase(); });
+            }
+            fetch('/api/partner/' + partnerId + '/contacts', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(payload),
+            })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.id) {
+                    addAttendee('partner_contact', data.id, data.name, data.email || null);
+                }
+            });
+            return;
+        }
+
         // "Add as new internal contact" button
         var addBtn = e.target.closest('[data-action="add-internal"]');
         if (addBtn) {
@@ -1489,6 +1598,17 @@ updateAiButtonState();
             selectedIndex = parseInt(btn.dataset.idx);
             dropdown.querySelectorAll('.list-group-item').forEach(function(el) { el.classList.remove('enter-target'); });
             btn.classList.add('enter-target');
+            return;
+        }
+        var actionBtn = e.target.closest('[data-action]');
+        if (actionBtn) {
+            // Calculate global index for this add button
+            var filtered = dropdown._filtered || [];
+            var allActions = dropdown.querySelectorAll('[data-action]');
+            var actionIdx = Array.prototype.indexOf.call(allActions, actionBtn);
+            selectedIndex = filtered.length + actionIdx;
+            dropdown.querySelectorAll('.list-group-item').forEach(function(el) { el.classList.remove('enter-target'); });
+            actionBtn.classList.add('enter-target');
         }
     });
 
@@ -2120,9 +2240,88 @@ function flyoutDeleteContact(id) {
 function escHtmlNote(s) { var d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
 function escAttrNote(s) { return s.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/'/g,'&#39;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
+// ---- Customer & partner email domain cache (for smart contact type detection) ----
+var _customerEmailDomains = [];
+var _partnerDomainMap = {};  // {domain: {id, name}}
+
+function _fetchCustomerDomains(customerId) {
+    if (!customerId) { _customerEmailDomains = []; return; }
+    if (_custInfoCache[customerId] && _custInfoCache[customerId].email_domains) {
+        _customerEmailDomains = _custInfoCache[customerId].email_domains;
+        return;
+    }
+    fetch('/api/customer/' + customerId + '/info')
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            _custInfoCache[customerId] = data;
+            _customerEmailDomains = data.email_domains || [];
+        })
+        .catch(function() { _customerEmailDomains = []; });
+}
+
+function _fetchPartnerDomains(partnerIds) {
+    _partnerDomainMap = {};
+    if (!partnerIds || !partnerIds.length) return;
+    partnerIds.forEach(function(pid) {
+        fetch('/api/partners/' + pid)
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                var domains = [];
+                if (data.website) {
+                    var d = data.website.toLowerCase()
+                        .replace('https://', '').replace('http://', '')
+                        .replace('www.', '').split('/')[0];
+                    if (d) domains.push(d);
+                }
+                (data.contacts || []).forEach(function(c) {
+                    if (c.email && c.email.includes('@')) {
+                        domains.push(c.email.split('@')[1].toLowerCase());
+                    }
+                });
+                domains.forEach(function(d) {
+                    if (!_partnerDomainMap[d]) {
+                        _partnerDomainMap[d] = {id: data.id, name: data.name};
+                    }
+                });
+            })
+            .catch(function() {});
+    });
+}
+
+function _detectContactType(query) {
+    // Returns {type: 'internal'|'customer'|'partner', partnerId?, partnerName?} or null
+    if (!query || !query.includes('@')) return null;
+    var domain = query.split('@')[1].toLowerCase();
+    if (domain === 'microsoft.com') return {type: 'internal'};
+    for (var i = 0; i < _customerEmailDomains.length; i++) {
+        if (domain === _customerEmailDomains[i]) return {type: 'customer'};
+    }
+    if (_partnerDomainMap[domain]) {
+        return {type: 'partner', partnerId: _partnerDomainMap[domain].id, partnerName: _partnerDomainMap[domain].name};
+    }
+    return null;
+}
+
 // ---- Customer Info Flyout ----
 var _custInfoFlyoutInstance = null;
 var _custInfoCache = {};
+
+// Fetch customer + partner domains on page load if pre-selected
+(function() {
+    var sel = document.getElementById('customer_id');
+    var custId = null;
+    if (sel && sel.disabled) {
+        var hidden = document.querySelector('input[type="hidden"][name="customer_id"]');
+        custId = hidden ? hidden.value : sel.value;
+    } else if (sel) {
+        custId = sel.value;
+    }
+    if (custId) _fetchCustomerDomains(custId);
+    // Fetch partner domains from any pre-attached partners
+    var partnerInputs = document.querySelectorAll('input[name="partner_ids"]');
+    var pids = Array.from(partnerInputs).map(function(i) { return i.value; }).filter(Boolean);
+    if (pids.length) _fetchPartnerDomains(pids);
+})();
 
 function openCustomerInfoFlyout() {
     var custId = getSelectedCustomerId();
@@ -2518,6 +2717,7 @@ document.getElementById('noteForm').onsubmit = function(e) {
     if (customerSelect) {
         customerSelect.addEventListener('change', function() {
             const customerId = this.value;
+            _fetchCustomerDomains(customerId);
             const engSection = document.getElementById('engagementSection');
             
             if (!customerId) {
@@ -3474,6 +3674,10 @@ function addPartner(partnerId, partnerName) {
     partnerDropdown.style.display = 'none';
     currentPartnerMatches = [];
     
+    // Refresh partner domain cache
+    var pids = Array.from(document.querySelectorAll('input[name="partner_ids"]')).map(function(i) { return i.value; }).filter(Boolean);
+    _fetchPartnerDomains(pids);
+
     // Trigger debounced auto-save
     debouncedAutoSave();
 }
@@ -3482,6 +3686,9 @@ function removePartner(partnerId) {
     const badge = selectedPartnersContainer.querySelector(`span[data-partner-id="${partnerId}"]`);
     if (badge) {
         badge.remove();
+        // Refresh partner domain cache
+        var pids = Array.from(document.querySelectorAll('input[name="partner_ids"]')).map(function(i) { return i.value; }).filter(Boolean);
+        _fetchPartnerDomains(pids);
         // Trigger debounced auto-save
         debouncedAutoSave();
     }
@@ -7731,26 +7938,36 @@ function _wireEngContactSearch(searchInput, dropdown, container, customerId, opt
                     return !existing.some(function(e) { return e.type === r.type && String(e.ref_id) === String(r.id); });
                 });
                 selectedIdx = -1;
-                _renderEngContactDropdown(dropdown, results, selectedIdx, q, opts);
+                _renderEngContactDropdown(dropdown, results, selectedIdx, q, opts, customerId);
             });
         }, 200);
     });
 
     searchInput.addEventListener('keydown', function(e) {
         if (dropdown.style.display === 'none') return;
-        var totalItems = results.length + (searchInput.value.trim().length >= 2 ? 1 : 0);
-        if (e.key === 'ArrowDown') {
-            e.preventDefault(); selectedIdx = Math.min(selectedIdx + 1, totalItems - 1);
-            _renderEngContactDropdown(dropdown, results, selectedIdx, searchInput.value.trim(), opts);
-        } else if (e.key === 'ArrowUp') {
-            e.preventDefault(); selectedIdx = Math.max(selectedIdx - 1, 0);
-            _renderEngContactDropdown(dropdown, results, selectedIdx, searchInput.value.trim(), opts);
+        var q = searchInput.value.trim();
+        var totalItems = dropdown._totalItems || 0;
+        if (e.key === 'ArrowDown' || (e.key === 'Tab' && !e.shiftKey)) {
+            if (totalItems > 0) {
+                e.preventDefault();
+                var next = selectedIdx + 1;
+                selectedIdx = (e.key === 'Tab' && next >= totalItems) ? 0 : Math.min(next, totalItems - 1);
+                _renderEngContactDropdown(dropdown, results, selectedIdx, q, opts, customerId);
+            }
+        } else if (e.key === 'ArrowUp' || (e.key === 'Tab' && e.shiftKey)) {
+            if (totalItems > 0) {
+                e.preventDefault();
+                var prev = selectedIdx - 1;
+                selectedIdx = (e.key === 'Tab' && prev < 0) ? totalItems - 1 : Math.max(prev, 0);
+                _renderEngContactDropdown(dropdown, results, selectedIdx, q, opts, customerId);
+            }
         } else if (e.key === 'Enter') {
             e.preventDefault();
             if (selectedIdx >= 0 && selectedIdx < results.length) {
                 opts.onAdd(results[selectedIdx]);
-            } else if (selectedIdx === results.length && searchInput.value.trim().length >= 2) {
-                _addInternalContactFromEngSearch(searchInput.value.trim(), opts);
+            } else if (selectedIdx >= results.length && q.length >= 2) {
+                var activeBtn = dropdown.querySelector('.enter-target[data-action]');
+                if (activeBtn) activeBtn.click();
             }
             dropdown.style.display = 'none'; searchInput.value = '';
         } else if (e.key === 'Escape') {
@@ -7765,25 +7982,57 @@ function _wireEngContactSearch(searchInput, dropdown, container, customerId, opt
     });
 }
 
-function _renderEngContactDropdown(dropdown, results, selectedIdx, query, opts) {
-    if (results.length === 0 && (!query || query.length < 2)) {
+function _renderEngContactDropdown(dropdown, results, selectedIdx, query, opts, customerId) {
+    var addButtons = [];
+    if (query && query.length >= 2) {
+        var detected = _detectContactType(query);
+        var detType = detected ? detected.type : null;
+        var pids = Array.from(document.querySelectorAll('input[name="partner_ids"]')).map(function(i) { return i.value; }).filter(Boolean);
+        if (customerId && detType !== 'internal' && detType !== 'partner') {
+            addButtons.push({action: 'add-customer-contact', cls: 'text-success',
+                label: '<i class="bi bi-building me-1"></i>Add "<strong>' + _escContactHtml(query) + '</strong>" as customer contact'});
+        }
+        if (pids.length && (detType === 'partner' || !detType)) {
+            var partnerLabel = detected && detected.partnerName ? ' (' + _escContactHtml(detected.partnerName) + ')' : '';
+            var partnerId = (detected && detected.partnerId) || pids[0];
+            addButtons.push({action: 'add-partner-contact', cls: 'text-purple',
+                label: '<i class="bi bi-briefcase me-1"></i>Add "<strong>' + _escContactHtml(query) + '</strong>" as partner contact' + partnerLabel,
+                extra: ' data-partner-id="' + partnerId + '"'});
+        }
+        if (detType !== 'customer' && detType !== 'partner') {
+            addButtons.push({action: 'add-internal', cls: 'text-info',
+                label: '<i class="bi bi-person-badge me-1"></i>Add "<strong>' + _escContactHtml(query) + '</strong>" as internal contact'});
+        }
+    }
+    var totalItems = results.length + addButtons.length;
+    if (totalItems === 0 && (!query || query.length < 2)) {
         dropdown.style.display = 'none'; return;
     }
+    // Default to first item
+    if (selectedIdx < 0 || selectedIdx >= totalItems) selectedIdx = totalItems > 0 ? 0 : -1;
     var html = '';
+    if (results.length === 0 && addButtons.length > 0) {
+        html += '<div class="list-group-item text-muted small py-1 px-2">No matches</div>';
+    }
     results.forEach(function(r, i) {
-        var cls = i === selectedIdx ? 'list-group-item list-group-item-action active' : 'list-group-item list-group-item-action';
+        var cls = i === selectedIdx ? ' enter-target' : '';
         var detail = r.detail ? ' <small class="text-muted">(' + _escContactHtml(r.detail) + ')</small>' : '';
-        html += '<button type="button" class="' + cls + ' py-1 px-2 small" data-idx="' + i + '">' +
+        html += '<button type="button" class="list-group-item list-group-item-action py-1 px-2 small' + cls + '" data-idx="' + i + '">' +
             '<i class="bi ' + (r.icon || 'bi-person') + ' me-1"></i>' +
             _escContactHtml(r.name) + detail + '</button>';
     });
-    if (query && query.length >= 2) {
-        var addCls = selectedIdx === results.length ? 'list-group-item list-group-item-action active' : 'list-group-item list-group-item-action';
-        html += '<button type="button" class="' + addCls + ' py-1 px-2 small text-info" data-action="add-internal">' +
-            '<i class="bi bi-plus-circle me-1"></i>Add "<strong>' + _escContactHtml(query) + '</strong>" as internal contact</button>';
-    }
+    addButtons.forEach(function(ab, i) {
+        var globalIdx = results.length + i;
+        var cls = globalIdx === selectedIdx ? ' enter-target' : '';
+        html += '<button type="button" class="list-group-item list-group-item-action py-1 px-2 small ' + ab.cls + cls + '" data-action="' + ab.action + '"' + (ab.extra || '') + '>' +
+            ab.label + '</button>';
+    });
     dropdown.innerHTML = html;
     dropdown.style.display = html ? '' : 'none';
+    dropdown._totalItems = totalItems;
+
+    var activeEl = dropdown.querySelector('.enter-target');
+    if (activeEl) activeEl.scrollIntoView({ block: 'nearest' });
 
     dropdown.querySelectorAll('[data-idx]').forEach(function(btn) {
         btn.addEventListener('click', function() {
@@ -7793,6 +8042,23 @@ function _renderEngContactDropdown(dropdown, results, selectedIdx, query, opts) 
             dropdown.closest('.mb-2, .mb-3').querySelector('input[type="text"]').value = '';
         });
     });
+    var custBtn = dropdown.querySelector('[data-action="add-customer-contact"]');
+    if (custBtn) {
+        custBtn.addEventListener('click', function() {
+            _addCustomerContactFromEngSearch(query, customerId, opts);
+            dropdown.style.display = 'none';
+            dropdown.closest('.mb-2, .mb-3').querySelector('input[type="text"]').value = '';
+        });
+    }
+    var partBtn = dropdown.querySelector('[data-action="add-partner-contact"]');
+    if (partBtn) {
+        partBtn.addEventListener('click', function() {
+            var pid = partBtn.dataset.partnerId;
+            _addPartnerContactFromEngSearch(query, pid, opts);
+            dropdown.style.display = 'none';
+            dropdown.closest('.mb-2, .mb-3').querySelector('input[type="text"]').value = '';
+        });
+    }
     var addBtn = dropdown.querySelector('[data-action="add-internal"]');
     if (addBtn) {
         addBtn.addEventListener('click', function() {
@@ -7801,6 +8067,40 @@ function _renderEngContactDropdown(dropdown, results, selectedIdx, query, opts) 
             dropdown.closest('.mb-2, .mb-3').querySelector('input[type="text"]').value = '';
         });
     }
+}
+
+function _addCustomerContactFromEngSearch(query, customerId, opts) {
+    var payload = {name: query};
+    if (query.includes('@')) {
+        payload.email = query;
+        payload.name = query.split('@')[0].replace(/[._-]/g, ' ').replace(/\b\w/g, function(c) { return c.toUpperCase(); });
+    }
+    fetch('/api/customer/' + customerId + '/contacts', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload)
+    }).then(function(r) { return r.json(); }).then(function(data) {
+        if (data.id) {
+            opts.onAdd({type: 'customer_contact', id: data.id, name: data.name, email: data.email || '', icon: 'bi-person-circle', color: 'success'});
+        }
+    });
+}
+
+function _addPartnerContactFromEngSearch(query, partnerId, opts) {
+    var payload = {name: query};
+    if (query.includes('@')) {
+        payload.email = query;
+        payload.name = query.split('@')[0].replace(/[._-]/g, ' ').replace(/\b\w/g, function(c) { return c.toUpperCase(); });
+    }
+    fetch('/api/partner/' + partnerId + '/contacts', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload)
+    }).then(function(r) { return r.json(); }).then(function(data) {
+        if (data.id) {
+            opts.onAdd({type: 'partner_contact', id: data.id, name: data.name, email: data.email || '', icon: 'bi-building', color: 'purple'});
+        }
+    });
 }
 
 function _addInternalContactFromEngSearch(name, opts) {
