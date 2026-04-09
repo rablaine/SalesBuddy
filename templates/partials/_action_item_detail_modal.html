@@ -3,9 +3,9 @@
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title flex-grow-1" id="aiDetailTitle"></h5>
-                <span class="me-2" id="aiDetailDueBadge"></span>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                <h5 class="modal-title" id="aiDetailTitle"></h5>
+                <span class="ms-2" id="aiDetailDueBadge"></span>
+                <button type="button" class="btn-close ms-auto" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body" id="aiDetailBody">
                 <!-- View mode (default) -->
@@ -52,7 +52,7 @@
             </div>
             <div class="modal-footer" id="aiDetailFooter">
                 <!-- View mode footer -->
-                <div id="aiDetailViewFooter">
+                <div id="aiDetailViewFooter" class="d-flex flex-wrap align-items-center gap-2 w-100">
                     <button type="button" class="btn btn-outline-danger btn-sm" id="aiDetailNotUsefulBtn" style="display: none;" onclick="notUsefulCopilotTask()" title="Stop suggesting tasks like this one">
                         <i class="bi bi-hand-thumbs-down"></i> Not Useful
                     </button>
@@ -61,11 +61,13 @@
                     <button type="button" class="btn btn-outline-warning" id="aiDetailDismissBtn" style="display: none;" onclick="dismissCopilotTask()" title="Hide this task without completing it">
                         <i class="bi bi-x-lg"></i> Dismiss
                     </button>
-                    <button type="button" class="btn btn-outline-info" id="aiDetailSaveBtn" style="display: none;" onclick="saveCopilotTask()" title="Pin this task so it survives the daily refresh">
-                        <i class="bi bi-pin-angle"></i> Save Task
-                    </button>
-                    <input type="date" class="form-control form-control-sm" id="aiDetailSaveDue"
-                           style="display: none; width: 150px;" title="Set a due date (optional)">
+                    <div id="aiDetailSaveGroup" class="d-inline-flex align-items-center gap-2" style="display: none !important;">
+                        <input type="date" class="form-control form-control-sm" id="aiDetailSaveDue"
+                               style="width: 150px;" title="Set a due date (optional)">
+                        <button type="button" class="btn btn-outline-info" id="aiDetailSaveBtn" onclick="saveCopilotTask()" title="Pin this task so it survives the daily refresh">
+                            <i class="bi bi-pin-angle"></i> Save
+                        </button>
+                    </div>
                     <a href="#" class="btn btn-primary" id="aiDetailEngLink" style="display: none;">
                         <i class="bi bi-diagram-3"></i> Go to Engagement
                     </a>
@@ -98,7 +100,14 @@ function viewActionItem(taskId, opts) {
     .then(function(data) {
         if (!data || !data.task) return;
         _renderViewMode(data.task, taskId, opts);
-        new bootstrap.Modal(document.getElementById('actionItemDetailModal')).show();
+        var el = document.getElementById('actionItemDetailModal');
+        // Dispose previous instance so we can recreate with correct backdrop
+        var existing = bootstrap.Modal.getInstance(el);
+        if (existing) existing.dispose();
+        // If another modal is already open, suppress the extra backdrop
+        var hasOpenModal = document.querySelector('.modal.show');
+        var m = new bootstrap.Modal(el, {backdrop: hasOpenModal ? false : true});
+        m.show();
     })
     .catch(function(err) { console.error(err); });
 }
@@ -173,24 +182,25 @@ function _renderViewMode(t, taskId, opts) {
     }
 
     // Copilot-specific buttons
+    var saveGroup = document.getElementById('aiDetailSaveGroup');
     var saveBtn = document.getElementById('aiDetailSaveBtn');
     var dismissBtn = document.getElementById('aiDetailDismissBtn');
     var notUsefulBtn = document.getElementById('aiDetailNotUsefulBtn');
     var saveDueInput = document.getElementById('aiDetailSaveDue');
     if (t.source === 'copilot') {
-        saveBtn.style.display = '';
+        saveGroup.style.display = '';
+        saveGroup.classList.add('d-inline-flex');
         saveBtn.dataset.taskId = taskId;
         dismissBtn.style.display = '';
         dismissBtn.dataset.taskId = taskId;
         notUsefulBtn.style.display = '';
         notUsefulBtn.dataset.taskId = taskId;
-        saveDueInput.style.display = '';
         saveDueInput.value = '';
     } else {
-        saveBtn.style.display = 'none';
+        saveGroup.style.display = 'none';
+        saveGroup.classList.remove('d-inline-flex');
         dismissBtn.style.display = 'none';
         notUsefulBtn.style.display = 'none';
-        saveDueInput.style.display = 'none';
     }
 
     // Engagement link

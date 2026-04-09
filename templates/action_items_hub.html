@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+
+{% block title %}Action Items - Sales Buddy{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h2><i class="bi bi-check2-square"></i> Action Items</h2>
+</div>
+
+{% include 'partials/_action_items_hub.html' %}
+
+{% include 'partials/_action_item_detail_modal.html' %}
+
+<!-- Milestone Detail Modal -->
+<div class="modal fade" id="actionItemsMilestoneModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-scrollable" style="max-width: min(1100px, calc(100vw - 3rem)); width: calc(100vw - 3rem);">
+        <div class="modal-content" style="max-height: 90vh;">
+            <div class="modal-header py-2">
+                <div class="d-flex align-items-center gap-2">
+                    <h5 class="modal-title mb-0"><i class="bi bi-flag"></i> <span id="aiMsTitle">Loading...</span></h5>
+                    <span id="aiMsBadge"></span>
+                </div>
+                <div class="d-flex align-items-center gap-2">
+                    <a id="aiMsMsxLink" href="#" target="_blank" class="btn btn-sm btn-outline-primary" style="display:none"><i class="bi bi-box-arrow-up-right"></i> MSX</a>
+                    <a id="aiMsFullLink" href="#" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrows-fullscreen"></i> Full Page</a>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+            </div>
+            <div class="modal-body p-3" id="aiMsBody">
+                <div class="text-center py-5">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+<script>
+(function() {
+    var msModal = null;
+    var titleEl = document.getElementById('aiMsTitle');
+    var bodyEl = document.getElementById('aiMsBody');
+    var badgeEl = document.getElementById('aiMsBadge');
+    var msxLink = document.getElementById('aiMsMsxLink');
+    var fullLink = document.getElementById('aiMsFullLink');
+
+    window.openActionItemsMilestone = function(event, msId, msTitle, msStatus, msUrl) {
+        if (event.target.closest('a, button')) return;
+        if (!msModal) {
+            msModal = new bootstrap.Modal(document.getElementById('actionItemsMilestoneModal'));
+        }
+        titleEl.textContent = msTitle;
+        if (msStatus) {
+            var cls = {'On Track':'bg-success','At Risk':'bg-warning text-dark','Blocked':'bg-danger','Completed':'bg-info'}[msStatus] || 'bg-secondary';
+            badgeEl.innerHTML = '<span class="badge ' + cls + '">' + msStatus + '</span>';
+        } else {
+            badgeEl.innerHTML = '';
+        }
+        if (msUrl) { msxLink.href = msUrl; msxLink.style.display = ''; } else { msxLink.style.display = 'none'; }
+        fullLink.href = '/milestone/' + msId;
+        bodyEl.innerHTML = '<div class="text-center py-5"><div class="spinner-border text-primary" role="status"><span class="visually-hidden">Loading...</span></div></div>';
+        msModal.show();
+        fetch('/api/milestone/' + msId + '/detail')
+            .then(function(r) { if (!r.ok) throw new Error(); return r.text(); })
+            .then(function(html) {
+                bodyEl.innerHTML = html;
+                bodyEl.querySelectorAll('script').forEach(function(old) {
+                    var s = document.createElement('script');
+                    if (old.src) { s.src = old.src; } else { s.textContent = '(function(){' + old.textContent + '})();'; }
+                    old.replaceWith(s);
+                });
+            })
+            .catch(function() { bodyEl.innerHTML = '<div class="text-danger p-3"><i class="bi bi-exclamation-triangle"></i> Failed to load milestone details.</div>'; });
+    };
+})();
+</script>
+{% endblock %}
