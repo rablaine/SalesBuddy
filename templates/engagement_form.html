@@ -248,6 +248,33 @@ function removeContact(btn) {
     var debounceTimer = null;
     var currentResults = [];
     var selectedIndex = -1;
+    var customerId = {{ customer.id }};
+    var _engEmailDomains = null;  // lazy-loaded
+
+    function _ensureDomains(cb) {
+        if (_engEmailDomains !== null) { cb(); return; }
+        fetch('/api/customer/' + customerId + '/info')
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                _engEmailDomains = data.email_domains || [];
+                cb();
+            })
+            .catch(function() { _engEmailDomains = []; cb(); });
+    }
+    // Pre-fetch on load
+    _ensureDomains(function() {});
+
+    function _detectEngContactType(query) {
+        if (!query || !query.includes('@')) return null;
+        var domain = query.split('@')[1].toLowerCase();
+        if (domain === 'microsoft.com') return 'internal';
+        if (_engEmailDomains) {
+            for (var i = 0; i < _engEmailDomains.length; i++) {
+                if (domain === _engEmailDomains[i]) return 'customer';
+            }
+        }
+        return null;
+    }
 
     function isAlreadyAdded(type, id) {
         var badges = container.querySelectorAll('[data-contact-type]');
@@ -307,20 +334,35 @@ function removeContact(btn) {
             return !isAlreadyAdded(r.type, r.id);
         });
         var q = searchInput.value.trim();
-        var addNewHtml = q.length >= 2
-            ? '<button type="button" class="list-group-item list-group-item-action small py-1 text-warning-emphasis" data-action="add-internal">' +
-              '<i class="bi bi-person-plus me-1"></i>Add <strong>' + escHtml(q) + '</strong> as internal contact</button>'
-            : '';
-        if (filtered.length === 0) {
-            dropdown.innerHTML = '<div class="list-group-item text-muted small">No matches</div>' + addNewHtml;
+        var addButtons = [];
+        if (q.length >= 2) {
+            var detected = _detectEngContactType(q);
+            // "Add as customer contact" button (shown unless detected as internal)
+            if (detected !== 'internal') {
+                addButtons.push({action: 'add-customer-contact', cls: 'text-success-emphasis',
+                    label: '<i class="bi bi-building me-1"></i>Add <strong>' + escHtml(q) + '</strong> as customer contact'});
+            }
+            // "Add as internal contact" button (shown unless detected as customer)
+            if (detected !== 'customer') {
+                addButtons.push({action: 'add-internal', cls: 'text-warning-emphasis',
+                    label: '<i class="bi bi-person-badge me-1"></i>Add <strong>' + escHtml(q) + '</strong> as internal contact'});
+            }
+        }
+        var totalItems = filtered.length + addButtons.length;
+        if (selectedIndex < 0 || selectedIndex >= totalItems) {
+            selectedIndex = totalItems > 0 ? 0 : -1;
+        }
+        if (filtered.length === 0 && addButtons.length === 0) {
+            dropdown.innerHTML = '<div class="list-group-item text-muted small">No matches</div>';
             dropdown.style.display = 'block';
             selectedIndex = -1;
             return;
         }
-        if (selectedIndex < 0 || selectedIndex >= filtered.length) {
-            selectedIndex = 0;
+        var html = '';
+        if (filtered.length === 0 && addButtons.length > 0) {
+            html += '<div class="list-group-item text-muted small">No matches</div>';
         }
-        dropdown.innerHTML = filtered.map(function(r, idx) {
+        html += filtered.map(function(r, idx) {
             var active = (idx === selectedIndex) ? ' enter-target' : '';
             return '<button type="button" class="list-group-item list-group-item-action small py-1' + active + '" data-idx="' + idx + '">' +
                 '<i class="bi ' + r.icon + ' text-' + r.color + ' me-1"></i>' +
@@ -328,9 +370,17 @@ function removeContact(btn) {
                 (r.detail ? ' <span class="text-muted">- ' + escHtml(r.detail) + '</span>' : '') +
                 (r.email ? ' <span class="text-muted small">(' + escHtml(r.email) + ')</span>' : '') +
                 '</button>';
-        }).join('') + addNewHtml;
+        }).join('');
+        addButtons.forEach(function(ab, i) {
+            var globalIdx = filtered.length + i;
+            var active = (globalIdx === selectedIndex) ? ' enter-target' : '';
+            html += '<button type="button" class="list-group-item list-group-item-action small py-1 ' + ab.cls + active + '" data-action="' + ab.action + '">' +
+                ab.label + '</button>';
+        });
+        dropdown.innerHTML = html;
         dropdown.style.display = 'block';
         dropdown._filtered = filtered;
+        dropdown._addButtons = addButtons;
 
         var active = dropdown.querySelector('.enter-target');
         if (active) active.scrollIntoView({ block: 'nearest' });
@@ -338,17 +388,29 @@ function removeContact(btn) {
 
     function selectCurrent() {
         var filtered = dropdown._filtered || [];
-        if (selectedIndex < 0 || selectedIndex >= filtered.length) return;
-        var r = filtered[selectedIndex];
-        addContact(r.type, r.id, r.name);
+        var addButtons = dropdown._addButtons || [];
+        if (selectedIndex >= 0 && selectedIndex < filtered.length) {
+            var r = filtered[selectedIndex];
+            addContact(r.type, r.id, r.name);
+        } else if (selectedIndex >= filtered.length) {
+            var activeBtn = dropdown.querySelector('.enter-target[data-action]');
+            if (activeBtn) activeBtn.click();
+        }
     }
 
-    function moveSel(delta) {
+    function moveSel(delta, wrap) {
         var filtered = dropdown._filtered || [];
-        if (filtered.length === 0) return;
+        var addButtons = dropdown._addButtons || [];
+        var total = filtered.length + addButtons.length;
+        if (total === 0) return;
         var next = selectedIndex + delta;
-        if (next < 0) next = 0;
-        if (next >= filtered.length) next = filtered.length - 1;
+        if (wrap) {
+            if (next < 0) next = total - 1;
+            if (next >= total) next = 0;
+        } else {
+            if (next < 0) next = 0;
+            if (next >= total) next = total - 1;
+        }
         selectedIndex = next;
         renderDropdown();
     }
@@ -363,7 +425,6 @@ function removeContact(btn) {
         }
         clearTimeout(debounceTimer);
         debounceTimer = setTimeout(function() {
-            var customerId = {{ customer.id }};
             var url = '/api/engagement-contact-search?q=' + encodeURIComponent(q) +
                       '&customer_id=' + customerId;
 
@@ -378,15 +439,17 @@ function removeContact(btn) {
     });
 
     searchInput.addEventListener('keydown', function(e) {
+        var hasItems = dropdown.style.display === 'block' &&
+            ((dropdown._filtered && dropdown._filtered.length) || (dropdown._addButtons && dropdown._addButtons.length));
         if (e.key === 'ArrowDown' || (e.key === 'Tab' && !e.shiftKey)) {
-            if (dropdown.style.display === 'block' && currentResults.length > 0) {
+            if (hasItems) {
                 e.preventDefault();
-                moveSel(1);
+                moveSel(1, e.key === 'Tab');
             }
         } else if (e.key === 'ArrowUp' || (e.key === 'Tab' && e.shiftKey)) {
-            if (dropdown.style.display === 'block' && currentResults.length > 0) {
+            if (hasItems) {
                 e.preventDefault();
-                moveSel(-1);
+                moveSel(-1, e.key === 'Tab');
             }
         } else if (e.key === 'Enter') {
             e.preventDefault();
@@ -402,6 +465,31 @@ function removeContact(btn) {
 
     // Click on dropdown item
     dropdown.addEventListener('click', function(e) {
+        // "Add as new customer contact" button
+        var custBtn = e.target.closest('[data-action="add-customer-contact"]');
+        if (custBtn) {
+            e.preventDefault();
+            var q = searchInput.value.trim();
+            if (!q) return;
+            var payload = {name: q};
+            if (q.includes('@')) {
+                payload.email = q;
+                payload.name = q.split('@')[0].replace(/[._-]/g, ' ').replace(/\b\w/g, function(c) { return c.toUpperCase(); });
+            }
+            fetch('/api/customer/' + customerId + '/contacts', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(payload),
+            })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.id) {
+                    addContact('customer_contact', data.id, data.name, data.email || null);
+                }
+            });
+            return;
+        }
+
         // "Add as new internal contact" button
         var addBtn = e.target.closest('[data-action="add-internal"]');
         if (addBtn) {
@@ -448,6 +536,16 @@ function removeContact(btn) {
             selectedIndex = parseInt(btn.dataset.idx);
             dropdown.querySelectorAll('.list-group-item').forEach(function(el) { el.classList.remove('enter-target'); });
             btn.classList.add('enter-target');
+            return;
+        }
+        var actionBtn = e.target.closest('[data-action]');
+        if (actionBtn) {
+            var filtered = dropdown._filtered || [];
+            var allActions = dropdown.querySelectorAll('[data-action]');
+            var actionIdx = Array.prototype.indexOf.call(allActions, actionBtn);
+            selectedIndex = filtered.length + actionIdx;
+            dropdown.querySelectorAll('.list-group-item').forEach(function(el) { el.classList.remove('enter-target'); });
+            actionBtn.classList.add('enter-target');
         }
     });
 

@@ -43,6 +43,7 @@ data/
 # IDE
 .vscode/
 .idea/
+*.sln
 *.swp
 *.swo
 *~

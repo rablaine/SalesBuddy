@@ -263,6 +263,27 @@ def contact_delete(partner_id, contact_id):
     return redirect(url_for('partners.partner_view', id=partner_id))
 
 
+@partners_bp.route('/api/partner/<int:partner_id>/contacts', methods=['POST'])
+def api_partner_contact_create(partner_id):
+    """Create a new contact for a partner (JSON API)."""
+    Partner.query.get_or_404(partner_id)
+    data = request.get_json()
+    name = (data.get('name') or '').strip()
+    if not name:
+        return jsonify({'error': 'Name is required'}), 400
+
+    contact = PartnerContact(
+        partner_id=partner_id,
+        name=name,
+        email=(data.get('email') or '').strip() or None,
+        title=(data.get('title') or '').strip() or None,
+    )
+    db.session.add(contact)
+    db.session.commit()
+    return jsonify({'id': contact.id, 'name': contact.name,
+                    'email': contact.email or '', 'title': contact.title or ''}), 201
+
+
 @partners_bp.route('/api/partner/contact/<int:contact_id>/photo', methods=['POST'])
 def api_partner_contact_photo(contact_id):
     """Save a photo for a partner contact. Runs face detection server-side."""

@@ -1,6 +1,6 @@
 """Tests for customer contacts feature."""
 import pytest
-from app.models import db, Customer, CustomerContact
+from app.models import db, Customer, CustomerContact, Partner, PartnerContact
 
 
 class TestCustomerContactModel:
@@ -256,3 +256,117 @@ class TestContactsFlyoutOnNoteForm:
         # The button element with onclick is inside {% if not is_general_note %}, so
         # the actual clickable button should not be in DOM. JS refs may still exist.
         assert b'id="contactsFlyoutBtn"' not in resp.data
+
+
+class TestCustomerInfoEmailDomains:
+    """Tests for email_domains in the customer info API."""
+
+    def test_info_returns_email_domains_from_website(self, client, app, sample_data):
+        """Customer with website should include that domain in email_domains."""
+        with app.app_context():
+            customer = db.session.get(Customer, sample_data['customer1_id'])
+            customer.website = 'https://www.acmecorp.com/about'
+            db.session.commit()
+
+        resp = client.get(f'/api/customer/{sample_data["customer1_id"]}/info')
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert 'email_domains' in data
+        assert 'acmecorp.com' in data['email_domains']
+
+    def test_info_returns_email_domains_from_contacts(self, client, app, sample_data):
+        """Contact emails should contribute their domains to email_domains."""
+        with app.app_context():
+            c1 = CustomerContact(
+                customer_id=sample_data['customer1_id'],
+                name='Jane', email='jane@streamline.com',
+            )
+            c2 = CustomerContact(
+                customer_id=sample_data['customer1_id'],
+                name='Bob', email='bob@streamlinehealth.net',
+            )
+            db.session.add_all([c1, c2])
+            db.session.commit()
+
+        resp = client.get(f'/api/customer/{sample_data["customer1_id"]}/info')
+        data = resp.get_json()
+        assert 'streamline.com' in data['email_domains']
+        assert 'streamlinehealth.net' in data['email_domains']
+
+    def test_info_email_domains_deduped(self, client, app, sample_data):
+        """Duplicate domains from multiple contacts should appear only once."""
+        with app.app_context():
+            c1 = CustomerContact(
+                customer_id=sample_data['customer1_id'],
+                name='A', email='a@example.com',
+            )
+            c2 = CustomerContact(
+                customer_id=sample_data['customer1_id'],
+                name='B', email='b@example.com',
+            )
+            db.session.add_all([c1, c2])
+            db.session.commit()
+
+        resp = client.get(f'/api/customer/{sample_data["customer1_id"]}/info')
+        data = resp.get_json()
+        assert data['email_domains'].count('example.com') == 1
+
+    def test_info_email_domains_empty_when_no_data(self, client, sample_data):
+        """Customer with no website and no contacts should return empty list."""
+        resp = client.get(f'/api/customer/{sample_data["customer1_id"]}/info')
+        data = resp.get_json()
+        assert data['email_domains'] == []
+
+
+class TestPartnerContactAPI:
+    """Tests for the partner contact JSON API endpoint."""
+
+    def _make_partner(self, app):
+        with app.app_context():
+            p = Partner(name='Contoso Partners', website='contoso.com')
+            db.session.add(p)
+            db.session.commit()
+            return p.id
+
+    def test_create_partner_contact(self, client, app):
+        """Test POST to create a new partner contact."""
+        pid = self._make_partner(app)
+        resp = client.post(
+            f'/api/partner/{pid}/contacts',
+            json={'name': 'Jane Partner', 'email': 'jane@contoso.com', 'title': 'Director'}
+        )
+        assert resp.status_code == 201
+        data = resp.get_json()
+        assert data['name'] == 'Jane Partner'
+        assert data['email'] == 'jane@contoso.com'
+        assert data['title'] == 'Director'
+        assert 'id' in data
+
+    def test_create_partner_contact_minimal(self, client, app):
+        """Test POST with only name succeeds."""
+        pid = self._make_partner(app)
+        resp = client.post(
+            f'/api/partner/{pid}/contacts',
+            json={'name': 'Just A Name'}
+        )
+        assert resp.status_code == 201
+        data = resp.get_json()
+        assert data['name'] == 'Just A Name'
+        assert data['email'] == ''
+
+    def test_create_partner_contact_name_required(self, client, app):
+        """Test POST without name returns 400."""
+        pid = self._make_partner(app)
+        resp = client.post(
+            f'/api/partner/{pid}/contacts',
+            json={'email': 'no-name@test.com'}
+        )
+        assert resp.status_code == 400
+
+    def test_create_partner_contact_404(self, client):
+        """Test POST for non-existent partner returns 404."""
+        resp = client.post(
+            '/api/partner/99999/contacts',
+            json={'name': 'Ghost'}
+        )
+        assert resp.status_code == 404
