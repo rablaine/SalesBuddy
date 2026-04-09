@@ -89,7 +89,8 @@ def execute_tool(name: str, params: dict) -> Any:
 
 @tool(
     'search_customers',
-    'Search customers by name, territory, seller, or vertical.',
+    'Search customers by name, territory, seller, or vertical. '
+    'Returns total_count (before limit) and paginated results.',
     {
         'type': 'object',
         'properties': {
@@ -117,7 +118,7 @@ def search_customers(
     seller_id: int | None = None,
     territory_id: int | None = None,
     limit: int = 20,
-) -> list[dict]:
+) -> dict:
     """Search customers by name with optional seller/territory filters."""
     from app.models import Customer
 
@@ -128,18 +129,22 @@ def search_customers(
         q = q.filter(Customer.seller_id == seller_id)
     if territory_id:
         q = q.filter(Customer.territory_id == territory_id)
+    total = q.count()
     customers = q.order_by(Customer.name).limit(limit).all()
-    return [
-        {
-            'id': c.id,
-            'name': c.name,
-            'nickname': c.nickname,
-            'tpid': c.tpid,
-            'seller': c.seller.name if c.seller else None,
-            'territory': c.territory.name if c.territory else None,
-        }
-        for c in customers
-    ]
+    return {
+        'total_count': total,
+        'results': [
+            {
+                'id': c.id,
+                'name': c.name,
+                'nickname': c.nickname,
+                'tpid': c.tpid,
+                'seller': c.seller.name if c.seller else None,
+                'territory': c.territory.name if c.territory else None,
+            }
+            for c in customers
+        ],
+    }
 
 
 @tool(
@@ -222,11 +227,90 @@ def get_customer_summary(customer_id: int) -> dict:
     }
 
 
+# -- Portfolio overview ------------------------------------------------------
+
+@tool(
+    'get_portfolio_overview',
+    'Get a high-level summary of the entire portfolio: customer count, '
+    'active engagements, open milestones, seller count, and recent note volume.',
+    {
+        'type': 'object',
+        'properties': {},
+    },
+)
+def get_portfolio_overview() -> dict:
+    """Return aggregate counts across the whole database."""
+    from datetime import datetime, timedelta, timezone
+    from app.models import Customer, Engagement, Milestone, Seller, Note, Partner, ActionItem
+
+    cutoff_30d = datetime.now(timezone.utc) - timedelta(days=30)
+    return {
+        'customers': Customer.query.count(),
+        'sellers': Seller.query.count(),
+        'partners': Partner.query.count(),
+        'active_engagements': Engagement.query.filter_by(status='Active').count(),
+        'open_milestones': Milestone.query.filter(
+            Milestone.on_my_team.is_(True),
+            Milestone.msx_status.in_(['On Track', 'At Risk', 'Blocked']),
+        ).count(),
+        'notes_last_30d': Note.query.filter(Note.call_date >= cutoff_30d).count(),
+        'open_action_items': ActionItem.query.filter_by(status='open').count(),
+    }
+
+
+# -- Sellers -----------------------------------------------------------------
+
+@tool(
+    'list_sellers',
+    'List all sellers (DSSs) with their type, territories, and customer counts. '
+    'Optionally filter by territory.',
+    {
+        'type': 'object',
+        'properties': {
+            'territory_id': {
+                'type': 'integer',
+                'description': 'Filter to sellers covering a specific territory.',
+            },
+        },
+    },
+)
+def list_sellers(territory_id: int | None = None) -> list[dict]:
+    """Return all sellers with summary stats."""
+    from app.models import Seller, Customer, Engagement
+
+    q = Seller.query
+    if territory_id:
+        q = q.filter(Seller.territories.any(id=territory_id))
+    sellers = q.order_by(Seller.name).all()
+
+    results = []
+    for s in sellers:
+        cust_count = Customer.query.filter_by(seller_id=s.id).count()
+        active_eng = (
+            Engagement.query
+            .join(Customer, Engagement.customer_id == Customer.id)
+            .filter(Customer.seller_id == s.id, Engagement.status == 'Active')
+            .count()
+        )
+        results.append({
+            'id': s.id,
+            'name': s.name,
+            'alias': s.alias,
+            'seller_type': s.seller_type,
+            'territories': [t.name for t in s.territories],
+            'customer_count': cust_count,
+            'active_engagements': active_eng,
+        })
+    return results
+
+
 # -- Notes -------------------------------------------------------------------
 
 @tool(
     'search_notes',
-    'Search call notes by keyword, customer, seller, topic, or date range.',
+    'Search notes by keyword, customer, topic, or date range. '
+    'All filters are optional - call with just limit to get most recent notes, '
+    'or with days to get notes from a recent time window.',
     {
         'type': 'object',
         'properties': {
@@ -332,6 +416,78 @@ def get_engagement_details(engagement_id: int) -> dict:
         ],
         'note_count': len(eng.notes),
     }
+
+
+@tool(
+    'search_engagements',
+    'Search engagements with optional filters for customer, seller, status, '
+    'or keyword. Returns engagement summary with customer and action item counts.',
+    {
+        'type': 'object',
+        'properties': {
+            'customer_id': {
+                'type': 'integer',
+                'description': 'Filter to engagements for a specific customer.',
+            },
+            'seller_id': {
+                'type': 'integer',
+                'description': 'Filter to engagements for customers of a specific seller.',
+            },
+            'status': {
+                'type': 'string',
+                'description': 'Filter by status: Active, On Hold, Won, or Lost.',
+            },
+            'query': {
+                'type': 'string',
+                'description': 'Keyword search in engagement title.',
+            },
+            'limit': {
+                'type': 'integer',
+                'description': 'Max results (default 20).',
+            },
+        },
+    },
+)
+def search_engagements(
+    customer_id: int | None = None,
+    seller_id: int | None = None,
+    status: str | None = None,
+    query: str = '',
+    limit: int = 20,
+) -> list[dict]:
+    """Search engagements with optional filters."""
+    from app.models import Engagement, Customer
+
+    q = Engagement.query
+    if customer_id:
+        q = q.filter(Engagement.customer_id == customer_id)
+    if seller_id:
+        q = q.join(Customer, Engagement.customer_id == Customer.id).filter(
+            Customer.seller_id == seller_id,
+        )
+    if status:
+        q = q.filter(Engagement.status == status)
+    if query:
+        q = q.filter(Engagement.title.ilike(f'%{query}%'))
+
+    engagements = q.order_by(Engagement.updated_at.desc()).limit(limit).all()
+    return [
+        {
+            'id': e.id,
+            'title': e.title,
+            'status': e.status,
+            'customer': e.customer.name if e.customer else None,
+            'customer_id': e.customer_id,
+            'estimated_acr': e.estimated_acr,
+            'target_date': e.target_date.strftime('%Y-%m-%d') if e.target_date else None,
+            'open_action_items': sum(
+                1 for ai in e.action_items if ai.status == 'open'
+            ),
+            'note_count': len(e.notes),
+            'updated_at': e.updated_at.isoformat() if e.updated_at else None,
+        }
+        for e in engagements
+    ]
 
 
 # -- Milestones --------------------------------------------------------------

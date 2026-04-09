@@ -93,3 +93,51 @@ class TestMCPServerConfig:
         from app.mcp_server import _flask_app
         assert _flask_app is not None
         assert _flask_app.config is not None
+
+
+class TestMCPResources:
+    """Test MCP resource handlers."""
+
+    def test_list_resources_returns_all(self):
+        """list_resources should return all ontology resources."""
+        from app.mcp_server import list_resources
+        from app.services.salesiq_ontology import RESOURCES
+
+        result = anyio.run(list_resources)
+        assert len(result) == len(RESOURCES)
+        uris = {str(r.uri) for r in result}
+        for r in RESOURCES:
+            assert r['uri'] in uris
+
+    def test_read_domain_model(self):
+        """read_resource should return domain model content."""
+        from app.mcp_server import read_resource
+
+        content = anyio.run(read_resource, 'salesbuddy://domain-model')
+        assert isinstance(content, str)
+        assert 'Solution Engineer' in content
+        assert 'Engagement' in content
+
+    def test_read_glossary(self):
+        """read_resource should return glossary content."""
+        from app.mcp_server import read_resource
+
+        content = anyio.run(read_resource, 'salesbuddy://glossary')
+        assert isinstance(content, str)
+        assert 'ACR' in content
+        assert 'U2C' in content
+
+    def test_read_workflows(self):
+        """read_resource should return workflow content."""
+        from app.mcp_server import read_resource
+
+        content = anyio.run(read_resource, 'salesbuddy://workflows')
+        assert isinstance(content, str)
+        assert 'get_portfolio_overview' in content
+
+    def test_read_unknown_resource_raises(self):
+        """read_resource should raise for unknown URI."""
+        from app.mcp_server import read_resource
+
+        with pytest.raises(ValueError, match='Unknown resource'):
+            anyio.run(read_resource, 'salesbuddy://nonexistent')
