@@ -708,6 +708,8 @@ def chat():
             context_line += f" Engagement: {context['engagement_name']}"
         if context.get("milestone_name"):
             context_line += f" Milestone: {context['milestone_name']}"
+        if context.get("tool_hints"):
+            context_line += "\n\n" + context["tool_hints"]
 
         system_prompt = CHAT_SYSTEM_PROMPT + "\n" + context_line
 

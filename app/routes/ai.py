@@ -801,6 +801,19 @@ def api_ai_chat():
         elif prefs.my_seller_alias:
             context.setdefault('user_name', prefs.my_seller_alias)
 
+    # Add tool usage hints for the LLM
+    context['tool_hints'] = (
+        "Milestone query guide for get_milestone_status:\n"
+        "- Milestones have TWO status fields: commitment (Committed/Uncommitted) "
+        "and status (On Track/At Risk/Blocked/Completed/Cancelled).\n"
+        "- 'Active' = status is On Track, At Risk, or Blocked. Use active_only=true.\n"
+        "- 'Uncommitted' = commitment='Uncommitted'.\n"
+        "- 'My milestones' = on_my_team=true.\n"
+        "- 'Largest' = sort_by='value' (sorts by estimated monthly ACR desc).\n"
+        "- These filters combine. Example: 'my 3 largest active uncommitted milestones' = "
+        "commitment='Uncommitted', active_only=true, on_my_team=true, sort_by='value', limit=3."
+    )
+
     # Build messages array for the gateway
     messages = list(history) + [{"role": "user", "content": message}]
 
@@ -852,6 +865,9 @@ def api_ai_chat():
                         tool_args = {}
 
                     tools_used.append(tool_name)
+                    logger.info(
+                        f"Tool call: {tool_name}({json.dumps(tool_args)})"
+                    )
 
                     try:
                         tool_result = execute_tool(tool_name, tool_args)

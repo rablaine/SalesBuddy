@@ -223,23 +223,31 @@ class TestToolCoverage:
             'No tool covers U2C attainment. Add one to salesiq_tools.py.'
         )
 
+    def test_portfolio_overview_tool_exists(self):
+        """Portfolio overview should have a tool."""
+        names = self._tool_names()
+        assert any('portfolio' in n for n in names), (
+            'No tool covers portfolio overview. Add one to salesiq_tools.py.'
+        )
+
 
 class TestToolExecution:
     """Test that tools actually execute against the DB without errors."""
 
     def test_search_customers_empty(self, app):
-        """search_customers with no data should return empty list."""
+        """search_customers with no data should return empty results."""
         with app.app_context():
             result = execute_tool('search_customers', {'query': 'nonexistent'})
-            assert isinstance(result, list)
-            assert len(result) == 0
+            assert isinstance(result, dict)
+            assert result['total_count'] == 0
+            assert len(result['results']) == 0
 
     def test_search_customers_finds_match(self, app, sample_data):
         """search_customers should find matching customers."""
         with app.app_context():
             result = execute_tool('search_customers', {'query': 'Acme'})
-            assert len(result) >= 1
-            assert result[0]['name'] == 'Acme Corp'
+            assert result['total_count'] >= 1
+            assert result['results'][0]['name'] == 'Acme Corp'
 
     def test_get_customer_summary(self, app, sample_data):
         """get_customer_summary should return structured data."""
@@ -412,3 +420,101 @@ class TestToolExecution:
         with app.app_context():
             result = execute_tool('get_revenue_customer_detail', {})
             assert 'error' in result
+
+    # -- New tools (Phase 5) ------------------------------------------------
+
+    def test_search_customers_total_count(self, app, sample_data):
+        """search_customers should include total_count."""
+        with app.app_context():
+            result = execute_tool('search_customers', {'query': '', 'limit': 1})
+            assert 'total_count' in result
+            assert result['total_count'] >= 3  # sample_data creates 3 customers
+            assert len(result['results']) == 1  # limited to 1
+
+    def test_search_notes_recent_only(self, app, sample_data):
+        """search_notes with no keyword returns most recent notes."""
+        with app.app_context():
+            result = execute_tool('search_notes', {'limit': 5})
+            assert isinstance(result, list)
+            assert len(result) >= 1  # sample_data has notes
+
+    def test_get_portfolio_overview(self, app, sample_data):
+        """get_portfolio_overview returns aggregate counts."""
+        with app.app_context():
+            result = execute_tool('get_portfolio_overview', {})
+            assert result['customers'] >= 3
+            assert result['sellers'] >= 2
+            assert 'active_engagements' in result
+            assert 'open_milestones' in result
+            assert 'notes_last_30d' in result
+            assert 'open_action_items' in result
+            assert 'partners' in result
+
+    def test_list_sellers(self, app, sample_data):
+        """list_sellers returns all sellers with stats."""
+        with app.app_context():
+            result = execute_tool('list_sellers', {})
+            assert isinstance(result, list)
+            assert len(result) >= 2
+            alice = next(s for s in result if s['name'] == 'Alice Smith')
+            assert alice['seller_type'] == 'Growth'
+            assert 'customer_count' in alice
+            assert 'active_engagements' in alice
+            assert 'territories' in alice
+
+    def test_list_sellers_by_territory(self, app, sample_data):
+        """list_sellers can filter by territory."""
+        with app.app_context():
+            result = execute_tool('list_sellers', {
+                'territory_id': sample_data['territory1_id'],
+            })
+            assert len(result) >= 1
+            assert all(
+                'West Region' in s['territories'] for s in result
+            )
+
+    def test_search_engagements_empty(self, app):
+        """search_engagements with no data returns empty list."""
+        with app.app_context():
+            result = execute_tool('search_engagements', {})
+            assert isinstance(result, list)
+
+    def test_search_engagements_with_data(self, app, sample_data):
+        """search_engagements finds engagements by customer."""
+        with app.app_context():
+            from app.models import db, Engagement
+            eng = Engagement(
+                customer_id=sample_data['customer1_id'],
+                title='Cloud Migration',
+                status='Active',
+            )
+            db.session.add(eng)
+            db.session.commit()
+
+            result = execute_tool('search_engagements', {
+                'customer_id': sample_data['customer1_id'],
+            })
+            assert len(result) >= 1
+            assert result[0]['title'] == 'Cloud Migration'
+            assert result[0]['status'] == 'Active'
+            assert 'open_action_items' in result[0]
+            assert 'note_count' in result[0]
+
+    def test_search_engagements_by_status(self, app, sample_data):
+        """search_engagements can filter by status."""
+        with app.app_context():
+            from app.models import db, Engagement
+            db.session.add(Engagement(
+                customer_id=sample_data['customer1_id'],
+                title='Active Work',
+                status='Active',
+            ))
+            db.session.add(Engagement(
+                customer_id=sample_data['customer1_id'],
+                title='Done Work',
+                status='Won',
+            ))
+            db.session.commit()
+
+            result = execute_tool('search_engagements', {'status': 'Active'})
+            assert all(e['status'] == 'Active' for e in result)
