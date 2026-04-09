@@ -1,0 +1,282 @@
+<!-- Action Items Hub partial - used standalone and in modal -->
+<div class="row g-3" id="actionItemsHubContent">
+    <!-- Engagement Tasks -->
+    <div class="col-md-6 col-xl-4">
+        <div class="card h-100">
+            <div class="card-header">
+                <h6 class="mb-0"><i class="bi bi-kanban text-primary me-1"></i> Engagement Tasks
+                    {% if engagement_tasks %}<span class="badge bg-primary ms-1">{{ engagement_tasks|length }}</span>{% endif %}
+                </h6>
+            </div>
+            <div class="card-body p-0" style="max-height: 320px; overflow-y: auto;">
+                {% if engagement_tasks %}
+                <div class="list-group list-group-flush">
+                    {% for task in engagement_tasks %}
+                    <div class="list-group-item list-group-item-action py-2 px-3" onclick="viewActionItem({{ task.id }}, {showEngagementLink: true})" style="cursor: pointer;">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <div class="me-2" style="min-width: 0;">
+                                <div class="fw-semibold text-truncate{% if task.priority == 'high' %} text-danger{% endif %}">
+                                    {% if task.priority == 'high' %}<i class="bi bi-exclamation-triangle-fill me-1"></i>{% endif %}{{ task.title }}
+                                </div>
+                                <div class="text-muted small text-truncate">
+                                    {% if task.engagement %}
+                                        {{ task.engagement.customer.name if task.engagement.customer else '' }}{% if task.engagement.customer %} &middot; {% endif %}{{ task.engagement.title }}
+                                    {% endif %}
+                                </div>
+                            </div>
+                            {% if task.due_date %}
+                            <span class="badge flex-shrink-0 {% if task.is_overdue %}bg-danger{% else %}bg-secondary{% endif %}">
+                                {{ task.due_date.strftime('%b %d') }}
+                            </span>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <div class="text-center text-muted py-4">
+                    <i class="bi bi-check-circle" style="font-size: 1.5rem;"></i>
+                    <p class="small mb-0 mt-1">No open engagement tasks</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Copilot Suggestions -->
+    <div class="col-md-6 col-xl-4">
+        <div class="card h-100">
+            <div class="card-header bg-info bg-opacity-10">
+                <h6 class="mb-0"><i class="bi bi-stars text-info me-1"></i> Copilot Suggestions
+                    {% if copilot_tasks or saved_tasks %}<span class="badge bg-info ms-1">{{ (copilot_tasks|length) + (saved_tasks|length) }}</span>{% endif %}
+                </h6>
+            </div>
+            <div class="card-body p-0" style="max-height: 320px; overflow-y: auto;">
+                {% if copilot_tasks or saved_tasks %}
+                <div class="list-group list-group-flush">
+                    {% for task in saved_tasks %}
+                    <div class="list-group-item list-group-item-action py-2 px-3" onclick="viewActionItem({{ task.id }}, {showEngagementLink: false})" style="cursor: pointer;">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <div class="me-2" style="min-width: 0;">
+                                <div class="fw-semibold text-truncate">
+                                    <i class="bi bi-pin-angle text-info me-1"></i>{{ task.title }}
+                                </div>
+                            </div>
+                            {% if task.due_date %}
+                            <span class="badge flex-shrink-0 {% if task.is_overdue %}bg-danger{% else %}bg-secondary{% endif %}">
+                                {{ task.due_date.strftime('%b %d') }}
+                            </span>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% endfor %}
+                    {% for task in copilot_tasks %}
+                    <div class="list-group-item list-group-item-action py-2 px-3" onclick="viewActionItem({{ task.id }}, {showEngagementLink: false})" style="cursor: pointer;">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <div class="me-2" style="min-width: 0;">
+                                <div class="fw-semibold text-truncate">{{ task.title }}</div>
+                            </div>
+                            {% if task.due_date %}
+                            <span class="badge flex-shrink-0 {% if task.is_overdue %}bg-danger{% else %}bg-secondary{% endif %}">
+                                {{ task.due_date.strftime('%b %d') }}
+                            </span>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <div class="text-center text-muted py-4">
+                    <i class="bi bi-stars" style="font-size: 1.5rem;"></i>
+                    <p class="small mb-0 mt-1">No Copilot suggestions</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Project Tasks -->
+    <div class="col-md-6 col-xl-4">
+        <div class="card h-100">
+            <div class="card-header">
+                <h6 class="mb-0"><i class="bi bi-folder text-info me-1"></i> Project Tasks
+                    {% if project_tasks %}<span class="badge bg-info text-dark ms-1">{{ project_tasks|length }}</span>{% endif %}
+                </h6>
+            </div>
+            <div class="card-body p-0" style="max-height: 320px; overflow-y: auto;">
+                {% if project_tasks %}
+                <div class="list-group list-group-flush">
+                    {% for task in project_tasks %}
+                    <div class="list-group-item list-group-item-action py-2 px-3" onclick="viewActionItem({{ task.id }}, {showEngagementLink: false})" style="cursor: pointer;">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <div class="me-2" style="min-width: 0;">
+                                <div class="fw-semibold text-truncate{% if task.priority == 'high' %} text-danger{% endif %}">
+                                    {% if task.priority == 'high' %}<i class="bi bi-exclamation-triangle-fill me-1"></i>{% endif %}{{ task.title }}
+                                </div>
+                                <div class="text-muted small text-truncate">
+                                    {% if task.project %}<i class="bi bi-folder text-info me-1"></i>{{ task.project.title }}{% endif %}
+                                </div>
+                            </div>
+                            {% if task.due_date %}
+                            <span class="badge flex-shrink-0 {% if task.is_overdue %}bg-danger{% else %}bg-secondary{% endif %}">
+                                {{ task.due_date.strftime('%b %d') }}
+                            </span>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <div class="text-center text-muted py-4">
+                    <i class="bi bi-folder" style="font-size: 1.5rem;"></i>
+                    <p class="small mb-0 mt-1">No open project tasks</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Hygiene -->
+    <div class="col-md-6 col-xl-4">
+        <div class="card h-100">
+            <div class="card-header">
+                <h6 class="mb-0"><i class="bi bi-wrench text-secondary me-1"></i> Hygiene
+                    {% if hygiene_tasks %}<span class="badge bg-secondary ms-1">{{ hygiene_tasks|length }}</span>{% endif %}
+                </h6>
+            </div>
+            <div class="card-body p-0" style="max-height: 320px; overflow-y: auto;">
+                {% if hygiene_tasks %}
+                <div class="list-group list-group-flush">
+                    {% for ht in hygiene_tasks %}
+                    {% if ht.ms_id is defined and ht.ms_id %}
+                    <a href="javascript:void(0)" class="list-group-item list-group-item-action py-2 px-3"
+                       onclick="openActionItemsMilestone(event, {{ ht.ms_id }}, '{{ ht.title|replace("'", "\\'") }}', '{{ ht.ms_status }}', '{{ ht.ms_msx_url }}')">
+                    {% elif ht.eng_id is defined and ht.eng_id %}
+                    <a href="javascript:void(0)" class="list-group-item list-group-item-action py-2 px-3"
+                       onclick="openActionItemsEngagement({{ ht.eng_id }}, '{{ ht.title|replace("'", "\\'") }}', '{{ ht.eng_status }}')">
+                    {% else %}
+                    <a href="{{ ht.url }}" class="list-group-item list-group-item-action py-2 px-3">
+                    {% endif %}
+                        <div class="d-flex justify-content-between align-items-start">
+                            <div class="me-2" style="min-width: 0;">
+                                <div class="fw-semibold text-truncate">
+                                    <i class="bi {{ ht.icon }} text-muted me-1"></i>{{ ht.title }}
+                                </div>
+                                <div class="text-muted small text-truncate">
+                                    {{ ht.subtitle }}{% if ht.type == 'engagement_no_milestone' %} - no milestone linked{% elif ht.type == 'milestone_no_acr' %} - no ACR set{% endif %}
+                                </div>
+                            </div>
+                        </div>
+                    </a>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <div class="text-center text-muted py-4">
+                    <i class="bi bi-wrench" style="font-size: 1.5rem;"></i>
+                    <p class="small mb-0 mt-1">No hygiene issues</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Stale Milestones -->
+    <div class="col-md-6 col-xl-8">
+        <div class="card h-100">
+            <div class="card-header bg-warning bg-opacity-10 d-flex justify-content-between align-items-center">
+                <h6 class="mb-0"><i class="bi bi-clock-history text-warning me-1"></i> Stale Milestones
+                    {% if stale_milestones %}<span class="badge bg-warning text-dark ms-1" id="staleMilestoneCount">{{ stale_milestones|length }}</span>{% endif %}
+                </h6>
+                {% if user_role != 'dss' and sellers|length > 1 %}
+                <select class="form-select form-select-sm" style="width: auto; min-width: 160px;" id="staleMilestoneSellerFilter" onchange="filterStaleMilestones(this.value)">
+                    <option value="">All Sellers</option>
+                    {% for s in sellers %}
+                    <option value="{{ s.id }}">{{ s.name }}</option>
+                    {% endfor %}
+                </select>
+                {% endif %}
+            </div>
+            <div class="card-body p-0" style="max-height: 320px; overflow-y: auto;" id="staleMilestonesBody">
+                {% if stale_milestones %}
+                <div class="list-group list-group-flush" id="staleMilestonesList">
+                    {% for ms in stale_milestones %}
+                    <div class="list-group-item list-group-item-action py-2 px-3 stale-ms-item" style="cursor: pointer;"
+                         data-seller-id="{{ ms.customer.seller_id if ms.customer and ms.customer.seller else '' }}"
+                         onclick="openActionItemsMilestone(event, {{ ms.id }}, '{{ (ms.title or ms.opportunity_name or '')|replace("'", "\\'") }}', '{{ ms.msx_status }}', '{{ ms.url or '' }}')">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <div class="me-2" style="min-width: 0;">
+                                <div class="fw-semibold text-truncate">
+                                    {{ ms.title or ms.opportunity_name or 'Milestone #' ~ ms.id }}
+                                </div>
+                                <div class="text-muted small text-truncate">
+                                    {% if ms.customer %}{{ ms.customer.name }}{% endif %}
+                                    {% if ms.workload %} - {{ ms.workload }}{% endif %}
+                                </div>
+                            </div>
+                            <div class="text-end flex-shrink-0">
+                                {% if ms.customer and ms.customer.seller %}
+                                <div>
+                                    <span class="badge {{ get_seller_color(ms.customer.seller.id) }} text-decoration-none" style="font-size: 0.65rem;"><i class="bi bi-person"></i> {{ ms.customer.seller.name }}</span>
+                                </div>
+                                {% endif %}
+                                {% if ms.days_since_comment is not none %}
+                                <div>
+                                    <span class="badge bg-warning text-dark" style="font-size: 0.65rem;">
+                                        {{ ms.days_since_comment }}d stale
+                                    </span>
+                                </div>
+                                {% endif %}
+                                {% if ms.monthly_usage %}
+                                <div>
+                                    <span class="badge bg-success" style="font-size: 0.65rem;">
+                                        {{ '${:,.0f}'.format(ms.monthly_usage) }}/mo
+                                    </span>
+                                </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <div class="text-center text-muted py-4" id="staleMilestonesEmpty">
+                    <i class="bi bi-clock-history" style="font-size: 1.5rem;"></i>
+                    <p class="small mb-0 mt-1">No stale milestones</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function filterStaleMilestones(sellerId) {
+    var items = document.querySelectorAll('.stale-ms-item');
+    var visibleCount = 0;
+    items.forEach(function(item) {
+        if (!sellerId || item.dataset.sellerId === sellerId) {
+            item.style.display = '';
+            visibleCount++;
+        } else {
+            item.style.display = 'none';
+        }
+    });
+    var badge = document.getElementById('staleMilestoneCount');
+    if (badge) badge.textContent = visibleCount;
+    var emptyEl = document.getElementById('staleMilestonesEmpty');
+    var listEl = document.getElementById('staleMilestonesList');
+    if (visibleCount === 0 && listEl) {
+        if (!emptyEl) {
+            var d = document.createElement('div');
+            d.className = 'text-center text-muted py-4';
+            d.id = 'staleMilestonesEmpty';
+            d.innerHTML = '<i class="bi bi-clock-history" style="font-size: 1.5rem;"></i><p class="small mb-0 mt-1">No stale milestones for this seller</p>';
+            document.getElementById('staleMilestonesBody').appendChild(d);
+        } else {
+            emptyEl.style.display = '';
+        }
+    } else if (emptyEl) {
+        emptyEl.style.display = 'none';
+    }
+}
+</script>

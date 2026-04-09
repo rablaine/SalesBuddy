@@ -309,6 +309,8 @@ def index():
                 'subtitle': eng.customer.name if eng.customer else '',
                 'url': f'/engagement/{eng.id}',
                 'icon': 'bi-link-45deg',
+                'eng_id': eng.id,
+                'eng_status': eng.status or '',
             })
 
         # On-team active milestones with no monthly_usage (current FQ)
@@ -400,6 +402,143 @@ def index():
         show_revenue_reminder=show_revenue_reminder,
         pref=pref,
     )
+
+
+def _build_action_items_hub_context() -> dict:
+    """Build template context for the action items hub (shared by page and modal)."""
+    seller_mode_sid = get_seller_mode_seller_id()
+    pref = UserPreference.query.first()
+    copilot_enabled = pref.copilot_actions_enabled if pref else True
+    stale_enabled = pref.show_stale_milestones if pref else True
+    hygiene_enabled = pref.show_hygiene_tasks if pref else True
+
+    open_tasks_q = ActionItem.query.filter(
+        ActionItem.status == 'open'
+    ).options(
+        db.joinedload(ActionItem.engagement).joinedload(Engagement.customer),
+        db.joinedload(ActionItem.project),
+    )
+    if not copilot_enabled:
+        open_tasks_q = open_tasks_q.filter(ActionItem.source != 'copilot')
+    if seller_mode_sid:
+        open_tasks_q = open_tasks_q.filter(
+            db.or_(
+                ActionItem.source.in_(['copilot', 'project']),
+                db.and_(
+                    ActionItem.engagement_id.isnot(None),
+                    ActionItem.engagement.has(
+                        Engagement.customer.has(Customer.seller_id == seller_mode_sid)
+                    ),
+                ),
+            )
+        )
+    open_tasks = open_tasks_q.order_by(
+        ActionItem.source.asc(),
+        ActionItem.due_date.asc().nullslast(),
+        ActionItem.priority.desc(),
+        ActionItem.created_at.desc()
+    ).all()
+
+    engagement_tasks = [t for t in open_tasks if t.source == 'engagement']
+    copilot_tasks = [t for t in open_tasks if t.source == 'copilot']
+    saved_tasks = [
+        t for t in open_tasks
+        if t.source == 'project' and t.project and t.project.project_type == 'copilot_saved'
+    ]
+    project_tasks = [
+        t for t in open_tasks
+        if t.source == 'project' and not (t.project and t.project.project_type == 'copilot_saved')
+    ]
+
+    stale_milestones = []
+    if stale_enabled:
+        stale_milestones = _find_stale_milestones(
+            seller_mode_sid=seller_mode_sid, stale_days=14
+        )
+
+    hygiene_tasks = []
+    if hygiene_enabled:
+        from datetime import time as _time
+        eng_no_ms_q = Engagement.query.filter(
+            Engagement.status == 'Active',
+            ~Engagement.milestones.any(),
+        ).options(db.joinedload(Engagement.customer))
+        if seller_mode_sid:
+            eng_no_ms_q = eng_no_ms_q.join(
+                Customer, Engagement.customer_id == Customer.id
+            ).filter(Customer.seller_id == seller_mode_sid)
+        for eng in eng_no_ms_q.limit(10).all():
+            hygiene_tasks.append({
+                'type': 'engagement_no_milestone',
+                'title': eng.title,
+                'subtitle': eng.customer.name if eng.customer else '',
+                'url': f'/engagement/{eng.id}',
+                'icon': 'bi-link-45deg',
+                'eng_id': eng.id,
+                'eng_status': eng.status or '',
+            })
+
+        _today = date.today()
+        _fy_month = (_today.month - 7) % 12
+        _fq_start = (_fy_month // 3) * 3
+        _q_start_month = ((_fq_start + 7 - 1) % 12) + 1
+        _q_start_dt = datetime.combine(date(_today.year, _q_start_month, 1), _time.min)
+        _end_month = _q_start_month + 3
+        _end_year = _today.year
+        if _end_month > 12:
+            _end_month -= 12
+            _end_year += 1
+        _q_end_dt = datetime.combine(
+            date(_end_year, _end_month, 1) - timedelta(days=1), _time(23, 59, 59)
+        )
+        ms_no_acr_q = Milestone.query.filter(
+            Milestone.on_my_team == True,
+            Milestone.msx_status.in_(['On Track', 'At Risk']),
+            Milestone.due_date >= _q_start_dt,
+            Milestone.due_date <= _q_end_dt,
+            db.or_(Milestone.monthly_usage == None, Milestone.monthly_usage == 0),
+        ).options(db.joinedload(Milestone.customer))
+        if seller_mode_sid:
+            ms_no_acr_q = ms_no_acr_q.join(
+                Customer, Milestone.customer_id == Customer.id
+            ).filter(Customer.seller_id == seller_mode_sid)
+        for ms in ms_no_acr_q.limit(10).all():
+            hygiene_tasks.append({
+                'type': 'milestone_no_acr',
+                'title': ms.display_text,
+                'subtitle': ms.customer.name if ms.customer else '',
+                'url': f'/milestone/{ms.id}',
+                'icon': 'bi-currency-dollar',
+                'ms_id': ms.id,
+                'ms_status': ms.msx_status or '',
+                'ms_msx_url': ms.url or '',
+            })
+
+    sellers = Seller.query.order_by(Seller.name).all()
+
+    return dict(
+        engagement_tasks=engagement_tasks,
+        copilot_tasks=copilot_tasks,
+        saved_tasks=saved_tasks,
+        project_tasks=project_tasks,
+        stale_milestones=stale_milestones,
+        hygiene_tasks=hygiene_tasks,
+        sellers=sellers,
+    )
+
+
+@main_bp.route('/action-items')
+def action_items_hub():
+    """Standalone action items hub page."""
+    ctx = _build_action_items_hub_context()
+    return render_template('action_items_hub.html', **ctx)
+
+
+@main_bp.route('/api/action-items-hub')
+def action_items_hub_partial():
+    """Return the action items hub partial HTML for modal loading."""
+    ctx = _build_action_items_hub_context()
+    return render_template('partials/_action_items_hub.html', **ctx)
 
 
 @main_bp.route('/api/notes/calendar')

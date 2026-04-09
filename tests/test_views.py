@@ -69,6 +69,25 @@ def test_calendar_api_month_boundaries(client, sample_data):
     assert data['prev_month'] == 12
 
 
+# ===== Action Items Hub =====
+
+def test_action_items_hub_page_loads(client):
+    """Test that the action items hub page loads."""
+    response = client.get('/action-items')
+    assert response.status_code == 200
+    assert b'Action Items' in response.data
+
+
+def test_action_items_hub_partial_loads(client):
+    """Test that the action items hub partial API returns HTML."""
+    response = client.get('/api/action-items-hub')
+    assert response.status_code == 200
+    assert b'Engagement Tasks' in response.data
+    assert b'Copilot Suggestions' in response.data
+    assert b'Stale Milestones' in response.data
+    assert b'Hygiene' in response.data
+
+
 # ===== Action Items Calendar API =====
 
 def test_action_items_calendar_returns_json(client, sample_data):

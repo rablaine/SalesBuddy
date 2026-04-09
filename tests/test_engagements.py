@@ -1330,3 +1330,12 @@ class TestActionItems:
                 ActionItem.sort_order
             ).all()
             assert [t.title for t in tasks] == ['Third', 'First', 'Second']
+
+    def test_engagement_detail_fragment(self, client, app, eng_with_note):
+        """Engagement detail fragment API returns HTML partial."""
+        eid = eng_with_note['engagement_id']
+        resp = client.get(f'/api/engagement/{eid}/detail')
+        assert resp.status_code == 200
+        assert b'diagram-3' in resp.data
+        # Should NOT contain base.html layout elements
+        assert b'<!DOCTYPE' not in resp.data
