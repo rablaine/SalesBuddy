@@ -241,6 +241,7 @@ def get_customer_summary(customer_id: int) -> dict:
                 'id': m.id,
                 'url': _url('milestone', m.id),
                 'title': _clean(m.display_text),
+                'commitment': m.customer_commitment,
                 'status': m.msx_status,
                 'due_date': m.due_date.strftime('%Y-%m-%d') if m.due_date else None,
                 'on_my_team': m.on_my_team,
@@ -530,9 +531,11 @@ def search_engagements(
 
 @tool(
     'get_milestone_status',
-    'Get milestone details or list milestones filtered by status, customer, or team. '
-    '"My milestones" means on_my_team=true. Use sort_by="value" to find largest milestones '
-    '(sorts by estimated monthly ACR descending).',
+    'Get milestone details or list milestones filtered by commitment, status, customer, or team. '
+    'Milestones have TWO status fields: commitment (Committed/Uncommitted - the primary filter) '
+    'and status (On Track/At Risk/Blocked - the MSX execution status). '
+    '"My milestones" means on_my_team=true. "Uncommitted milestones" means commitment="Uncommitted". '
+    'Use sort_by="value" to find largest milestones (sorts by estimated monthly ACR descending).',
     {
         'type': 'object',
         'properties': {
@@ -544,9 +547,14 @@ def search_engagements(
                 'type': 'integer',
                 'description': 'Filter milestones to a customer.',
             },
+            'commitment': {
+                'type': 'string',
+                'description': 'Filter by customer commitment (Committed, Uncommitted). '
+                               'This is the primary filter most users care about.',
+            },
             'status': {
                 'type': 'string',
-                'description': 'Filter by MSX status (On Track, At Risk, Blocked, etc.).',
+                'description': 'Filter by MSX execution status (On Track, At Risk, Blocked, etc.).',
             },
             'on_my_team': {
                 'type': 'boolean',
@@ -568,6 +576,7 @@ def search_engagements(
 def get_milestone_status(
     milestone_id: int | None = None,
     customer_id: int | None = None,
+    commitment: str | None = None,
     status: str | None = None,
     on_my_team: bool | None = None,
     sort_by: str = 'due_date',
@@ -584,18 +593,21 @@ def get_milestone_status(
             'id': ms.id,
             'url': _url('milestone', ms.id),
             'title': _clean(ms.display_text),
+            'commitment': ms.customer_commitment,
             'status': ms.msx_status,
             'customer': ms.customer.name if ms.customer else None,
             'due_date': ms.due_date.strftime('%Y-%m-%d') if ms.due_date else None,
             'estimated_monthly_acr': ms.monthly_usage,
             'on_my_team': ms.on_my_team,
             'workload': ms.workload,
-            'url': ms.url,
+            'msx_url': ms.url,
         }
 
     q = Milestone.query
     if customer_id:
         q = q.filter(Milestone.customer_id == customer_id)
+    if commitment:
+        q = q.filter(Milestone.customer_commitment == commitment)
     if status:
         q = q.filter(Milestone.msx_status == status)
     if on_my_team is not None:
@@ -612,6 +624,7 @@ def get_milestone_status(
             'id': m.id,
             'url': _url('milestone', m.id),
             'title': _clean(m.display_text),
+            'commitment': m.customer_commitment,
             'status': m.msx_status,
             'customer': m.customer.name if m.customer else None,
             'due_date': m.due_date.strftime('%Y-%m-%d') if m.due_date else None,
@@ -710,7 +723,7 @@ def get_opportunity_details(opportunity_id: int) -> dict:
         'customer': opp.customer.name if opp.customer else None,
         'msx_url': opp.msx_url,
         'milestones': [
-            {'id': m.id, 'url': _url('milestone', m.id), 'title': _clean(m.display_text), 'status': m.msx_status}
+            {'id': m.id, 'url': _url('milestone', m.id), 'title': _clean(m.display_text), 'commitment': m.customer_commitment, 'status': m.msx_status}
             for m in opp.milestones
         ],
     }
@@ -886,6 +899,7 @@ def report_hygiene(seller_id: int | None = None) -> dict:
                 'url': _url('milestone', m.id),
                 'title': _clean(m.display_text),
                 'customer': m.customer.name if m.customer else None,
+                'commitment': m.customer_commitment,
                 'status': m.msx_status,
             }
             for m in ms_q.all()
@@ -991,6 +1005,7 @@ def report_whats_new(days: int = 14) -> dict:
             'url': _url('milestone', m.id),
             'title': _clean(m.display_text),
             'customer': m.customer.name if m.customer else None,
+            'commitment': m.customer_commitment,
             'status': m.msx_status,
             'on_my_team': m.on_my_team,
         }
@@ -1171,6 +1186,7 @@ def get_milestones_due_soon(
             'id': m.id,
             'url': _url('milestone', m.id),
             'title': _clean(m.display_text),
+            'commitment': m.customer_commitment,
             'status': m.msx_status,
             'customer': m.customer.name if m.customer else None,
             'due_date': m.due_date.strftime('%Y-%m-%d') if m.due_date else None,
@@ -1802,6 +1818,7 @@ def get_msx_workspace_milestones(**kwargs: Any) -> Any:
                 'url': _url('milestone', m.id),
                 'title': _clean(m.title),
                 'number': m.milestone_number,
+                'commitment': m.customer_commitment,
                 'status': m.msx_status,
                 'customer': m.customer.name if m.customer else None,
                 'opportunity': _clean(m.opportunity.name if m.opportunity else m.opportunity_name),
@@ -2014,6 +2031,7 @@ def report_connect_impact(since: str | None = None) -> dict:
             'title': _clean(ms.title),
             'workload': ms.workload,
             'monthly_usage': ms.monthly_usage or 0,
+            'commitment': ms.customer_commitment,
             'status': ms.msx_status,
         })
 
