@@ -535,6 +535,7 @@ def search_engagements(
     'Milestones have TWO status fields: commitment (Committed/Uncommitted - the primary filter) '
     'and status (On Track/At Risk/Blocked - the MSX execution status). '
     '"My milestones" means on_my_team=true. "Uncommitted milestones" means commitment="Uncommitted". '
+    '"Active" means not Completed/Cancelled/Lost - use active_only=true. '
     'Use sort_by="value" to find largest milestones (sorts by estimated monthly ACR descending).',
     {
         'type': 'object',
@@ -554,7 +555,14 @@ def search_engagements(
             },
             'status': {
                 'type': 'string',
-                'description': 'Filter by MSX execution status (On Track, At Risk, Blocked, etc.).',
+                'description': 'Filter by exact MSX execution status (On Track, At Risk, Blocked, '
+                               'Completed, Cancelled, Lost to Competitor, Hygiene/Duplicate).',
+            },
+            'active_only': {
+                'type': 'boolean',
+                'description': 'If true, only return active milestones (On Track, At Risk, Blocked). '
+                               'Excludes Completed, Cancelled, Lost, Hygiene. '
+                               'Use this when user says "active" milestones.',
             },
             'on_my_team': {
                 'type': 'boolean',
@@ -578,6 +586,7 @@ def get_milestone_status(
     customer_id: int | None = None,
     commitment: str | None = None,
     status: str | None = None,
+    active_only: bool | None = None,
     on_my_team: bool | None = None,
     sort_by: str = 'due_date',
     limit: int = 20,
@@ -610,6 +619,8 @@ def get_milestone_status(
         q = q.filter(Milestone.customer_commitment == commitment)
     if status:
         q = q.filter(Milestone.msx_status == status)
+    if active_only:
+        q = q.filter(Milestone.msx_status.in_(['On Track', 'At Risk', 'Blocked']))
     if on_my_team is not None:
         q = q.filter(Milestone.on_my_team == on_my_team)
 
