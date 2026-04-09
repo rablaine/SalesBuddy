@@ -93,6 +93,11 @@
                                     <i class="bi bi-pin-angle text-info me-1"></i>{{ task.title }}
                                 </div>
                             </div>
+                            {% if task.due_date %}
+                            <span class="badge flex-shrink-0 {% if task.is_overdue %}bg-danger{% else %}bg-secondary{% endif %}">
+                                {{ task.due_date.strftime('%b %d') }}
+                            </span>
+                            {% endif %}
                         </div>
                     </div>
                     {% endfor %}
@@ -104,6 +109,11 @@
                                     {{ task.title }}
                                 </div>
                             </div>
+                            {% if task.due_date %}
+                            <span class="badge flex-shrink-0 {% if task.is_overdue %}bg-danger{% else %}bg-secondary{% endif %}">
+                                {{ task.due_date.strftime('%b %d') }}
+                            </span>
+                            {% endif %}
                         </div>
                     </div>
                     {% endfor %}
@@ -434,6 +444,13 @@
                     </button>
                 </li>
                 {% endif %}
+                {% if task_due_count > 0 %}
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="tasks-tab" data-bs-toggle="pill" data-bs-target="#tasks-view" type="button" role="tab" aria-controls="tasks-view" aria-selected="false">
+                        <i class="bi bi-check2-square"></i> Action Items <span class="fw-normal" style="font-size:0.8em; opacity:0.85;">({{ task_due_count }})</span>
+                    </button>
+                </li>
+                {% endif %}
             </ul>
         </div>
         
@@ -499,6 +516,47 @@
                         <a href="{{ url_for('projects.project_create') }}" class="btn btn-sm btn-primary"><i class="bi bi-plus-circle"></i> New Project</a>
                     </div>
                     <div class="list-group list-group-flush" id="projectsList">
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+
+            <!-- Tasks Tab -->
+            {% if task_due_count > 0 %}
+            <div class="tab-pane fade" id="tasks-view" role="tabpanel" aria-labelledby="tasks-tab">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <button class="btn btn-outline-secondary btn-sm" id="tasksPrevMonthBtn">
+                            <i class="bi bi-chevron-left"></i>
+                        </button>
+                        <h5 class="mb-0" id="tasksCalendarTitle">Loading...</h5>
+                        <button class="btn btn-outline-secondary btn-sm" id="tasksNextMonthBtn">
+                            <i class="bi bi-chevron-right"></i>
+                        </button>
+                    </div>
+                    <div id="tasksOverdueBar" class="px-3 py-2" style="display: none;">
+                    </div>
+                    <div class="card-body p-0">
+                        <table class="table table-bordered mb-0" id="tasksCalendarTable">
+                            <thead>
+                                <tr class="text-center">
+                                    <th class="text-muted">Sun</th>
+                                    <th>Mon</th>
+                                    <th>Tue</th>
+                                    <th>Wed</th>
+                                    <th>Thu</th>
+                                    <th>Fri</th>
+                                    <th class="text-muted">Sat</th>
+                                </tr>
+                            </thead>
+                            <tbody id="tasksCalendarBody">
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="card-footer text-center">
+                        <button class="btn btn-outline-secondary btn-sm" id="tasksTodayBtn">
+                            <i class="bi bi-calendar-day"></i> Today
+                        </button>
                     </div>
                 </div>
             </div>
@@ -692,6 +750,10 @@
             const projTabEl = document.getElementById('projects-tab');
             const projTab = new bootstrap.Tab(projTabEl);
             projTab.show();
+        } else {% endif %}{% if task_due_count > 0 %}if (savedTab === 'tasks') {
+            const tasksTabEl = document.getElementById('tasks-tab');
+            const tasksTab = new bootstrap.Tab(tasksTabEl);
+            tasksTab.show();
         } else {% endif %}{
             // Calendar is default - load it immediately
             if (!calendarLoaded) {
@@ -1004,6 +1066,189 @@
             .catch(function() {
                 list.innerHTML = '<div class="p-3 text-danger"><i class="bi bi-exclamation-triangle"></i> Failed to load projects.</div>';
             });
+    }
+    {% endif %}
+
+    {% if task_due_count > 0 %}
+    // ===== TASKS CALENDAR TAB =====
+    let tasksLoaded = false;
+    let tasksYear = new Date().getFullYear();
+    let tasksMonth = new Date().getMonth() + 1;
+
+    document.getElementById('tasks-tab').addEventListener('shown.bs.tab', function() {
+        localStorage.setItem(TAB_STORAGE_KEY, 'tasks');
+        if (!tasksLoaded) {
+            tasksLoaded = true;
+            loadTasksCalendar(tasksYear, tasksMonth);
+        }
+    });
+
+    document.getElementById('tasksPrevMonthBtn').addEventListener('click', function() {
+        if (tasksMonth === 1) { tasksMonth = 12; tasksYear--; } else { tasksMonth--; }
+        loadTasksCalendar(tasksYear, tasksMonth);
+    });
+    document.getElementById('tasksNextMonthBtn').addEventListener('click', function() {
+        if (tasksMonth === 12) { tasksMonth = 1; tasksYear++; } else { tasksMonth++; }
+        loadTasksCalendar(tasksYear, tasksMonth);
+    });
+    document.getElementById('tasksTodayBtn').addEventListener('click', function() {
+        var now = new Date();
+        tasksYear = now.getFullYear();
+        tasksMonth = now.getMonth() + 1;
+        loadTasksCalendar(tasksYear, tasksMonth);
+    });
+
+    function loadTasksCalendar(year, month) {
+        var body = document.getElementById('tasksCalendarBody');
+        var title = document.getElementById('tasksCalendarTitle');
+        body.innerHTML = '<tr><td colspan="7" class="text-center py-4"><div class="spinner-border spinner-border-sm" role="status"></div> Loading...</td></tr>';
+
+        fetch('/api/action-items/calendar?year=' + year + '&month=' + month)
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                title.textContent = data.month_name + ' ' + data.year;
+                renderTasksCalendar(data);
+                renderOverdueBar(data.overdue || []);
+            })
+            .catch(function() {
+                body.innerHTML = '<tr><td colspan="7" class="text-center py-4 text-danger">Error loading tasks</td></tr>';
+            });
+    }
+
+    function renderOverdueBar(overdue) {
+        var bar = document.getElementById('tasksOverdueBar');
+        if (!overdue || overdue.length === 0) {
+            bar.style.display = 'none';
+            return;
+        }
+        bar.style.display = '';
+        var html = '<div class="alert alert-danger mb-0 py-2 px-3 d-flex align-items-center gap-2">';
+        html += '<i class="bi bi-exclamation-triangle-fill"></i>';
+        html += '<strong>' + overdue.length + ' overdue</strong>';
+        html += '<span class="text-truncate">';
+        overdue.slice(0, 3).forEach(function(t, i) {
+            if (i > 0) html += ', ';
+            html += escTaskHtml(t.title);
+        });
+        if (overdue.length > 3) html += ' + ' + (overdue.length - 3) + ' more';
+        html += '</span></div>';
+        bar.innerHTML = html;
+    }
+
+    function escTaskHtml(text) {
+        if (!text) return '';
+        var d = document.createElement('div');
+        d.textContent = text;
+        return d.innerHTML;
+    }
+
+    function renderTasksCalendar(data) {
+        var body = document.getElementById('tasksCalendarBody');
+        body.innerHTML = '';
+        var days = data.days || {};
+        var daysInMonth = data.days_in_month;
+        var todayDay = data.today_day;
+        var isDark = document.documentElement.getAttribute('data-bs-theme') === 'dark';
+
+        // Build day array
+        var allDays = [];
+        for (var d = 1; d <= daysInMonth; d++) {
+            var dateObj = new Date(data.year, data.month - 1, d);
+            allDays.push({ dayNum: d, column: dateObj.getDay() });
+        }
+
+        var dayIndex = 0;
+        while (dayIndex < allDays.length) {
+            var row = document.createElement('tr');
+
+            for (var col = 0; col < 7; col++) {
+                var cell = document.createElement('td');
+                cell.className = 'p-1';
+                cell.style.verticalAlign = 'top';
+                cell.style.height = '100px';
+                var isWeekend = (col === 0 || col === 6);
+                if (isWeekend) {
+                    cell.style.height = '60px';
+                    cell.style.backgroundColor = isDark ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.02)';
+                }
+
+                if (dayIndex < allDays.length && allDays[dayIndex].column === col) {
+                    var dayNum = allDays[dayIndex].dayNum;
+
+                    // Day number
+                    var dayHeader = document.createElement('div');
+                    dayHeader.className = 'd-flex justify-content-between align-items-center mb-1';
+                    var dayNumber = document.createElement('span');
+                    dayNumber.className = 'fw-bold';
+                    if (dayNum === todayDay) {
+                        dayNumber.innerHTML = '<span class="badge bg-primary rounded-circle">' + dayNum + '</span>';
+                    } else {
+                        dayNumber.textContent = dayNum;
+                    }
+                    dayHeader.appendChild(dayNumber);
+
+                    // Task count badge
+                    var taskEntries = days[dayNum] || [];
+                    if (taskEntries.length > 0) {
+                        var countBadge = document.createElement('span');
+                        countBadge.className = 'badge bg-secondary';
+                        countBadge.style.fontSize = '0.65rem';
+                        countBadge.textContent = taskEntries.length;
+                        dayHeader.appendChild(countBadge);
+                    }
+                    cell.appendChild(dayHeader);
+
+                    // Task entries
+                    if (taskEntries.length > 0) {
+                        var container = document.createElement('div');
+                        container.style.fontSize = '0.75rem';
+                        container.style.maxHeight = '70px';
+                        container.style.overflowY = 'auto';
+
+                        taskEntries.forEach(function(t) {
+                            var entry = document.createElement('div');
+                            entry.className = 'd-block text-truncate mb-1 px-1 rounded';
+                            entry.style.cursor = 'pointer';
+
+                            // Color by status
+                            if (t.status === 'completed') {
+                                entry.classList.add('text-decoration-line-through', 'text-muted');
+                            } else if (t.is_overdue) {
+                                entry.style.backgroundColor = isDark ? 'rgba(220,53,69,0.2)' : 'rgba(220,53,69,0.1)';
+                                entry.style.borderLeft = '3px solid var(--bs-danger)';
+                            } else if (t.priority === 'high') {
+                                entry.style.backgroundColor = isDark ? 'rgba(255,193,7,0.15)' : 'rgba(255,193,7,0.1)';
+                                entry.style.borderLeft = '3px solid var(--bs-warning)';
+                            } else {
+                                entry.style.backgroundColor = isDark ? 'rgba(13,110,253,0.15)' : 'rgba(13,110,253,0.08)';
+                                entry.style.borderLeft = '3px solid var(--bs-primary)';
+                            }
+
+                            var icons = '';
+                            if (t.priority === 'high') icons += '<i class="bi bi-exclamation-triangle-fill text-danger" style="font-size:0.65rem;"></i> ';
+                            if (t.status === 'completed') icons += '<i class="bi bi-check-circle-fill text-success" style="font-size:0.65rem;"></i> ';
+
+                            entry.innerHTML = icons + escTaskHtml(t.title);
+                            entry.title = t.title + (t.context ? ' - ' + t.context : '') + (t.is_overdue ? ' (OVERDUE)' : '');
+
+                            entry.addEventListener('click', function() {
+                                viewActionItem(t.id);
+                            });
+                            container.appendChild(entry);
+                        });
+                        cell.appendChild(container);
+                    }
+
+                    dayIndex++;
+                } else {
+                    cell.classList.add('bg-light');
+                    if (isDark) cell.style.backgroundColor = 'rgba(255,255,255,0.03)';
+                }
+
+                row.appendChild(cell);
+            }
+            body.appendChild(row);
+        }
     }
     {% endif %}
 </script>

@@ -362,6 +362,12 @@ def index():
         Project.project_type != 'copilot_saved',
     ).count()
 
+    # Count open action items with due dates (for Tasks tab badge)
+    task_due_count = ActionItem.query.filter(
+        ActionItem.status == 'open',
+        ActionItem.due_date.isnot(None),
+    ).count()
+
     # Revenue import reminder: show after the 10th of each month
     # (finalized revenue data typically available ~1 week into the new month)
     show_revenue_reminder = False
@@ -390,6 +396,7 @@ def index():
         engagement_count=engagement_count,
         has_projects=project_count > 0,
         project_count=project_count,
+        task_due_count=task_due_count,
         show_revenue_reminder=show_revenue_reminder,
         pref=pref,
     )
@@ -503,6 +510,137 @@ def notes_calendar_api():
         'next_month': next_month,
         'today_day': today.day if today.year == year and today.month == month else None
     })
+
+
+@main_bp.route('/api/action-items/calendar')
+def action_items_calendar_api():
+    """API endpoint returning action items grouped by due date for calendar view.
+
+    Query params:
+        year: int (default: current year)
+        month: int, 1-12 (default: current month)
+
+    Returns JSON with:
+        - year, month, month_name: the requested period
+        - days: dict mapping day number -> list of action item dicts
+        - overdue: list of overdue items from previous months
+        - days_in_month, today_day: calendar rendering info
+    """
+    today = date.today()
+    year = request.args.get('year', today.year, type=int)
+    month = request.args.get('month', today.month, type=int)
+
+    if month < 1 or month > 12:
+        month = today.month
+
+    first_day = date(year, month, 1)
+    if month == 12:
+        next_month_first = date(year + 1, 1, 1)
+    else:
+        next_month_first = date(year, month + 1, 1)
+
+    seller_mode_sid = get_seller_mode_seller_id()
+
+    # Query action items with due dates in this month
+    q = ActionItem.query.filter(
+        ActionItem.due_date >= first_day,
+        ActionItem.due_date < next_month_first,
+    ).options(
+        db.joinedload(ActionItem.engagement).joinedload(Engagement.customer),
+        db.joinedload(ActionItem.project),
+    )
+    if seller_mode_sid:
+        q = q.filter(
+            db.or_(
+                ActionItem.source.in_(['copilot', 'project']),
+                db.and_(
+                    ActionItem.engagement_id.isnot(None),
+                    ActionItem.engagement.has(
+                        Engagement.customer.has(Customer.seller_id == seller_mode_sid)
+                    ),
+                ),
+            )
+        )
+    items = q.order_by(ActionItem.due_date, ActionItem.priority.desc()).all()
+
+    # Group by day
+    days = {}
+    for task in items:
+        day = task.due_date.day
+        if day not in days:
+            days[day] = []
+        days[day].append(_task_calendar_dict(task))
+
+    # Overdue items (open, due before this month)
+    overdue_q = ActionItem.query.filter(
+        ActionItem.status == 'open',
+        ActionItem.due_date < first_day,
+        ActionItem.due_date.isnot(None),
+    ).options(
+        db.joinedload(ActionItem.engagement).joinedload(Engagement.customer),
+        db.joinedload(ActionItem.project),
+    )
+    if seller_mode_sid:
+        overdue_q = overdue_q.filter(
+            db.or_(
+                ActionItem.source.in_(['copilot', 'project']),
+                db.and_(
+                    ActionItem.engagement_id.isnot(None),
+                    ActionItem.engagement.has(
+                        Engagement.customer.has(Customer.seller_id == seller_mode_sid)
+                    ),
+                ),
+            )
+        )
+    overdue_items = overdue_q.order_by(ActionItem.due_date).all()
+
+    # Calendar metadata
+    days_in_month = cal.monthrange(year, month)[1]
+
+    if month == 1:
+        prev_year, prev_month = year - 1, 12
+    else:
+        prev_year, prev_month = year, month - 1
+
+    if month == 12:
+        next_year, next_month = year + 1, 1
+    else:
+        next_year, next_month = year, month + 1
+
+    return jsonify({
+        'year': year,
+        'month': month,
+        'month_name': cal.month_name[month],
+        'days': days,
+        'overdue': [_task_calendar_dict(t) for t in overdue_items],
+        'days_in_month': days_in_month,
+        'today_day': today.day if today.year == year and today.month == month else None,
+        'prev_year': prev_year,
+        'prev_month': prev_month,
+        'next_year': next_year,
+        'next_month': next_month,
+    })
+
+
+def _task_calendar_dict(task: ActionItem) -> dict:
+    """Serialize an action item for the calendar API."""
+    context = ''
+    if task.engagement and task.engagement.customer:
+        context = task.engagement.customer.get_display_name()
+    elif task.project:
+        context = task.project.title
+    return {
+        'id': task.id,
+        'title': task.title,
+        'status': task.status,
+        'priority': task.priority,
+        'source': task.source,
+        'is_overdue': task.is_overdue,
+        'due_date': task.due_date.isoformat() if task.due_date else None,
+        'context': context,
+        'engagement_id': task.engagement_id,
+        'project_id': task.project_id,
+    }
 
 
 @main_bp.route('/api/engagements/active')

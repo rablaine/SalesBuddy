@@ -86,6 +86,7 @@
                 <form id="addTaskForm" onsubmit="addProjectTask(event)">
                     <div class="input-group input-group-sm">
                         <input type="text" class="form-control" id="newTaskTitle" placeholder="Add action item..." required>
+                        <input type="date" class="form-control" id="newTaskDue" style="max-width: 150px;">
                         <button class="btn btn-primary" type="submit"><i class="bi bi-plus"></i></button>
                     </div>
                 </form>
@@ -126,10 +127,13 @@ function addProjectTask(e) {
     e.preventDefault();
     var title = document.getElementById('newTaskTitle').value.trim();
     if (!title) return;
+    var payload = {title: title};
+    var dueVal = document.getElementById('newTaskDue').value;
+    if (dueVal) payload.due_date = dueVal;
     fetch('/api/project/{{ project.id }}/action-item', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({title: title})
+        body: JSON.stringify(payload)
     }).then(function(r) { return r.json(); })
     .then(function(data) {
         if (data.success) location.reload();

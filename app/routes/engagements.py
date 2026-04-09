@@ -887,10 +887,19 @@ def action_item_save(id: int):
 
     Moves the task from source='copilot' to source='project' and
     links it to the built-in copilot_saved project.
+    Optionally accepts a due_date in JSON body.
     """
     task = ActionItem.query.get_or_404(id)
     if task.source != 'copilot':
         return jsonify(success=False, error='Only copilot tasks can be saved'), 400
+
+    data = request.get_json(silent=True) or {}
+    due_str = (data.get('due_date') or '').strip()
+    if due_str:
+        try:
+            task.due_date = datetime.strptime(due_str, '%Y-%m-%d').date()
+        except ValueError:
+            pass
 
     from app.services.copilot_actions import get_copilot_project
     copilot_proj = get_copilot_project()
