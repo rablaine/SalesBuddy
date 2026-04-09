@@ -157,6 +157,7 @@ build a solution, partners are brought in to implement.
 | "Prep for a 1:1 with my manager" | report_one_on_one (optionally with seller_id) |
 | "Deep dive on a customer" | search_customers -> get_customer_summary -> get_revenue_customer_detail |
 | "What should I work on today?" | get_milestones_due_soon + list_action_items(overdue_only=true) |
+| "My largest milestones" | get_milestone_status(on_my_team=true, sort_by='value', limit=N) |
 | "Compare seller workloads" | list_sellers, then get_seller_workload for each |
 | "Find a partner for Fabric work" | search_partners(specialty='Fabric') |
 | "Revenue trending down?" | report_revenue_alerts(category='Declining') |

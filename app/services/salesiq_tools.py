@@ -494,7 +494,8 @@ def search_engagements(
 
 @tool(
     'get_milestone_status',
-    'Get milestone details or list milestones filtered by status, customer, or seller.',
+    'Get milestone details or list milestones filtered by status, customer, or team. '
+    '"My milestones" means on_my_team=true. Use sort_by="value" to find largest milestones.',
     {
         'type': 'object',
         'properties': {
@@ -512,7 +513,13 @@ def search_engagements(
             },
             'on_my_team': {
                 'type': 'boolean',
-                'description': 'Filter to milestones where user is on the team.',
+                'description': 'Filter to milestones where user is on the team. '
+                               'Use true for "my milestones".',
+            },
+            'sort_by': {
+                'type': 'string',
+                'description': 'Sort order: "due_date" (default), "value" (dollar_value desc), '
+                               'or "usage" (monthly_usage desc).',
             },
             'limit': {
                 'type': 'integer',
@@ -526,6 +533,7 @@ def get_milestone_status(
     customer_id: int | None = None,
     status: str | None = None,
     on_my_team: bool | None = None,
+    sort_by: str = 'due_date',
     limit: int = 20,
 ) -> dict | list[dict]:
     """Get milestone details or search milestones."""
@@ -541,6 +549,7 @@ def get_milestone_status(
             'status': ms.msx_status,
             'customer': ms.customer.name if ms.customer else None,
             'due_date': ms.due_date.strftime('%Y-%m-%d') if ms.due_date else None,
+            'dollar_value': ms.dollar_value,
             'monthly_usage': ms.monthly_usage,
             'on_my_team': ms.on_my_team,
             'workload': ms.workload,
@@ -554,7 +563,15 @@ def get_milestone_status(
         q = q.filter(Milestone.msx_status == status)
     if on_my_team is not None:
         q = q.filter(Milestone.on_my_team == on_my_team)
-    milestones = q.order_by(Milestone.due_date.asc().nullslast()).limit(limit).all()
+
+    if sort_by == 'value':
+        q = q.order_by(Milestone.dollar_value.desc().nullslast())
+    elif sort_by == 'usage':
+        q = q.order_by(Milestone.monthly_usage.desc().nullslast())
+    else:
+        q = q.order_by(Milestone.due_date.asc().nullslast())
+
+    milestones = q.limit(limit).all()
     return [
         {
             'id': m.id,
@@ -562,6 +579,7 @@ def get_milestone_status(
             'status': m.msx_status,
             'customer': m.customer.name if m.customer else None,
             'due_date': m.due_date.strftime('%Y-%m-%d') if m.due_date else None,
+            'dollar_value': m.dollar_value,
             'monthly_usage': m.monthly_usage,
             'on_my_team': m.on_my_team,
         }
