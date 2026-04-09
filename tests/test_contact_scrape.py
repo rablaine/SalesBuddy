@@ -291,6 +291,98 @@ class TestMeetingAttendeeScrapeService:
             db.session.delete(p)
             db.session.commit()
 
+    def test_fuzzy_customer_domain_match(self, app, sample_data):
+        """Fuzzy domain matching categorizes related domain as customer contact."""
+        with app.app_context():
+            customer = db.session.get(Customer, sample_data['customer1_id'])
+            customer.website = 'redsail.com'
+            db.session.commit()
+
+            from app.services.meeting_attendee_scrape import _categorize_attendees
+            attendees = [
+                {'name': 'Bob', 'email': 'bob@redsailconsultants.com', 'title': None}
+            ]
+            result = _categorize_attendees(attendees, customer=customer)
+            assert result[0]['category'] == 'customer_contact'
+            assert result[0]['is_new_contact'] is True
+
+            customer.website = None
+            db.session.commit()
+
+    def test_fuzzy_customer_domain_from_contact_email(self, app, sample_data):
+        """Fuzzy match works from existing contact emails, not just website."""
+        with app.app_context():
+            customer = db.session.get(Customer, sample_data['customer1_id'])
+            contact = CustomerContact(
+                customer_id=customer.id, name='Existing', email='existing@acme.com'
+            )
+            db.session.add(contact)
+            db.session.commit()
+
+            from app.services.meeting_attendee_scrape import _categorize_attendees
+            attendees = [
+                {'name': 'New', 'email': 'new@acmesolutions.com', 'title': None}
+            ]
+            result = _categorize_attendees(attendees, customer=customer)
+            assert result[0]['category'] == 'customer_contact'
+            assert result[0]['is_new_contact'] is True
+
+            db.session.delete(contact)
+            db.session.commit()
+
+    def test_fuzzy_customer_beats_fuzzy_partner(self, app, sample_data):
+        """Customer fuzzy match takes priority over partner fuzzy match."""
+        with app.app_context():
+            customer = db.session.get(Customer, sample_data['customer1_id'])
+            customer.website = 'contoso.com'
+            db.session.commit()
+
+            p = Partner(name='Contoso Labs', website='contosolabs.net')
+            db.session.add(p)
+            db.session.commit()
+
+            from app.services.meeting_attendee_scrape import _categorize_attendees
+            attendees = [
+                {'name': 'Jane', 'email': 'jane@contosoglobal.com', 'title': None}
+            ]
+            result = _categorize_attendees(attendees, customer=customer, partners=[p])
+            # Customer fuzzy match should win over partner fuzzy match
+            assert result[0]['category'] == 'customer_contact'
+
+            customer.website = None
+            db.session.commit()
+            db.session.delete(p)
+            db.session.commit()
+
+    def test_fuzzy_customer_domain_short_base_skipped(self, app, sample_data):
+        """Bases shorter than 3 chars are not fuzzy matched."""
+        with app.app_context():
+            from app.services.meeting_attendee_scrape import _fuzzy_match_customer_domain
+            # 'ab' is too short to fuzzy match
+            assert _fuzzy_match_customer_domain('ab.com', {'abcorp.com'}) is False
+            # 'abc' is long enough
+            assert _fuzzy_match_customer_domain('abc.com', {'abcorp.com'}) is True
+
+    def test_fuzzy_customer_domain_unit(self, app):
+        """Unit test for _fuzzy_match_customer_domain function."""
+        from app.services.meeting_attendee_scrape import _fuzzy_match_customer_domain
+        # Forward: known base in new domain
+        assert _fuzzy_match_customer_domain(
+            'redsailconsultants.com', {'redsail.com'}
+        ) is True
+        # Reverse: new base in known domain
+        assert _fuzzy_match_customer_domain(
+            'red.com', {'redsail.com'}
+        ) is True
+        # No overlap
+        assert _fuzzy_match_customer_domain(
+            'bluewave.com', {'redsail.com'}
+        ) is False
+        # Exact still works (but function only called for non-exact)
+        assert _fuzzy_match_customer_domain(
+            'redsail.com', {'redsail.com'}
+        ) is True
+
     def test_merge_related_domains(self, app):
         """Related new_partner domains are merged."""
         from app.services.meeting_attendee_scrape import _merge_related_domains

@@ -166,6 +166,25 @@ def _fuzzy_match_domain(domain: str, domain_map: Dict[str, 'Partner']) -> Option
     return None
 
 
+def _fuzzy_match_customer_domain(domain: str, customer_domains: set) -> bool:
+    """Try to match a domain to customer domains via base name overlap.
+
+    For example, redsailconsultants.com matches redsail.com because
+    'redsail' (base of redsail.com) is contained in 'redsailconsultants'.
+    Uses the same bidirectional substring algorithm as partner fuzzy matching.
+    """
+    base = domain.split(".")[0]
+    if len(base) < 3:
+        return False
+    for known_domain in customer_domains:
+        known_base = known_domain.split(".")[0]
+        if len(known_base) < 3:
+            continue
+        if known_base in base or base in known_base:
+            return True
+    return False
+
+
 def _categorize_attendees(
     attendees: List[Dict[str, str]],
     customer: Optional[Customer] = None,
@@ -329,8 +348,10 @@ def _categorize_attendees(
             result.append(entry)
             continue
 
-        # Match domain to customer
-        if domain in customer_domains:
+        # Match domain to customer (exact then fuzzy)
+        if domain in customer_domains or _fuzzy_match_customer_domain(
+            domain, customer_domains
+        ):
             entry["category"] = "customer_contact"
             entry["ref_type"] = "customer_contact"
             entry["is_new_contact"] = True
