@@ -151,6 +151,9 @@
                     {% if ht.ms_id is defined and ht.ms_id %}
                     <a href="javascript:void(0)" class="list-group-item list-group-item-action py-2 px-3"
                        onclick="openActionItemsMilestone(event, {{ ht.ms_id }}, '{{ ht.title|replace("'", "\\'") }}', '{{ ht.ms_status }}', '{{ ht.ms_msx_url }}')">
+                    {% elif ht.eng_id is defined and ht.eng_id %}
+                    <a href="javascript:void(0)" class="list-group-item list-group-item-action py-2 px-3"
+                       onclick="openActionItemsEngagement({{ ht.eng_id }}, '{{ ht.title|replace("'", "\\'") }}', '{{ ht.eng_status }}')">
                     {% else %}
                     <a href="{{ ht.url }}" class="list-group-item list-group-item-action py-2 px-3">
                     {% endif %}

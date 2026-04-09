@@ -309,6 +309,8 @@ def index():
                 'subtitle': eng.customer.name if eng.customer else '',
                 'url': f'/engagement/{eng.id}',
                 'icon': 'bi-link-45deg',
+                'eng_id': eng.id,
+                'eng_status': eng.status or '',
             })
 
         # On-team active milestones with no monthly_usage (current FQ)
@@ -472,6 +474,8 @@ def _build_action_items_hub_context() -> dict:
                 'subtitle': eng.customer.name if eng.customer else '',
                 'url': f'/engagement/{eng.id}',
                 'icon': 'bi-link-45deg',
+                'eng_id': eng.id,
+                'eng_status': eng.status or '',
             })
 
         _today = date.today()

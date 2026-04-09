@@ -1,0 +1,986 @@
+{% from 'partials/customer_favicon.html' import customer_favicon %}
+<style>
+.sortable-ghost-highlight { background: rgba(var(--bs-primary-rgb), 0.1) !important; }
+
+/* Story field accent colors - theme-aware */
+:root, [data-bs-theme="light"] {
+    --story-individuals: var(--bs-body-color);
+    --story-problem: #7c4dff;
+    --story-impact: #e65100;
+    --story-resources: #f57f17;
+    --story-acr: #2e7d32;
+    --story-date: #1565c0;
+    --story-border: var(--bs-border-color);
+}
+[data-bs-theme="dark"] {
+    --story-individuals: var(--bs-body-color);
+    --story-problem: #b388ff;
+    --story-impact: #ff9800;
+    --story-resources: #ffe135;
+    --story-acr: #69f0ae;
+    --story-date: #64b5f6;
+    --story-border: rgba(255,255,255,0.15);
+}
+</style>
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div style="min-width: 0; flex: 1;">
+        <nav aria-label="breadcrumb">
+            <ol class="breadcrumb mb-1">
+                <li class="breadcrumb-item">
+                    <a href="{{ url_for('customers.customer_view', id=customer.id) }}">
+                        {{ customer_favicon(customer, size=16) }} {{ customer.get_display_name() }}
+                    </a>
+                </li>
+                <li class="breadcrumb-item active">Engagement</li>
+            </ol>
+        </nav>
+        <h1 class="mb-0 text-truncate" title="{{ engagement.title }}">
+            <i class="bi bi-diagram-3"></i> {{ engagement.title }}
+        </h1>
+        <span class="badge {% if engagement.status == 'Active' %}bg-success{% elif engagement.status == 'Won' %}bg-primary{% elif engagement.status == 'Lost' %}bg-danger{% elif engagement.status == 'On Hold' %}bg-warning text-dark{% else %}bg-secondary{% endif %} mt-1">
+            {{ engagement.status }}
+        </span>
+        {% if engagement.target_date %}
+        <span class="text-muted ms-2 small"><i class="bi bi-calendar"></i> Target: {{ engagement.target_date.strftime('%b %d, %Y') }}</span>
+        {% endif %}
+        {% if engagement.estimated_acr %}
+        <span class="text-muted ms-2 small"><i class="bi bi-currency-dollar"></i> ${{ "{:,}".format(engagement.estimated_acr | int) }}/mo</span>
+        {% endif %}
+    </div>
+    {% if show_header_actions %}
+    <div class="flex-shrink-0 d-flex gap-2">
+        <button type="button" id="engFavoriteBtn"
+                class="btn {% if is_favorited %}btn-warning{% else %}btn-outline-secondary{% endif %}"
+                onclick="toggleEngagementFavorite(this, {{ engagement.id }})"
+                title="{% if is_favorited %}Remove from favorites{% else %}Add to favorites{% endif %}">
+            <i class="bi {% if is_favorited %}bi-star-fill{% else %}bi-star{% endif %}"></i>
+        </button>
+        <a href="{{ url_for('notes.note_create') }}?customer_id={{ customer.id }}&engagement_id={{ engagement.id }}" class="btn btn-success">
+            <i class="bi bi-plus-circle"></i> New Note
+        </a>
+        <a href="{{ url_for('engagements.engagement_edit', id=engagement.id) }}" class="btn btn-primary">
+            <i class="bi bi-pencil"></i> Edit
+        </a>
+    </div>
+    {% endif %}
+</div>
+
+<script>
+function toggleEngagementFavorite(btn, engId) {
+    fetch('/api/engagement/' + engId + '/favorite', { method: 'POST' })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (!data.success) return;
+            var icon = btn.querySelector('i');
+            if (data.is_favorited) {
+                btn.className = btn.className.replace('btn-outline-secondary', 'btn-warning');
+                icon.className = 'bi bi-star-fill';
+                btn.title = 'Remove from favorites';
+            } else {
+                btn.className = btn.className.replace('btn-warning', 'btn-outline-secondary');
+                icon.className = 'bi bi-star';
+                btn.title = 'Add to favorites';
+            }
+        })
+        .catch(function(err) { console.error('Error toggling favorite:', err); });
+}
+</script>
+
+<div class="row">
+    <div class="col-md-5">
+        <!-- Story Card -->
+        <div class="card mb-3">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-journal-text"></i> The Story</h5>
+                <div class="d-flex align-items-center gap-2">
+                    <span class="badge bg-secondary">{{ engagement.story_completeness }}% complete</span>
+                    {% if linked_notes %}
+                    <button type="button" class="btn btn-sm btn-outline-success" id="generateStoryBtn" onclick="generateStory()">
+                        <i class="bi bi-stars"></i> Generate
+                    </button>
+                    {% endif %}
+                </div>
+            </div>
+            <div class="card-body">
+                {% macro story_field(label, prompt, value, ai_value='', color='') %}
+                <div class="mb-3">
+                    <div class="d-flex justify-content-between">
+                        <strong class="small">{{ label }}</strong>
+                    </div>
+                    <small class="text-muted fst-italic">{{ prompt }}</small>
+                    {% if value %}
+                    <p class="mb-0 mt-1" style="white-space: pre-wrap;{% if color %} color: {{ color }};{% endif %}">{{ value }}</p>
+                    {% elif ai_value %}
+                    <p class="mb-0 mt-1" style="white-space: pre-wrap; opacity: 0.45;{% if color %} color: {{ color }};{% endif %}" title="AI-generated value (not manually confirmed)">{{ ai_value }}</p>
+                    {% else %}
+                    <p class="mb-0 mt-1 fst-italic small" style="{% if color %}color: {{ color }}; opacity: 0.5;{% else %}color: var(--bs-secondary);{% endif %}">Not yet filled in</p>
+                    {% endif %}
+                </div>
+                {% endmacro %}
+
+                <div class="mb-3">
+                    <strong class="small">Key Individuals</strong>
+                    <small class="text-muted d-block fst-italic">"I've been working with..."</small>
+                    {% if engagement.contacts %}
+                    <div class="mt-1 d-flex flex-wrap gap-1">
+                        {% for c in engagement.contacts %}
+                        <span class="badge
+                            {% if c.person_type == 'customer_contact' %}bg-success
+                            {% elif c.person_type == 'partner_contact' %}bg-purple
+                            {% elif c.person_type == 'se' %}bg-info
+                            {% elif c.person_type == 'seller' %}bg-primary
+                            {% elif c.person_type == 'internal_contact' %}bg-warning text-dark
+                            {% else %}bg-secondary{% endif %}"
+                            {% if c.email %}title="{{ c.email }}"{% endif %}>
+                            <i class="bi {% if c.person_type == 'customer_contact' %}bi-person-circle
+                                {% elif c.person_type == 'partner_contact' %}bi-building
+                                {% elif c.person_type == 'se' %}bi-tools
+                                {% elif c.person_type == 'seller' %}bi-person
+                                {% elif c.person_type == 'internal_contact' %}bi-person-badge
+                                {% else %}bi-person-dash{% endif %} me-1"></i>{{ c.display_name }}
+                        </span>
+                        {% endfor %}
+                    </div>
+                    {% else %}
+                    <p class="mb-0 mt-1 fst-italic small" style="color: var(--bs-secondary);">No contacts added yet</p>
+                    {% endif %}
+                </div>
+
+                {{ story_field("Technical/Business Problem", '"...they have run into..."', engagement.technical_problem, engagement.ai_technical_problem, 'var(--story-problem)') }}
+                {{ story_field("Business Process/Strategy Impact", '"...and it\'s impacting..."', engagement.business_impact, engagement.ai_business_impact, 'var(--story-impact)') }}
+                {{ story_field("Solution Resources", '"We are addressing the Opportunity with..."', engagement.solution_resources, engagement.ai_solution_resources, 'var(--story-resources)') }}
+
+                <div class="row">
+                    <div class="col-6">
+                        <strong class="small">Business Outcome</strong>
+                        <small class="text-muted d-block fst-italic">"...which will result in..."</small>
+                        {% if engagement.estimated_acr %}
+                        <p class="mb-0 mt-1" style="color: var(--story-acr);">${{ "{:,}".format(engagement.estimated_acr | int) }}/mo</p>
+                        {% elif engagement.ai_estimated_acr %}
+                        <p class="mb-0 mt-1" style="color: var(--story-acr); opacity: 0.45;" title="AI-generated value (not manually confirmed)">${{ "{:,}".format(engagement.ai_estimated_acr | int) }}/mo</p>
+                        {% else %}
+                        <p class="text-muted mb-0 mt-1 fst-italic small">Not yet filled in</p>
+                        {% endif %}
+                    </div>
+                    <div class="col-6">
+                        <strong class="small">Target Date</strong>
+                        <small class="text-muted d-block fst-italic">"...by..."</small>
+                        {% if engagement.target_date %}
+                        <p class="mb-0 mt-1" style="color: var(--story-date);">{{ engagement.target_date.strftime('%b %d, %Y') }}</p>
+                        {% elif engagement.ai_target_date %}
+                        <p class="mb-0 mt-1" style="color: var(--story-date); opacity: 0.45;" title="AI-generated value (not manually confirmed)">{{ engagement.ai_target_date.strftime('%b %d, %Y') }}</p>
+                        {% else %}
+                        <p class="text-muted mb-0 mt-1 fst-italic small">Not yet set</p>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Linked Opportunities -->
+        {% if engagement.opportunities %}
+        <div class="card mb-3">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-cash-stack"></i> Opportunities</h5>
+            </div>
+            <div class="card-body">
+                {% for opp in engagement.opportunities %}
+                <div class="{% if not loop.last %}mb-2 pb-2 border-bottom{% endif %}">
+                    <a href="{{ url_for('opportunities.opportunity_view', id=opp.id) }}" class="text-decoration-none">
+                        <i class="bi bi-cash-stack"></i> {{ opp.name }}
+                    </a>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Linked Milestones -->
+        <div class="card mb-3">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-flag"></i> Milestones (<span id="msCount">{{ engagement.milestones|length }}</span>)</h5>
+                {% if customer_milestones %}
+                <button class="btn btn-sm btn-outline-secondary" id="msToggleBtn" onclick="toggleMilestoneEdit()">
+                    <i class="bi bi-pencil"></i> Edit
+                </button>
+                {% endif %}
+            </div>
+            <!-- View mode -->
+            <div class="card-body" id="msViewMode">
+                {% if engagement.milestones %}
+                {% for ms in engagement.milestones %}
+                <div class="d-flex align-items-start gap-2 {% if not loop.last %}mb-2 pb-2 border-bottom{% endif %}">
+                    <i class="bi bi-{% if ms.msx_status == 'On Track' %}check-circle text-success{% elif ms.msx_status == 'At Risk' %}exclamation-triangle text-warning{% elif ms.msx_status == 'Blocked' %}x-circle text-danger{% elif ms.msx_status == 'Completed' %}check2-circle text-info{% else %}flag text-secondary{% endif %}" style="margin-top: 2px;" title="{{ ms.msx_status or 'Unknown' }}"></i>
+                    <div style="min-width: 0; flex: 1;">
+                        <div class="d-flex justify-content-between align-items-start gap-1">
+                            <div style="min-width: 0; flex: 1;">
+                                <a href="{{ url_for('milestones.milestone_view', id=ms.id) }}" class="text-decoration-none small text-truncate d-block" title="{{ ms.display_text }}">
+                                    {{ ms.display_text }}
+                                </a>
+                                {% if ms.workload %}
+                                    <div class="text-muted text-truncate" style="font-size: 0.7em;" title="{{ ms.workload }}">{{ ms.workload }}</div>
+                                {% endif %}
+                            </div>
+                            <div class="text-end flex-shrink-0">
+                                {% if ms.monthly_usage %}
+                                    <span class="small text-muted">${{ "{:,.0f}".format(ms.monthly_usage) }}/mo</span>
+                                {% endif %}
+                                {% if ms.due_date %}
+                                    {% set days_until = (ms.due_date - today).days %}
+                                    {% if ms.msx_status == 'Completed' %}
+                                    <div style="font-size: 0.7em;" class="text-success"><i class="bi bi-calendar-check"></i> {{ ms.due_date.strftime('%b %d, %Y') }}</div>
+                                    {% else %}
+                                    <div style="font-size: 0.7em;" class="{% if days_until < 0 %}text-danger{% elif days_until <= 30 %}text-warning{% elif days_until <= 90 %}text-success{% else %}text-muted{% endif %}"><i class="bi bi-calendar"></i> {{ ms.due_date.strftime('%b %d, %Y') }}{% if days_until < 0 %} <span class="fw-semibold">(overdue)</span>{% elif days_until <= 30 %} <span class="fw-semibold">({{ days_until }}d)</span>{% endif %}</div>
+                                    {% endif %}
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+                {% else %}
+                <p class="text-muted fst-italic small mb-0">No milestones linked.{% if customer_milestones %} Click Edit to link milestones.{% endif %}</p>
+                {% endif %}
+            </div>
+            <!-- Edit mode -->
+            <div class="card-body d-none" id="msEditMode" style="max-height: 300px; overflow-y: auto;">
+                {% for ms in customer_milestones %}
+                <div class="form-check mb-2">
+                    <input class="form-check-input ms-checkbox" type="checkbox"
+                           value="{{ ms.id }}" id="msEdit_{{ ms.id }}"
+                           {% if ms in engagement.milestones %}checked{% endif %}>
+                    <label class="form-check-label small" for="msEdit_{{ ms.id }}">
+                        {{ ms.display_text|truncate(60) }}
+                        {% if ms.msx_status %}
+                        <span class="badge {% if ms.msx_status == 'On Track' %}bg-success{% elif ms.msx_status == 'At Risk' %}bg-warning text-dark{% elif ms.msx_status == 'Blocked' %}bg-danger{% elif ms.msx_status == 'Completed' %}bg-info{% else %}bg-secondary{% endif %} ms-1">{{ ms.msx_status }}</span>
+                        {% endif %}
+                        {% if ms.monthly_usage %}
+                        <span class="text-muted ms-1">${{ "{:,.0f}".format(ms.monthly_usage) }}/mo</span>
+                        {% endif %}
+                    </label>
+                </div>
+                {% endfor %}
+                {% if not customer_milestones %}
+                <p class="text-muted small mb-0">No milestones found for this customer.</p>
+                {% endif %}
+                <div class="mt-2 d-flex gap-2">
+                    <button class="btn btn-sm btn-primary" onclick="saveMilestoneLinks()">
+                        <i class="bi bi-check-lg"></i> Save
+                    </button>
+                    <button class="btn btn-sm btn-outline-secondary" onclick="toggleMilestoneEdit()">Cancel</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Partner Recommendations -->
+        <div class="card mb-3">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-people"></i> Partner Recommendations</h5>
+                <button type="button" class="btn btn-sm btn-outline-success" id="recommendPartnersBtn" onclick="recommendPartners()">
+                    <i class="bi bi-stars"></i> {% if saved_partner_recs %}Refresh{% else %}Recommend{% endif %}
+                </button>
+            </div>
+            <div class="card-body" id="partnerRecsBody">
+                {% if saved_partner_recs %}
+                    {% for rec in saved_partner_recs %}
+                    <div class="{% if not loop.first %}mt-3 pt-3 border-top{% endif %}">
+                        <div class="d-flex justify-content-between align-items-center mb-1">
+                            <div>
+                                <span class="me-1">{% if loop.index == 1 %}🥇{% elif loop.index == 2 %}🥈{% elif loop.index == 3 %}🥉{% endif %}</span>
+                                <a href="{{ url_for('partners.partner_view', id=rec.partner.id) }}" class="fw-semibold text-decoration-none">{{ rec.partner.name }}</a>
+                            </div>
+                            <span class="badge bg-{% if rec.fit_score >= 70 %}success{% elif rec.fit_score >= 40 %}warning{% else %}secondary{% endif %}">{{ rec.fit_score }}% fit</span>
+                        </div>
+                        <p class="small text-muted mb-0">{{ rec.reason }}</p>
+                    </div>
+                    {% endfor %}
+                    <div class="text-muted mt-2 pt-2 border-top" style="font-size: 0.7em;" id="recTimestamp">
+                        Generated <span class="local-datetime" data-utc="{{ saved_partner_recs[0].generated_at.isoformat() }}" data-fmt="short"></span>
+                    </div>
+                {% else %}
+                    <p class="text-muted fst-italic small mb-0">Click <strong>Recommend</strong> to find the best-fit partners for this engagement using AI.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-7">
+        <!-- Action Items -->
+        <div class="card mb-3">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-check2-square"></i> Action Items <span class="badge bg-secondary" id="taskCount">{{ engagement.action_items|selectattr('status', 'equalto', 'open')|list|length }}</span></h5>
+                <button class="btn btn-sm btn-outline-success" type="button" onclick="openNewTaskModal()">
+                    <i class="bi bi-plus-circle"></i> Add
+                </button>
+            </div>
+            <!-- Action item list -->
+            <div class="card-body p-0" id="taskListBody">
+                {% set open_tasks = engagement.action_items|selectattr('status', 'equalto', 'open')|list %}
+                {% set completed_tasks = engagement.action_items|selectattr('status', 'equalto', 'completed')|list %}
+                <div class="list-group list-group-flush">
+                    <div id="sortableTaskList">
+                    {% for task in open_tasks %}
+                    <div class="list-group-item d-flex align-items-start gap-2 task-item" data-task-id="{{ task.id }}" onclick="viewTask({{ task.id }})" style="cursor: pointer;">
+                        <i class="bi bi-grip-vertical text-muted flex-shrink-0 drag-handle" style="cursor: grab; margin-top: 3px; opacity: 0.4;" title="Drag to reorder" onclick="event.stopPropagation();"></i>
+                        <input type="checkbox" class="form-check-input mt-1 flex-shrink-0" onchange="toggleTask({{ task.id }})" onclick="event.stopPropagation();" title="Mark complete">
+                        <div style="min-width: 0; flex: 1;">
+                            <div class="d-flex justify-content-between align-items-start">
+                                <div style="min-width: 0; flex: 1;">
+                                    <span class="{% if task.priority == 'high' %}text-danger fw-semibold{% endif %}">{{ task.title }}</span>
+                                    {% if task.priority == 'high' %}<i class="bi bi-exclamation-triangle-fill text-danger ms-1" title="High priority"></i>{% endif %}
+                                    {% if task.contact %}<span class="text-muted small ms-1"><i class="bi bi-person"></i> {{ task.contact }}</span>{% endif %}
+                                </div>
+                                <div class="flex-shrink-0 d-flex align-items-center gap-1 ms-2" onclick="event.stopPropagation();">
+                                    {% if task.due_date %}
+                                    {% set days_until = (task.due_date - today.date()).days %}
+                                    <span class="badge {% if days_until < 0 %}bg-danger{% elif days_until <= 3 %}bg-warning text-dark{% else %}bg-secondary{% endif %}" style="font-size:0.7rem;">
+                                        <i class="bi bi-calendar"></i> {{ task.due_date.strftime('%b %d') }}{% if days_until < 0 %} (overdue){% endif %}
+                                    </span>
+                                    {% endif %}
+                                    {% if task.note_id %}
+                                    <a href="{{ url_for('notes.note_view', id=task.note_id) }}" class="text-muted" title="From note"><i class="bi bi-journal-text"></i></a>
+                                    {% endif %}
+                                    <button class="btn btn-sm btn-link text-muted p-0" onclick="editTask({{ task.id }})" title="Edit"><i class="bi bi-pencil"></i></button>
+                                    <button class="btn btn-sm btn-link text-danger p-0" onclick="deleteTask({{ task.id }})" title="Delete"><i class="bi bi-trash"></i></button>
+                                </div>
+                            </div>
+                            {% if task.description %}
+                            <div class="small text-muted mt-1 task-desc-preview" style="max-height: 2.6em; overflow: hidden;">{{ task.description|striptags|truncate(150) }}</div>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% endfor %}
+                    </div>
+                    <!-- Ghost row for quick-add -->
+                    <div class="list-group-item d-flex align-items-start gap-2" id="ghostTaskRow" style="opacity: 0.4; cursor: pointer;" onclick="activateGhostRow()">
+                        <input type="checkbox" class="form-check-input mt-1 flex-shrink-0" disabled>
+                        <div style="min-width: 0; flex: 1;" id="ghostTaskPlaceholder">
+                            <span class="text-muted fst-italic small">Add an action item...</span>
+                        </div>
+                        <div style="min-width: 0; flex: 1; display: none;" id="ghostTaskInput">
+                            <div class="d-flex gap-1">
+                                <input type="text" class="form-control form-control-sm" id="ghostTaskTitle" placeholder="Action item title... (Enter to save, Esc to cancel)" maxlength="300">
+                                <input type="date" class="form-control form-control-sm" id="ghostTaskDue" style="width: 140px;">
+                                <button class="btn btn-sm btn-success flex-shrink-0" onclick="event.stopPropagation(); submitGhostTask();"><i class="bi bi-check"></i></button>
+                            </div>
+                        </div>
+                    </div>
+                    {% if completed_tasks %}
+                    <div class="list-group-item py-1 bg-transparent">
+                        <button class="btn btn-sm btn-link text-muted p-0" type="button" data-bs-toggle="collapse" data-bs-target="#completedTasks">
+                            <i class="bi bi-chevron-down"></i> {{ completed_tasks|length }} completed
+                        </button>
+                    </div>
+                    <div class="collapse" id="completedTasks">
+                        {% for task in completed_tasks %}
+                        <div class="list-group-item d-flex align-items-start gap-2 task-item" data-task-id="{{ task.id }}" style="opacity: 0.5;">
+                            <input type="checkbox" class="form-check-input mt-1 flex-shrink-0" checked onchange="toggleTask({{ task.id }})" title="Reopen">
+                            <div style="min-width: 0; flex: 1;">
+                                <span class="text-decoration-line-through">{{ task.title }}</span>
+                                {% if task.completed_at %}<span class="text-muted small ms-1">{{ task.completed_at.strftime('%b %d') }}</span>{% endif %}
+                                <button class="btn btn-sm btn-link text-danger p-0 float-end" onclick="deleteTask({{ task.id }})" title="Delete"><i class="bi bi-trash"></i></button>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <!-- Linked Notes -->
+        <div class="card mb-3">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-journal-text"></i> Linked Notes ({{ linked_notes|length }})</h5>
+            </div>
+            <div class="card-body">
+                {% if linked_notes %}
+                <div class="list-group">
+                    {% for note in linked_notes %}
+                    <a href="{{ url_for('notes.note_view', id=note.id) }}" class="list-group-item list-group-item-action">
+                        <div class="d-flex justify-content-between mb-1">
+                            <strong>{{ note.call_date.strftime('%b %d, %Y') }}{% if note.call_date.hour != 0 or note.call_date.minute != 0 %} {{ note.call_date.strftime('%I:%M %p') }}{% endif %}</strong>
+                        </div>
+                        <div class="small">{{ note.content|striptags|truncate(200) }}</div>
+                        {% if note.topics %}
+                        <div class="mt-1">
+                            {% for topic in note.topics %}
+                            <span class="badge bg-warning text-dark"><i class="bi bi-tag"></i> {{ topic.name }}</span>
+                            {% endfor %}
+                        </div>
+                        {% endif %}
+                    </a>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <p class="text-muted mb-0">No notes linked yet. Create a note or assign existing ones below.</p>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Unassigned Notes -->
+        {% if unassigned_notes %}
+        <div class="card mb-3">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-inbox"></i> Unassigned Notes ({{ unassigned_notes|length }})</h5>
+            </div>
+            <div class="card-body">
+                <form method="POST" action="{{ url_for('engagements.engagement_assign_notes', id=engagement.id) }}">
+                    <div class="list-group mb-3" style="max-height: 300px; overflow-y: auto;">
+                        {% for note in unassigned_notes %}
+                        <label class="list-group-item list-group-item-action">
+                            <div class="d-flex align-items-start gap-2">
+                                <input class="form-check-input mt-1" type="checkbox" name="note_ids" value="{{ note.id }}">
+                                <div>
+                                    <strong class="small">{{ note.call_date.strftime('%b %d, %Y') }}</strong>
+                                    <span class="small text-muted ms-1">{{ note.content|striptags|truncate(100) }}</span>
+                                </div>
+                            </div>
+                        </label>
+                        {% endfor %}
+                    </div>
+                    <button type="submit" class="btn btn-sm btn-outline-primary">
+                        <i class="bi bi-link-45deg"></i> Assign Selected Notes
+                    </button>
+                </form>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<script>
+function _escHtml(text) {
+    const d = document.createElement('div');
+    d.textContent = text;
+    return d.innerHTML;
+}
+function recommendPartners() {
+    const btn = document.getElementById('recommendPartnersBtn');
+    const body = document.getElementById('partnerRecsBody');
+    const origHTML = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Finding...';
+    body.innerHTML = '<div class="text-center py-3"><span class="spinner-border spinner-border-sm"></span> Analyzing engagement and partner data...</div>';
+
+    fetch('/api/ai/recommend-partners', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({engagement_id: {{ engagement.id }}})
+    })
+    .then(r => r.json())
+    .then(data => {
+        btn.disabled = false;
+        btn.innerHTML = origHTML;
+        if (data.success && data.recommendations && data.recommendations.length > 0) {
+            let html = '';
+            data.recommendations.forEach((rec, idx) => {
+                const medals = ['🥇', '🥈', '🥉'];
+                const medal = medals[idx] || '';
+                const scoreColor = rec.fit_score >= 70 ? 'success' : (rec.fit_score >= 40 ? 'warning' : 'secondary');
+                html += `
+                    <div class="${idx > 0 ? 'mt-3 pt-3 border-top' : ''}">
+                        <div class="d-flex justify-content-between align-items-center mb-1">
+                            <div>
+                                <span class="me-1">${medal}</span>
+                                <a href="/partners/${rec.partner_id}" class="fw-semibold text-decoration-none">${_escHtml(rec.partner_name)}</a>
+                            </div>
+                            <span class="badge bg-${scoreColor}">${rec.fit_score}% fit</span>
+                        </div>
+                        <p class="small text-muted mb-0">${_escHtml(rec.reason)}</p>
+                    </div>`;
+            });
+            body.innerHTML = html;
+        } else if (data.success) {
+            body.innerHTML = '<p class="text-muted fst-italic small mb-0">No relevant partners found for this engagement.</p>';
+        } else {
+            body.innerHTML = '<p class="text-danger small mb-0"><i class="bi bi-exclamation-triangle"></i> ' + _escHtml(data.error || 'Failed to get recommendations.') + '</p>';
+        }
+    })
+    .catch(err => {
+        btn.disabled = false;
+        btn.innerHTML = origHTML;
+        body.innerHTML = '<p class="text-danger small mb-0"><i class="bi bi-exclamation-triangle"></i> Request failed: ' + _escHtml(err.message) + '</p>';
+    });
+}
+</script>
+
+{% if linked_notes %}
+<!-- Review Modal -->
+<div class="modal fade" id="storyReviewModal" tabindex="-1" aria-labelledby="storyReviewModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="storyReviewModalLabel">
+                    <i class="bi bi-stars"></i> Review Generated Story
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted small mb-3">Select the fields you want to update. Uncheck any you want to keep as-is.</p>
+                <div id="storyReviewFields"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-success" id="applyStoryBtn" onclick="applySelectedFields()">
+                    <i class="bi bi-check-lg"></i> Apply Selected
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+const STORY_FIELDS = [
+    {key: 'technical_problem', label: 'Technical/Business Problem', color: 'var(--story-problem)'},
+    {key: 'business_impact', label: 'Business Process/Strategy Impact', color: 'var(--story-impact)'},
+    {key: 'solution_resources', label: 'Solution Resources', color: 'var(--story-resources)'},
+    {key: 'estimated_acr', label: 'Business Outcome / Estimated ACR', color: 'var(--story-acr)'},
+    {key: 'target_date', label: 'Target Date/Timeline', color: 'var(--story-date)'},
+];
+
+let pendingStory = null;
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+function generateStory() {
+    const btn = document.getElementById('generateStoryBtn');
+    const origHTML = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Generating...';
+
+    fetch('/api/ai/generate-engagement-story', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({engagement_id: {{ engagement.id }}, preview: true})
+    })
+    .then(r => r.json())
+    .then(data => {
+        btn.disabled = false;
+        btn.innerHTML = origHTML;
+        if (data.success) {
+            pendingStory = data.story;
+            showReviewModal(data.current, data.story);
+        } else {
+            alert(data.error || 'Failed to generate story.');
+        }
+    })
+    .catch(err => {
+        alert('Request failed: ' + err.message);
+        btn.disabled = false;
+        btn.innerHTML = origHTML;
+    });
+}
+
+function showReviewModal(current, generated) {
+    const container = document.getElementById('storyReviewFields');
+    container.innerHTML = '';
+
+    let hasFields = false;
+    STORY_FIELDS.forEach(field => {
+        const oldVal = (current[field.key] || '').toString().trim();
+        let rawNew = (generated[field.key] || '').toString().trim();
+        // Treat literal "null" from AI as empty
+        if (rawNew.toLowerCase() === 'null') rawNew = '';
+        const newVal = rawNew;
+
+        // Format estimated_acr as currency for display
+        const formatAcr = (v) => v && !isNaN(v) ? '$' + Number(v).toLocaleString() + '/mo' : v;
+        const displayOld = field.key === 'estimated_acr' ? formatAcr(oldVal) : oldVal;
+        const displayNew = field.key === 'estimated_acr' ? formatAcr(newVal) : newVal;
+
+        // Skip if both sides are empty - nothing to show
+        if (!oldVal && !newVal) return;
+
+        hasFields = true;
+        const isEmpty = !newVal;
+        const changed = !isEmpty && oldVal !== newVal;
+        const checked = changed ? 'checked' : '';
+        const disabled = isEmpty ? 'disabled' : '';
+
+        const card = document.createElement('div');
+        card.className = 'card mb-3';
+        card.style.opacity = isEmpty ? '0.5' : '1';
+        card.innerHTML = `
+            <div class="card-header d-flex align-items-center gap-2 py-2">
+                <input class="form-check-input mt-0" type="checkbox" id="field_${field.key}" ${checked} ${disabled} data-field="${field.key}">
+                <label class="form-check-label fw-semibold small" for="field_${field.key}">${escapeHtml(field.label)}</label>
+                ${isEmpty ? '<span class="badge bg-secondary ms-auto">No value generated</span>' : (!changed ? '<span class="badge bg-secondary ms-auto">No change</span>' : '')}
+            </div>
+            <div class="card-body py-2">
+                <div class="row">
+                    <div class="col-6">
+                        <div class="text-muted small fw-semibold mb-1">Current</div>
+                        <div class="small" style="white-space: pre-wrap; opacity: 0.8;">${oldVal ? escapeHtml(displayOld) : '<em class="text-muted">Empty</em>'}</div>
+                    </div>
+                    <div class="col-6">
+                        <div class="small fw-semibold mb-1" style="color: ${field.color};">Generated</div>
+                        ${isEmpty
+                            ? '<div class="small"><em class="text-muted">-</em></div>'
+                            : `<textarea class="form-control form-control-sm" id="gen_${field.key}" rows="3" style="color: ${field.color}; background: transparent; border-color: var(--story-border); font-size: 0.85em;">${escapeHtml(newVal)}</textarea>`
+                        }
+                    </div>
+                </div>
+            </div>
+        `;
+        container.appendChild(card);
+    });
+
+    if (!hasFields) {
+        container.innerHTML = '<p class="text-muted">AI did not generate any new values.</p>';
+    }
+
+    const modal = new bootstrap.Modal(document.getElementById('storyReviewModal'));
+    modal.show();
+}
+
+function applySelectedFields() {
+    const checkboxes = document.querySelectorAll('#storyReviewFields input[type=checkbox]:checked');
+    const fields = {};
+    checkboxes.forEach(cb => {
+        const key = cb.dataset.field;
+        const textarea = document.getElementById('gen_' + key);
+        const val = textarea ? textarea.value.trim() : '';
+        if (val) {
+            fields[key] = val;
+        }
+    });
+
+    if (Object.keys(fields).length === 0) {
+        alert('No fields selected.');
+        return;
+    }
+
+    const btn = document.getElementById('applyStoryBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Applying...';
+
+    fetch('/api/ai/apply-engagement-story', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({engagement_id: {{ engagement.id }}, fields: fields})
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            window.location.reload();
+        } else {
+            alert(data.error || 'Failed to apply story fields.');
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-check-lg"></i> Apply Selected';
+        }
+    })
+    .catch(err => {
+        alert('Request failed: ' + err.message);
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-check-lg"></i> Apply Selected';
+    });
+}
+</script>
+{% endif %}
+
+{% include 'partials/_action_item_detail_modal.html' %}
+
+<!-- Task Edit Modal -->
+<div class="modal fade" id="taskEditModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-check2-square"></i> Edit Action Item</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="editTaskId">
+                <div class="mb-3">
+                    <label class="form-label">Title</label>
+                    <input type="text" class="form-control" id="editTaskTitle" maxlength="300">
+                </div>
+                <div class="row mb-3">
+                    <div class="col-md-4">
+                        <label class="form-label">Due Date</label>
+                        <input type="date" class="form-control" id="editTaskDue">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Priority</label>
+                        <select class="form-select" id="editTaskPriority">
+                            <option value="normal">Normal</option>
+                            <option value="high">High</option>
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Contact</label>
+                        <input type="text" class="form-control" id="editTaskContact" maxlength="200" placeholder="Point of contact">
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Description</label>
+                    <div id="editTaskDescEditor" style="height: 200px;"></div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-success" onclick="saveEditedTask()">
+                    <i class="bi bi-check-lg"></i> Save
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<link href="https://cdn.quilljs.com/1.3.6/quill.snow.css" rel="stylesheet">
+<script src="https://cdn.quilljs.com/1.3.6/quill.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.6/Sortable.min.js"></script>
+<script>
+const ENGAGEMENT_ID = {{ engagement.id }};
+let taskDescQuill = null;
+
+function initTaskQuill() {
+    if (taskDescQuill) return;
+    taskDescQuill = new Quill('#editTaskDescEditor', {
+        theme: 'snow',
+        modules: {
+            toolbar: [
+                [{'header': [1, 2, 3, false]}],
+                ['bold', 'italic', 'underline', 'strike'],
+                [{'list': 'ordered'}, {'list': 'bullet'}],
+                ['link', 'image', 'clean']
+            ]
+        },
+        placeholder: 'Task details, screenshots, etc...'
+    });
+}
+
+function quickAddTask() {
+    const titleEl = document.getElementById('ghostTaskTitle');
+    const title = titleEl.value.trim();
+    if (!title) { titleEl.focus(); return; }
+
+    const due = document.getElementById('ghostTaskDue').value;
+
+    fetch(`/engagement/${ENGAGEMENT_ID}/action-items`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({title, due_date: due || null})
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            window.location.reload();
+        } else {
+            alert(data.error || 'Failed to create action item.');
+        }
+    })
+    .catch(err => alert('Error: ' + err.message));
+}
+
+function activateGhostRow() {
+    const row = document.getElementById('ghostTaskRow');
+    row.style.opacity = '1';
+    row.style.cursor = 'default';
+    row.onclick = null;
+    document.getElementById('ghostTaskPlaceholder').style.display = 'none';
+    document.getElementById('ghostTaskInput').style.display = 'block';
+    const input = document.getElementById('ghostTaskTitle');
+    input.focus();
+}
+
+function deactivateGhostRow() {
+    const input = document.getElementById('ghostTaskTitle');
+    if (input.value.trim()) return; // don't collapse if there's text
+    const row = document.getElementById('ghostTaskRow');
+    row.style.opacity = '0.4';
+    row.style.cursor = 'pointer';
+    row.onclick = activateGhostRow;
+    document.getElementById('ghostTaskPlaceholder').style.display = 'block';
+    document.getElementById('ghostTaskInput').style.display = 'none';
+}
+
+document.getElementById('ghostTaskTitle').addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') { e.preventDefault(); quickAddTask(); }
+    if (e.key === 'Escape') { this.value = ''; deactivateGhostRow(); }
+});
+document.getElementById('ghostTaskTitle').addEventListener('blur', function() {
+    setTimeout(deactivateGhostRow, 200);
+});
+
+function openNewTaskModal() {
+    initTaskQuill();
+    document.getElementById('editTaskId').value = '';
+    document.getElementById('editTaskTitle').value = '';
+    document.getElementById('editTaskDue').value = '';
+    document.getElementById('editTaskPriority').value = 'normal';
+    document.getElementById('editTaskContact').value = '';
+    taskDescQuill.root.innerHTML = '';
+    document.querySelector('#taskEditModal .modal-title').innerHTML = '<i class="bi bi-check2-square"></i> New Action Item';
+    new bootstrap.Modal(document.getElementById('taskEditModal')).show();
+}
+
+function submitGhostTask() {
+    quickAddTask();
+}
+
+// Drag-to-reorder via SortableJS
+const sortableEl = document.getElementById('sortableTaskList');
+if (sortableEl) {
+    new Sortable(sortableEl, {
+        handle: '.drag-handle',
+        animation: 150,
+        ghostClass: 'sortable-ghost-highlight',
+        onEnd: function() {
+            const ids = Array.from(sortableEl.querySelectorAll('.task-item'))
+                .map(el => parseInt(el.dataset.taskId));
+            fetch(`/engagement/${ENGAGEMENT_ID}/action-items/reorder`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({task_ids: ids})
+            }).catch(err => console.error('Reorder save failed:', err));
+        }
+    });
+}
+
+function toggleTask(taskId) {
+    fetch(`/action-item/${taskId}/toggle`, {method: 'POST'})
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            window.location.reload();
+        }
+    })
+    .catch(err => console.error(err));
+}
+
+function viewTask(taskId) {
+    viewActionItem(taskId, {onEdit: editTask});
+}
+
+function editTask(taskId) {
+    initTaskQuill();
+    // Fetch current task data
+    fetch(`/action-item/${taskId}`, {method: 'GET'})
+    .then(r => {
+        if (r.status === 405) {
+            // GET not available, use data from DOM attributes instead
+            // For now just open modal with empty fields and let user fill in
+            document.getElementById('editTaskId').value = taskId;
+            new bootstrap.Modal(document.getElementById('taskEditModal')).show();
+            return null;
+        }
+        return r.json();
+    })
+    .then(data => {
+        if (!data) return;
+        const t = data.task;
+        document.getElementById('editTaskId').value = t.id;
+        document.getElementById('editTaskTitle').value = t.title;
+        document.getElementById('editTaskDue').value = t.due_date || '';
+        document.getElementById('editTaskPriority').value = t.priority;
+        document.getElementById('editTaskContact').value = t.contact || '';
+        taskDescQuill.root.innerHTML = t.description || '';
+        new bootstrap.Modal(document.getElementById('taskEditModal')).show();
+    })
+    .catch(err => console.error(err));
+}
+
+function saveEditedTask() {
+    const taskId = document.getElementById('editTaskId').value;
+    const title = document.getElementById('editTaskTitle').value.trim();
+    if (!title) { alert('Title is required.'); return; }
+
+    const desc = taskDescQuill.root.innerHTML;
+    const isBlank = !taskDescQuill.getText().trim();
+    const payload = {
+        title,
+        description: isBlank ? '' : desc,
+        due_date: document.getElementById('editTaskDue').value || null,
+        priority: document.getElementById('editTaskPriority').value,
+        contact: document.getElementById('editTaskContact').value.trim() || null
+    };
+
+    // If no taskId, this is a create, not an update
+    const url = taskId ? `/action-item/${taskId}` : `/engagement/${ENGAGEMENT_ID}/action-items`;
+    const method = taskId ? 'PUT' : 'POST';
+
+    fetch(url, {
+        method: method,
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload)
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            window.location.reload();
+        } else {
+            alert(data.error || 'Failed to save action item.');
+        }
+    })
+    .catch(err => alert('Error: ' + err.message));
+}
+
+function deleteTask(taskId) {
+    if (!confirm('Delete this action item?')) return;
+    fetch(`/action-item/${taskId}`, {method: 'DELETE'})
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            window.location.reload();
+        }
+    })
+    .catch(err => console.error(err));
+}
+
+// --- Milestone edit toggle ---
+function toggleMilestoneEdit() {
+    const viewMode = document.getElementById('msViewMode');
+    const editMode = document.getElementById('msEditMode');
+    const btn = document.getElementById('msToggleBtn');
+    const isEditing = !editMode.classList.contains('d-none');
+    if (isEditing) {
+        editMode.classList.add('d-none');
+        viewMode.classList.remove('d-none');
+        btn.innerHTML = '<i class="bi bi-pencil"></i> Edit';
+    } else {
+        viewMode.classList.add('d-none');
+        editMode.classList.remove('d-none');
+        btn.innerHTML = '<i class="bi bi-x-lg"></i> Cancel';
+    }
+}
+
+function saveMilestoneLinks() {
+    const checked = [...document.querySelectorAll('.ms-checkbox:checked')].map(cb => parseInt(cb.value));
+    const btn = event.target.closest('button');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Saving...';
+    fetch('/api/engagement/{{ engagement.id }}/milestones', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({milestone_ids: checked})
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            window.location.reload();
+        } else {
+            alert(data.error || 'Failed to save');
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-check-lg"></i> Save';
+        }
+    })
+    .catch(err => {
+        console.error(err);
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-check-lg"></i> Save';
+    });
+}
+</script>
+<script>
+window.copilotContext = {
+    page: 'engagement_view',
+    customer_id: {{ customer.id }},
+    customer_name: {{ customer.name|tojson }},
+    engagement_name: {{ engagement.title|tojson }}
+};
+</script>

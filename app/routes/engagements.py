@@ -181,6 +181,43 @@ def engagement_view(id: int):
         customer_milestones=customer_milestones,
         is_favorited=Favorite.is_favorited('engagement', engagement.id),
         saved_partner_recs=saved_recs,
+        show_header_actions=True,
+    )
+
+
+@engagements_bp.route('/api/engagement/<int:id>/detail')
+def engagement_detail_fragment(id: int):
+    """Return rendered HTML fragment of engagement view for modal embedding."""
+    engagement = Engagement.query.get_or_404(id)
+    customer = engagement.customer
+    linked_notes = sorted(engagement.notes, key=lambda n: n.call_date, reverse=True)
+
+    # All milestones for this customer (for edit mode in milestones card)
+    customer_milestones = (
+        Milestone.query
+        .filter_by(customer_id=customer.id)
+        .order_by(Milestone.title)
+        .all()
+    )
+
+    from app.models import PartnerRecommendation
+    saved_recs = (
+        PartnerRecommendation.query
+        .filter_by(engagement_id=engagement.id)
+        .order_by(PartnerRecommendation.rank)
+        .all()
+    )
+
+    return render_template(
+        'partials/_engagement_view_content.html',
+        engagement=engagement,
+        customer=customer,
+        linked_notes=linked_notes,
+        unassigned_notes=[],
+        customer_milestones=customer_milestones,
+        is_favorited=Favorite.is_favorited('engagement', engagement.id),
+        saved_partner_recs=saved_recs,
+        show_header_actions=False,
     )
 
 
