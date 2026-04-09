@@ -264,6 +264,17 @@ function removeContact(btn) {
     // Pre-fetch on load
     _ensureDomains(function() {});
 
+    function _fuzzyMatchDomain(domain, domainList) {
+        var base = domain.split('.')[0];
+        if (base.length < 3) return false;
+        for (var i = 0; i < domainList.length; i++) {
+            var knownBase = domainList[i].split('.')[0];
+            if (knownBase.length < 3) continue;
+            if (knownBase.indexOf(base) !== -1 || base.indexOf(knownBase) !== -1) return true;
+        }
+        return false;
+    }
+
     function _detectEngContactType(query) {
         if (!query || !query.includes('@')) return null;
         var domain = query.split('@')[1].toLowerCase();
@@ -272,6 +283,7 @@ function removeContact(btn) {
             for (var i = 0; i < _engEmailDomains.length; i++) {
                 if (domain === _engEmailDomains[i]) return 'customer';
             }
+            if (_fuzzyMatchDomain(domain, _engEmailDomains)) return 'customer';
         }
         return null;
     }

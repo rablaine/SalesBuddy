@@ -1748,6 +1748,10 @@ function _showAttendeeReview(attendees) {
             html += '<strong>Create partner:</strong> ';
             html += '<input type="text" class="form-control form-control-sm" style="max-width:200px;" id="newPartnerName_' + domain.replace(/\./g, '_') + '" value="' + domain.split('.')[0].charAt(0).toUpperCase() + domain.split('.')[0].slice(1) + '" placeholder="Partner name">';
             html += '<span class="text-muted small">(' + domain + ')</span>';
+            if (document.getElementById('customer_id') && document.getElementById('customer_id').value) {
+                html += '<button type="button" class="btn btn-sm btn-outline-success ms-auto move-to-customer-btn" data-domain="' + domain + '" title="Move these contacts to Customer Contacts instead">' +
+                    '<i class="bi bi-building me-1"></i>Move to Customer</button>';
+            }
             html += '</div>';
             byDomain[domain].forEach(function(a) {
                 html += _renderAttendeeRow(a, 'New contact', true);
@@ -1757,7 +1761,30 @@ function _showAttendeeReview(attendees) {
     }
 
     body.innerHTML = html;
+
+    // Wire up "Move to Customer" buttons
+    body.querySelectorAll('.move-to-customer-btn').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            _moveDomainToCustomer(btn.dataset.domain);
+        });
+    });
+
     bootstrap.Modal.getOrCreateInstance(document.getElementById('attendeeReviewModal')).show();
+}
+
+function _moveDomainToCustomer(domain) {
+    if (!_meetingAttendeeData || !_meetingAttendeeData.attendees) return;
+    _meetingAttendeeData.attendees.forEach(function(a) {
+        if (a.category === 'new_partner' && a.new_partner_domain === domain) {
+            a.category = 'customer_contact';
+            a.ref_type = 'customer_contact';
+            a.is_new_contact = true;
+            delete a.new_partner_domain;
+            delete a.new_partner_name;
+        }
+    });
+    // Re-render the review modal with updated categories
+    _showAttendeeReview(_meetingAttendeeData.attendees);
 }
 
 function _renderAttendeeRow(a, detail, showTitle) {
@@ -2288,6 +2315,19 @@ function _fetchPartnerDomains(partnerIds) {
     });
 }
 
+function _fuzzyMatchDomain(domain, domainList) {
+    // Bidirectional substring match on base name (part before first dot).
+    // e.g. redsailconsultants.com matches redsail.com
+    var base = domain.split('.')[0];
+    if (base.length < 3) return false;
+    for (var i = 0; i < domainList.length; i++) {
+        var knownBase = domainList[i].split('.')[0];
+        if (knownBase.length < 3) continue;
+        if (knownBase.indexOf(base) !== -1 || base.indexOf(knownBase) !== -1) return true;
+    }
+    return false;
+}
+
 function _detectContactType(query) {
     // Returns {type: 'internal'|'customer'|'partner', partnerId?, partnerName?} or null
     if (!query || !query.includes('@')) return null;
@@ -2296,8 +2336,20 @@ function _detectContactType(query) {
     for (var i = 0; i < _customerEmailDomains.length; i++) {
         if (domain === _customerEmailDomains[i]) return {type: 'customer'};
     }
+    if (_fuzzyMatchDomain(domain, _customerEmailDomains)) return {type: 'customer'};
     if (_partnerDomainMap[domain]) {
         return {type: 'partner', partnerId: _partnerDomainMap[domain].id, partnerName: _partnerDomainMap[domain].name};
+    }
+    // Fuzzy match partner domains
+    var partnerDomains = Object.keys(_partnerDomainMap);
+    for (var j = 0; j < partnerDomains.length; j++) {
+        var pd = partnerDomains[j];
+        var pBase = pd.split('.')[0];
+        var dBase = domain.split('.')[0];
+        if (pBase.length >= 3 && dBase.length >= 3 &&
+            (pBase.indexOf(dBase) !== -1 || dBase.indexOf(pBase) !== -1)) {
+            return {type: 'partner', partnerId: _partnerDomainMap[pd].id, partnerName: _partnerDomainMap[pd].name};
+        }
     }
     return null;
 }
