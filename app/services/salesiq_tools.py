@@ -9,6 +9,14 @@ Consumers:
 """
 from typing import Any
 
+
+def _clean(text: str | None) -> str | None:
+    """Sanitize text for safe markdown rendering (escapes pipe chars)."""
+    if text is None:
+        return None
+    return text.replace('|', '-')
+
+
 # ---------------------------------------------------------------------------
 # Registry
 # ---------------------------------------------------------------------------
@@ -209,7 +217,7 @@ def get_customer_summary(customer_id: int) -> dict:
         'milestones': [
             {
                 'id': m.id,
-                'title': m.display_text,
+                'title': _clean(m.display_text),
                 'status': m.msx_status,
                 'due_date': m.due_date.strftime('%Y-%m-%d') if m.due_date else None,
                 'on_my_team': m.on_my_team,
@@ -546,7 +554,7 @@ def get_milestone_status(
             return {'error': f'Milestone {milestone_id} not found.'}
         return {
             'id': ms.id,
-            'title': ms.display_text,
+            'title': _clean(ms.display_text),
             'status': ms.msx_status,
             'customer': ms.customer.name if ms.customer else None,
             'due_date': ms.due_date.strftime('%Y-%m-%d') if ms.due_date else None,
@@ -573,7 +581,7 @@ def get_milestone_status(
     return [
         {
             'id': m.id,
-            'title': m.display_text,
+            'title': _clean(m.display_text),
             'status': m.msx_status,
             'customer': m.customer.name if m.customer else None,
             'due_date': m.due_date.strftime('%Y-%m-%d') if m.due_date else None,
@@ -670,7 +678,7 @@ def get_opportunity_details(opportunity_id: int) -> dict:
         'customer': opp.customer.name if opp.customer else None,
         'msx_url': opp.msx_url,
         'milestones': [
-            {'id': m.id, 'title': m.display_text, 'status': m.msx_status}
+            {'id': m.id, 'title': _clean(m.display_text), 'status': m.msx_status}
             for m in opp.milestones
         ],
     }
@@ -840,7 +848,7 @@ def report_hygiene(seller_id: int | None = None) -> dict:
         'milestones_without_engagements': [
             {
                 'id': m.id,
-                'title': m.display_text,
+                'title': _clean(m.display_text),
                 'customer': m.customer.name if m.customer else None,
                 'status': m.msx_status,
             }
@@ -943,7 +951,7 @@ def report_whats_new(days: int = 14) -> dict:
     def _ms_dict(m):
         return {
             'id': m.id,
-            'title': m.display_text,
+            'title': _clean(m.display_text),
             'customer': m.customer.name if m.customer else None,
             'status': m.msx_status,
             'on_my_team': m.on_my_team,
@@ -1123,7 +1131,7 @@ def get_milestones_due_soon(
     return [
         {
             'id': m.id,
-            'title': m.display_text,
+            'title': _clean(m.display_text),
             'status': m.msx_status,
             'customer': m.customer.name if m.customer else None,
             'due_date': m.due_date.strftime('%Y-%m-%d') if m.due_date else None,
@@ -1414,7 +1422,7 @@ def report_one_on_one(days: int = 14, seller_id: int | None = None) -> dict:
         'recently_committed_milestones': [
             {
                 'id': m.id,
-                'title': m.display_text,
+                'title': _clean(m.display_text),
                 'customer': m.customer.name if m.customer else None,
                 'committed_at': m.committed_at.strftime('%Y-%m-%d') if m.committed_at else None,
             }
@@ -1664,7 +1672,7 @@ def get_msx_workspace_opportunities(**kwargs: Any) -> Any:
         'opportunities': [
             {
                 'id': o.id,
-                'name': o.name,
+                'name': _clean(o.name),
                 'number': o.opportunity_number,
                 'state': o.state or 'Open',
                 'owner': o.owner_name,
@@ -1742,11 +1750,11 @@ def get_msx_workspace_milestones(**kwargs: Any) -> Any:
         'milestones': [
             {
                 'id': m.id,
-                'title': m.title,
+                'title': _clean(m.title),
                 'number': m.milestone_number,
                 'status': m.msx_status,
                 'customer': m.customer.name if m.customer else None,
-                'opportunity': m.opportunity.name if m.opportunity else m.opportunity_name,
+                'opportunity': _clean(m.opportunity.name if m.opportunity else m.opportunity_name),
                 'workload': m.workload,
                 'due_date': m.due_date.strftime('%Y-%m-%d') if m.due_date else None,
                 'monthly_usage': m.monthly_usage,
@@ -1952,7 +1960,7 @@ def report_connect_impact(since: str | None = None) -> dict:
         customer_map[cid]['total_acr_mo'] += ms.monthly_usage or 0.0
         customer_map[cid]['milestones'].append({
             'id': ms.id,
-            'title': ms.title,
+            'title': _clean(ms.title),
             'workload': ms.workload,
             'monthly_usage': ms.monthly_usage or 0,
             'status': ms.msx_status,
