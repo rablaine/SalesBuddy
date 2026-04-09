@@ -9,12 +9,31 @@ Consumers:
 """
 from typing import Any
 
+_BASE = 'http://localhost:5151'
+
+_ENTITY_PATHS = {
+    'milestone': '/milestone/',
+    'customer': '/customer/',
+    'engagement': '/engagement/',
+    'opportunity': '/opportunity/',
+    'note': '/note/',
+    'seller': '/seller/',
+    'partner': '/partners/',
+    'territory': '/territory/',
+    'pod': '/pod/',
+}
+
 
 def _clean(text: str | None) -> str | None:
     """Sanitize text for safe markdown rendering (escapes pipe chars)."""
     if text is None:
         return None
     return text.replace('|', '-')
+
+
+def _url(entity: str, id: int) -> str:
+    """Build a Sales Buddy app URL for an entity."""
+    return f'{_BASE}{_ENTITY_PATHS[entity]}{id}'
 
 
 # ---------------------------------------------------------------------------
@@ -144,6 +163,7 @@ def search_customers(
         'results': [
             {
                 'id': c.id,
+                'url': _url('customer', c.id),
                 'name': c.name,
                 'nickname': c.nickname,
                 'tpid': c.tpid,
@@ -201,6 +221,7 @@ def get_customer_summary(customer_id: int) -> dict:
 
     return {
         'id': customer.id,
+        'url': _url('customer', customer.id),
         'name': customer.name,
         'nickname': customer.nickname,
         'seller': customer.seller.name if customer.seller else None,
@@ -208,6 +229,7 @@ def get_customer_summary(customer_id: int) -> dict:
         'engagements': [
             {
                 'id': e.id,
+                'url': _url('engagement', e.id),
                 'title': e.title,
                 'status': e.status,
                 'updated_at': e.updated_at.isoformat() if e.updated_at else None,
@@ -217,6 +239,7 @@ def get_customer_summary(customer_id: int) -> dict:
         'milestones': [
             {
                 'id': m.id,
+                'url': _url('milestone', m.id),
                 'title': _clean(m.display_text),
                 'status': m.msx_status,
                 'due_date': m.due_date.strftime('%Y-%m-%d') if m.due_date else None,
@@ -227,6 +250,7 @@ def get_customer_summary(customer_id: int) -> dict:
         'recent_notes': [
             {
                 'id': n.id,
+                'url': _url('note', n.id),
                 'call_date': n.call_date.strftime('%Y-%m-%d') if n.call_date else None,
                 'snippet': (n.content or '')[:200],
             }
@@ -302,6 +326,7 @@ def list_sellers(territory_id: int | None = None) -> list[dict]:
         )
         results.append({
             'id': s.id,
+            'url': _url('seller', s.id),
             'name': s.name,
             'alias': s.alias,
             'seller_type': s.seller_type,
@@ -370,6 +395,7 @@ def search_notes(
     return [
         {
             'id': n.id,
+            'url': _url('note', n.id),
             'customer': n.customer.name if n.customer else None,
             'call_date': n.call_date.strftime('%Y-%m-%d') if n.call_date else None,
             'snippet': (n.content or '')[:200],
@@ -405,6 +431,7 @@ def get_engagement_details(engagement_id: int) -> dict:
 
     return {
         'id': eng.id,
+        'url': _url('engagement', eng.id),
         'title': eng.title,
         'status': eng.status,
         'customer': eng.customer.name if eng.customer else None,
@@ -482,6 +509,7 @@ def search_engagements(
     return [
         {
             'id': e.id,
+            'url': _url('engagement', e.id),
             'title': e.title,
             'status': e.status,
             'customer': e.customer.name if e.customer else None,
@@ -554,6 +582,7 @@ def get_milestone_status(
             return {'error': f'Milestone {milestone_id} not found.'}
         return {
             'id': ms.id,
+            'url': _url('milestone', ms.id),
             'title': _clean(ms.display_text),
             'status': ms.msx_status,
             'customer': ms.customer.name if ms.customer else None,
@@ -581,6 +610,7 @@ def get_milestone_status(
     return [
         {
             'id': m.id,
+            'url': _url('milestone', m.id),
             'title': _clean(m.display_text),
             'status': m.msx_status,
             'customer': m.customer.name if m.customer else None,
@@ -639,6 +669,7 @@ def get_seller_workload(seller_id: int) -> dict:
 
     return {
         'id': seller.id,
+        'url': _url('seller', seller.id),
         'name': seller.name,
         'seller_type': seller.seller_type,
         'customer_count': len(customers),
@@ -674,11 +705,12 @@ def get_opportunity_details(opportunity_id: int) -> dict:
 
     return {
         'id': opp.id,
+        'url': _url('opportunity', opp.id),
         'name': opp.name,
         'customer': opp.customer.name if opp.customer else None,
         'msx_url': opp.msx_url,
         'milestones': [
-            {'id': m.id, 'title': _clean(m.display_text), 'status': m.msx_status}
+            {'id': m.id, 'url': _url('milestone', m.id), 'title': _clean(m.display_text), 'status': m.msx_status}
             for m in opp.milestones
         ],
     }
@@ -724,6 +756,7 @@ def search_partners(
     return [
         {
             'id': p.id,
+            'url': _url('partner', p.id),
             'name': p.name,
             'specialties': [s.name for s in p.specialties],
         }
@@ -787,6 +820,7 @@ def list_action_items(
             'priority': ai.priority,
             'due_date': ai.due_date.strftime('%Y-%m-%d') if ai.due_date else None,
             'engagement': ai.engagement.title if ai.engagement else None,
+            'engagement_url': _url('engagement', ai.engagement_id) if ai.engagement_id else None,
             'customer': (
                 ai.engagement.customer.name
                 if ai.engagement and ai.engagement.customer
@@ -840,6 +874,7 @@ def report_hygiene(seller_id: int | None = None) -> dict:
         'engagements_without_milestones': [
             {
                 'id': e.id,
+                'url': _url('engagement', e.id),
                 'title': e.title,
                 'customer': e.customer.name if e.customer else None,
             }
@@ -848,6 +883,7 @@ def report_hygiene(seller_id: int | None = None) -> dict:
         'milestones_without_engagements': [
             {
                 'id': m.id,
+                'url': _url('milestone', m.id),
                 'title': _clean(m.display_text),
                 'customer': m.customer.name if m.customer else None,
                 'status': m.msx_status,
@@ -884,6 +920,7 @@ def report_workload(seller_id: int | None = None) -> dict:
         'customers': [
             {
                 'id': c.id,
+                'url': _url('customer', c.id),
                 'name': c.name,
                 'engagement_count': Engagement.query.filter_by(
                     customer_id=c.id, status='Active'
@@ -951,6 +988,7 @@ def report_whats_new(days: int = 14) -> dict:
     def _ms_dict(m):
         return {
             'id': m.id,
+            'url': _url('milestone', m.id),
             'title': _clean(m.display_text),
             'customer': m.customer.name if m.customer else None,
             'status': m.msx_status,
@@ -1131,6 +1169,7 @@ def get_milestones_due_soon(
     return [
         {
             'id': m.id,
+            'url': _url('milestone', m.id),
             'title': _clean(m.display_text),
             'status': m.msx_status,
             'customer': m.customer.name if m.customer else None,
@@ -1168,6 +1207,7 @@ def get_territory_summary(territory_id: int | None = None) -> dict | list:
         return [
             {
                 'id': t.id,
+                'url': _url('territory', t.id),
                 'name': t.name,
                 'pod': t.pod.name if t.pod else None,
                 'customer_count': len(t.customers),
@@ -1195,14 +1235,15 @@ def get_territory_summary(territory_id: int | None = None) -> dict | list:
 
     return {
         'id': territory.id,
+        'url': _url('territory', territory.id),
         'name': territory.name,
         'pod': territory.pod.name if territory.pod else None,
         'customers': [
-            {'id': c.id, 'name': c.name}
+            {'id': c.id, 'url': _url('customer', c.id), 'name': c.name}
             for c in sorted(customers, key=lambda c: c.name)
         ],
         'sellers': [
-            {'id': s.id, 'name': s.name, 'type': s.seller_type}
+            {'id': s.id, 'url': _url('seller', s.id), 'name': s.name, 'type': s.seller_type}
             for s in territory.sellers
         ],
         'solution_engineers': [
@@ -1239,6 +1280,7 @@ def get_pod_overview(pod_id: int | None = None) -> dict | list:
         return [
             {
                 'id': p.id,
+                'url': _url('pod', p.id),
                 'name': p.name,
                 'territory_count': len(p.territories),
                 'se_count': len(p.solution_engineers),
@@ -1260,17 +1302,19 @@ def get_pod_overview(pod_id: int | None = None) -> dict | list:
 
     return {
         'id': pod.id,
+        'url': _url('pod', pod.id),
         'name': pod.name,
         'territories': [
             {
                 'id': t.id,
+                'url': _url('territory', t.id),
                 'name': t.name,
                 'customer_count': len(t.customers),
             }
             for t in territories
         ],
         'sellers': [
-            {'id': sid, 'name': sname, 'type': stype}
+            {'id': sid, 'url': _url('seller', sid), 'name': sname, 'type': stype}
             for sid, sname, stype in sorted(all_sellers, key=lambda x: x[1])
         ],
         'solution_engineers': [
@@ -1393,6 +1437,7 @@ def report_one_on_one(days: int = 14, seller_id: int | None = None) -> dict:
         cname = n.customer.name if n.customer else 'No Customer'
         customer_notes.setdefault(cname, []).append({
             'id': n.id,
+            'url': _url('note', n.id),
             'call_date': n.call_date.strftime('%Y-%m-%d') if n.call_date else None,
             'snippet': (n.content or '')[:150],
             'topics': [t.name for t in n.topics],
@@ -1422,6 +1467,7 @@ def report_one_on_one(days: int = 14, seller_id: int | None = None) -> dict:
         'recently_committed_milestones': [
             {
                 'id': m.id,
+                'url': _url('milestone', m.id),
                 'title': _clean(m.display_text),
                 'customer': m.customer.name if m.customer else None,
                 'committed_at': m.committed_at.strftime('%Y-%m-%d') if m.committed_at else None,
@@ -1492,6 +1538,7 @@ def search_contacts(
                 'title': c.title,
                 'customer': c.customer.name if c.customer else None,
                 'customer_id': c.customer_id,
+                'customer_url': _url('customer', c.customer_id) if c.customer_id else None,
             })
 
     if not customer_id:
@@ -1519,6 +1566,7 @@ def search_contacts(
                     'title': c.title,
                     'partner': c.partner.name if c.partner else None,
                     'partner_id': c.partner_id,
+                    'partner_url': _url('partner', c.partner_id) if c.partner_id else None,
                 })
 
     return results
@@ -1672,6 +1720,7 @@ def get_msx_workspace_opportunities(**kwargs: Any) -> Any:
         'opportunities': [
             {
                 'id': o.id,
+                'url': _url('opportunity', o.id),
                 'name': _clean(o.name),
                 'number': o.opportunity_number,
                 'state': o.state or 'Open',
@@ -1750,6 +1799,7 @@ def get_msx_workspace_milestones(**kwargs: Any) -> Any:
         'milestones': [
             {
                 'id': m.id,
+                'url': _url('milestone', m.id),
                 'title': _clean(m.title),
                 'number': m.milestone_number,
                 'status': m.msx_status,
@@ -1960,6 +2010,7 @@ def report_connect_impact(since: str | None = None) -> dict:
         customer_map[cid]['total_acr_mo'] += ms.monthly_usage or 0.0
         customer_map[cid]['milestones'].append({
             'id': ms.id,
+            'url': _url('milestone', ms.id),
             'title': _clean(ms.title),
             'workload': ms.workload,
             'monthly_usage': ms.monthly_usage or 0,
@@ -1999,6 +2050,7 @@ def get_stale_customers() -> dict:
         'customers': [
             {
                 'id': c.id,
+                'url': _url('customer', c.id),
                 'name': c.get_display_name(),
                 'tpid': c.tpid,
                 'stale_since': c.stale_since.isoformat() if c.stale_since else None,
