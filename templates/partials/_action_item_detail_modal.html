@@ -30,6 +30,8 @@
                 <button type="button" class="btn btn-outline-info" id="aiDetailSaveBtn" style="display: none;" onclick="saveCopilotTask()" title="Pin this task so it survives the daily refresh">
                     <i class="bi bi-pin-angle"></i> Save Task
                 </button>
+                <input type="date" class="form-control form-control-sm" id="aiDetailSaveDue"
+                       style="display: none; width: 150px;" title="Set a due date (optional)">
                 <a href="#" class="btn btn-primary" id="aiDetailEngLink" style="display: none;">
                     <i class="bi bi-diagram-3"></i> Go to Engagement
                 </a>
@@ -109,6 +111,7 @@ function viewActionItem(taskId, opts) {
         var saveBtn = document.getElementById('aiDetailSaveBtn');
         var dismissBtn = document.getElementById('aiDetailDismissBtn');
         var notUsefulBtn = document.getElementById('aiDetailNotUsefulBtn');
+        var saveDueInput = document.getElementById('aiDetailSaveDue');
         if (t.source === 'copilot') {
             saveBtn.style.display = '';
             saveBtn.dataset.taskId = taskId;
@@ -116,10 +119,13 @@ function viewActionItem(taskId, opts) {
             dismissBtn.dataset.taskId = taskId;
             notUsefulBtn.style.display = '';
             notUsefulBtn.dataset.taskId = taskId;
+            saveDueInput.style.display = '';
+            saveDueInput.value = '';
         } else {
             saveBtn.style.display = 'none';
             dismissBtn.style.display = 'none';
             notUsefulBtn.style.display = 'none';
+            saveDueInput.style.display = 'none';
         }
 
         // Engagement link
@@ -151,9 +157,14 @@ function viewActionItem(taskId, opts) {
 function saveCopilotTask() {
     var btn = document.getElementById('aiDetailSaveBtn');
     var taskId = btn.dataset.taskId;
+    var dueVal = document.getElementById('aiDetailSaveDue').value;
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Saving...';
-    fetch('/action-item/' + taskId + '/save', { method: 'POST' })
+    var opts = { method: 'POST', headers: {'Content-Type': 'application/json'} };
+    var payload = {};
+    if (dueVal) payload.due_date = dueVal;
+    opts.body = JSON.stringify(payload);
+    fetch('/action-item/' + taskId + '/save', opts)
     .then(function(r) { return r.json(); })
     .then(function(data) {
         if (data.success) {

@@ -69,6 +69,178 @@ def test_calendar_api_month_boundaries(client, sample_data):
     assert data['prev_month'] == 12
 
 
+# ===== Action Items Calendar API =====
+
+def test_action_items_calendar_returns_json(client, sample_data):
+    """Test action items calendar API returns proper JSON structure."""
+    response = client.get('/api/action-items/calendar')
+    assert response.status_code == 200
+
+    data = response.get_json()
+    assert 'year' in data
+    assert 'month' in data
+    assert 'month_name' in data
+    assert 'days' in data
+    assert 'overdue' in data
+    assert 'days_in_month' in data
+    assert 'today_day' in data
+
+
+def test_action_items_calendar_with_params(client, sample_data):
+    """Test action items calendar API accepts year and month parameters."""
+    response = client.get('/api/action-items/calendar?year=2025&month=6')
+    assert response.status_code == 200
+
+    data = response.get_json()
+    assert data['year'] == 2025
+    assert data['month'] == 6
+    assert data['month_name'] == 'June'
+    assert data['prev_month'] == 5
+    assert data['next_month'] == 7
+
+
+def test_action_items_calendar_groups_by_day(client, app, sample_data):
+    """Test action items with due dates appear on correct calendar days."""
+    from datetime import date
+    from app.models import db, ActionItem, Engagement, Customer
+
+    with app.app_context():
+        cust = Customer.query.first()
+        eng = Engagement(customer_id=cust.id, title='Test Eng', status='Active')
+        db.session.add(eng)
+        db.session.flush()
+        today = date.today()
+        t1 = ActionItem(
+            engagement_id=eng.id, title='Task on 15th',
+            due_date=date(today.year, today.month, 15),
+        )
+        t2 = ActionItem(
+            engagement_id=eng.id, title='Task on 20th',
+            due_date=date(today.year, today.month, 20),
+        )
+        db.session.add_all([t1, t2])
+        db.session.commit()
+
+    response = client.get(
+        f'/api/action-items/calendar?year={today.year}&month={today.month}'
+    )
+    data = response.get_json()
+    assert '15' in data['days']
+    assert '20' in data['days']
+    titles_15 = [t['title'] for t in data['days']['15']]
+    assert 'Task on 15th' in titles_15
+
+
+def test_action_items_calendar_overdue(client, app, sample_data):
+    """Test overdue items from previous months are returned."""
+    from datetime import date
+    from app.models import db, ActionItem, Engagement, Customer
+
+    with app.app_context():
+        cust = Customer.query.first()
+        eng = Engagement(customer_id=cust.id, title='Test Eng', status='Active')
+        db.session.add(eng)
+        db.session.flush()
+        t = ActionItem(
+            engagement_id=eng.id, title='Overdue task',
+            due_date=date(2024, 1, 5), status='open',
+        )
+        db.session.add(t)
+        db.session.commit()
+
+    today = date.today()
+    response = client.get(
+        f'/api/action-items/calendar?year={today.year}&month={today.month}'
+    )
+    data = response.get_json()
+    overdue_titles = [t['title'] for t in data['overdue']]
+    assert 'Overdue task' in overdue_titles
+
+
+def test_action_items_calendar_month_boundaries(client, sample_data):
+    """Test action items calendar handles month boundary navigation."""
+    response = client.get('/api/action-items/calendar?year=2025&month=12')
+    data = response.get_json()
+    assert data['next_year'] == 2026
+    assert data['next_month'] == 1
+
+    response = client.get('/api/action-items/calendar?year=2025&month=1')
+    data = response.get_json()
+    assert data['prev_year'] == 2024
+    assert data['prev_month'] == 12
+
+
+def test_home_page_shows_tasks_tab(client, app, sample_data):
+    """Test home page shows Tasks tab when action items have due dates."""
+    from datetime import date
+    from app.models import db, ActionItem, Engagement, Customer
+
+    with app.app_context():
+        cust = Customer.query.first()
+        eng = Engagement(customer_id=cust.id, title='Test Eng', status='Active')
+        db.session.add(eng)
+        db.session.flush()
+        t = ActionItem(
+            engagement_id=eng.id, title='Due task',
+            due_date=date.today(),
+        )
+        db.session.add(t)
+        db.session.commit()
+
+    response = client.get('/')
+    assert response.status_code == 200
+    assert b'tasks-tab' in response.data
+    assert b'Tasks' in response.data
+
+
+def test_copilot_task_save_accepts_due_date(client, app, sample_data):
+    """Test saving a copilot task can include a due date."""
+    from app.models import db, ActionItem
+
+    with app.app_context():
+        t = ActionItem(title='Copilot task', source='copilot', status='open')
+        db.session.add(t)
+        db.session.commit()
+        tid = t.id
+
+    response = client.post(
+        f'/action-item/{tid}/save',
+        json={'due_date': '2026-05-15'},
+        content_type='application/json',
+    )
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data['success'] is True
+    assert data['task']['due_date'] == '2026-05-15'
+
+    with app.app_context():
+        saved = db.session.get(ActionItem, tid)
+        assert saved.source == 'project'
+        assert saved.due_date.isoformat() == '2026-05-15'
+
+
+def test_project_action_item_accepts_due_date(client, app, sample_data):
+    """Test creating a project action item with a due date."""
+    from app.models import db, Project
+
+    with app.app_context():
+        proj = Project.query.first()
+        if not proj:
+            proj = Project(title='Test Project', status='Active', project_type='general')
+            db.session.add(proj)
+            db.session.commit()
+        pid = proj.id
+
+    response = client.post(
+        f'/api/project/{pid}/action-item',
+        json={'title': 'Project task', 'due_date': '2026-06-01'},
+        content_type='application/json',
+    )
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data['success'] is True
+
+
 def test_customers_list_alphabetical(client, sample_data):
     """Test customers list in alphabetical view."""
     response = client.get('/customers')
