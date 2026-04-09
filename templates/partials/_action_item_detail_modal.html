@@ -6,152 +6,303 @@
                 <h5 class="modal-title" id="aiDetailTitle"></h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
-            <div class="modal-body">
-                <div class="d-flex justify-content-between align-items-center mb-3">
-                    <div class="d-flex flex-wrap gap-2" id="aiDetailMeta"></div>
-                    <div class="form-check flex-shrink-0 ms-3" style="cursor:pointer;"
-                         onmouseover="this.querySelector('input').style.borderColor='var(--bs-primary)'; this.querySelector('input').style.boxShadow='0 0 0 0.15rem rgba(13,110,253,.25)'; this.querySelector('label').classList.add('text-primary');"
-                         onmouseout="this.querySelector('input').style.borderColor=''; this.querySelector('input').style.boxShadow=''; this.querySelector('label').classList.remove('text-primary');">
-                        <input class="form-check-input" type="checkbox" id="aiDetailCompleted" style="cursor:pointer;">
-                        <label class="form-check-label" for="aiDetailCompleted" style="cursor:pointer; user-select:none;">Completed</label>
+            <div class="modal-body" id="aiDetailBody">
+                <!-- View mode (default) -->
+                <div id="aiDetailViewMode">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <div class="d-flex flex-wrap gap-2" id="aiDetailMeta"></div>
+                        <div class="form-check flex-shrink-0 ms-3" style="cursor:pointer;"
+                             onmouseover="this.querySelector('input').style.borderColor='var(--bs-primary)'; this.querySelector('input').style.boxShadow='0 0 0 0.15rem rgba(13,110,253,.25)'; this.querySelector('label').classList.add('text-primary');"
+                             onmouseout="this.querySelector('input').style.borderColor=''; this.querySelector('input').style.boxShadow=''; this.querySelector('label').classList.remove('text-primary');">
+                            <input class="form-check-input" type="checkbox" id="aiDetailCompleted" style="cursor:pointer;">
+                            <label class="form-check-label" for="aiDetailCompleted" style="cursor:pointer; user-select:none;">Completed</label>
+                        </div>
+                    </div>
+                    <div id="aiDetailDesc"></div>
+                </div>
+                <!-- Edit mode (hidden by default) -->
+                <div id="aiDetailEditMode" style="display: none;">
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">Title</label>
+                        <input type="text" class="form-control" id="aiEditTitle" maxlength="300">
+                    </div>
+                    <div class="row mb-3">
+                        <div class="col-md-4">
+                            <label class="form-label fw-semibold">Due Date</label>
+                            <input type="date" class="form-control" id="aiEditDue">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label fw-semibold">Priority</label>
+                            <select class="form-select" id="aiEditPriority">
+                                <option value="normal">Normal</option>
+                                <option value="high">High</option>
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label fw-semibold">Contact</label>
+                            <input type="text" class="form-control" id="aiEditContact" maxlength="200">
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">Description</label>
+                        <textarea class="form-control" id="aiEditDesc" rows="6"></textarea>
                     </div>
                 </div>
-                <div id="aiDetailDesc"></div>
             </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-outline-danger btn-sm" id="aiDetailNotUsefulBtn" style="display: none;" onclick="notUsefulCopilotTask()" title="Stop suggesting tasks like this one">
-                    <i class="bi bi-hand-thumbs-down"></i> Not Useful
-                </button>
-                <div class="flex-grow-1"></div>
-                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
-                <button type="button" class="btn btn-outline-warning" id="aiDetailDismissBtn" style="display: none;" onclick="dismissCopilotTask()" title="Hide this task without completing it">
-                    <i class="bi bi-x-lg"></i> Dismiss
-                </button>
-                <button type="button" class="btn btn-outline-info" id="aiDetailSaveBtn" style="display: none;" onclick="saveCopilotTask()" title="Pin this task so it survives the daily refresh">
-                    <i class="bi bi-pin-angle"></i> Save Task
-                </button>
-                <input type="date" class="form-control form-control-sm" id="aiDetailSaveDue"
-                       style="display: none; width: 150px;" title="Set a due date (optional)">
-                <a href="#" class="btn btn-primary" id="aiDetailEngLink" style="display: none;">
-                    <i class="bi bi-diagram-3"></i> Go to Engagement
-                </a>
-                <button type="button" class="btn btn-primary" id="aiDetailEditBtn" style="display: none;">
-                    <i class="bi bi-pencil"></i> Edit
-                </button>
+            <div class="modal-footer" id="aiDetailFooter">
+                <!-- View mode footer -->
+                <div id="aiDetailViewFooter">
+                    <button type="button" class="btn btn-outline-danger btn-sm" id="aiDetailNotUsefulBtn" style="display: none;" onclick="notUsefulCopilotTask()" title="Stop suggesting tasks like this one">
+                        <i class="bi bi-hand-thumbs-down"></i> Not Useful
+                    </button>
+                    <div class="flex-grow-1"></div>
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+                    <button type="button" class="btn btn-outline-warning" id="aiDetailDismissBtn" style="display: none;" onclick="dismissCopilotTask()" title="Hide this task without completing it">
+                        <i class="bi bi-x-lg"></i> Dismiss
+                    </button>
+                    <button type="button" class="btn btn-outline-info" id="aiDetailSaveBtn" style="display: none;" onclick="saveCopilotTask()" title="Pin this task so it survives the daily refresh">
+                        <i class="bi bi-pin-angle"></i> Save Task
+                    </button>
+                    <input type="date" class="form-control form-control-sm" id="aiDetailSaveDue"
+                           style="display: none; width: 150px;" title="Set a due date (optional)">
+                    <a href="#" class="btn btn-primary" id="aiDetailEngLink" style="display: none;">
+                        <i class="bi bi-diagram-3"></i> Go to Engagement
+                    </a>
+                    <button type="button" class="btn btn-primary" id="aiDetailEditBtn" onclick="switchToEditMode()">
+                        <i class="bi bi-pencil"></i> Edit
+                    </button>
+                </div>
+                <!-- Edit mode footer (hidden by default) -->
+                <div id="aiDetailEditFooter" style="display: none;">
+                    <div class="flex-grow-1"></div>
+                    <button type="button" class="btn btn-outline-secondary" onclick="switchToViewMode()">Cancel</button>
+                    <button type="button" class="btn btn-success" id="aiEditSaveBtn" onclick="saveActionItemEdits()">
+                        <i class="bi bi-check-lg"></i> Save
+                    </button>
+                </div>
             </div>
         </div>
     </div>
 </div>
 <script>
+var _aiCurrentTaskId = null;
+var _aiCurrentOpts = {};
+
 function viewActionItem(taskId, opts) {
     opts = opts || {};
+    _aiCurrentTaskId = taskId;
+    _aiCurrentOpts = opts;
     fetch('/action-item/' + taskId, {method: 'GET'})
     .then(function(r) { return r.json(); })
     .then(function(data) {
         if (!data || !data.task) return;
-        var t = data.task;
+        _renderViewMode(data.task, taskId, opts);
+        new bootstrap.Modal(document.getElementById('actionItemDetailModal')).show();
+    })
+    .catch(function(err) { console.error(err); });
+}
 
-        // Title
-        var titleHtml = '<i class="bi bi-check2-square"></i> ';
-        if (t.priority === 'high') {
-            titleHtml += '<i class="bi bi-exclamation-triangle-fill text-danger me-1"></i>';
-        }
-        titleHtml += t.title;
-        document.getElementById('aiDetailTitle').innerHTML = titleHtml;
+function _renderViewMode(t, taskId, opts) {
+    // Ensure view mode is visible
+    document.getElementById('aiDetailViewMode').style.display = '';
+    document.getElementById('aiDetailEditMode').style.display = 'none';
+    document.getElementById('aiDetailViewFooter').style.display = '';
+    document.getElementById('aiDetailEditFooter').style.display = 'none';
 
-        // Metadata badges
-        var meta = [];
-        if (t.priority === 'high') {
-            meta.push('<span class="badge bg-danger"><i class="bi bi-exclamation-triangle-fill"></i> High Priority</span>');
-        }
-        if (t.due_date) {
-            meta.push('<span class="badge ' + (t.is_overdue ? 'bg-danger' : 'bg-secondary') + '"><i class="bi bi-calendar"></i> ' + t.due_date + '</span>');
-        }
-        if (t.contact) {
-            meta.push('<span class="badge bg-light text-dark border"><i class="bi bi-person"></i> ' + t.contact + '</span>');
-        }
-        if (t.source === 'copilot') {
-            meta.push('<span class="badge bg-info"><i class="bi bi-stars"></i> Copilot</span>');
-        }
-        if (t.source_url) {
-            meta.push('<a href="' + t.source_url + '" target="_blank" class="badge bg-primary text-decoration-none"><i class="bi bi-box-arrow-up-right"></i> Source</a>');
-        }
-        if (t.note_id) {
-            meta.push('<a href="/note/' + t.note_id + '" class="badge bg-info text-dark text-decoration-none"><i class="bi bi-journal-text"></i> Linked Note</a>');
-        }
-        document.getElementById('aiDetailMeta').innerHTML = meta.join(' ');
+    // Title
+    var titleHtml = '<i class="bi bi-check2-square"></i> ';
+    if (t.priority === 'high') {
+        titleHtml += '<i class="bi bi-exclamation-triangle-fill text-danger me-1"></i>';
+    }
+    titleHtml += _escAiHtml(t.title);
+    document.getElementById('aiDetailTitle').innerHTML = titleHtml;
 
-        // Completed checkbox
-        var checkbox = document.getElementById('aiDetailCompleted');
-        checkbox.checked = (t.status === 'completed');
-        checkbox.onchange = function() {
-            fetch('/action-item/' + taskId + '/toggle', {method: 'POST'})
-            .then(function(r) { return r.json(); })
-            .then(function(res) {
-                if (res.success) {
-                    checkbox.checked = (res.task.status === 'completed');
-                    window._aiDetailChanged = true;
-                }
-            })
-            .catch(function(err) {
-                checkbox.checked = !checkbox.checked;
-                console.error(err);
-            });
-        };
+    // Metadata badges
+    var meta = [];
+    if (t.priority === 'high') {
+        meta.push('<span class="badge bg-danger"><i class="bi bi-exclamation-triangle-fill"></i> High Priority</span>');
+    }
+    if (t.due_date) {
+        meta.push('<span class="badge ' + (t.is_overdue ? 'bg-danger' : 'bg-secondary') + '"><i class="bi bi-calendar"></i> ' + t.due_date + '</span>');
+    }
+    if (t.contact) {
+        meta.push('<span class="badge bg-light text-dark border"><i class="bi bi-person"></i> ' + _escAiHtml(t.contact) + '</span>');
+    }
+    if (t.source === 'copilot') {
+        meta.push('<span class="badge bg-info"><i class="bi bi-stars"></i> Copilot</span>');
+    }
+    if (t.source_url) {
+        meta.push('<a href="' + _escAiHtml(t.source_url) + '" target="_blank" class="badge bg-primary text-decoration-none"><i class="bi bi-box-arrow-up-right"></i> Source</a>');
+    }
+    if (t.note_id) {
+        meta.push('<a href="/note/' + t.note_id + '" class="badge bg-info text-dark text-decoration-none"><i class="bi bi-journal-text"></i> Linked Note</a>');
+    }
+    document.getElementById('aiDetailMeta').innerHTML = meta.join(' ');
 
-        // Description
-        var descEl = document.getElementById('aiDetailDesc');
-        if (t.description && t.description.trim()) {
-            descEl.innerHTML = t.description;
-        } else {
-            descEl.innerHTML = '<p class="text-muted fst-italic">No description.</p>';
-        }
+    // Completed checkbox
+    var checkbox = document.getElementById('aiDetailCompleted');
+    checkbox.checked = (t.status === 'completed');
+    checkbox.onchange = function() {
+        fetch('/action-item/' + taskId + '/toggle', {method: 'POST'})
+        .then(function(r) { return r.json(); })
+        .then(function(res) {
+            if (res.success) {
+                checkbox.checked = (res.task.status === 'completed');
+                window._aiDetailChanged = true;
+            }
+        })
+        .catch(function(err) {
+            checkbox.checked = !checkbox.checked;
+            console.error(err);
+        });
+    };
 
-        // Save button (copilot tasks only)
-        var saveBtn = document.getElementById('aiDetailSaveBtn');
-        var dismissBtn = document.getElementById('aiDetailDismissBtn');
-        var notUsefulBtn = document.getElementById('aiDetailNotUsefulBtn');
-        var saveDueInput = document.getElementById('aiDetailSaveDue');
-        if (t.source === 'copilot') {
-            saveBtn.style.display = '';
-            saveBtn.dataset.taskId = taskId;
-            dismissBtn.style.display = '';
-            dismissBtn.dataset.taskId = taskId;
-            notUsefulBtn.style.display = '';
-            notUsefulBtn.dataset.taskId = taskId;
-            saveDueInput.style.display = '';
-            saveDueInput.value = '';
-        } else {
-            saveBtn.style.display = 'none';
-            dismissBtn.style.display = 'none';
-            notUsefulBtn.style.display = 'none';
-            saveDueInput.style.display = 'none';
-        }
+    // Description
+    var descEl = document.getElementById('aiDetailDesc');
+    if (t.description && t.description.trim()) {
+        descEl.innerHTML = t.description;
+    } else {
+        descEl.innerHTML = '<p class="text-muted fst-italic">No description.</p>';
+    }
 
-        // Engagement link
-        var engLink = document.getElementById('aiDetailEngLink');
-        if (opts.showEngagementLink && t.engagement_id) {
-            engLink.href = '/engagement/' + t.engagement_id;
-            engLink.style.display = '';
-        } else {
-            engLink.style.display = 'none';
-        }
+    // Copilot-specific buttons
+    var saveBtn = document.getElementById('aiDetailSaveBtn');
+    var dismissBtn = document.getElementById('aiDetailDismissBtn');
+    var notUsefulBtn = document.getElementById('aiDetailNotUsefulBtn');
+    var saveDueInput = document.getElementById('aiDetailSaveDue');
+    if (t.source === 'copilot') {
+        saveBtn.style.display = '';
+        saveBtn.dataset.taskId = taskId;
+        dismissBtn.style.display = '';
+        dismissBtn.dataset.taskId = taskId;
+        notUsefulBtn.style.display = '';
+        notUsefulBtn.dataset.taskId = taskId;
+        saveDueInput.style.display = '';
+        saveDueInput.value = '';
+    } else {
+        saveBtn.style.display = 'none';
+        dismissBtn.style.display = 'none';
+        notUsefulBtn.style.display = 'none';
+        saveDueInput.style.display = 'none';
+    }
 
-        // Edit button
-        var editBtn = document.getElementById('aiDetailEditBtn');
+    // Engagement link
+    var engLink = document.getElementById('aiDetailEngLink');
+    if (opts.showEngagementLink && t.engagement_id) {
+        engLink.href = '/engagement/' + t.engagement_id;
+        engLink.style.display = '';
+    } else {
+        engLink.style.display = 'none';
+    }
+
+    // Edit button - always visible for non-copilot tasks
+    var editBtn = document.getElementById('aiDetailEditBtn');
+    if (t.source === 'copilot') {
+        editBtn.style.display = 'none';
+    } else {
+        editBtn.style.display = '';
         if (opts.onEdit) {
-            editBtn.style.display = '';
+            // External editor (engagement view has its own Quill-based modal)
             editBtn.onclick = function() {
                 bootstrap.Modal.getInstance(document.getElementById('actionItemDetailModal')).hide();
                 setTimeout(function() { opts.onEdit(taskId); }, 300);
             };
         } else {
-            editBtn.style.display = 'none';
+            editBtn.onclick = function() { switchToEditMode(); };
         }
+    }
+}
 
-        new bootstrap.Modal(document.getElementById('actionItemDetailModal')).show();
+function _escAiHtml(text) {
+    if (!text) return '';
+    var d = document.createElement('div');
+    d.textContent = text;
+    return d.innerHTML;
+}
+
+function switchToEditMode() {
+    // Fetch current data to populate fields
+    fetch('/action-item/' + _aiCurrentTaskId, {method: 'GET'})
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        if (!data || !data.task) return;
+        var t = data.task;
+
+        document.getElementById('aiEditTitle').value = t.title || '';
+        document.getElementById('aiEditDue').value = t.due_date || '';
+        document.getElementById('aiEditPriority').value = t.priority || 'normal';
+        document.getElementById('aiEditContact').value = t.contact || '';
+
+        // Strip HTML for plain text editing of description
+        var descText = '';
+        if (t.description && t.description.trim()) {
+            var tmp = document.createElement('div');
+            tmp.innerHTML = t.description;
+            descText = tmp.textContent || tmp.innerText || '';
+        }
+        document.getElementById('aiEditDesc').value = descText;
+
+        // Switch visibility
+        document.getElementById('aiDetailViewMode').style.display = 'none';
+        document.getElementById('aiDetailEditMode').style.display = '';
+        document.getElementById('aiDetailViewFooter').style.display = 'none';
+        document.getElementById('aiDetailEditFooter').style.display = '';
+        document.getElementById('aiDetailTitle').innerHTML = '<i class="bi bi-pencil"></i> Edit Action Item';
+    });
+}
+
+function switchToViewMode() {
+    // Re-fetch and re-render view mode
+    fetch('/action-item/' + _aiCurrentTaskId, {method: 'GET'})
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        if (!data || !data.task) return;
+        _renderViewMode(data.task, _aiCurrentTaskId, _aiCurrentOpts);
+    });
+}
+
+function saveActionItemEdits() {
+    var btn = document.getElementById('aiEditSaveBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Saving...';
+
+    var title = document.getElementById('aiEditTitle').value.trim();
+    if (!title) {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-check-lg"></i> Save';
+        document.getElementById('aiEditTitle').classList.add('is-invalid');
+        return;
+    }
+
+    var payload = {
+        title: title,
+        due_date: document.getElementById('aiEditDue').value || null,
+        priority: document.getElementById('aiEditPriority').value,
+        contact: document.getElementById('aiEditContact').value.trim() || null,
+        description: document.getElementById('aiEditDesc').value.trim() || null,
+    };
+
+    fetch('/action-item/' + _aiCurrentTaskId, {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload),
     })
-    .catch(function(err) { console.error(err); });
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        if (data.success) {
+            window._aiDetailChanged = true;
+            // Switch back to view mode with fresh data
+            _renderViewMode(data.task, _aiCurrentTaskId, _aiCurrentOpts);
+        } else {
+            btn.innerHTML = '<i class="bi bi-x-circle"></i> ' + (data.error || 'Failed');
+        }
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-check-lg"></i> Save';
+    })
+    .catch(function() {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-check-lg"></i> Save';
+    });
 }
 
 function saveCopilotTask() {
@@ -241,5 +392,10 @@ document.getElementById('actionItemDetailModal').addEventListener('hidden.bs.mod
         window._aiDetailChanged = false;
         window.location.reload();
     }
+    // Reset to view mode when modal closes
+    document.getElementById('aiDetailViewMode').style.display = '';
+    document.getElementById('aiDetailEditMode').style.display = 'none';
+    document.getElementById('aiDetailViewFooter').style.display = '';
+    document.getElementById('aiDetailEditFooter').style.display = 'none';
 });
 </script>
