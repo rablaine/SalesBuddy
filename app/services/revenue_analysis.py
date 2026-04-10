@@ -22,8 +22,9 @@ Categories:
 """
 from __future__ import annotations
 
+import calendar
 import statistics
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Optional
 from dataclasses import dataclass, field
 
@@ -91,6 +92,7 @@ class CustomerSignals:
     bucket: str
     revenues: list[float]
     month_names: list[str]
+    month_dates: list[date] = field(default_factory=list)
     
     # Optional identifiers
     tpid: Optional[str] = None
@@ -159,6 +161,22 @@ def compute_linear_regression(x: list[float], y: list[float]) -> tuple[float, fl
     return slope, intercept, r_squared
 
 
+def _days_in_month(d: date) -> int:
+    """Return the number of days in the month for the given date."""
+    return calendar.monthrange(d.year, d.month)[1]
+
+
+def _normalize_revenues(revenues: list[float], month_dates: list[date]) -> list[float]:
+    """Normalize monthly revenues to a standard 30-day month.
+
+    Consumption-based billing produces natural MoM swings (e.g. Feb 28d
+    vs Mar 31d = ~10% swing) that are purely calendar artifacts.
+    Normalizing to a 30-day equivalent removes this noise.
+    """
+    STANDARD_DAYS = 30.0
+    return [rev / _days_in_month(d) * STANDARD_DAYS for rev, d in zip(revenues, month_dates)]
+
+
 def compute_signals(
     customer_name: str,
     bucket: str,
@@ -166,7 +184,8 @@ def compute_signals(
     month_names: list[str],
     tpid: Optional[str] = None,
     seller_name: Optional[str] = None,
-    customer_id: Optional[int] = None
+    customer_id: Optional[int] = None,
+    month_dates: Optional[list[date]] = None
 ) -> Optional[CustomerSignals]:
     """
     Compute statistical signals for a customer/bucket.
@@ -179,6 +198,7 @@ def compute_signals(
         tpid: Optional TPID
         seller_name: Optional assigned seller
         customer_id: Optional Sales Buddy customer ID
+        month_dates: Optional list of month start dates for day-normalization
         
     Returns:
         CustomerSignals object, or None if insufficient data
@@ -197,6 +217,7 @@ def compute_signals(
         bucket=bucket,
         revenues=revenues,
         month_names=month_names,
+        month_dates=month_dates or [],
         tpid=tpid,
         seller_name=seller_name,
         customer_id=customer_id
@@ -242,7 +263,13 @@ def compute_signals(
     if len(non_zero_revenues) < n * 0.6:
         return None
     
-    # Trend slope (linear regression)
+    # Day-normalize revenues if month_dates provided (removes calendar noise)
+    if month_dates and len(month_dates) == n:
+        norm_revenues = _normalize_revenues(revenues, month_dates)
+    else:
+        norm_revenues = revenues
+    
+    # Trend slope (linear regression) - uses raw revenues for dollar amounts
     x_values = list(range(1, n + 1))
     slope, intercept, r_squared = compute_linear_regression(x_values, revenues)
     
@@ -250,24 +277,24 @@ def compute_signals(
         signals.trend_slope = (slope / signals.avg_revenue) * 100
     signals.trend_r_squared = r_squared
     
-    # Month-over-month changes
+    # Month-over-month changes - uses normalized revenues to avoid calendar noise
     mom_changes = []
     for i in range(1, n):
-        if revenues[i-1] > 0:
-            change = (revenues[i] - revenues[i-1]) / revenues[i-1]
+        if norm_revenues[i-1] > 0:
+            change = (norm_revenues[i] - norm_revenues[i-1]) / norm_revenues[i-1]
             mom_changes.append(change)
         else:
             mom_changes.append(0.0)
     signals.mom_changes = mom_changes
     
-    # Recent momentum
-    if revenues[n-2] > 0:
-        signals.last_month_change = (revenues[n-1] - revenues[n-2]) / revenues[n-2]
+    # Recent momentum - uses normalized revenues
+    if norm_revenues[n-2] > 0:
+        signals.last_month_change = (norm_revenues[n-1] - norm_revenues[n-2]) / norm_revenues[n-2]
     
-    if n >= 3 and revenues[n-3] > 0:
-        signals.last_2month_change = (revenues[n-1] - revenues[n-3]) / revenues[n-3]
+    if n >= 3 and norm_revenues[n-3] > 0:
+        signals.last_2month_change = (norm_revenues[n-1] - norm_revenues[n-3]) / norm_revenues[n-3]
     
-    # Volatility (CV of % changes)
+    # Volatility (CV of % changes) - uses normalized MoM changes
     if len(mom_changes) >= 2:
         abs_changes = [abs(c) for c in mom_changes]
         mean_change = statistics.mean(abs_changes)
@@ -340,8 +367,9 @@ def categorize_customer(signals: CustomerSignals) -> CustomerSignals:
         signals.reason = " | ".join(reasons)
         return signals
     
-    # Collapse check
-    if current_vs_max < COLLAPSE_THRESHOLD and slope < 0:
+    # Collapse check - require meaningful declining slope, not just barely negative
+    COLLAPSE_SLOPE = -3.0
+    if current_vs_max < COLLAPSE_THRESHOLD and slope < COLLAPSE_SLOPE:
         signals.category = "CHURN_RISK"
         signals.confidence = "MEDIUM"
         reasons.append(f"Revenue at {current_vs_max:.0%} of peak")
@@ -767,6 +795,7 @@ def _run_analysis_generator(exclude_latest_month: bool = True):
         
         revenues = [rd.revenue for rd in revenue_data]
         month_names = [rd.fiscal_month for rd in revenue_data]
+        rd_month_dates = [rd.month_date for rd in revenue_data]
         
         # Compute signals
         signals = compute_signals(
@@ -776,7 +805,8 @@ def _run_analysis_generator(exclude_latest_month: bool = True):
             month_names=month_names,
             tpid=tpid,
             seller_name=seller_name,
-            customer_id=customer_id
+            customer_id=customer_id,
+            month_dates=rd_month_dates
         )
         
         if not signals:
