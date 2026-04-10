@@ -319,6 +319,10 @@ def run_migrations(db):
     # Migration: Create engagement_contacts table and migrate key_individuals data
     _migrate_engagement_contacts(db, inspector)
 
+    # Migration: Add entity tracking columns to usage_events
+    _add_column_if_not_exists(db, inspector, 'usage_events', 'entity_type', 'VARCHAR(50)')
+    _add_column_if_not_exists(db, inspector, 'usage_events', 'entity_id', 'INTEGER')
+
     # =========================================================================
     # End migrations
     # =========================================================================
@@ -346,9 +350,8 @@ def _add_column_if_not_exists(db, inspector, table: str, column: str, column_def
         # Table doesn't exist yet - db.create_all() will handle it
         return
     if column not in columns:
-        with db.engine.connect() as conn:
-            conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {column_def}"))
-            conn.commit()
+        db.session.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {column_def}"))
+        db.session.commit()
         print(f"  Added column '{column}' to '{table}'")
 
 

@@ -58,6 +58,25 @@ _EXCLUDE_PREFIXES: tuple[str, ...] = (
     '/favicon.ico',
 )
 
+# Blueprints whose routes use an ``id`` view arg referencing a single entity.
+# The value is the entity_type string stored on ``UsageEvent``. Blueprint name
+# must match the Flask blueprint name exactly; plural forms are normalised to
+# singular here for consistency.
+_ENTITY_BLUEPRINTS: dict[str, str] = {
+    'customers': 'customer',
+    'engagements': 'engagement',
+    'milestones': 'milestone',
+    'notes': 'note',
+    'opportunities': 'opportunity',
+    'partners': 'partner',
+    'pods': 'pod',
+    'projects': 'project',
+    'sellers': 'seller',
+    'solution_engineers': 'solution_engineer',
+    'territories': 'territory',
+    'topics': 'topic',
+}
+
 
 def _derive_category(blueprint: Optional[str], path: str) -> str:
     """Map a request to a human-readable feature category.
@@ -96,6 +115,32 @@ def _safe_referrer_path(req: Request) -> Optional[str]:
 def _should_log(path: str) -> bool:
     """Decide whether a request path should be recorded."""
     return not any(path.startswith(prefix) for prefix in _EXCLUDE_PREFIXES)
+
+
+def _extract_entity(req: Request) -> tuple[Optional[str], Optional[int]]:
+    """Extract entity_type and entity_id from the current request.
+
+    Uses the Flask blueprint name and ``request.view_args['id']`` to
+    identify which specific entity (if any) the request targets.
+
+    Returns:
+        (entity_type, entity_id) or (None, None) when not applicable.
+    """
+    blueprint = req.blueprints[0] if req.blueprints else None
+    if not blueprint:
+        return None, None
+    entity_type = _ENTITY_BLUEPRINTS.get(blueprint)
+    if not entity_type:
+        return None, None
+    view_args = req.view_args or {}
+    entity_id = view_args.get('id')
+    if entity_id is None:
+        return None, None
+    try:
+        entity_id = int(entity_id)
+    except (TypeError, ValueError):
+        return None, None
+    return entity_type, entity_id
 
 
 # ===========================================================================
@@ -138,6 +183,7 @@ def init_telemetry(app: Flask) -> None:
             error_type = f'HTTP {response.status_code}'
 
         category = _derive_category(blueprint, path)
+        entity_type, entity_id = _extract_entity(request)
 
         try:
             from app.models import db, UsageEvent
@@ -154,6 +200,8 @@ def init_telemetry(app: Flask) -> None:
                 error_type=error_type,
                 error_message=error_message,
                 category=category,
+                entity_type=entity_type,
+                entity_id=entity_id,
             )
             db.session.add(event)
             db.session.commit()

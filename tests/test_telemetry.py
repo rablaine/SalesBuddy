@@ -642,3 +642,77 @@ class TestUsageEventModel:
             assert event.timestamp.year == before.year
             assert event.timestamp.month == before.month
             assert event.timestamp.day == before.day
+
+
+# =============================================================================
+# Entity Tracking Tests
+# =============================================================================
+
+class TestEntityTracking:
+    """Tests for entity_type and entity_id extraction in telemetry."""
+
+    def test_extract_entity_known_blueprint(self):
+        """Should extract entity type from known blueprint routes."""
+        from app.services.telemetry import _extract_entity, _ENTITY_BLUEPRINTS
+        # Verify the mapping has the key entity types
+        assert 'customers' in _ENTITY_BLUEPRINTS
+        assert _ENTITY_BLUEPRINTS['customers'] == 'customer'
+        assert 'milestones' in _ENTITY_BLUEPRINTS
+        assert _ENTITY_BLUEPRINTS['milestones'] == 'milestone'
+        assert 'engagements' in _ENTITY_BLUEPRINTS
+        assert _ENTITY_BLUEPRINTS['engagements'] == 'engagement'
+        assert 'opportunities' in _ENTITY_BLUEPRINTS
+        assert _ENTITY_BLUEPRINTS['opportunities'] == 'opportunity'
+
+    def test_customer_view_tracks_entity(self, client, app, sample_data):
+        """Viewing a customer page should set entity_type and entity_id."""
+        cid = sample_data['customer1_id']
+        response = client.get(f'/customer/{cid}')
+        assert response.status_code == 200
+
+        with app.app_context():
+            event = UsageEvent.query.filter_by(
+                endpoint=f'/customer/{cid}',
+                method='GET',
+            ).order_by(UsageEvent.id.desc()).first()
+            assert event is not None
+            assert event.entity_type == 'customer'
+            assert event.entity_id == cid
+
+    def test_list_page_has_no_entity(self, client, app):
+        """A list page (no specific entity) should have NULL entity fields."""
+        client.get('/customers')
+
+        with app.app_context():
+            event = UsageEvent.query.filter_by(
+                endpoint='/customers',
+            ).order_by(UsageEvent.id.desc()).first()
+            assert event is not None
+            assert event.entity_type is None
+            assert event.entity_id is None
+
+    def test_note_view_tracks_entity(self, client, app, sample_data):
+        """Viewing a note should track the note entity."""
+        nid = sample_data['call1_id']
+        client.get(f'/note/{nid}')
+
+        with app.app_context():
+            event = UsageEvent.query.filter_by(
+                endpoint=f'/note/{nid}',
+                method='GET',
+            ).order_by(UsageEvent.id.desc()).first()
+            assert event is not None
+            assert event.entity_type == 'note'
+            assert event.entity_id == nid
+
+    def test_api_route_no_entity_tracking(self, client, app):
+        """API routes under non-entity blueprints should not set entity fields."""
+        client.get('/api/admin/backup/status')
+
+        with app.app_context():
+            event = UsageEvent.query.filter_by(
+                endpoint='/api/admin/backup/status',
+            ).order_by(UsageEvent.id.desc()).first()
+            assert event is not None
+            assert event.entity_type is None
+            assert event.entity_id is None

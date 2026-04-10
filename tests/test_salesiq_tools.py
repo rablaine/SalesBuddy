@@ -518,3 +518,84 @@ class TestToolExecution:
 
             result = execute_tool('search_engagements', {'status': 'Active'})
             assert all(e['status'] == 'Active' for e in result)
+
+
+class TestRecentlyViewedTool:
+    """Tests for the get_recently_viewed tool."""
+
+    def test_recently_viewed_returns_empty_with_no_data(self, app):
+        """Should return empty list when no usage events exist."""
+        with app.app_context():
+            result = execute_tool('get_recently_viewed', {})
+            assert result == []
+
+    def test_recently_viewed_returns_entities(self, app, sample_data):
+        """Should return recently viewed entities from usage events."""
+        with app.app_context():
+            from app.models import db, UsageEvent
+            from datetime import datetime, timezone
+
+            # Simulate viewing a customer
+            cid = sample_data['customer1_id']
+            event = UsageEvent(
+                method='GET',
+                endpoint=f'/customer/{cid}',
+                blueprint='customers',
+                view_function='customers.customer_view',
+                is_api=False,
+                status_code=200,
+                category='Customers',
+                entity_type='customer',
+                entity_id=cid,
+                timestamp=datetime.now(timezone.utc),
+            )
+            db.session.add(event)
+            db.session.commit()
+
+            result = execute_tool('get_recently_viewed', {})
+            assert len(result) >= 1
+            found = [r for r in result if r['entity_type'] == 'customer'
+                     and r['entity_id'] == cid]
+            assert len(found) == 1
+            assert found[0]['name'] is not None
+            assert 'url' in found[0]
+
+    def test_recently_viewed_filter_by_type(self, app, sample_data):
+        """Should filter by entity_type when specified."""
+        with app.app_context():
+            from app.models import db, UsageEvent
+            from datetime import datetime, timezone
+
+            cid = sample_data['customer1_id']
+            # Add a customer view and a note view
+            for etype, eid in [('customer', cid), ('note', sample_data['call1_id'])]:
+                db.session.add(UsageEvent(
+                    method='GET', endpoint=f'/{etype}/{eid}',
+                    blueprint=f'{etype}s', view_function=f'{etype}s.view',
+                    is_api=False, status_code=200, category=etype.title(),
+                    entity_type=etype, entity_id=eid,
+                    timestamp=datetime.now(timezone.utc),
+                ))
+            db.session.commit()
+
+            result = execute_tool('get_recently_viewed', {'entity_type': 'customer'})
+            assert all(r['entity_type'] == 'customer' for r in result)
+
+    def test_recently_viewed_respects_limit(self, app, sample_data):
+        """Should respect the limit parameter."""
+        with app.app_context():
+            from app.models import db, UsageEvent
+            from datetime import datetime, timezone
+
+            cid = sample_data['customer1_id']
+            db.session.add(UsageEvent(
+                method='GET', endpoint=f'/customer/{cid}',
+                blueprint='customers', view_function='customers.view',
+                is_api=False, status_code=200, category='Customers',
+                entity_type='customer', entity_id=cid,
+                timestamp=datetime.now(timezone.utc),
+            ))
+            db.session.commit()
+
+            result = execute_tool('get_recently_viewed', {'limit': 1})
+            assert len(result) <= 1

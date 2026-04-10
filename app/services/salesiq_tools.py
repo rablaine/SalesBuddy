@@ -2089,3 +2089,209 @@ def get_stale_customers() -> dict:
             for c in stale
         ],
     }
+
+
+# -- Recently Viewed ---------------------------------------------------------
+
+@tool(
+    'get_recently_viewed',
+    'Get the most recently viewed entities, optionally filtered by type. '
+    'Useful for "what was I looking at?", "my recent milestones", '
+    '"what did I view today?", or "show me what I was working on".',
+    {
+        'type': 'object',
+        'properties': {
+            'entity_type': {
+                'type': 'string',
+                'description': 'Filter to a specific entity type: customer, milestone, '
+                               'engagement, opportunity, note, seller, partner, territory, '
+                               'pod, project, solution_engineer, topic. '
+                               'Omit for all types.',
+            },
+            'limit': {
+                'type': 'integer',
+                'description': 'Max results per entity type (default 10).',
+            },
+            'days': {
+                'type': 'integer',
+                'description': 'Only include views from the last N days (default: no limit).',
+            },
+        },
+    },
+)
+def get_recently_viewed(
+    entity_type: str | None = None,
+    limit: int = 10,
+    days: int | None = None,
+) -> list[dict]:
+    """Query usage_events for recently viewed entities."""
+    from datetime import datetime, timezone, timedelta
+    from sqlalchemy import func
+    from app.models import db, UsageEvent
+
+    query = (
+        db.session.query(
+            UsageEvent.entity_type,
+            UsageEvent.entity_id,
+            func.max(UsageEvent.timestamp).label('last_viewed'),
+            func.count().label('view_count'),
+        )
+        .filter(
+            UsageEvent.entity_type.isnot(None),
+            UsageEvent.entity_id.isnot(None),
+            UsageEvent.method == 'GET',
+            UsageEvent.status_code == 200,
+        )
+    )
+
+    if entity_type:
+        query = query.filter(UsageEvent.entity_type == entity_type.lower())
+
+    if days:
+        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+        query = query.filter(UsageEvent.timestamp >= cutoff)
+
+    rows = (
+        query
+        .group_by(UsageEvent.entity_type, UsageEvent.entity_id)
+        .order_by(func.max(UsageEvent.timestamp).desc())
+        .limit(limit)
+        .all()
+    )
+
+    results = []
+    for etype, eid, last_viewed, view_count in rows:
+        entry = {
+            'entity_type': etype,
+            'entity_id': eid,
+            'last_viewed': last_viewed.isoformat() if last_viewed else None,
+            'view_count': view_count,
+        }
+        # Resolve display name if possible
+        if etype in _ENTITY_PATHS:
+            entry['url'] = _url(etype, eid)
+        _enrich_recently_viewed(entry, etype, eid)
+        results.append(entry)
+
+    return results
+
+
+def _enrich_recently_viewed(entry: dict, etype: str, eid: int) -> None:
+    """Add display name and customer context to a recently-viewed entry."""
+    from app.models import (db, Customer, Milestone, Engagement, Note,
+                            Seller, Partner, Territory, Topic)
+    _resolvers = {
+        'customer': (Customer, 'name'),
+        'milestone': (Milestone, 'display_text'),
+        'engagement': (Engagement, 'title'),
+        'note': (Note, 'content'),
+        'seller': (Seller, 'name'),
+        'partner': (Partner, 'name'),
+        'territory': (Territory, 'name'),
+        'topic': (Topic, 'name'),
+    }
+    try:
+        from app.models import Opportunity
+        _resolvers['opportunity'] = (Opportunity, 'name')
+    except ImportError:
+        pass
+
+    resolver = _resolvers.get(etype)
+    if not resolver:
+        return
+    model_cls, attr = resolver
+    obj = db.session.get(model_cls, eid)
+    if not obj:
+        entry['name'] = f'[deleted {etype} #{eid}]'
+        return
+    name = getattr(obj, attr, None) or f'{etype} #{eid}'
+    if attr == 'content' and len(name) > 80:
+        name = name[:77] + '...'
+    elif len(name) > 60:
+        name = name[:57] + '...'
+    entry['name'] = _clean(name)
+    if hasattr(obj, 'customer') and obj.customer:
+        entry['customer_name'] = obj.customer.name
+
+
+# -- Recently Updated --------------------------------------------------------
+
+@tool(
+    'get_recently_updated',
+    'Get the most recently updated entities by type. Uses the updated_at '
+    'timestamp on each entity (not telemetry). Useful for "what changed recently?", '
+    '"latest milestone updates", or "recently modified engagements".',
+    {
+        'type': 'object',
+        'properties': {
+            'entity_type': {
+                'type': 'string',
+                'description': 'Filter to a specific entity type: customer, milestone, '
+                               'engagement, opportunity. Omit for all types.',
+            },
+            'limit': {
+                'type': 'integer',
+                'description': 'Max results per entity type (default 10).',
+            },
+            'days': {
+                'type': 'integer',
+                'description': 'Only include updates from the last N days (default: no limit).',
+            },
+        },
+    },
+)
+def get_recently_updated(
+    entity_type: str | None = None,
+    limit: int = 10,
+    days: int | None = None,
+) -> list[dict]:
+    """Query entities by updated_at descending."""
+    from datetime import datetime, timezone, timedelta
+    from app.models import (db, Customer, Milestone, Engagement)
+
+    _types = {
+        'customer': (Customer, 'name'),
+        'milestone': (Milestone, 'display_text'),
+        'engagement': (Engagement, 'title'),
+    }
+    try:
+        from app.models import Opportunity
+        _types['opportunity'] = (Opportunity, 'name')
+    except ImportError:
+        pass
+
+    if entity_type:
+        entity_type = entity_type.lower()
+        _types = {k: v for k, v in _types.items() if k == entity_type}
+
+    cutoff = None
+    if days:
+        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+
+    results = []
+    for etype, (model_cls, attr) in _types.items():
+        if not hasattr(model_cls, 'updated_at'):
+            continue
+        q = model_cls.query.order_by(model_cls.updated_at.desc())
+        if cutoff:
+            q = q.filter(model_cls.updated_at >= cutoff)
+        rows = q.limit(limit).all()
+        for obj in rows:
+            name = getattr(obj, attr, None) or f'{etype} #{obj.id}'
+            if len(name) > 60:
+                name = name[:57] + '...'
+            entry = {
+                'entity_type': etype,
+                'entity_id': obj.id,
+                'name': _clean(name),
+                'updated_at': obj.updated_at.isoformat() if obj.updated_at else None,
+            }
+            if etype in _ENTITY_PATHS:
+                entry['url'] = _url(etype, obj.id)
+            if hasattr(obj, 'customer') and obj.customer:
+                entry['customer_name'] = obj.customer.name
+            results.append(entry)
+
+    # Sort all results by updated_at descending
+    results.sort(key=lambda r: r.get('updated_at') or '', reverse=True)
+    return results[:limit]
