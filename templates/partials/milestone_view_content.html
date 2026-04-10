@@ -17,9 +17,6 @@
         <h1 class="mb-0 text-truncate" style="min-width: 0;" title="{{ milestone.title or 'Untitled Milestone' }}">
             {{ milestone.title or 'Untitled Milestone' }}
         </h1>
-        {% if milestone.msx_status %}
-        <span class="badge fs-6 {% if milestone.msx_status == 'On Track' %}bg-success{% elif milestone.msx_status == 'At Risk' %}bg-warning text-dark{% elif milestone.msx_status == 'Blocked' %}bg-danger{% elif milestone.msx_status == 'Completed' %}bg-info{% else %}bg-secondary{% endif %}" id="statusBadgeTop">{{ milestone.msx_status }}</span>
-        {% endif %}
     </div>
     <div class="flex-shrink-0 d-flex gap-2">
         <a href="{{ milestone.url }}" target="_blank" class="btn btn-outline-success text-nowrap">
@@ -82,6 +79,19 @@
                 <!-- Cached details shown immediately -->
                 <div id="detailsCached">
                     <ul class="list-group list-group-flush">
+                        {% if milestone.msx_status %}
+                        <li class="list-group-item d-flex justify-content-between" id="statusRow">
+                            <span class="text-muted">Status</span>
+                            <span id="statusValue">
+                                <span class="badge {% if milestone.msx_status == 'On Track' %}bg-success{% elif milestone.msx_status == 'At Risk' %}bg-warning text-dark{% elif milestone.msx_status == 'Blocked' %}bg-danger{% elif milestone.msx_status == 'Completed' %}bg-info{% else %}bg-secondary{% endif %}">{{ milestone.msx_status }}</span>
+                            </span>
+                        </li>
+                        {% else %}
+                        <li class="list-group-item d-flex justify-content-between" id="statusRow" style="display:none !important;">
+                            <span class="text-muted">Status</span>
+                            <span id="statusValue"></span>
+                        </li>
+                        {% endif %}
                         {% if milestone.owner_name %}
                         <li class="list-group-item d-flex justify-content-between" id="ownerRow">
                             <span class="text-muted">Owner</span>
@@ -386,14 +396,17 @@ function renderDetails(ms) {
     const spinner = document.getElementById('detailsSpinner');
     if (spinner) spinner.style.display = 'none';
 
-    // Update the status badge at top of page
-    const badge = document.getElementById('statusBadgeTop');
-    if (badge && ms.msx_status) {
-        badge.textContent = ms.msx_status;
-        badge.className = 'badge fs-6 ' + ({
+    // Update the status row in details card
+    const statusRow = document.getElementById('statusRow');
+    const statusVal = document.getElementById('statusValue');
+    if (statusRow && statusVal && ms.msx_status) {
+        const cls = {
             'On Track': 'bg-success', 'At Risk': 'bg-warning text-dark',
             'Blocked': 'bg-danger', 'Completed': 'bg-info'
-        }[ms.msx_status] || 'bg-secondary');
+        }[ms.msx_status] || 'bg-secondary';
+        statusVal.innerHTML = '<span class="badge ' + cls + '">' + escapeHtml(ms.msx_status) + '</span>';
+        statusRow.style.display = '';
+        statusRow.classList.add('d-flex');
     }
     // Update owner (preserve existing link if present)
     const ownerRow = document.getElementById('ownerRow');
