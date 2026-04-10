@@ -261,14 +261,14 @@ pytest --cov=app tests/  # with coverage
 
 **Development Environment:**
 - Local machine running Flask development server
-- Local SQLite database (data/salesbuddy.db)
+- Local SQLite database (data/salesbuddy.db) in the repo working directory
 - Environment: `FLASK_ENV=development`, `FLASK_DEBUG=True`
 - Used for developing and testing new features
 - Safe to experiment and break things
 
 **Production Environment:**
 - Sales Buddy Flask app runs locally via `flask run` or `start.bat`
-- SQLite database (persisted in `data/salesbuddy.db`)
+- SQLite database at `%LOCALAPPDATA%\salesbuddy\data\salesbuddy.db`
 - `update.bat` backs up the database before deploying/running migrations
 - Real user data - handle with care
 

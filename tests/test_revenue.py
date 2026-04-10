@@ -15,7 +15,8 @@ from app.services.revenue_import import (
 )
 from app.services.revenue_analysis import (
     compute_signals, categorize_customer, determine_action,
-    run_analysis_for_all, get_actionable_analyses, AnalysisConfig
+    run_analysis_for_all, get_actionable_analyses, AnalysisConfig,
+    _normalize_revenues
 )
 
 
@@ -267,9 +268,110 @@ class TestCategorization:
         signals = compute_signals("Stable", "Core DBs", revenues, months)
         
         assert signals is not None
-        # Perfectly flat data could be HEALTHY or STAGNANT depending on thresholds
-        # The important thing is it's not CHURN_RISK or VOLATILE
-        assert signals.category in ["HEALTHY", "STAGNANT", "VOLATILE"]  # Allow any stable-ish category
+        # Perfectly flat data should be STAGNANT (flat + low vol)
+        assert signals.category in ["HEALTHY", "STAGNANT"]
+
+
+class TestDayNormalization:
+    """Test day-normalization for consumption billing accuracy."""
+
+    def test_normalize_revenues(self):
+        """Test that normalization adjusts for days in month."""
+        revenues = [31000, 28000, 31000]  # $1k/day constant
+        month_dates = [date(2026, 1, 1), date(2026, 2, 1), date(2026, 3, 1)]
+
+        normed = _normalize_revenues(revenues, month_dates)
+        # All should be very close to 30000 (30 standard days * $1k/day)
+        for val in normed:
+            assert abs(val - 30000) < 100
+
+    def test_stable_customer_not_volatile_with_dates(self):
+        """A constant-daily-rate customer must NOT be classified as VOLATILE."""
+        daily_rate = 1000
+        month_dates = [
+            date(2025, 7, 1), date(2025, 8, 1), date(2025, 9, 1),
+            date(2025, 10, 1), date(2025, 11, 1), date(2025, 12, 1),
+            date(2026, 1, 1), date(2026, 2, 1), date(2026, 3, 1),
+        ]
+        import calendar
+        revenues = [daily_rate * calendar.monthrange(d.year, d.month)[1] for d in month_dates]
+        months = [f"M{i}" for i in range(len(revenues))]
+
+        signals = compute_signals(
+            "Stable Daily", "Core DBs", revenues, months,
+            month_dates=month_dates,
+        )
+
+        assert signals is not None
+        assert signals.category in ["HEALTHY", "STAGNANT"]
+        assert signals.volatility_cv < 0.10  # Near-zero volatility
+
+    def test_stable_customer_volatile_without_dates(self):
+        """Without day-normalization, a stable customer exceeds the CV threshold."""
+        daily_rate = 1000
+        month_dates = [
+            date(2025, 7, 1), date(2025, 8, 1), date(2025, 9, 1),
+            date(2025, 10, 1), date(2025, 11, 1), date(2025, 12, 1),
+            date(2026, 1, 1), date(2026, 2, 1), date(2026, 3, 1),
+        ]
+        import calendar
+        revenues = [daily_rate * calendar.monthrange(d.year, d.month)[1] for d in month_dates]
+        months = [f"M{i}" for i in range(len(revenues))]
+
+        # Without month_dates, no normalization occurs
+        signals = compute_signals(
+            "Stable Daily", "Core DBs", revenues, months,
+        )
+
+        assert signals is not None
+        # CV should be inflated by calendar noise
+        assert signals.volatility_cv > 0.50
+
+    def test_real_decline_still_detected_with_normalization(self):
+        """A genuinely declining customer should still be flagged even with normalization."""
+        month_dates = [
+            date(2025, 7, 1), date(2025, 8, 1), date(2025, 9, 1),
+            date(2025, 10, 1), date(2025, 11, 1), date(2025, 12, 1),
+            date(2026, 1, 1), date(2026, 2, 1), date(2026, 3, 1),
+        ]
+        revenues = [50000, 45000, 40000, 35000, 30000, 25000, 20000, 15000, 10000]
+        months = [f"M{i}" for i in range(len(revenues))]
+
+        signals = compute_signals(
+            "Truly Declining", "Core DBs", revenues, months,
+            month_dates=month_dates,
+        )
+
+        assert signals is not None
+        assert signals.category == "CHURN_RISK"
+        assert signals.trend_slope < -5.0
+
+
+class TestCollapseCheck:
+    """Test the tightened collapse threshold."""
+
+    def test_collapse_requires_meaningful_slope(self):
+        """Revenue below 70% of peak with a barely negative slope should NOT trigger CHURN_RISK."""
+        # One high month creates a peak; remaining months are stable.
+        # current_vs_max ~63%, but the slope is only ~-1.5%/mo (above -3.0 threshold).
+        revenues = [10000, 15000, 10000, 10000, 10000, 10000, 10000, 10000, 10000]
+        months = [f"M{i}" for i in range(len(revenues))]
+
+        signals = compute_signals("Mild Dip", "Core DBs", revenues, months)
+
+        assert signals is not None
+        # Should NOT be CHURN_RISK with a mild slope
+        assert signals.category != "CHURN_RISK"
+
+    def test_collapse_fires_with_strong_slope(self):
+        """Revenue below 70% of peak with steep decline should be CHURN_RISK."""
+        revenues = [50000, 48000, 44000, 40000, 35000, 30000, 25000, 20000, 15000]
+        months = [f"M{i}" for i in range(len(revenues))]
+
+        signals = compute_signals("Real Collapse", "Core DBs", revenues, months)
+
+        assert signals is not None
+        assert signals.category == "CHURN_RISK"
 
 
 class TestActionDetermination:
