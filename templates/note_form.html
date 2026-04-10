@@ -7991,6 +7991,9 @@ function _wireEngContactSearch(searchInput, dropdown, container, customerId, opt
                 });
                 selectedIdx = -1;
                 _renderEngContactDropdown(dropdown, results, selectedIdx, q, opts, customerId);
+                // Sync with the default selection the render function applied visually
+                var totalItems = dropdown._totalItems || 0;
+                if (totalItems > 0) selectedIdx = 0;
             });
         }, 200);
     });
