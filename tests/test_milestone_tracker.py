@@ -372,7 +372,7 @@ class TestMilestoneSyncService:
     
     @patch('app.services.milestone_sync.get_milestones_by_account')
     def test_sync_deactivates_missing_milestones(self, mock_get, app, sample_data):
-        """Milestones no longer in MSX should be marked as completed."""
+        """Milestones no longer in MSX results should keep their status, not be force-completed."""
         customer_id = self._create_test_customer_with_tpid_url(app, sample_data)
         
         with app.app_context():
@@ -391,7 +391,7 @@ class TestMilestoneSyncService:
             db.session.commit()
             disappearing_id = disappearing.id
         
-        # MSX returns empty list — our milestone is gone
+        # MSX returns empty list — our milestone is gone from the query
         mock_get.return_value = {
             "success": True,
             "milestones": [],
@@ -411,7 +411,9 @@ class TestMilestoneSyncService:
             assert result["deactivated"] == 1
             
             ms = db.session.get(Milestone, disappearing_id)
-            assert ms.msx_status == "Completed"
+            # Status should be preserved, not force-set to "Completed"
+            assert ms.msx_status == "On Track"
+            assert ms.last_synced_at is not None
             
             # Cleanup
             db.session.delete(ms)

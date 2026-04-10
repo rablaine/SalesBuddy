@@ -705,17 +705,18 @@ def _apply_customer_milestones(
                 existing_milestones_map[msx_id] = milestone
                 result["created"] += 1
 
-        # Deactivate milestones for this customer that are no longer in MSX
+        # Handle milestones for this customer that are no longer in the MSX
+        # query results.  The sync query uses open_opportunities_only=True
+        # and current_fy_only=True, so a milestone can disappear from results
+        # for reasons other than completion (opportunity closed, FY filter,
+        # account re-parent, etc.).  We must NOT assume "Completed" - just
+        # mark them as synced so we know we checked.
         for msx_id, existing in existing_milestones_map.items():
             if existing.customer_id != customer.id:
                 continue
             if existing.msx_status not in ACTIVE_STATUSES:
                 continue
             if msx_id not in seen_msx_ids:
-                if existing.notes:
-                    existing.last_synced_at = now
-                    continue
-                existing.msx_status = "Completed"
                 existing.last_synced_at = now
                 result["deactivated"] += 1
 
