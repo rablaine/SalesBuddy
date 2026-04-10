@@ -13,7 +13,8 @@ import re
 
 from app.models import (db, Note, Customer, Seller, Territory, Topic,
                         UserPreference, NoteTemplate, User, SyncStatus,
-                        Engagement, ActionItem, Milestone, RevenueAnalysis, Project)
+                        Engagement, ActionItem, Milestone, RevenueAnalysis, Project,
+                        UsageEvent)
 from app.services.backup import backup_template, delete_template_backup
 from app.services.seller_mode import get_seller_mode_seller_id
 
@@ -867,6 +868,229 @@ def api_active_projects():
     return jsonify({'success': True, 'projects': results, 'count': len(results)})
 
 
+# =============================================================================
+# Recently Viewed helper
+# =============================================================================
+
+# Entity types to show in the recently-viewed panel, with display config.
+_RECENT_ENTITY_TYPES = {
+    'milestone': {'model': 'Milestone', 'icon': 'bi-flag', 'color': 'success',
+                  'route': 'milestones.milestone_view', 'label': 'Milestones'},
+    'engagement': {'model': 'Engagement', 'icon': 'bi-briefcase', 'color': 'primary',
+                   'route': 'engagements.engagement_view', 'label': 'Engagements'},
+    'opportunity': {'model': 'Opportunity', 'icon': 'bi-lightning', 'color': 'warning',
+                    'route': 'opportunities.opportunity_view', 'label': 'Opportunities'},
+    'customer': {'model': 'Customer', 'icon': 'bi-building', 'color': 'info',
+                 'route': 'customers.customer_view', 'label': 'Customers'},
+}
+
+# Map model name -> (model class, display name attribute)
+_MODEL_DISPLAY = {
+    'Milestone': (Milestone, 'display_text'),
+    'Engagement': (Engagement, 'title'),
+    'Customer': (Customer, 'name'),
+}
+
+
+def _get_recently_viewed(limit: int = 5) -> dict:
+    """Return recently viewed entities grouped by type.
+
+    Queries usage_events for the most recent distinct entity views per type.
+    Resolves each entity to its display name and URL.
+
+    Args:
+        limit: Max items per entity type.
+
+    Returns:
+        Dict keyed by entity type, each value is a dict with 'label', 'icon',
+        'color', and 'items' (list of dicts with id, name, url, viewed_at).
+    """
+    from app.models import Opportunity
+
+    model_map = {
+        'Milestone': Milestone,
+        'Engagement': Engagement,
+        'Opportunity': Opportunity,
+        'Customer': Customer,
+    }
+    name_attr_map = {
+        'Milestone': 'display_text',
+        'Engagement': 'title',
+        'Opportunity': 'name',
+        'Customer': 'name',
+    }
+
+    results = {}
+    for etype, cfg in _RECENT_ENTITY_TYPES.items():
+        # Subquery: most recent successful view per entity_id for this type
+        subq = (
+            db.session.query(
+                UsageEvent.entity_id,
+                func.max(UsageEvent.timestamp).label('last_viewed'),
+            )
+            .filter(
+                UsageEvent.entity_type == etype,
+                UsageEvent.method == 'GET',
+                UsageEvent.status_code == 200,
+                UsageEvent.entity_id.isnot(None),
+            )
+            .group_by(UsageEvent.entity_id)
+            .order_by(func.max(UsageEvent.timestamp).desc())
+            .limit(limit)
+            .subquery()
+        )
+
+        rows = db.session.query(subq.c.entity_id, subq.c.last_viewed).all()
+        if not rows:
+            continue
+
+        model_cls = model_map.get(cfg['model'])
+        name_attr = name_attr_map.get(cfg['model'], 'name')
+        if not model_cls:
+            continue
+
+        items = []
+        for entity_id, last_viewed in rows:
+            obj = db.session.get(model_cls, entity_id)
+            if not obj:
+                continue
+            display_name = getattr(obj, name_attr, None) or f'{etype} #{entity_id}'
+            # Truncate long names
+            if len(display_name) > 60:
+                display_name = display_name[:57] + '...'
+            items.append({
+                'id': entity_id,
+                'name': display_name,
+                'url': url_for(cfg['route'], id=entity_id),
+                'viewed_at': last_viewed,
+                'customer_name': getattr(obj, 'customer', None) and obj.customer.name,
+            })
+
+        if items:
+            results[etype] = {
+                'label': cfg['label'],
+                'icon': cfg['icon'],
+                'color': cfg['color'],
+                'items': items,
+            }
+
+    return results
+
+
+def _get_recently_updated(limit: int = 5) -> dict:
+    """Return recently updated entities grouped by type.
+
+    Uses real user-activity signals per entity type:
+    - Engagements / Customers: updated_at (user-driven edits, not bulk sync)
+    - Milestones: most recent MilestoneComment or MsxTask created_at
+    - Opportunities: most recent Favorite toggle (comments go to MSX, no local record)
+
+    Args:
+        limit: Max items per entity type.
+
+    Returns:
+        Dict keyed by entity type with label, icon, color, and items list.
+    """
+    from app.models import MilestoneComment, MsxTask, Favorite, Opportunity
+
+    results = {}
+
+    # --- Engagements: updated_at is user-driven ---
+    eng_rows = (
+        Engagement.query
+        .order_by(Engagement.updated_at.desc())
+        .limit(limit)
+        .all()
+    )
+    if eng_rows:
+        results['engagement'] = {
+            'label': 'Engagements', 'icon': 'bi-briefcase', 'color': 'primary',
+            'items': [{
+                'id': e.id,
+                'name': (e.title or f'Engagement #{e.id}')[:60],
+                'url': url_for('engagements.engagement_view', id=e.id),
+                'updated_at': e.updated_at,
+                'customer_name': e.customer.name if e.customer else None,
+            } for e in eng_rows],
+        }
+
+    # --- Milestones: last user activity (comment or task creation) ---
+    milestone_activity = (
+        db.session.query(
+            Milestone.id,
+            Milestone.customer_id,
+            func.max(
+                func.coalesce(MilestoneComment.created_at, MsxTask.created_at)
+            ).label('last_activity'),
+        )
+        .outerjoin(MilestoneComment, MilestoneComment.milestone_id == Milestone.id)
+        .outerjoin(MsxTask, MsxTask.milestone_id == Milestone.id)
+        .group_by(Milestone.id)
+        .having(
+            func.max(
+                func.coalesce(MilestoneComment.created_at, MsxTask.created_at)
+            ).isnot(None)
+        )
+        .order_by(func.max(
+            func.coalesce(MilestoneComment.created_at, MsxTask.created_at)
+        ).desc())
+        .limit(limit)
+        .all()
+    )
+    if milestone_activity:
+        ms_items = []
+        for ms_id, ms_cust_id, last_act in milestone_activity:
+            ms = db.session.get(Milestone, ms_id)
+            if not ms:
+                continue
+            cust = db.session.get(Customer, ms_cust_id) if ms_cust_id else None
+            name = (ms.display_text or f'Milestone #{ms_id}')[:60]
+            ms_items.append({
+                'id': ms_id,
+                'name': name,
+                'url': url_for('milestones.milestone_view', id=ms_id),
+                'updated_at': last_act,
+                'customer_name': cust.name if cust else None,
+            })
+        results['milestone'] = {
+            'label': 'Milestones', 'icon': 'bi-flag', 'color': 'success',
+            'items': ms_items,
+        }
+
+    # --- Opportunities: last user activity (favorite toggle) ---
+    opp_favorites = (
+        db.session.query(
+            Favorite.object_id,
+            Favorite.created_at,
+        )
+        .filter(Favorite.object_type == 'opportunity')
+        .order_by(Favorite.created_at.desc())
+        .limit(limit)
+        .all()
+    )
+    if opp_favorites:
+        opp_items = []
+        for opp_id, fav_at in opp_favorites:
+            opp = db.session.get(Opportunity, opp_id)
+            if not opp:
+                continue
+            name = (opp.name or f'Opportunity #{opp_id}')[:60]
+            opp_items.append({
+                'id': opp_id,
+                'name': name,
+                'url': url_for('opportunities.opportunity_view', id=opp_id),
+                'updated_at': fav_at,
+                'customer_name': opp.customer.name if opp.customer else None,
+            })
+        if opp_items:
+            results['opportunity'] = {
+                'label': 'Opportunities', 'icon': 'bi-lightning', 'color': 'warning',
+                'items': opp_items,
+            }
+
+    return results
+
+
 @main_bp.route('/search')
 def search():
     """Search and filter notes (FR011)."""
@@ -954,7 +1178,14 @@ def search():
     sellers = Seller.query.order_by(Seller.name).all()
     territories = Territory.query.order_by(Territory.name).all()
     topics = Topic.query.order_by(Topic.name).all()
-    
+
+    # Recently viewed/updated entities (shown when no search is active)
+    recently_viewed = {}
+    recently_updated = {}
+    if not has_search:
+        recently_viewed = _get_recently_viewed()
+        recently_updated = _get_recently_updated()
+
     return render_template('search.html',
                          grouped_data=grouped_data,
                          notes=notes,
@@ -966,7 +1197,9 @@ def search():
                          customers=customers,
                          sellers=sellers,
                          territories=territories,
-                         topics=topics)
+                         topics=topics,
+                         recently_viewed=recently_viewed,
+                         recently_updated=recently_updated)
 
 
 @main_bp.route('/preferences')

@@ -1949,6 +1949,10 @@ class UsageEvent(db.Model):
     # Metadata
     category = db.Column(db.String(50), nullable=True)         # Derived category for grouping
 
+    # Entity tracking -- populated when the request targets a specific entity
+    entity_type = db.Column(db.String(50), nullable=True, index=True)  # e.g. 'milestone', 'customer'
+    entity_id = db.Column(db.Integer, nullable=True, index=True)       # PK of the entity
+
     def __repr__(self) -> str:
         return f'<UsageEvent {self.method} {self.endpoint} {self.status_code}>'
 

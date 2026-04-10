@@ -85,6 +85,80 @@
 </div>
 
 <!-- Results -->
+{% if recently_viewed and not notes %}
+<div class="mb-4">
+    <h5 class="mb-3"><i class="bi bi-clock-history"></i> Recently Viewed</h5>
+    <div class="row g-3">
+        {% for etype, group in recently_viewed.items() %}
+        <div class="col-md-6 col-lg-3">
+            <div class="card h-100">
+                <div class="card-header bg-{{ group.color }} bg-opacity-10">
+                    <h6 class="mb-0">
+                        <i class="bi {{ group.icon }} text-{{ group.color }}"></i>
+                        {{ group.label }}
+                    </h6>
+                </div>
+                <div class="list-group list-group-flush">
+                    {% for item in group['items'] %}
+                    <a href="{{ item.url }}" class="list-group-item list-group-item-action py-2">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <div class="text-truncate me-2">
+                                <span class="fw-semibold">{{ item.name }}</span>
+                                {% if item.customer_name %}
+                                <br><small class="text-muted">{{ item.customer_name }}</small>
+                                {% endif %}
+                            </div>
+                            <small class="text-muted text-nowrap local-datetime" data-utc="{{ item.viewed_at.strftime('%Y-%m-%dT%H:%M:%SZ') if item.viewed_at }}">
+                                {{ item.viewed_at.strftime('%b %d') if item.viewed_at }}
+                            </small>
+                        </div>
+                    </a>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
+{% if recently_updated and not notes %}
+<div class="mb-4">
+    <h5 class="mb-3"><i class="bi bi-pencil-square"></i> Recently Updated</h5>
+    <div class="row g-3">
+        {% for etype, group in recently_updated.items() %}
+        <div class="col-md-6 col-lg-3">
+            <div class="card h-100">
+                <div class="card-header bg-{{ group.color }} bg-opacity-10">
+                    <h6 class="mb-0">
+                        <i class="bi {{ group.icon }} text-{{ group.color }}"></i>
+                        {{ group.label }}
+                    </h6>
+                </div>
+                <div class="list-group list-group-flush">
+                    {% for item in group['items'] %}
+                    <a href="{{ item.url }}" class="list-group-item list-group-item-action py-2">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <div class="text-truncate me-2">
+                                <span class="fw-semibold">{{ item.name }}</span>
+                                {% if item.customer_name %}
+                                <br><small class="text-muted">{{ item.customer_name }}</small>
+                                {% endif %}
+                            </div>
+                            <small class="text-muted text-nowrap local-datetime" data-utc="{{ item.updated_at.strftime('%Y-%m-%dT%H:%M:%SZ') if item.updated_at }}">
+                                {{ item.updated_at.strftime('%b %d') if item.updated_at }}
+                            </small>
+                        </div>
+                    </a>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
 {% if notes %}
     <div class="alert alert-info">
         <i class="bi bi-info-circle"></i> Found {{ notes|length }} note(s)
