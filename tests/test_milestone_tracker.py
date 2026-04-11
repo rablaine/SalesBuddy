@@ -372,7 +372,7 @@ class TestMilestoneSyncService:
     
     @patch('app.services.milestone_sync.get_milestones_by_account')
     def test_sync_deactivates_missing_milestones(self, mock_get, app, sample_data):
-        """Milestones no longer in MSX should be marked as completed."""
+        """Milestones no longer in MSX results should keep their status, not be force-completed."""
         customer_id = self._create_test_customer_with_tpid_url(app, sample_data)
         
         with app.app_context():
@@ -391,7 +391,7 @@ class TestMilestoneSyncService:
             db.session.commit()
             disappearing_id = disappearing.id
         
-        # MSX returns empty list — our milestone is gone
+        # MSX returns empty list — our milestone is gone from the query
         mock_get.return_value = {
             "success": True,
             "milestones": [],
@@ -411,10 +411,162 @@ class TestMilestoneSyncService:
             assert result["deactivated"] == 1
             
             ms = db.session.get(Milestone, disappearing_id)
-            assert ms.msx_status == "Completed"
+            # Status should be preserved, not force-set to "Completed"
+            assert ms.msx_status == "On Track"
+            assert ms.last_synced_at is not None
             
             # Cleanup
             db.session.delete(ms)
+            db.session.commit()
+
+    @patch('app.services.milestone_sync.get_milestones_by_account')
+    def test_sync_stale_opportunity_milestones(self, mock_get, app, sample_data):
+        """Stale sync should refresh milestones on opportunities missed by the active sync."""
+        customer_id = self._create_test_customer_with_tpid_url(app, sample_data)
+
+        with app.app_context():
+            from app.models import db, Milestone, Opportunity
+
+            # Create a "stale" opportunity (closed, not in active sync results)
+            stale_opp = Opportunity(
+                msx_opportunity_id="stale-opp-guid-001",
+                name="Closed Opp",
+                customer_id=customer_id,
+                statecode=1,
+                state="Won",
+            )
+            db.session.add(stale_opp)
+            db.session.flush()
+
+            # Create a milestone on that stale opportunity with old status
+            stale_ms = Milestone(
+                msx_milestone_id="stale-ms-guid-001",
+                url="https://stale.com",
+                title="Stale Milestone",
+                msx_status="On Track",
+                customer_id=customer_id,
+                opportunity_id=stale_opp.id,
+            )
+            db.session.add(stale_ms)
+            db.session.commit()
+            stale_ms_id = stale_ms.id
+            stale_opp_id = stale_opp.id
+
+        # The stale sync will call get_milestones_by_account without filters
+        # and return the updated milestone data
+        mock_get.return_value = {
+            "success": True,
+            "milestones": [
+                {
+                    "id": "stale-ms-guid-001",
+                    "name": "Stale Milestone (Updated)",
+                    "number": "7-999001",
+                    "status": "Completed",
+                    "status_code": 861980003,
+                    "status_sort": 4,
+                    "msx_opportunity_id": "stale-opp-guid-001",
+                    "opportunity_name": "Closed Opp - Won",
+                    "workload": "Azure SQL",
+                    "monthly_usage": 500.0,
+                    "due_date": "2025-12-31T00:00:00Z",
+                    "dollar_value": 25000.0,
+                    "url": "https://stale.com",
+                    "opportunity_statecode": 1,
+                    "opportunity_state": "Won",
+                },
+            ],
+            "count": 1,
+        }
+
+        with app.app_context():
+            from app.services.milestone_sync import (
+                _sync_stale_opportunity_milestones,
+            )
+
+            # The active sync saw no opportunities (empty set)
+            # so our stale opp should be picked up
+            gen = _sync_stale_opportunity_milestones(set())
+            try:
+                while True:
+                    next(gen)
+            except StopIteration as stop:
+                result = stop.value
+
+            assert result["success"] is True
+            assert result["milestones_updated"] == 1
+            assert result["opportunities_refreshed"] == 1
+
+            ms = db.session.get(Milestone, stale_ms_id)
+            assert ms.msx_status == "Completed"
+            assert ms.title == "Stale Milestone (Updated)"
+            assert ms.last_synced_at is not None
+
+            # Cleanup
+            db.session.delete(ms)
+            opp = db.session.get(Opportunity, stale_opp_id)
+            if opp:
+                db.session.delete(opp)
+            db.session.commit()
+
+    @patch('app.services.milestone_sync.get_milestones_by_account')
+    def test_sync_stale_skips_seen_opportunities(self, mock_get, app, sample_data):
+        """Stale sync should not re-fetch opportunities already covered by the active sync."""
+        customer_id = self._create_test_customer_with_tpid_url(app, sample_data)
+
+        with app.app_context():
+            from app.models import db, Milestone, Opportunity
+
+            # Create an opportunity that WAS seen in the active sync
+            seen_opp = Opportunity(
+                msx_opportunity_id="seen-opp-guid-001",
+                name="Active Opp",
+                customer_id=customer_id,
+                statecode=0,
+                state="Open",
+            )
+            db.session.add(seen_opp)
+            db.session.flush()
+
+            ms = Milestone(
+                msx_milestone_id="seen-ms-guid-001",
+                url="https://active.com",
+                title="Active Milestone",
+                msx_status="On Track",
+                customer_id=customer_id,
+                opportunity_id=seen_opp.id,
+            )
+            db.session.add(ms)
+            db.session.commit()
+            ms_id = ms.id
+            opp_id = seen_opp.id
+
+        with app.app_context():
+            from app.services.milestone_sync import (
+                _sync_stale_opportunity_milestones,
+            )
+
+            # This opp was seen in the active sync, so stale sync should skip it
+            gen = _sync_stale_opportunity_milestones({"seen-opp-guid-001"})
+            try:
+                while True:
+                    next(gen)
+            except StopIteration as stop:
+                result = stop.value
+
+            # Nothing should have been updated
+            assert result["milestones_updated"] == 0
+            assert result["opportunities_refreshed"] == 0
+
+            # MSX API should not have been called
+            mock_get.assert_not_called()
+
+            # Cleanup
+            ms = db.session.get(Milestone, ms_id)
+            if ms:
+                db.session.delete(ms)
+            opp = db.session.get(Opportunity, opp_id)
+            if opp:
+                db.session.delete(opp)
             db.session.commit()
     
     @patch('app.services.milestone_sync.get_milestones_by_account')

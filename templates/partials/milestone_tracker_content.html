@@ -183,7 +183,7 @@
         <tbody>
             {% for ms in milestones %}
             <tr class="milestone-row" style="cursor: pointer;"
-                onclick="openMilestoneDetail(event, {{ ms.id }}, '{{ ms.title|replace("'", "\\'") }}', '{{ ms.msx_status or '' }}', '{{ ms.url or '' }}');"
+                onclick="openMilestoneDetail(event, {{ ms.id }}, '{{ ms.title|replace("'", "\\'") }}', '{{ ms.status or '' }}', '{{ ms.url or '' }}');"
                 data-seller-id="{{ ms.seller.id if ms.seller else '' }}"
                 data-status="{{ ms.status }}"
                 data-area="{{ ms.workload_area }}"
