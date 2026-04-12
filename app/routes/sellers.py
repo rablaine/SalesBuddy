@@ -126,6 +126,10 @@ def seller_view(id):
     from app.services.milestone_sync import get_milestone_tracker_data_for_seller
     milestone_data = get_milestone_tracker_data_for_seller(seller.id)
     
+    # Get stale milestones for this seller
+    from app.routes.main import _find_stale_milestones
+    stale_milestones = _find_stale_milestones(seller_mode_sid=seller.id)
+    
     return render_template(
         'seller_view.html',
         seller=seller,
@@ -137,6 +141,7 @@ def seller_view(id):
         milestone_summary=milestone_data["summary"],
         milestone_areas=milestone_data["areas"],
         milestone_quarters=milestone_data["quarters"],
+        stale_milestones=stale_milestones,
     )
 
 
