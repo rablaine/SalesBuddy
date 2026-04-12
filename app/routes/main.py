@@ -149,6 +149,7 @@ def _find_stale_milestones(
     q = Milestone.query.filter(
         Milestone.on_my_team.is_(True),
         Milestone.msx_status.in_(['On Track', 'At Risk']),
+        db.or_(Milestone.customer_commitment != 'Committed', Milestone.customer_commitment.is_(None)),
         Milestone.due_date.isnot(None),
         Milestone.due_date >= q_start_dt,
         Milestone.due_date <= q_end_dt,

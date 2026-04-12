@@ -188,7 +188,7 @@
                     {% if stale_milestones %}<span class="badge bg-warning text-dark ms-1" id="staleMilestoneCount">{{ stale_milestones|length }}</span>{% endif %}
                 </h6>
                 {% if user_role != 'dss' and sellers|length > 1 %}
-                <select class="form-select form-select-sm" style="width: auto; min-width: 160px;" id="staleMilestoneSellerFilter" onchange="filterStaleMilestones(this.value)">
+                <select class="form-select form-select-sm" style="width: auto; min-width: 160px;" id="staleMilestoneSellerFilter" onchange="filterStaleMilestones(this.value); localStorage.setItem('staleMilestoneSellerFilter', this.value);">
                     <option value="">All Sellers</option>
                     {% for s in sellers %}
                     <option value="{{ s.id }}">{{ s.name }}</option>
@@ -212,6 +212,13 @@
                                     {% if ms.customer %}{{ ms.customer.name }}{% endif %}
                                     {% if ms.workload %} - {{ ms.workload }}{% endif %}
                                 </div>
+                                {% if ms.due_date %}
+                                <div>
+                                    <span class="badge {% if ms.due_date_urgency == 'overdue' %}bg-danger{% elif ms.due_date_urgency == 'soon' %}bg-warning text-dark{% else %}bg-secondary{% endif %}" style="font-size: 0.65rem;">
+                                        <i class="bi bi-calendar-event"></i> {{ ms.due_date.strftime('%b %d, %Y') }}
+                                    </span>
+                                </div>
+                                {% endif %}
                             </div>
                             <div class="text-end flex-shrink-0">
                                 {% if ms.customer and ms.customer.seller %}
@@ -250,6 +257,17 @@
 </div>
 
 <script>
+(function() {
+    var saved = localStorage.getItem('staleMilestoneSellerFilter');
+    if (saved) {
+        var sel = document.getElementById('staleMilestoneSellerFilter');
+        if (sel) {
+            sel.value = saved;
+            filterStaleMilestones(saved);
+        }
+    }
+})();
+
 function filterStaleMilestones(sellerId) {
     var items = document.querySelectorAll('.stale-ms-item');
     var visibleCount = 0;

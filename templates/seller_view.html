@@ -134,9 +134,9 @@
 
     <!-- Middle column: Milestones -->
     <div class="col-lg-4 d-flex flex-column" style="height: 100%;">
-        {% if milestones %}
+        {% if milestones or stale_milestones %}
         <div class="card mb-3 border-info flex-grow-1 d-flex flex-column" style="min-height: 0;">
-            <div class="card-header bg-info text-dark d-flex justify-content-between align-items-center">
+            <div class="card-header bg-info text-dark d-flex justify-content-between align-items-center" title="Uncommitted milestones on your team. Excludes Cancelled, Lost to Competitor, and Hygiene/Duplicate.">
                 <h5 class="mb-0"><i class="bi bi-flag"></i> Milestones</h5>
                 <button type="button" class="btn btn-sm btn-outline-dark" data-bs-toggle="modal" data-bs-target="#milestonesModal">
                     <i class="bi bi-arrows-fullscreen"></i> Full View
@@ -145,6 +145,7 @@
             <div class="card-body p-0 flex-grow-1" style="overflow-y: auto; min-height: 0;">
                 <div class="list-group list-group-flush">
                     {% for ms in milestones %}
+                    {% if ms.customer_commitment != 'Committed' and ms.status not in ['Cancelled', 'Lost to Competitor', 'Hygiene/Duplicate'] %}
                     <div onclick="openStandaloneMilestoneDetail(event, {{ ms.id }}, '{{ ms.title|replace("'", "\\'") }}', '{{ ms.status }}', '{{ ms.url or '' }}')"
                        class="list-group-item list-group-item-action p-2" style="cursor: pointer;">
                         <div class="d-flex justify-content-between align-items-start">
@@ -170,7 +171,35 @@
                         <div class="small text-muted mt-1" style="font-size: 0.75rem;">{{ ms.workload }}</div>
                         {% endif %}
                     </div>
+                    {% endif %}
                     {% endfor %}
+                    {% if stale_milestones %}
+                    <div class="list-group-item bg-warning bg-opacity-10 py-1 px-3" title="Milestones on your team with no forecast comment updates in 14+ days">
+                        <small class="fw-semibold text-muted"><i class="bi bi-clock-history text-warning"></i> Stale <span class="badge bg-warning text-dark" style="font-size: 0.6rem;">{{ stale_milestones|length }}</span></small>
+                    </div>
+                    {% for ms in stale_milestones %}
+                    <div onclick="openStandaloneMilestoneDetail(event, {{ ms.id }}, '{{ (ms.title or ms.opportunity_name or '')|replace("'", "\\'") }}', '{{ ms.msx_status }}', '{{ ms.url or '' }}')"
+                       class="list-group-item list-group-item-action p-2" style="cursor: pointer;">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <div class="text-truncate me-2" style="min-width: 0;">
+                                <div class="fw-semibold text-truncate" style="font-size: 0.85rem;">{{ ms.title or ms.opportunity_name or 'Milestone #' ~ ms.id }}</div>
+                                <div class="text-muted text-truncate" style="font-size: 0.75rem;">
+                                    {% if ms.customer %}{{ ms.customer.name }}{% endif %}
+                                    {% if ms.workload %} - {{ ms.workload }}{% endif %}
+                                </div>
+                            </div>
+                            <div class="text-end flex-shrink-0">
+                                {% if ms.days_since_comment is not none %}
+                                <span class="badge bg-warning text-dark" style="font-size: 0.65rem;">{{ ms.days_since_comment }}d stale</span>
+                                {% endif %}
+                                {% if ms.monthly_usage %}
+                                <div><span class="badge bg-success" style="font-size: 0.65rem;">{{ '${:,.0f}'.format(ms.monthly_usage) }}/mo</span></div>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                    {% endif %}
                 </div>
             </div>
         </div>
@@ -191,7 +220,7 @@
     <div class="col-lg-4 d-flex flex-column" style="height: 100%;">
         {% if revenue_alerts %}
         <div class="card mb-3 border-warning flex-grow-1 d-flex flex-column" style="min-height: 0;">
-            <div class="card-header bg-warning text-dark d-flex justify-content-between align-items-center">
+            <div class="card-header bg-warning text-dark d-flex justify-content-between align-items-center" title="Revenue alerts for this seller's customers. Highlights changes in consumption trends.">
                 <h5 class="mb-0"><i class="bi bi-exclamation-triangle"></i> Revenue</h5>
                 <div class="d-flex align-items-center gap-2">
                     <span id="sellerBucketFilterContainer"></span>
@@ -506,11 +535,19 @@
 {% if revenue_alerts %}
 <script src="{{ url_for('static', filename='js/revenue-bucket-filter.js') }}"></script>
 <script>
-RevenueBucketFilter.init({ containerId: 'sellerBucketFilterContainer' });
+function updateRevenueSummaryCount() {
+    var el = document.getElementById('revenueSummaryCount');
+    if (!el) return;
+    var rows = document.querySelectorAll('#alertsTable tbody tr[data-bucket]');
+    var count = 0;
+    rows.forEach(function(r) { if (r.style.display !== 'none') count++; });
+    el.textContent = count;
+}
+RevenueBucketFilter.init({ containerId: 'sellerBucketFilterContainer', onFilterChange: updateRevenueSummaryCount });
 // Also init inside the modal header
 document.getElementById('revenueModal').addEventListener('shown.bs.modal', function() {
     if (!document.querySelector('#modalBucketFilterContainer .btn')) {
-        RevenueBucketFilter.init({ containerId: 'modalBucketFilterContainer' });
+        RevenueBucketFilter.init({ containerId: 'modalBucketFilterContainer', onFilterChange: updateRevenueSummaryCount });
     }
 });
 </script>
