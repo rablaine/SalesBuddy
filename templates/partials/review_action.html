@@ -34,16 +34,12 @@
             title="Set review status">
         <i class="bi bi-pencil-square"></i>
     </button>
-    <a href="{{ url_for('revenue.record_engagement', analysis_id=analysis.id) }}" 
-       class="btn btn-sm btn-outline-success" title="Record engagement for this alert">
-        <i class="bi bi-chat-square-text"></i>
-    </a>
 </div>
 {% endmacro %}
 
 <!-- Review Action Modal -->
 <div class="modal fade" id="reviewActionModal" tabindex="-1" aria-labelledby="reviewActionModalLabel" aria-hidden="true" style="z-index: 1070;">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-lg">
         <div class="modal-content">
             <div class="modal-header py-2">
                 <h5 class="modal-title" id="reviewActionModalLabel"><i class="bi bi-pencil-square"></i> Review Alert</h5>
@@ -77,6 +73,12 @@
                     <textarea class="form-control" id="reviewNotes" rows="3" 
                               placeholder="Why are you marking it this way? (e.g., seasonal dip, customer migrating, set up meeting with DSS)"></textarea>
                 </div>
+
+                <!-- Review History -->
+                <div id="reviewHistorySection" class="mt-3" style="display:none;">
+                    <h6 class="fw-semibold text-muted"><i class="bi bi-clock-history"></i> Review History</h6>
+                    <div id="reviewHistoryList" class="border rounded p-2" style="max-height: 250px; overflow-y: auto;"></div>
+                </div>
             </div>
             <div class="modal-footer py-2">
                 <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
@@ -94,7 +96,6 @@ let _reviewModal = null;
 function openReviewModal(analysisId, currentStatus, currentNotes) {
     if (!_reviewModal) {
         _reviewModal = new bootstrap.Modal(document.getElementById('reviewActionModal'));
-        // Ensure the backdrop stacks above any parent modal
         document.getElementById('reviewActionModal').addEventListener('shown.bs.modal', function() {
             var backdrop = document.querySelector('.modal-backdrop:last-child');
             if (backdrop) backdrop.style.zIndex = '1065';
@@ -103,20 +104,58 @@ function openReviewModal(analysisId, currentStatus, currentNotes) {
     document.getElementById('reviewAnalysisId').value = analysisId;
     document.getElementById('reviewNotes').value = currentNotes || '';
     
-    // Set radio button
     const radio = document.getElementById('rs_' + currentStatus);
     if (radio) radio.checked = true;
+    
+    // Load review history
+    _loadReviewHistory(analysisId);
     
     _reviewModal.show();
 }
 
-// Delegate click for review action buttons (avoids inline onclick quoting issues)
 document.addEventListener('click', function(e) {
     const btn = e.target.closest('.review-action-btn');
     if (btn) {
         openReviewModal(btn.dataset.analysisId, btn.dataset.status, btn.dataset.notes);
     }
 });
+
+async function _loadReviewHistory(analysisId) {
+    const section = document.getElementById('reviewHistorySection');
+    const list = document.getElementById('reviewHistoryList');
+    list.innerHTML = '<div class="text-muted small">Loading...</div>';
+    section.style.display = '';
+    
+    try {
+        const resp = await fetch(`/api/revenue/analysis/${analysisId}/review-history`);
+        const data = await resp.json();
+        if (!data.history || data.history.length === 0) {
+            section.style.display = 'none';
+            return;
+        }
+        list.innerHTML = data.history.map(h => _reviewHistoryItem(h)).join('');
+    } catch (err) {
+        list.innerHTML = '<div class="text-danger small">Failed to load history</div>';
+    }
+}
+
+function _reviewHistoryItem(h) {
+    const badge = _reviewBadgeHtml(h.review_status, '');
+    const dt = h.created_at ? new Date(h.created_at + 'Z').toLocaleString() : '';
+    const notes = h.review_notes ? `<div class="text-muted small mt-1">${_escapeHtml(h.review_notes)}</div>` : '';
+    return `<div class="d-flex align-items-start gap-2 mb-2 pb-2 border-bottom">
+        <div>${badge}</div>
+        <div class="flex-grow-1">
+            <small class="text-muted">${dt}</small>${notes}
+        </div>
+    </div>`;
+}
+
+function _escapeHtml(str) {
+    const el = document.createElement('span');
+    el.textContent = str;
+    return el.innerHTML;
+}
 
 async function saveReview() {
     const analysisId = document.getElementById('reviewAnalysisId').value;
@@ -140,19 +179,25 @@ async function saveReview() {
             return;
         }
         
-        // Update the badge in the table row without a full reload
+        // Update badge in table row
         const badgeEl = document.querySelector(`[data-review-id="${analysisId}"]`);
         if (badgeEl) {
             badgeEl.innerHTML = _reviewBadgeHtml(data.review_status, data.review_notes);
         }
         
-        // Update the row styling
+        // Update row styling
         const row = document.querySelector(`tr[data-analysis-id="${analysisId}"]`);
         if (row) {
-            if (data.review_status !== 'new' && data.review_status !== 'to_be_reviewed') {
-                row.style.opacity = '0.6';
-            } else {
-                row.style.opacity = '';
+            row.style.opacity = (data.review_status !== 'new' && data.review_status !== 'to_be_reviewed') ? '0.6' : '';
+        }
+        
+        // Refresh history in modal
+        if (data.history) {
+            const section = document.getElementById('reviewHistorySection');
+            const list = document.getElementById('reviewHistoryList');
+            if (data.history.length > 0) {
+                section.style.display = '';
+                list.innerHTML = data.history.map(h => _reviewHistoryItem(h)).join('');
             }
         }
         

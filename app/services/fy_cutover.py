@@ -310,13 +310,13 @@ def finalize_alignments(synced_tpids: list[int]) -> dict:
         # Delete revenue data via raw SQL (tables may not exist in all environments)
         cid = customer.id
         try:
-            re_count = db.session.execute(text("SELECT COUNT(*) FROM revenue_engagements WHERE analysis_id IN (SELECT id FROM revenue_analysis WHERE customer_id = :cid)"), {"cid": cid}).scalar() or 0
+            rn_count = db.session.execute(text("SELECT COUNT(*) FROM revenue_review_notes WHERE analysis_id IN (SELECT id FROM revenue_analysis WHERE customer_id = :cid)"), {"cid": cid}).scalar() or 0
             ra_count = db.session.execute(text("SELECT COUNT(*) FROM revenue_analysis WHERE customer_id = :cid"), {"cid": cid}).scalar() or 0
             pr_count = db.session.execute(text("SELECT COUNT(*) FROM product_revenue_data WHERE customer_id = :cid"), {"cid": cid}).scalar() or 0
             cr_count = db.session.execute(text("SELECT COUNT(*) FROM customer_revenue_data WHERE customer_id = :cid"), {"cid": cid}).scalar() or 0
-            purge_revenue += re_count + ra_count + pr_count + cr_count
+            purge_revenue += rn_count + ra_count + pr_count + cr_count
 
-            db.session.execute(text("DELETE FROM revenue_engagements WHERE analysis_id IN (SELECT id FROM revenue_analysis WHERE customer_id = :cid)"), {"cid": cid})
+            db.session.execute(text("DELETE FROM revenue_review_notes WHERE analysis_id IN (SELECT id FROM revenue_analysis WHERE customer_id = :cid)"), {"cid": cid})
             db.session.execute(text("DELETE FROM revenue_analysis WHERE customer_id = :cid"), {"cid": cid})
             db.session.execute(text("DELETE FROM product_revenue_data WHERE customer_id = :cid"), {"cid": cid})
             db.session.execute(text("DELETE FROM customer_revenue_data WHERE customer_id = :cid"), {"cid": cid})

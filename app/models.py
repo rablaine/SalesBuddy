@@ -1674,7 +1674,8 @@ class RevenueAnalysis(db.Model):
     
     # Relationships
     customer = db.relationship('Customer', backref='revenue_analyses')
-    engagements = db.relationship('RevenueEngagement', back_populates='analysis', lazy='select')
+    review_notes_list = db.relationship('RevenueReviewNote', back_populates='analysis',
+                                        lazy='select', order_by='RevenueReviewNote.created_at.desc()')
     
     # Unique constraint: one active analysis per customer/bucket
     __table_args__ = (
@@ -1710,51 +1711,25 @@ class RevenueConfig(db.Model):
         return f'<RevenueConfig id={self.id}>'
 
 
-class RevenueEngagement(db.Model):
-    """Tracks follow-up on a specific revenue recommendation.
-    
-    Created when you export/send recommendations to a seller.
-    Each time a customer is flagged and sent out = one engagement record.
-    Allows tracking history: "Flagged 3 times, here's what we did each time."
+class RevenueReviewNote(db.Model):
+    """Immutable history of review actions on a revenue analysis.
+
+    Each time a user sets/changes the review status on a RevenueAnalysis, a new
+    row is appended here so the full review timeline is preserved.
     """
-    __tablename__ = 'revenue_engagements'
-    
+    __tablename__ = 'revenue_review_notes'
+
     id = db.Column(db.Integer, primary_key=True)
     analysis_id = db.Column(db.Integer, db.ForeignKey('revenue_analyses.id'), nullable=False)
-    
-    # When was this sent out for follow-up?
+    review_status = db.Column(db.String(20), nullable=False)
+    review_notes = db.Column(db.Text, nullable=True)
     created_at = db.Column(db.DateTime, default=utc_now, nullable=False)
-    assigned_to_seller = db.Column(db.String(200), nullable=True)  # Seller name from analysis
-    
-    # What was the recommendation when sent? (snapshot in case analysis updates)
-    category_when_sent = db.Column(db.String(50), nullable=False)
-    action_when_sent = db.Column(db.String(50), nullable=False)
-    rationale_when_sent = db.Column(db.Text, nullable=True)
-    
-    # Tracking status
-    status = db.Column(db.String(20), default='pending', nullable=False)
-    # pending = sent out, awaiting response
-    # in_progress = seller acknowledged, working on it
-    # resolved = issue addressed
-    # dismissed = not actionable / false positive
-    
-    # What did the seller report back?
-    seller_response = db.Column(db.Text, nullable=True)
-    response_date = db.Column(db.DateTime, nullable=True)
-    
-    # Your notes on resolution
-    resolution_notes = db.Column(db.Text, nullable=True)
-    resolved_at = db.Column(db.DateTime, nullable=True)
-    
-    # Optional link to a note if one was created from this engagement
-    note_id = db.Column(db.Integer, db.ForeignKey('notes.id'), nullable=True)
-    
+
     # Relationships
-    analysis = db.relationship('RevenueAnalysis', back_populates='engagements')
-    note = db.relationship('Note', backref='revenue_engagement')
-    
+    analysis = db.relationship('RevenueAnalysis', back_populates='review_notes_list')
+
     def __repr__(self) -> str:
-        return f'<RevenueEngagement {self.id} for analysis {self.analysis_id}: {self.status}>'
+        return f'<RevenueReviewNote {self.id} analysis={self.analysis_id} status={self.review_status}>'
 
 
 # =============================================================================
