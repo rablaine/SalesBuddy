@@ -426,12 +426,74 @@ class TestRevenueRoutes:
         assert response.status_code == 200
         assert b'Configuration' in response.data
     
-    def test_engagement_history_empty(self, client):
-        """Test engagement history page with no data."""
-        response = client.get('/revenue/engagements')
-        assert response.status_code == 200
-        assert b'Engagement History' in response.data
-    
+    def test_review_creates_history(self, app, client):
+        """Test that saving a review creates a RevenueReviewNote history entry."""
+        from app.models import RevenueAnalysis, RevenueReviewNote
+
+        with app.app_context():
+            analysis = RevenueAnalysis(
+                customer_name='Review History Test',
+                bucket='Azure',
+                months_analyzed=6,
+                avg_revenue=10000,
+                latest_revenue=9000,
+                category='DECLINING',
+                recommended_action='CHECK-IN (Urgent)',
+                confidence='HIGH',
+                priority_score=80,
+            )
+            db.session.add(analysis)
+            db.session.commit()
+            aid = analysis.id
+
+        resp = client.patch(
+            f'/api/revenue/analysis/{aid}/review',
+            json={'review_status': 'reviewed', 'review_notes': 'Seasonal dip'},
+            content_type='application/json',
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data['success']
+        assert data['review_status'] == 'reviewed'
+        assert len(data['history']) == 1
+        assert data['history'][0]['review_status'] == 'reviewed'
+        assert data['history'][0]['review_notes'] == 'Seasonal dip'
+
+        # Second review appends
+        resp2 = client.patch(
+            f'/api/revenue/analysis/{aid}/review',
+            json={'review_status': 'actioned', 'review_notes': 'Talked to DSS'},
+            content_type='application/json',
+        )
+        data2 = resp2.get_json()
+        assert len(data2['history']) == 2
+        assert data2['history'][0]['review_status'] == 'actioned'  # newest first
+
+    def test_review_history_api(self, app, client):
+        """Test the review history GET endpoint."""
+        from app.models import RevenueAnalysis, RevenueReviewNote
+
+        with app.app_context():
+            analysis = RevenueAnalysis(
+                customer_name='History API Test',
+                bucket='Azure',
+                months_analyzed=6,
+                avg_revenue=5000,
+                latest_revenue=4000,
+                category='RECENT_DIP',
+                recommended_action='MONITOR',
+                confidence='MEDIUM',
+                priority_score=40,
+            )
+            db.session.add(analysis)
+            db.session.commit()
+            aid = analysis.id
+
+        resp = client.get(f'/api/revenue/analysis/{aid}/review-history')
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data['history'] == []
+
     def test_seller_view_with_revenue_alerts(self, app, client, test_user):
         """Test seller page renders correctly when revenue analysis exists."""
         from app.models import Seller, Customer, RevenueAnalysis

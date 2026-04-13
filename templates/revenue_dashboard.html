@@ -148,9 +148,6 @@
                             </ul>
                         </div>
                         {% endif %}
-                        <a href="{{ url_for('revenue.engagement_history') }}" class="btn btn-sm btn-outline-secondary">
-                            <i class="bi bi-clock-history"></i> History
-                        </a>
                         {% if latest_import %}
                         <small class="text-muted">
                             Last import: {{ latest_import.imported_at.strftime('%b %d, %Y') }}

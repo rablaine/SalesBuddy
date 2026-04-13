@@ -1552,10 +1552,9 @@ def _migrate_engagement_contacts(db, inspector):
 
 
 def _rename_churn_risk_to_declining(db):
-    """Rename CHURN_RISK category to DECLINING in revenue_analyses and revenue_engagements."""
+    """Rename CHURN_RISK category to DECLINING in revenue_analyses."""
     tables_cols = [
         ('revenue_analyses', 'category'),
-        ('revenue_engagements', 'category_when_sent'),
     ]
     for table, col in tables_cols:
         result = db.session.execute(db.text(

@@ -12,7 +12,7 @@ from io import StringIO
 
 from app.models import (
     db, RevenueImport, CustomerRevenueData, ProductRevenueData, RevenueAnalysis, 
-    RevenueConfig, RevenueEngagement, Customer, Seller, SyncStatus
+    RevenueConfig, RevenueReviewNote, Customer, Seller, SyncStatus
 )
 from app.services.revenue_import import (
     import_revenue_csv, get_import_history, get_months_in_database,
@@ -914,61 +914,13 @@ def api_revenue_stats():
     })
 
 
-# ============ Engagement Tracking Routes ============
-
-@revenue_bp.route('/revenue/engagement/<int:analysis_id>', methods=['GET', 'POST'])
-def record_engagement(analysis_id: int):
-    """Record engagement for a revenue analysis."""
-    analysis = RevenueAnalysis.query.get_or_404(analysis_id)
-    
-    if request.method == 'POST':
-        from datetime import datetime, timezone
-        
-        status = request.form.get('status', 'pending')
-        seller_response = request.form.get('seller_response', '').strip()
-        resolution_notes = request.form.get('resolution_notes', '').strip()
-        
-        engagement = RevenueEngagement(
-            analysis_id=analysis_id,
-            assigned_to_seller=analysis.seller_name,
-            category_when_sent=analysis.category,
-            action_when_sent=analysis.recommended_action,
-            rationale_when_sent=analysis.engagement_rationale,
-            status=status
-        )
-        
-        # Set response fields if provided
-        if seller_response:
-            engagement.seller_response = seller_response
-            engagement.response_date = datetime.now(timezone.utc)
-        
-        # Set resolution fields if resolved
-        if status == 'resolved' and resolution_notes:
-            engagement.resolution_notes = resolution_notes
-            engagement.resolved_at = datetime.now(timezone.utc)
-        
-        db.session.add(engagement)
-        db.session.commit()
-        
-        flash(f'Engagement recorded for {analysis.customer_name}', 'success')
-        
-        # Redirect back to referrer or dashboard
-        next_url = request.form.get('next', url_for('revenue.revenue_dashboard'))
-        return redirect(next_url)
-    
-    # GET - show engagement form
-    existing_engagements = RevenueEngagement.query.filter_by(
-        analysis_id=analysis_id
-    ).order_by(RevenueEngagement.created_at.desc()).all()
-    
-    return render_template('revenue_engagement.html', 
-                          analysis=analysis,
-                          engagements=existing_engagements)
-
-
 @revenue_bp.route('/api/revenue/analysis/<int:analysis_id>/review', methods=['PATCH'])
 def api_update_review(analysis_id: int):
-    """Update the review status and notes on a revenue analysis."""
+    """Update the review status and notes on a revenue analysis.
+
+    Also creates a RevenueReviewNote history entry and returns the full
+    review timeline so the modal can display it.
+    """
     from datetime import datetime, timezone
 
     VALID_STATUSES = {'new', 'to_be_reviewed', 'reviewed', 'actioned', 'dismissed'}
@@ -982,81 +934,57 @@ def api_update_review(analysis_id: int):
 
     if review_status:
         analysis.review_status = review_status
-        # Clear previous review hint once user explicitly re-reviews
         analysis.previous_review_status = None
         analysis.previous_review_notes = None
     if 'review_notes' in data:
         analysis.review_notes = data['review_notes'].strip() if data['review_notes'] else None
     analysis.reviewed_at = datetime.now(timezone.utc)
 
+    # Create immutable history entry
+    note = RevenueReviewNote(
+        analysis_id=analysis_id,
+        review_status=analysis.review_status,
+        review_notes=analysis.review_notes,
+    )
+    db.session.add(note)
     db.session.commit()
+
+    # Return full history for modal refresh
+    history = _review_history_dicts(analysis_id)
 
     return jsonify({
         'success': True,
         'review_status': analysis.review_status,
         'review_notes': analysis.review_notes,
         'reviewed_at': analysis.reviewed_at.isoformat() if analysis.reviewed_at else None,
+        'history': history,
     })
 
 
-@revenue_bp.route('/api/revenue/engagement/<int:analysis_id>', methods=['POST'])
-def api_record_engagement(analysis_id: int):
-    """API endpoint to record engagement (for modals)."""
-    from datetime import datetime, timezone
-    
-    analysis = RevenueAnalysis.query.get_or_404(analysis_id)
-    
-    data = request.get_json() or {}
-    status = data.get('status', 'pending')
-    seller_response = data.get('seller_response', '')
-    resolution_notes = data.get('resolution_notes', '')
-    
-    engagement = RevenueEngagement(
-        analysis_id=analysis_id,
-        assigned_to_seller=analysis.seller_name,
-        category_when_sent=analysis.category,
-        action_when_sent=analysis.recommended_action,
-        rationale_when_sent=analysis.engagement_rationale,
-        status=status
+@revenue_bp.route('/api/revenue/analysis/<int:analysis_id>/review-history')
+def api_review_history(analysis_id: int):
+    """Return the review note history for an analysis."""
+    RevenueAnalysis.query.get_or_404(analysis_id)
+    return jsonify({'history': _review_history_dicts(analysis_id)})
+
+
+def _review_history_dicts(analysis_id: int) -> list[dict]:
+    """Return review note history as a list of dicts (newest first)."""
+    notes = (
+        RevenueReviewNote.query
+        .filter_by(analysis_id=analysis_id)
+        .order_by(RevenueReviewNote.created_at.desc())
+        .all()
     )
-    
-    if seller_response:
-        engagement.seller_response = seller_response
-        engagement.response_date = datetime.now(timezone.utc)
-    
-    if status == 'resolved' and resolution_notes:
-        engagement.resolution_notes = resolution_notes
-        engagement.resolved_at = datetime.now(timezone.utc)
-    
-    db.session.add(engagement)
-    db.session.commit()
-    
-    return jsonify({
-        'success': True,
-        'engagement_id': engagement.id,
-        'message': f'Engagement recorded for {analysis.customer_name}'
-    })
-
-
-@revenue_bp.route('/revenue/engagements')
-def engagement_history():
-    """View all engagement history."""
-    engagements = RevenueEngagement.query.options(
-        db.joinedload(RevenueEngagement.analysis)
-    ).order_by(RevenueEngagement.created_at.desc()).limit(100).all()
-    
-    return render_template('revenue_engagement_history.html', engagements=engagements)
-
-
-@revenue_bp.route('/api/revenue/engagement/<int:engagement_id>', methods=['DELETE'])
-def api_delete_engagement(engagement_id: int):
-    """Delete an engagement record."""
-    engagement = RevenueEngagement.query.get_or_404(engagement_id)
-    
-    db.session.delete(engagement)
-    db.session.commit()
-    
-    return jsonify({'success': True, 'message': 'Engagement deleted'})
+    return [
+        {
+            'id': n.id,
+            'review_status': n.review_status,
+            'review_notes': n.review_notes,
+            'created_at': n.created_at.isoformat() if n.created_at else None,
+        }
+        for n in notes
+    ]
 
 
 # =============================================================================

@@ -19,7 +19,7 @@ from flask import Blueprint, current_app, render_template, request, redirect, ur
 from app.models import (
     db, User, POD, Territory, Seller, Customer, Topic, Note, AIQueryLog,
     RevenueImport, CustomerRevenueData, ProductRevenueData, RevenueAnalysis,
-    RevenueConfig, RevenueEngagement, Milestone, Opportunity, MsxTask,
+    RevenueConfig, RevenueReviewNote, Milestone, Opportunity, MsxTask,
     SolutionEngineer, SyncStatus, UserPreference, UsageEvent, DailyFeatureStats,
     notes_milestones, utc_now
 )
@@ -94,10 +94,10 @@ def admin_ai_logs():
 
 @admin_bp.route('/api/admin/clear-revenue', methods=['POST'])
 def api_clear_revenue_data():
-    """Delete all revenue data (imports, records, analyses, engagements, config)."""
+    """Delete all revenue data (imports, records, analyses, review notes, config)."""
     try:
         deleted = {}
-        deleted['engagements'] = RevenueEngagement.query.delete()
+        deleted['review_notes'] = RevenueReviewNote.query.delete()
         deleted['analyses'] = RevenueAnalysis.query.delete()
         deleted['product_records'] = ProductRevenueData.query.delete()
         deleted['bucket_records'] = CustomerRevenueData.query.delete()
