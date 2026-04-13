@@ -1632,7 +1632,7 @@ class RevenueAnalysis(db.Model):
     latest_revenue = db.Column(db.Float, nullable=False)  # Most recent final month
     
     # Analysis results
-    category = db.Column(db.String(50), nullable=False)  # CHURN_RISK, RECENT_DIP, etc.
+    category = db.Column(db.String(50), nullable=False)  # DECLINING, RECENT_DIP, etc.
     recommended_action = db.Column(db.String(50), nullable=False)  # CHECK-IN (Urgent), etc.
     confidence = db.Column(db.String(20), nullable=False)  # LOW, MEDIUM, HIGH
     priority_score = db.Column(db.Integer, nullable=False)  # 0-100

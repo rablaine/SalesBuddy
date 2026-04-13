@@ -246,13 +246,13 @@
                             </div>
                             <div class="text-end flex-shrink-0">
                                 <span class="badge
-                                    {% if alert.category == 'CHURN_RISK' %}bg-danger
+                                    {% if alert.category == 'DECLINING' %}bg-danger
                                     {% elif alert.category == 'RECENT_DIP' %}bg-warning text-dark
                                     {% elif alert.category == 'EXPANSION_OPPORTUNITY' %}bg-success
                                     {% elif alert.category == 'VOLATILE' %}bg-info
                                     {% else %}bg-secondary{% endif %}"
                                     style="font-size: 0.65rem;">
-                                    {{ alert.category|replace('_', ' ')|title }}
+                                    {% if alert.category == 'DECLINING' %}Declining{% elif alert.category == 'CHURNED' %}Inactive{% else %}{{ alert.category|replace('_', ' ')|title }}{% endif %}
                                 </span>
                                 {% if alert.dollars_at_risk and alert.dollars_at_risk > 0 %}
                                 <div class="text-danger" style="font-size: 0.7rem;">${{ "{:,.0f}".format(alert.dollars_at_risk) }} at risk</div>

@@ -323,6 +323,9 @@ def run_migrations(db):
     _add_column_if_not_exists(db, inspector, 'usage_events', 'entity_type', 'VARCHAR(50)')
     _add_column_if_not_exists(db, inspector, 'usage_events', 'entity_id', 'INTEGER')
 
+    # Migration: Rename CHURN_RISK category to DECLINING
+    _rename_churn_risk_to_declining(db)
+
     # =========================================================================
     # End migrations
     # =========================================================================
@@ -1546,3 +1549,18 @@ def _migrate_engagement_contacts(db, inspector):
         if result.rowcount > 0:
             db.session.commit()
             print(f"  Cleared {result.rowcount} ai_key_individuals values")
+
+
+def _rename_churn_risk_to_declining(db):
+    """Rename CHURN_RISK category to DECLINING in revenue_analyses and revenue_engagements."""
+    tables_cols = [
+        ('revenue_analyses', 'category'),
+        ('revenue_engagements', 'category_when_sent'),
+    ]
+    for table, col in tables_cols:
+        result = db.session.execute(db.text(
+            f"UPDATE {table} SET {col} = 'DECLINING' WHERE {col} = 'CHURN_RISK'"
+        ))
+        if result.rowcount > 0:
+            print(f"  Renamed {result.rowcount} CHURN_RISK -> DECLINING in {table}.{col}")
+    db.session.commit()

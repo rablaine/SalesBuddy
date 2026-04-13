@@ -64,21 +64,22 @@
                 {% set export_filename = 'revenue-analyzer' %}
                 {% include 'partials/_report_export.html' %}
             </div>
-            <div class="btn-group">
-                <a href="{{ url_for('revenue.revenue_import') }}" class="btn btn-sm btn-outline-primary">
-                    <i class="bi bi-upload"></i> Import Data
-                </a>
-                <a href="{{ url_for('revenue.revenue_products_list') }}" class="btn btn-sm btn-outline-secondary">
-                    <i class="bi bi-boxes"></i> Products
-                </a>
-                <form action="{{ url_for('revenue.revenue_analyze') }}" method="post" class="d-inline">
-                    <button type="submit" class="btn btn-sm btn-outline-secondary" title="Re-run analysis on all data">
+            <div class="d-flex gap-2">
+                <div class="btn-group">
+                    <a href="{{ url_for('revenue.revenue_import') }}" class="btn btn-sm btn-outline-primary">
+                        <i class="bi bi-upload"></i> Import Data
+                    </a>
+                    <a href="{{ url_for('revenue.revenue_products_list') }}" class="btn btn-sm btn-outline-secondary">
+                        <i class="bi bi-boxes"></i> Products
+                    </a>
+                    <button type="submit" form="reanalyze-form" class="btn btn-sm btn-outline-secondary" title="Re-run analysis on all data">
                         <i class="bi bi-arrow-clockwise"></i> Re-analyze
                     </button>
-                </form>
-                <a href="{{ url_for('revenue.revenue_config') }}" class="btn btn-sm btn-outline-secondary">
-                    <i class="bi bi-gear"></i> Configure
-                </a>
+                    <a href="{{ url_for('revenue.revenue_config') }}" class="btn btn-sm btn-outline-secondary">
+                        <i class="bi bi-gear"></i> Configure
+                    </a>
+                </div>
+                <form id="reanalyze-form" action="{{ url_for('revenue.revenue_analyze') }}" method="post"></form>
             </div>
         </div>
     </div>
@@ -89,8 +90,8 @@
             <div class="card bg-danger text-white">
                 <div class="card-body">
                     <h6 class="card-title"><i class="bi bi-exclamation-triangle"></i> Declining</h6>
-                    <h3>{{ category_counts.get('CHURN_RISK', {}).get('count', 0) }}</h3>
-                    <small>${{ '{:,.0f}'.format(category_counts.get('CHURN_RISK', {}).get('total_at_risk', 0)) }}/mo at risk</small>
+                    <h3>{{ category_counts.get('DECLINING', {}).get('count', 0) }}</h3>
+                    <small>${{ '{:,.0f}'.format(category_counts.get('DECLINING', {}).get('total_at_risk', 0)) }}/mo at risk</small>
                 </div>
             </div>
         </div>

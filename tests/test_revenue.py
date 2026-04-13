@@ -239,15 +239,15 @@ class TestSignalComputation:
 class TestCategorization:
     """Test customer categorization logic."""
     
-    def test_categorize_churn_risk(self):
-        """Test churn risk categorization."""
+    def test_categorize_DECLINING(self):
+        """Test declining categorization."""
         revenues = [15000, 14000, 13000, 11000, 9000, 7000]  # Sharp decline
         months = ["FY26-Jul", "FY26-Aug", "FY26-Sep", "FY26-Oct", "FY26-Nov", "FY26-Dec"]
         
         signals = compute_signals("Churning", "Core DBs", revenues, months)
         
         assert signals is not None
-        assert signals.category in ["CHURN_RISK", "VOLATILE"]
+        assert signals.category in ["DECLINING", "VOLATILE"]
     
     def test_categorize_expansion(self):
         """Test expansion opportunity categorization."""
@@ -343,7 +343,7 @@ class TestDayNormalization:
         )
 
         assert signals is not None
-        assert signals.category == "CHURN_RISK"
+        assert signals.category == "DECLINING"
         assert signals.trend_slope < -5.0
 
 
@@ -351,7 +351,7 @@ class TestCollapseCheck:
     """Test the tightened collapse threshold."""
 
     def test_collapse_requires_meaningful_slope(self):
-        """Revenue below 70% of peak with a barely negative slope should NOT trigger CHURN_RISK."""
+        """Revenue below 70% of peak with a barely negative slope should NOT trigger DECLINING."""
         # One high month creates a peak; remaining months are stable.
         # current_vs_max ~63%, but the slope is only ~-1.5%/mo (above -3.0 threshold).
         revenues = [10000, 15000, 10000, 10000, 10000, 10000, 10000, 10000, 10000]
@@ -360,18 +360,18 @@ class TestCollapseCheck:
         signals = compute_signals("Mild Dip", "Core DBs", revenues, months)
 
         assert signals is not None
-        # Should NOT be CHURN_RISK with a mild slope
-        assert signals.category != "CHURN_RISK"
+        # Should NOT be DECLINING with a mild slope
+        assert signals.category != "DECLINING"
 
     def test_collapse_fires_with_strong_slope(self):
-        """Revenue below 70% of peak with steep decline should be CHURN_RISK."""
+        """Revenue below 70% of peak with steep decline should be DECLINING."""
         revenues = [50000, 48000, 44000, 40000, 35000, 30000, 25000, 20000, 15000]
         months = [f"M{i}" for i in range(len(revenues))]
 
         signals = compute_signals("Real Collapse", "Core DBs", revenues, months)
 
         assert signals is not None
-        assert signals.category == "CHURN_RISK"
+        assert signals.category == "DECLINING"
 
 
 class TestActionDetermination:
@@ -452,7 +452,7 @@ class TestRevenueRoutes:
                 bucket='Core DBs',
                 seller_name='Test Seller',
                 customer_id=customer.id,
-                category='CHURN_RISK',
+                category='DECLINING',
                 recommended_action='CHECK-IN',
                 avg_revenue=10000,
                 latest_revenue=8000,
@@ -544,7 +544,7 @@ class TestReviewAPI:
             a = RevenueAnalysis(
                 customer_name='Review Test Customer',
                 bucket='Core DBs',
-                category='CHURN_RISK',
+                category='DECLINING',
                 recommended_action='CHECK-IN',
                 avg_revenue=5000,
                 latest_revenue=4000,
@@ -643,7 +643,7 @@ class TestReviewAPI:
             a = RevenueAnalysis(
                 customer_name='Badge Test Cust', bucket='Core DBs',
                 seller_name='Badge Test Seller', customer_id=cust.id,
-                category='CHURN_RISK', recommended_action='CHECK-IN',
+                category='DECLINING', recommended_action='CHECK-IN',
                 avg_revenue=5000, latest_revenue=4000, priority_score=70,
                 months_analyzed=6, confidence='HIGH', review_status='reviewed',
                 review_notes='Expected seasonal dip',
@@ -686,7 +686,7 @@ class TestAutoResetOnReimport:
         defaults = dict(
             customer_name='Auto Reset Customer',
             bucket='Core DBs',
-            category='CHURN_RISK',
+            category='DECLINING',
             recommended_action='CHECK-IN',
             avg_revenue=5000,
             latest_revenue=4000,
@@ -812,7 +812,7 @@ class TestAutoResetOnReimport:
             a = RevenueAnalysis.query.get(aid)
             old_status = a.review_status
             old_notes = a.review_notes
-            category_changed = 'CHURN_RISK' != a.category
+            category_changed = 'DECLINING' != a.category
             priority_jumped = False
             if old_status in ('reviewed', 'actioned', 'dismissed'):
                 if category_changed or priority_jumped:
@@ -820,7 +820,7 @@ class TestAutoResetOnReimport:
                     a.previous_review_notes = old_notes
                     a.review_status = 'to_be_reviewed'
                     a.review_notes = None
-            a.category = 'CHURN_RISK'
+            a.category = 'DECLINING'
             db.session.commit()
 
             a = RevenueAnalysis.query.get(aid)

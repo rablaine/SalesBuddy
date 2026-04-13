@@ -48,11 +48,11 @@
                                 </td>
                                 <td>
                                     <span class="badge 
-                                        {% if engagement.category_when_sent == 'CHURN_RISK' %}bg-danger
+                                        {% if engagement.category_when_sent == 'DECLINING' %}bg-danger
                                         {% elif engagement.category_when_sent == 'RECENT_DIP' %}bg-warning text-dark
                                         {% elif engagement.category_when_sent == 'EXPANSION_OPPORTUNITY' %}bg-success
                                         {% else %}bg-secondary{% endif %}">
-                                        {{ engagement.category_when_sent|replace('_', ' ')|title if engagement.category_when_sent else 'N/A' }}
+                                        {% if engagement.category_when_sent == 'DECLINING' %}Declining{% elif engagement.category_when_sent == 'CHURNED' %}Inactive{% else %}{{ engagement.category_when_sent|replace('_', ' ')|title if engagement.category_when_sent else 'N/A' }}{% endif %}
                                     </span>
                                 </td>
                                 <td>
