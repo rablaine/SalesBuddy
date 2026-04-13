@@ -11,7 +11,7 @@ Signal Detection:
 - Level relative to history
 
 Categories:
-- CHURN_RISK: Declining trend + recent drop
+- DECLINING: Declining trend + recent drop
 - RECENT_DIP: Stable/positive trend but recent sharp drop  
 - EXPANSION_OPPORTUNITY: Positive slope + acceleration + near max
 - VOLATILE: High instability in usage
@@ -350,9 +350,9 @@ def categorize_customer(signals: CustomerSignals) -> CustomerSignals:
     
     reasons = []
     
-    # CHURN_RISK: Declining trend + recent drop
+    # DECLINING: Declining trend + recent drop
     if slope < DECLINING_SLOPE and last_change < SHARP_DROP:
-        signals.category = "CHURN_RISK"
+        signals.category = "DECLINING"
         signals.confidence = "HIGH"
         reasons.append(f"Declining {slope:+.1f}%/month")
         reasons.append(f"Last month dropped {last_change:+.1%}")
@@ -360,7 +360,7 @@ def categorize_customer(signals: CustomerSignals) -> CustomerSignals:
         return signals
     
     if slope < DECLINING_SLOPE and last_2m_change < SHARP_DROP:
-        signals.category = "CHURN_RISK"
+        signals.category = "DECLINING"
         signals.confidence = "MEDIUM"
         reasons.append(f"Declining {slope:+.1f}%/month")
         reasons.append(f"Down {last_2m_change:+.1%} over 2 months")
@@ -370,7 +370,7 @@ def categorize_customer(signals: CustomerSignals) -> CustomerSignals:
     # Collapse check - require meaningful declining slope, not just barely negative
     COLLAPSE_SLOPE = -3.0
     if current_vs_max < COLLAPSE_THRESHOLD and slope < COLLAPSE_SLOPE:
-        signals.category = "CHURN_RISK"
+        signals.category = "DECLINING"
         signals.confidence = "MEDIUM"
         reasons.append(f"Revenue at {current_vs_max:.0%} of peak")
         reasons.append(f"Trend: {slope:+.1f}%/month")
@@ -506,7 +506,7 @@ def determine_action(signals: CustomerSignals, config: AnalysisConfig) -> Custom
         return signals
     
     # Category-based actions
-    if signals.category == "CHURN_RISK":
+    if signals.category == "DECLINING":
         if signals.confidence == "HIGH":
             signals.recommended_action = "CHECK-IN (Urgent)"
             signals.priority_score = compute_priority_score(signals, config, base=80)

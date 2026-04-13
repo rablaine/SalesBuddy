@@ -3,10 +3,10 @@
 {% from 'partials/review_action.html' import review_badge, action_buttons, previous_review_hint %}
 
 <!-- Analysis Card (full width) -->
-<div class="card mb-3 {% if a.category == 'CHURN_RISK' %}border-danger{% elif a.category == 'EXPANSION_OPPORTUNITY' %}border-success{% elif a.category == 'RECENT_DIP' %}border-warning{% endif %}">
+<div class="card mb-3 {% if a.category == 'DECLINING' %}border-danger{% elif a.category == 'EXPANSION_OPPORTUNITY' %}border-success{% elif a.category == 'RECENT_DIP' %}border-warning{% endif %}">
     <div class="card-header d-flex justify-content-between align-items-center">
         <h6 class="mb-0">{{ a.bucket }}</h6>
-        {% if a.category == 'CHURN_RISK' %}
+        {% if a.category == 'DECLINING' %}
         <span class="badge bg-danger">Declining</span>
         {% elif a.category == 'RECENT_DIP' %}
         <span class="badge bg-warning text-dark">Recent Dip</span>

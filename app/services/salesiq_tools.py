@@ -1036,7 +1036,7 @@ def report_whats_new(days: int = 14) -> dict:
         'properties': {
             'category': {
                 'type': 'string',
-                'description': 'Filter by category (CHURN_RISK, RECENT_DIP, '
+                'description': 'Filter by category (DECLINING, RECENT_DIP, '
                 'EXPANSION_OPPORTUNITY, VOLATILE).',
             },
             'seller_name': {
