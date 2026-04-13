@@ -1075,7 +1075,7 @@
                             <div class="card-body">
                                 <div class="d-flex justify-content-between align-items-center">
                                     <div>
-                                        <h6 class="card-title mb-1"><i class="bi bi-window-stack text-primary"></i> Install as Desktop App</h6>
+                                        <h6 class="card-title mb-1"><i class="bi bi-window-stack text-primary"></i> Install as Desktop App <span class="text-muted fw-normal">(optional)</span></h6>
                                         <p class="text-muted small mb-0">Get a standalone window with no browser tabs or address bar. You can always do this later from the <i class="bi bi-box-arrow-in-down"></i> icon in your browser's URL bar.</p>
                                     </div>
                                     <div class="d-flex align-items-center gap-2 ms-3">
@@ -1221,32 +1221,6 @@
                             </div>
                         </div>
                         
-                        <div class="alert alert-info mb-0">
-                            <div class="d-flex align-items-start">
-                                <i class="bi bi-lightbulb me-2 mt-1"></i>
-                                <div>
-                                    <strong>Tip:</strong> While you wait, you can export your revenue CSV from MSXi — you'll upload it in Step 5.
-                                    <br>
-                                    <a class="text-decoration-none" data-bs-toggle="collapse" href="#revenueTipInstructions" role="button" aria-expanded="false">
-                                        Show me how <i class="bi bi-chevron-down small"></i>
-                                    </a>
-                                    <div class="collapse mt-2" id="revenueTipInstructions">
-                                        <ol class="mb-2 small">
-                                            <li>Go to <a href="https://msxinsights.microsoft.com/User/report/47b95fcd-1857-47f2-9c4b-8413a508ae00?reportTab=ReportSection146fc780baf4c55d7158" target="_blank">SME&C ACR Service Level Subscription Details SL4 - WW</a>
-                                                <br><span class="text-muted">Or go to <a href="https://aka.ms/msxi" target="_blank">aka.ms/msxi</a> and search for the report name</span></li>
-                                            <li>(If bookmarked/customized) Click <strong>"My Report Bookmarks"</strong> in the top right corner and <strong>"Clear current view"</strong></li>
-                                            <li>Scroll to <strong>"ACR Details by Quarter / Month"</strong></li>
-                                            <li>Under Choose Fields (left), check <strong>"ServiceLevel4."</strong> Leave <strong>ServiceCompGrouping</strong> checked.</li>
-                                            <li>Right-click the <strong>"ACR Details by Quarter / Month"</strong> header text → <strong>Expand to next level</strong></li>
-                                            <li>Repeat step 5</li>
-                                            <li>Click <strong>'...'</strong> → <strong>Export Data</strong> → <strong>Data with current layout</strong></li>
-                                            <li>Open in Excel → <strong>Enable Editing</strong> → <strong>Save As</strong> → <strong>CSV (Comma delimited)</strong></li>
-                                        </ol>
-                                        <p class="mb-0 small text-muted"><i class="bi bi-info-circle"></i> No rush, these instructions are also shown in Steps 4 and 5.</p>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
                     </div>
 
                     <!-- STEP 4: Import Milestones -->
@@ -1314,8 +1288,9 @@
                                             <li>(If bookmarked/customized) Click <strong>"My Report Bookmarks"</strong> in the top right corner and <strong>"Clear current view"</strong></li>
                                             <li>Scroll to <strong>"ACR Details by Quarter / Month"</strong></li>
                                             <li>Under Choose Fields (left), check <strong>"ServiceLevel4."</strong> Leave <strong>ServiceCompGrouping</strong> checked.</li>
+                                            {% if user_role == 'se' %}<li>Expand <strong>Filters</strong> on the right and under <strong>ServiceCompGrouping</strong>, check the buckets on which you're compensated</li>{% endif %}
                                             <li>Right-click the <strong>"ACR Details by Quarter / Month"</strong> header text → <strong>Expand to next level</strong></li>
-                                            <li>Repeat step 5</li>
+                                            <li>Repeat step {% if user_role == 'se' %}6{% else %}5{% endif %}</li>
                                             <li>Click <strong>'...'</strong> → <strong>Export Data</strong> → <strong>Data with current layout</strong></li>
                                             <li>Open in Excel → <strong>Enable Editing</strong> → <strong>Save As</strong> → <strong>CSV (Comma delimited)</strong></li>
                                         </ol>
@@ -1329,7 +1304,7 @@
                     <!-- STEP 5: Revenue & Finish -->
                     <div class="onboarding-step d-none" id="onboardingStep5">
                         <h6 class="mb-3"><i class="bi bi-graph-up text-primary"></i> One More Thing: Revenue Data <span class="text-muted fw-normal">(~10 sec)</span></h6>
-                        <p>Importing revenue data powers the Revenue Analyzer - trend charts, service breakdowns, and growth tracking for your accounts.{% if user_role != 'dss' %} You will select your buckets after import.{% endif %}</p>
+                        <p>Importing revenue data powers the Revenue Analyzer - trend charts, service breakdowns, and growth tracking for your accounts.</p>
                         
                         <div class="card mb-3 border-primary">
                             <div class="card-body" id="importRevenueCard">
@@ -1341,8 +1316,9 @@
                                         <li>(If bookmarked/customized) Click <strong>"My Report Bookmarks"</strong> in the top right corner and <strong>"Clear current view"</strong></li>
                                         <li>Scroll to <strong>"ACR Details by Quarter / Month"</strong></li>
                                         <li>Under Choose Fields (left), check <strong>"ServiceLevel4."</strong> Leave <strong>ServiceCompGrouping</strong> checked.</li>
+                                        {% if user_role == 'se' %}<li>Expand <strong>Filters</strong> on the right and under <strong>ServiceCompGrouping</strong>, check the buckets on which you're compensated</li>{% endif %}
                                         <li>Right-click the <strong>"ACR Details by Quarter / Month"</strong> header text → <strong>Expand to next level</strong></li>
-                                        <li>Repeat step 5</li>
+                                        <li>Repeat step {% if user_role == 'se' %}6{% else %}5{% endif %}</li>
                                         <li>Click <strong>'...'</strong> → <strong>Export Data</strong> → <strong>Data with current layout</strong></li>
                                         <li>Open in Excel → <strong>Enable Editing</strong> → <strong>Save As</strong> → <strong>CSV (Comma delimited)</strong></li>
                                     </ol>
@@ -1372,22 +1348,11 @@
 
                                 </div>
 
-                                <!-- Success state + Bucket picker side by side -->
-                                <div id="importRevenueSuccess" class="d-none">
-                                    <div class="row">
-                                        <div class="{{ 'col-6' if user_role != 'dss' else 'col-12' }} text-center">
-                                            <i class="bi bi-check-circle-fill text-success fs-3"></i>
-                                            <p class="mt-2 mb-1 fw-bold text-success">Revenue imported!</p>
-                                            <div id="importRevenueSummary" class="small text-muted"></div>
-                                        </div>
-                                        {% if user_role != 'dss' %}
-                                        <div class="col-6 text-start" id="wizardBucketPicker" style="display:none;">
-                                            <h6 class="mb-2"><i class="bi bi-funnel"></i> Select Your Buckets</h6>
-                                            <p class="text-muted small mb-2">Check the buckets you're compensated on.</p>
-                                            <div id="wizardBucketList"></div>
-                                        </div>
-                                        {% endif %}
-                                    </div>
+                                <!-- Success state -->
+                                <div id="importRevenueSuccess" class="d-none text-center">
+                                    <i class="bi bi-check-circle-fill text-success fs-3"></i>
+                                    <p class="mt-2 mb-1 fw-bold text-success">Revenue imported!</p>
+                                    <div id="importRevenueSummary" class="small text-muted"></div>
                                 </div>
 
                                 <!-- Error state -->
@@ -1937,7 +1902,6 @@
 
                 function showRevenueAlreadyDone() {
                     showRevenueState('Success');
-                    loadWizardBucketPicker();
                     const summaryDiv = document.getElementById('importRevenueSummary');
                     if (summaryDiv && !summaryDiv.innerHTML.trim()) {
                         summaryDiv.innerHTML = '<span class="text-muted">Previously imported — no action needed.</span>';
@@ -2563,117 +2527,18 @@
                     }
                 }
 
-                function loadWizardBucketPicker() {
-                    var pickerDiv = document.getElementById('wizardBucketPicker');
-                    var listEl = document.getElementById('wizardBucketList');
-                    if (!pickerDiv || !listEl) return;
-
-                    var STORAGE_KEY = 'salesbuddy_revenue_bucket_filter';
-                    fetch('/api/revenue/buckets')
-                        .then(function(r) { return r.json(); })
-                        .then(function(buckets) {
-                            if (!buckets || buckets.length === 0) return;
-                            pickerDiv.style.display = '';
-                            listEl.innerHTML = '';
-
-                            var selected = new Set();
-                            try {
-                                var saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
-                                if (saved && Array.isArray(saved)) selected = new Set(saved);
-                            } catch(e) {}
-                            if (selected.size === 0) selected = new Set(buckets);
-
-                            var searchInput = document.createElement('input');
-                            searchInput.type = 'text';
-                            searchInput.className = 'form-control form-control-sm mb-2';
-                            searchInput.placeholder = 'Search';
-                            searchInput.autocomplete = 'off';
-                            listEl.appendChild(searchInput);
-
-                            var selAllLabel = document.createElement('label');
-                            selAllLabel.className = 'd-flex align-items-center gap-2 mb-1 border-bottom pb-1';
-                            selAllLabel.style.cursor = 'pointer';
-                            var selAllCb = document.createElement('input');
-                            selAllCb.type = 'checkbox';
-                            selAllCb.checked = buckets.every(function(b) { return selected.has(b); });
-                            selAllCb.style.cssText = 'width:16px;height:16px;flex-shrink:0;';
-                            var selAllText = document.createElement('span');
-                            selAllText.className = 'small fw-semibold';
-                            selAllText.textContent = 'Select all';
-                            selAllLabel.appendChild(selAllCb);
-                            selAllLabel.appendChild(selAllText);
-                            listEl.appendChild(selAllLabel);
-
-                            var itemsDiv = document.createElement('div');
-                            itemsDiv.style.height = '200px';
-                            itemsDiv.style.overflowY = 'auto';
-
-                            var itemLabels = [];
-                            buckets.forEach(function(b) {
-                                var label = document.createElement('label');
-                                label.className = 'd-flex align-items-center gap-2 mb-0 py-1';
-                                label.style.cursor = 'pointer';
-                                label.dataset.name = b.toLowerCase();
-                                var cb = document.createElement('input');
-                                cb.type = 'checkbox';
-                                cb.value = b;
-                                cb.checked = selected.has(b);
-                                cb.style.cssText = 'width:16px;height:16px;flex-shrink:0;';
-                                var span = document.createElement('span');
-                                span.className = 'small';
-                                span.textContent = b;
-                                label.appendChild(cb);
-                                label.appendChild(span);
-                                itemsDiv.appendChild(label);
-                                itemLabels.push({ label: label, cb: cb });
-
-                                cb.addEventListener('change', function() {
-                                    saveWizardBuckets();
-                                    selAllCb.checked = buckets.every(function(b2) {
-                                        var row = itemLabels.find(function(r) { return r.cb.value === b2; });
-                                        return row && row.cb.checked;
-                                    });
-                                });
-                            });
-                            listEl.appendChild(itemsDiv);
-
-                            searchInput.oninput = function() {
-                                var term = this.value.toLowerCase().trim();
-                                itemLabels.forEach(function(row) {
-                                    if (!term || row.label.dataset.name.includes(term)) {
-                                        row.label.classList.remove('d-none');
-                                    } else {
-                                        row.label.classList.add('d-none');
-                                    }
-                                });
-                            };
-
-                            selAllCb.addEventListener('change', function() {
-                                var checked = this.checked;
-                                itemLabels.forEach(function(row) { row.cb.checked = checked; });
-                                saveWizardBuckets();
-                            });
-
-                            function saveWizardBuckets() {
-                                var sel = [];
-                                itemLabels.forEach(function(row) {
-                                    if (row.cb.checked) sel.push(row.cb.value);
-                                });
-                                localStorage.setItem(STORAGE_KEY, JSON.stringify(sel));
-                                // Persist to DB as compensated buckets fallback
-                                fetch('/api/revenue/compensated-buckets', {
-                                    method: 'POST',
-                                    headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify(sel),
-                                }).catch(function() {});
-                            }
-                        })
-                        .catch(function(err) {
-                            console.error('Failed to load wizard buckets:', err);
-                        });
-                }
-
                 async function importRevenue(file) {
+                    // Check for truncation warning in last line of CSV
+                    try {
+                        const text = await file.text();
+                        const lastLine = text.trimEnd().split('\n').pop().trim();
+                        if (lastLine.toLowerCase().includes('exported data exceeded') || lastLine.toLowerCase().includes('some data may have been omitted')) {
+                            if (!confirm('Warning: This export appears to be incomplete. The last line says:\n\n"' + lastLine + '"\n\nYou may be missing data. Continue importing anyway?')) {
+                                return;
+                            }
+                        }
+                    } catch (e) { /* proceed if read fails */ }
+
                     showRevenueState('Progress');
                     const statusText = document.getElementById('importRevenueStatusText');
                     const progressBar = document.getElementById('importRevenueProgressBar');
@@ -2737,7 +2602,19 @@
                                 '</ul>';
                         }
                         showRevenueState('Success');
-                        loadWizardBucketPicker();
+                        // Auto-set compensated buckets from imported data
+                        try {
+                            const bucketsResp = await fetch('/api/revenue/buckets');
+                            const buckets = await bucketsResp.json();
+                            if (buckets && buckets.length > 0) {
+                                localStorage.setItem('salesbuddy_revenue_bucket_filter', JSON.stringify(buckets));
+                                await fetch('/api/revenue/compensated-buckets', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify(buckets),
+                                });
+                            }
+                        } catch (e) { /* best effort */ }
                         setWizardProgress(90);
                         updateNextButton();
                     } catch (err) {

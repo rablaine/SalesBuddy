@@ -57,8 +57,9 @@
                         <li>(If bookmarked/customized) Click <strong>"My Report Bookmarks"</strong> in the top right corner and <strong>"Clear current view"</strong></li>
                         <li>Scroll down to the <strong>"ACR Details by Quarter / Month"</strong> section</li>
                         <li>Under Choose Fields (left), check <strong>"ServiceLevel4."</strong> Leave <strong>ServiceCompGrouping</strong> checked.</li>
+                        {% if user_role == 'se' %}<li>Expand <strong>Filters</strong> on the right and under <strong>ServiceCompGrouping</strong>, check the buckets on which you're compensated</li>{% endif %}
                         <li>Right-click the <strong>"ACR Details by Quarter / Month"</strong> header text → <strong>Expand to next level</strong></li>
-                        <li>Repeat step 5</li>
+                        <li>Repeat step {% if user_role == 'se' %}6{% else %}5{% endif %}</li>
                         <li>Top right <strong>'...'</strong> → <strong>Export Data</strong> → <strong>Data with current layout</strong></li>
                         <li>Open in Excel → <strong>Enable Editing</strong> → <strong>Save As</strong> → <strong>CSV (Comma delimited)</strong></li>
                     </ol>
@@ -154,6 +155,18 @@ fileInput.addEventListener('change', async function() {
     
     const file = this.files[0];
     
+    // Check for truncation warning in last line of CSV
+    try {
+        const text = await file.text();
+        const lastLine = text.trimEnd().split('\n').pop().trim();
+        if (lastLine.toLowerCase().includes('exported data exceeded') || lastLine.toLowerCase().includes('some data may have been omitted')) {
+            if (!confirm('Warning: This export appears to be incomplete. The last line says:\n\n"' + lastLine + '"\n\nYou may be missing data. Continue importing anyway?')) {
+                this.value = '';
+                return;
+            }
+        }
+    } catch (e) { /* proceed if read fails */ }
+
     // Disable button, show progress
     importBtn.disabled = true;
     importBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> Importing...';
