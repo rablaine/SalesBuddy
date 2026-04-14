@@ -417,13 +417,13 @@ class TestGeneralNotesOnCalendar:
         assert general[0]['customer_id'] is None
         assert general[0]['is_general'] is True
 
-    def test_calendar_general_note_uses_topic_as_label(self, client, app):
-        """When a general note has topics, the first topic name should be the label."""
+    def test_calendar_general_note_uses_project_as_label(self, client, app):
+        """When a general note has a linked project, the project title should be the label."""
         with app.app_context():
-            from app.models import db, Note, Topic
+            from app.models import db, Note, Project
             now = datetime.now(timezone.utc)
-            topic = Topic(name='Team Sync')
-            db.session.add(topic)
+            project = Project(title='Team Sync', status='Active')
+            db.session.add(project)
             db.session.flush()
 
             note = Note(
@@ -431,7 +431,7 @@ class TestGeneralNotesOnCalendar:
                 call_date=now,
                 content='<p>Weekly standup</p>',
             )
-            note.topics.append(topic)
+            note.projects.append(project)
             db.session.add(note)
             db.session.commit()
 
@@ -442,8 +442,8 @@ class TestGeneralNotesOnCalendar:
         general = [e for e in day_entries if e.get('is_general')]
         assert any(e['customer_name'] == 'Team Sync' for e in general)
 
-    def test_calendar_general_note_uses_content_snippet(self, client, app):
-        """When a general note has no topics, a content snippet should be the label."""
+    def test_calendar_general_note_without_project_shows_general_note(self, client, app):
+        """When a general note has no linked project, label should be 'General Note'."""
         with app.app_context():
             from app.models import db, Note
             now = datetime.now(timezone.utc)
@@ -461,7 +461,7 @@ class TestGeneralNotesOnCalendar:
         day_entries = data['days'].get(str(now.day), [])
         general = [e for e in day_entries if e.get('is_general')]
         assert len(general) >= 1
-        assert 'Preparing quarterly' in general[0]['customer_name']
+        assert general[0]['customer_name'] == 'General Note'
 
     def test_calendar_customer_notes_not_marked_general(self, client, sample_data):
         """Customer-associated notes should have is_general=False."""

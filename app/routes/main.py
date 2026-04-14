@@ -577,7 +577,7 @@ def notes_calendar_api():
     cal_query = Note.query.options(
         db.joinedload(Note.customer),
         db.joinedload(Note.milestones),
-        db.joinedload(Note.topics),
+        db.joinedload(Note.projects),
     ).filter(
         Note.call_date >= first_day,
         Note.call_date < next_month_first
@@ -595,18 +595,15 @@ def notes_calendar_api():
         if day not in days:
             days[day] = []
 
-        # For general notes, build a short label from content or topics
+        # For general notes, use related project name or fall back to 'General Note'
         if log.customer:
             display_name = log.customer.get_display_name()
             is_general = False
         else:
-            # Use first topic name, or a snippet of the content
-            if log.topics:
-                display_name = log.topics[0].name
+            if log.projects:
+                display_name = log.projects[0].title
             else:
-                plain = re.sub(r'<[^>]+>', '', log.content or '').strip()
-                display_name = (plain[:30] + '...') if len(plain) > 30 else plain
-                display_name = display_name or 'General Note'
+                display_name = 'General Note'
             is_general = True
 
         days[day].append({
