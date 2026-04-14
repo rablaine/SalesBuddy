@@ -29,6 +29,10 @@ namespace SalesBuddy.CustomActions
         private const string PythonVersion = "3.13.2";
         private const string PythonNuGetUrl =
             "https://www.nuget.org/api/v2/package/python/" + PythonVersion;
+        private const string GitVersion = "2.47.1";
+        private const string GitPortableUrl =
+            "https://github.com/git-for-windows/git/releases/download/v" + GitVersion
+            + ".windows.1/PortableGit-" + GitVersion + "-64-bit.7z.exe";
         private const string NodeVersion = "v22.14.0";
         private const string NodeZipUrl =
             "https://nodejs.org/dist/" + NodeVersion + "/node-" + NodeVersion + "-win-x64.zip";
@@ -86,7 +90,7 @@ namespace SalesBuddy.CustomActions
             // so the bar's full range is distributed across actual work.
             PathHelper.RefreshPath();
             bool needsWinget = !PathHelper.FindWinget(session);
-            bool needsGit = !PathHelper.CommandExists("git");
+            bool needsGit = !PathHelper.FindGit(session);
             bool needsPython = !PathHelper.CommandExists("python");
             bool needsAzCli = !PathHelper.CommandExists("az");
             bool needsNode = !PathHelper.CommandExists("node");
@@ -165,13 +169,15 @@ namespace SalesBuddy.CustomActions
                 // Verify critical commands before proceeding
                 PathHelper.RefreshPath();
                 PrependLocalTools();
-                foreach (var cmd in new[] { "git", "python" })
+                if (!PathHelper.FindGit(session))
                 {
-                    if (!PathHelper.CommandExists(cmd))
-                    {
-                        session.Log($"FATAL: {cmd} not found on PATH after installation.");
-                        return ActionResult.Failure;
-                    }
+                    session.Log("FATAL: git not found on PATH after installation.");
+                    return ActionResult.Failure;
+                }
+                if (!PathHelper.CommandExists("python"))
+                {
+                    session.Log("FATAL: python not found on PATH after installation.");
+                    return ActionResult.Failure;
                 }
 
                 // Step 6: Clone/update repository
@@ -515,27 +521,103 @@ Write-Host 'winget installation complete.'
         }
 
         /// <summary>
-        /// Ensure Git is installed. Uses winget if available.
+        /// Ensure Git is installed. Uses FindGit to check common locations,
+        /// tries winget first, then falls back to portable Git zip.
         /// </summary>
         private static void EnsureGit(Session session)
         {
             PathHelper.RefreshPath();
-            if (PathHelper.CommandExists("git"))
+            if (PathHelper.FindGit(session))
             {
                 session.Log("Git already installed.");
                 ProcessRunner.UpdateStatus(session, "Git already installed, skipping...");
                 return;
             }
 
-            if (!PathHelper.CommandExists("winget"))
+            // Try winget first
+            if (PathHelper.CommandExists("winget"))
             {
-                session.Log("winget not available. Cannot install Git automatically.");
-                return;
+                ProcessRunner.UpdateStatus(session,
+                    "Installing Git... this typically takes about a minute");
+                InstallViaWinget(session, "Git", "Git.Git", "git");
+
+                PathHelper.RefreshPath();
+                if (PathHelper.FindGit(session))
+                    return;
+
+                session.Log("winget Git install did not produce a usable git. " +
+                            "Falling back to portable Git.");
             }
 
-            ProcessRunner.UpdateStatus(session,
-                "Installing Git... this typically takes about a minute");
-            InstallViaWinget(session, "Git", "Git.Git", "git");
+            // Fallback: portable Git (self-extracting archive, no MSI/installer conflict)
+            InstallPortableGit(session);
+        }
+
+        /// <summary>
+        /// Install portable Git to %LOCALAPPDATA%\git. Self-extracting 7z archive
+        /// avoids MSI mutex conflicts and works without admin.
+        /// </summary>
+        private static void InstallPortableGit(Session session)
+        {
+            ProcessRunner.UpdateStatus(session, "Installing portable Git...");
+
+            var localAppData = Environment.GetFolderPath(
+                Environment.SpecialFolder.LocalApplicationData);
+            var gitDir = Path.Combine(localAppData, "git");
+            var tempExe = Path.Combine(Path.GetTempPath(),
+                $"PortableGit-{GitVersion}.exe");
+
+            try
+            {
+                ProcessRunner.UpdateStatus(session, "Downloading portable Git...");
+                DownloadFile(session, GitPortableUrl, tempExe);
+
+                ProcessRunner.UpdateStatus(session, "Extracting portable Git...");
+                if (Directory.Exists(gitDir))
+                    Directory.Delete(gitDir, true);
+                Directory.CreateDirectory(gitDir);
+
+                // PortableGit .7z.exe is a self-extracting archive.
+                // -o = output dir, -y = yes to all
+                int exitCode = ProcessRunner.Run(session, tempExe,
+                    $"-o\"{gitDir}\" -y");
+
+                if (exitCode != 0)
+                {
+                    session.Log($"Portable Git extraction failed (exit {exitCode}).");
+                    return;
+                }
+
+                var cmdDir = Path.Combine(gitDir, "cmd");
+                if (File.Exists(Path.Combine(cmdDir, "git.exe")))
+                {
+                    PathHelper.AddToPath(cmdDir, persist: true);
+                    session.Log($"Portable Git {GitVersion} installed to {gitDir}.");
+                }
+                else
+                {
+                    // Some versions put git.exe directly in bin/
+                    var binDir = Path.Combine(gitDir, "bin");
+                    if (File.Exists(Path.Combine(binDir, "git.exe")))
+                    {
+                        PathHelper.AddToPath(binDir, persist: true);
+                        session.Log($"Portable Git {GitVersion} installed to {gitDir}.");
+                    }
+                    else
+                    {
+                        session.Log("Portable Git extracted but git.exe not found.");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                session.Log($"Failed to install portable Git: {ex.Message}");
+            }
+            finally
+            {
+                try { if (File.Exists(tempExe)) File.Delete(tempExe); }
+                catch { /* best effort */ }
+            }
         }
 
         /// <summary>
@@ -1386,6 +1468,7 @@ Write-Host 'winget installation complete.'
                 Path.Combine(localAppData, "python"),
                 Path.Combine(localAppData, "python", "Scripts"),
                 Path.Combine(localAppData, "nodejs"),
+                Path.Combine(localAppData, "git", "cmd"),
             };
             foreach (var dir in dirs)
             {

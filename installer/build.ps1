@@ -62,7 +62,7 @@ try {
 }
 
 # --- Copy MSI to output/ ---
-$binDir = Join-Path $scriptDir "bin" $Configuration
+$binDir = Join-Path (Join-Path $scriptDir "bin") $Configuration
 $msiFiles = Get-ChildItem -Path $binDir -Filter "*.msi" -Recurse -ErrorAction SilentlyContinue
 if (-not $msiFiles -or $msiFiles.Count -eq 0) {
     Write-Host "ERROR: No .msi found in $binDir" -ForegroundColor Red

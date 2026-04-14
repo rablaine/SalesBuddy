@@ -162,6 +162,73 @@ namespace SalesBuddy.CustomActions
         }
 
         /// <summary>
+        /// Find Git even when it's not on PATH. Checks common install locations
+        /// (Git for Windows, Visual Studio, GitHub Desktop, Scoop, Chocolatey).
+        /// Adds the found directory to the process PATH so subsequent calls work.
+        /// </summary>
+        public static bool FindGit(Session session)
+        {
+            if (CommandExists("git")) return true;
+
+            var programFiles = Environment.GetFolderPath(
+                Environment.SpecialFolder.ProgramFiles);
+            var programFilesX86 = Environment.GetFolderPath(
+                Environment.SpecialFolder.ProgramFilesX86);
+            var localAppData = Environment.GetFolderPath(
+                Environment.SpecialFolder.LocalApplicationData);
+            var userProfile = Environment.GetFolderPath(
+                Environment.SpecialFolder.UserProfile);
+
+            // Common Git install locations (most likely first)
+            var candidates = new[]
+            {
+                // Git for Windows (default install)
+                Path.Combine(programFiles, "Git", "cmd"),
+                Path.Combine(programFilesX86, "Git", "cmd"),
+                // User-level Git for Windows
+                Path.Combine(localAppData, "Programs", "Git", "cmd"),
+                // Scoop
+                Path.Combine(userProfile, "scoop", "shims"),
+                // Chocolatey
+                Path.Combine(programFiles, "chocolatey", "bin"),
+                @"C:\ProgramData\chocolatey\bin",
+                // Our own portable Git (installed by fallback)
+                Path.Combine(localAppData, "git", "cmd"),
+            };
+
+            foreach (var dir in candidates)
+            {
+                var gitExe = Path.Combine(dir, "git.exe");
+                if (File.Exists(gitExe))
+                {
+                    session.Log($"Found git at {gitExe}");
+                    AddToPath(dir);
+                    return true;
+                }
+            }
+
+            // Visual Studio bundled Git (search versioned folders)
+            var vsBase = Path.Combine(programFiles, "Microsoft Visual Studio");
+            if (Directory.Exists(vsBase))
+            {
+                try
+                {
+                    foreach (var gitExe in Directory.GetFiles(
+                        vsBase, "git.exe", SearchOption.AllDirectories))
+                    {
+                        var dir = Path.GetDirectoryName(gitExe);
+                        session.Log($"Found VS-bundled git at {gitExe}");
+                        AddToPath(dir);
+                        return true;
+                    }
+                }
+                catch { /* best effort */ }
+            }
+
+            return false;
+        }
+
+        /// <summary>
         /// Get the Python executable path. Prefers our installed copy
         /// at %LOCALAPPDATA%\python, falls back to PATH lookup.
         /// Rejects the Windows Store stub.
