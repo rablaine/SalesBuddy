@@ -86,10 +86,10 @@
         </div>
 
         <div class="card" style="position: relative; overflow: visible;">
-            <!-- Meeting Import Status (floating overlay) -->
+            <!-- Meeting Import Status (floating overlay, draggable) -->
             <div id="meetingStatusCard" class="card shadow-lg border-primary" 
-                 style="display:none; position:absolute; top:162px; right:12px; z-index:10; width:380px;">
-                <div class="card-header bg-primary text-white py-2 px-3">
+                 style="display:none; position:fixed; top:162px; right:12px; z-index:1055; width:380px;">
+                <div class="card-header bg-primary text-white py-2 px-3" style="cursor:grab;" id="meetingStatusCardHeader">
                     <div class="d-flex justify-content-between align-items-center">
                         <span class="fw-semibold"><i class="bi bi-calendar-event me-1"></i> WorkIQ Import</span>
                         <button type="button" class="btn-close btn-close-white btn-close-sm" onclick="cancelMeetingStatus()" aria-label="Cancel"></button>
@@ -7033,8 +7033,45 @@ function showMeetingStatusCard(html) {
 }
 
 function hideMeetingStatusCard() {
-    document.getElementById('meetingStatusCard').style.display = 'none';
+    var card = document.getElementById('meetingStatusCard');
+    card.style.display = 'none';
+    // Reset position so it reappears in default spot next time
+    card.style.top = '162px';
+    card.style.right = '12px';
+    card.style.left = '';
 }
+
+// Draggable status card
+(function() {
+    var header = document.getElementById('meetingStatusCardHeader');
+    var card = document.getElementById('meetingStatusCard');
+    var offsetX = 0, offsetY = 0;
+
+    header.addEventListener('mousedown', function(e) {
+        if (e.target.closest('.btn-close')) return;
+        e.preventDefault();
+        var rect = card.getBoundingClientRect();
+        offsetX = e.clientX - rect.left;
+        offsetY = e.clientY - rect.top;
+        header.style.cursor = 'grabbing';
+        document.addEventListener('mousemove', onDrag);
+        document.addEventListener('mouseup', onDrop);
+    });
+
+    function onDrag(e) {
+        var x = Math.max(0, Math.min(e.clientX - offsetX, window.innerWidth - card.offsetWidth));
+        var y = Math.max(0, Math.min(e.clientY - offsetY, window.innerHeight - card.offsetHeight));
+        card.style.left = x + 'px';
+        card.style.top = y + 'px';
+        card.style.right = 'auto';
+    }
+
+    function onDrop() {
+        header.style.cursor = 'grab';
+        document.removeEventListener('mousemove', onDrag);
+        document.removeEventListener('mouseup', onDrop);
+    }
+})();
 
 function cancelMeetingStatus() {
     if (_meetingAbortController) {
