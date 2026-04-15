@@ -86,10 +86,10 @@
         </div>
 
         <div class="card" style="position: relative; overflow: visible;">
-            <!-- Meeting Import Status (floating overlay) -->
+            <!-- Meeting Import Status (floating overlay, draggable) -->
             <div id="meetingStatusCard" class="card shadow-lg border-primary" 
-                 style="display:none; position:absolute; top:162px; right:12px; z-index:10; width:380px; animation: statusPulse 2s ease-in-out infinite;">
-                <div class="card-header bg-primary text-white py-2 px-3">
+                 style="display:none; position:fixed; top:162px; right:12px; z-index:1055; width:380px;">
+                <div class="card-header bg-primary text-white py-2 px-3" style="cursor:grab;" id="meetingStatusCardHeader">
                     <div class="d-flex justify-content-between align-items-center">
                         <span class="fw-semibold"><i class="bi bi-calendar-event me-1"></i> WorkIQ Import</span>
                         <button type="button" class="btn-close btn-close-white btn-close-sm" onclick="cancelMeetingStatus()" aria-label="Cancel"></button>
@@ -99,12 +99,6 @@
                     <div id="statusCardContent" class="fs-6"></div>
                 </div>
             </div>
-            <style>
-                @keyframes statusPulse {
-                    0%, 100% { box-shadow: 0 0 0 0 rgba(13,110,253,.5); }
-                    50% { box-shadow: 0 0 12px 4px rgba(13,110,253,.35); }
-                }
-            </style>
 
             <div class="card-body" style="overflow: visible;">
                 <form method="POST" id="noteForm">
@@ -7032,15 +7026,67 @@ function applyPendingMeetingSelection() {
     }
 }
 
+// Track last click position so the status card opens near the triggering button.
+// Capture phase ensures this runs BEFORE onclick handlers that show the card.
+var _lastClickX = null, _lastClickY = null;
+document.addEventListener('click', function(e) {
+    _lastClickX = e.clientX;
+    _lastClickY = e.clientY;
+}, true);
+
 function showMeetingStatusCard(html) {
     var card = document.getElementById('meetingStatusCard');
     document.getElementById('statusCardContent').innerHTML = html;
+
+    // If first show since hidden, position near the click that triggered it
+    if (card.style.display === 'none' && _lastClickX !== null) {
+        var w = 380; // card width
+        var x = Math.max(0, Math.min(_lastClickX - w / 2, window.innerWidth - w));
+        var y = Math.max(0, Math.min(_lastClickY - 10, window.innerHeight - 200));
+        card.style.left = x + 'px';
+        card.style.top = y + 'px';
+        card.style.right = 'auto';
+    }
+
     card.style.display = 'block';
 }
 
 function hideMeetingStatusCard() {
-    document.getElementById('meetingStatusCard').style.display = 'none';
+    var card = document.getElementById('meetingStatusCard');
+    card.style.display = 'none';
 }
+
+// Draggable status card
+(function() {
+    var header = document.getElementById('meetingStatusCardHeader');
+    var card = document.getElementById('meetingStatusCard');
+    var offsetX = 0, offsetY = 0;
+
+    header.addEventListener('mousedown', function(e) {
+        if (e.target.closest('.btn-close')) return;
+        e.preventDefault();
+        var rect = card.getBoundingClientRect();
+        offsetX = e.clientX - rect.left;
+        offsetY = e.clientY - rect.top;
+        header.style.cursor = 'grabbing';
+        document.addEventListener('mousemove', onDrag);
+        document.addEventListener('mouseup', onDrop);
+    });
+
+    function onDrag(e) {
+        var x = Math.max(0, Math.min(e.clientX - offsetX, window.innerWidth - card.offsetWidth));
+        var y = Math.max(0, Math.min(e.clientY - offsetY, window.innerHeight - card.offsetHeight));
+        card.style.left = x + 'px';
+        card.style.top = y + 'px';
+        card.style.right = 'auto';
+    }
+
+    function onDrop() {
+        header.style.cursor = 'grab';
+        document.removeEventListener('mousemove', onDrag);
+        document.removeEventListener('mouseup', onDrop);
+    }
+})();
 
 function cancelMeetingStatus() {
     if (_meetingAbortController) {
