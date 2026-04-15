@@ -7026,12 +7026,13 @@ function applyPendingMeetingSelection() {
     }
 }
 
-// Track last click position so the status card opens near the triggering button
+// Track last click position so the status card opens near the triggering button.
+// Capture phase ensures this runs BEFORE onclick handlers that show the card.
 var _lastClickX = null, _lastClickY = null;
 document.addEventListener('click', function(e) {
     _lastClickX = e.clientX;
     _lastClickY = e.clientY;
-});
+}, true);
 
 function showMeetingStatusCard(html) {
     var card = document.getElementById('meetingStatusCard');
@@ -7041,7 +7042,7 @@ function showMeetingStatusCard(html) {
     if (card.style.display === 'none' && _lastClickX !== null) {
         var w = 380; // card width
         var x = Math.max(0, Math.min(_lastClickX - w / 2, window.innerWidth - w));
-        var y = Math.max(0, Math.min(_lastClickY + 12, window.innerHeight - 200));
+        var y = Math.max(0, Math.min(_lastClickY - 10, window.innerHeight - 200));
         card.style.left = x + 'px';
         card.style.top = y + 'px';
         card.style.right = 'auto';
