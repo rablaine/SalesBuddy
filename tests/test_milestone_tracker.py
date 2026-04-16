@@ -1464,32 +1464,60 @@ class TestSSESync:
             assert payload['success'] is True
             assert payload['count'] == 42
 
+    @patch('app.services.milestone_sync.batch_get_milestones')
     @patch('app.services.milestone_sync.batch_get_opportunities')
     @patch('app.services.milestone_sync._update_team_memberships')
-    @patch('app.services.milestone_sync.get_milestones_by_account')
-    def test_stream_yields_start_progress_complete(self, mock_get, mock_teams,
-                                                    mock_batch_opps, app, sample_data):
+    def test_stream_yields_start_progress_complete(self, mock_teams,
+                                                    mock_batch_opps,
+                                                    mock_batch_ms, app,
+                                                    sample_data):
         """Streaming sync should yield start, progress, and complete events."""
-        mock_batch_opps.return_value = {'success': True, 'by_account': {}}
-        import json
-        # The parallel stream calls get_milestones_by_account from worker threads
-        mock_get.return_value = {
+        # batch_get_opportunities returns one opp for the test account
+        mock_batch_opps.return_value = {
             'success': True,
-            'milestones': [{
-                'id': 'stream-test-ms-1',
-                'name': 'Stream Test',
-                'number': '7-999',
-                'status': 'On Track',
-                'status_code': 861980000,
-                'msx_opportunity_id': None,
-                'opportunity_name': '',
-                'workload': '',
-                'monthly_usage': None,
-                'due_date': None,
-                'dollar_value': None,
-                'url': 'https://test.com',
-            }],
-            'count': 1,
+            'by_account': {
+                'aaaabbbb-1111-2222-3333-444455556666': [{
+                    'id': 'opp-stream-1',
+                    'name': 'Stream Opp',
+                    'number': '7-999',
+                    'state': 'Open',
+                    'statecode': 0,
+                    'status_reason': 'In Progress',
+                    'estimated_value': None,
+                    'estimated_close_date': None,
+                    'owner': '',
+                    'url': 'https://test.com/opp',
+                    'customer_need': '',
+                    'description': '',
+                    'compete_threat': '',
+                }],
+            },
+        }
+        # batch_get_milestones returns one milestone for that opp
+        mock_batch_ms.return_value = {
+            'success': True,
+            'by_opportunity': {
+                'opp-stream-1': [{
+                    'id': 'stream-test-ms-1',
+                    'name': 'Stream Test',
+                    'number': '7-999',
+                    'status': 'On Track',
+                    'status_code': 861980000,
+                    'status_sort': 0,
+                    'customer_commitment': '',
+                    'msx_opportunity_id': 'opp-stream-1',
+                    'workload': '',
+                    'monthly_usage': None,
+                    'due_date': None,
+                    'dollar_value': None,
+                    'url': 'https://test.com',
+                    'committed_on': None,
+                    'completed_on': None,
+                    'comments_json': None,
+                    'created_on': None,
+                    'modified_on': None,
+                }],
+            },
         }
         # Ensure at least one customer has a tpid_url
         with app.app_context():

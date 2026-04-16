@@ -237,11 +237,21 @@ def customer_view(id):
     opportunity_count = customer.opportunities.count()
 
     # Pass favorited opportunity IDs and pre-sort opportunities (favorites first)
-    from app.models import Favorite
+    from app.models import Favorite, Milestone
     favorited_opp_ids = {f.object_id for f in Favorite.query.filter_by(object_type='opportunity').all()}
+    opp_list = customer.opportunities.order_by(None).all()
+    opp_ids_with_milestones = {
+        row[0] for row in db.session.query(Milestone.opportunity_id).filter(
+            Milestone.opportunity_id.in_([o.id for o in opp_list]),
+        ).distinct()
+    } if opp_list else set()
     sorted_opps = sorted(
-        customer.opportunities.order_by(None).all(),
-        key=lambda o: (0 if o.id in favorited_opp_ids else 1, (o.name or '').lower())
+        opp_list,
+        key=lambda o: (
+            0 if o.id in favorited_opp_ids else 1,
+            0 if o.id in opp_ids_with_milestones else 1,
+            (o.name or '').lower(),
+        )
     )
 
     return render_template('customer_view.html', 

@@ -2,8 +2,8 @@
 Milestone sync service for Sales Buddy.
 
 Pulls active (uncommitted) milestones from MSX for all customers
-and upserts them into the local database. Uses 3 concurrent workers
-for the MSX API query phase, then writes to the database sequentially.
+and upserts them into the local database. Uses batched OData queries
+for opportunities and milestones, then writes to the database sequentially.
 """
 import json
 import logging
@@ -16,6 +16,7 @@ from typing import Dict, Any, List, Optional, Generator, Tuple
 
 from app.models import db, Customer, Milestone, MilestoneAudit, MsxTask, Opportunity, User, SyncStatus
 from app.services.msx_api import (
+    batch_get_milestones,
     batch_get_opportunities,
     extract_account_id_from_url,
     get_milestones_by_account,
@@ -35,11 +36,8 @@ from app.services.msx_auth import is_vpn_blocked
 
 logger = logging.getLogger(__name__)
 
-# Active milestone statuses (uncommitted — the ones we're working to commit)
+# Active milestone statuses (uncommitted - the ones we're working to commit)
 ACTIVE_STATUSES = {'On Track', 'At Risk', 'Blocked'}
-
-# Number of concurrent workers for MSX API queries
-_MILESTONE_WORKERS = 3
 
 
 def sync_all_customer_milestones() -> Dict[str, Any]:
@@ -246,8 +244,8 @@ def sync_all_customer_milestones_stream(
     """
     Stream milestone sync progress as Server-Sent Events.
 
-    Uses 3 concurrent workers for the MSX API query phase, then writes
-    to the database sequentially.
+    Uses batched OData queries for opportunities and milestones,
+    then writes to the database sequentially.
 
     Event types:
         - start: total customer count
@@ -256,17 +254,6 @@ def sync_all_customer_milestones_stream(
         - complete: final summary (includes opportunities_created)
     """
     start_time = _time.time()
-
-    def _elapsed():
-        return round(_time.time() - start_time, 1)
-
-    def _phase_debug(phase_name: str):
-        msg = f"[SYNC TIMING] {phase_name} at {_elapsed()}s"
-        logger.info(msg)
-        return _sse_event('debug_timing', {
-            'phase': phase_name,
-            'elapsed_seconds': _elapsed(),
-        })
 
     customers = Customer.query.filter(
         Customer.tpid_url.isnot(None),
@@ -308,74 +295,148 @@ def sync_all_customer_milestones_stream(
             skip_ids.add(c.id)
 
     # -----------------------------------------------------------------
-    # Phase 1: Parallel MSX queries (3 workers)
+    # Phase 1a: Batch fetch open opportunities (batched OData)
     # -----------------------------------------------------------------
-    yield _phase_debug('Phase 1 START: Parallel milestone fetch')
-    fetch_results = {}    # cust_id -> msx_result dict
-    progress_q = queue.Queue()
-    n_workers = min(_MILESTONE_WORKERS, len(customer_tasks)) if customer_tasks else 0
+    acct_to_cust: Dict[str, int] = {}
+    for cid, cname, acct in customer_tasks:
+        acct_to_cust[acct] = cid
+    opp_account_ids = list(acct_to_cust.keys())
+
+    # opp_map: msx_opportunity_id -> opp dict (with account routing)
+    opp_map: Dict[str, dict] = {}
+    # opp_by_account: account_id -> [opp_ids] (for routing to customers)
+    opp_by_account: Dict[str, List[str]] = {a: [] for a in opp_account_ids}
     vpn_hit = False
-    fetched = 0
+    total_opps_synced = 0
+    total_opps_updated = 0
+    _OPP_CHUNK = 15  # accounts per OData call
 
-    if n_workers > 0:
-        chunk_size = math.ceil(len(customer_tasks) / n_workers)
-        chunks = [
-            customer_tasks[i:i + chunk_size]
-            for i in range(0, len(customer_tasks), chunk_size)
+    if opp_account_ids:
+        yield _sse_event('opp_sync_start', {
+            'message': 'Fetching opportunities...',
+            'total': len(opp_account_ids),
+        })
+        opp_chunks = [
+            opp_account_ids[i:i + _OPP_CHUNK]
+            for i in range(0, len(opp_account_ids), _OPP_CHUNK)
         ]
-        actual_workers = len(chunks)
+        total_opp_chunks = len(opp_chunks)
 
-        with ThreadPoolExecutor(max_workers=actual_workers) as pool:
-            for chunk in chunks:
-                pool.submit(_ms_fetch_worker, chunk, progress_q)
+        for chunk_idx, chunk in enumerate(opp_chunks, 1):
+            batch_opp_result = batch_get_opportunities(
+                chunk, open_only=True,
+            )
+            SyncStatus.update_heartbeat('milestones')
 
-            done_count = 0
-            while done_count < actual_workers:
-                msg = progress_q.get()
-                evt, cust_id, cust_name, result = msg
+            if batch_opp_result.get("success"):
+                for acct_id, opps in batch_opp_result.get(
+                    "by_account", {}
+                ).items():
+                    for opp in opps:
+                        opp_id = opp.get("id")
+                        if opp_id:
+                            opp_map[opp_id] = opp
+                            opp_map[opp_id]["_account_id"] = acct_id
+                            opp_by_account.setdefault(acct_id, []).append(
+                                opp_id
+                            )
 
-                if evt == 'vpn':
-                    vpn_hit = True
-                    remaining = total - fetched - len(skip_ids)
-                    yield _sse_event('vpn_blocked', {
-                        'message': 'IP address is blocked -- connect to VPN and retry.',
-                        'skipped': remaining,
-                    })
-                    break
-                elif evt == 'retry':
-                    yield _sse_event('progress', {
-                        'current': fetched,
-                        'total': total,
-                        'customer': result,
-                        'status': 'retrying',
-                        'progress': int((fetched / total) * 65),
-                    })
-                elif evt == 'fetched':
-                    fetch_results[cust_id] = result
-                    fetched += 1
-                    SyncStatus.update_heartbeat('milestones')
-                    pct = int((fetched / total) * 65)  # 0-65%
-                    yield _sse_event('progress', {
-                        'current': fetched,
-                        'total': total,
-                        'customer': cust_name,
-                        'status': 'fetching',
-                        'progress': pct,
-                    })
-                elif evt == 'done':
-                    done_count += 1
+            pct = int((chunk_idx / total_opp_chunks) * 16)  # 0-16%
+            yield _sse_event('progress', {
+                'current': chunk_idx,
+                'total': total_opp_chunks,
+                'customer': f'Opps batch {chunk_idx}/{total_opp_chunks}'
+                            f' ({len(opp_map)} so far)',
+                'status': 'fetching',
+                'progress': min(pct, 16),
+            })
 
-    if vpn_hit:
-        SyncStatus.mark_completed(
-            'milestones', success=False, items_synced=0,
-            details=json.dumps({'error': 'VPN blocked'}),
-        )
-        return
 
     # -----------------------------------------------------------------
-    # Phase 2: Sequential DB writes
+    # Phase 1b: Batch fetch milestones by opportunity ID (batched OData)
     # -----------------------------------------------------------------
-    yield _phase_debug('Phase 1 END / Phase 2 START: Sequential DB writes')
+    # milestones_by_customer: cust_id -> [milestone_dicts with opp data]
+    milestones_by_customer: Dict[int, List[dict]] = {
+        cid: [] for cid, _, _ in customer_tasks
+    }
+    all_opp_ids = list(opp_map.keys())
+    _MS_CHUNK = 20  # opp IDs per OData call (matches batch_get_milestones default)
+
+    if all_opp_ids:
+        opp_chunks = [
+            all_opp_ids[i:i + _MS_CHUNK]
+            for i in range(0, len(all_opp_ids), _MS_CHUNK)
+        ]
+        total_chunks = len(opp_chunks)
+        ms_total = 0
+
+        for chunk_idx, chunk in enumerate(opp_chunks, 1):
+            ms_batch_result = batch_get_milestones(
+                chunk, current_fy_only=True,
+            )
+            SyncStatus.update_heartbeat('milestones')
+
+            if ms_batch_result.get("success"):
+                for opp_id, ms_list in ms_batch_result.get(
+                    "by_opportunity", {}
+                ).items():
+                    opp_data = opp_map.get(opp_id, {})
+                    acct_id = opp_data.get("_account_id")
+                    cust_id = acct_to_cust.get(acct_id) if acct_id else None
+                    if cust_id is None:
+                        continue
+                    for ms in ms_list:
+                        # Inject opportunity data into milestone dict
+                        ms["opportunity_name"] = opp_data.get("name", "")
+                        ms["opportunity_number"] = opp_data.get("number", "")
+                        ms["opportunity_statecode"] = opp_data.get(
+                            "statecode"
+                        )
+                        ms["opportunity_state"] = opp_data.get("state")
+                        ms["opportunity_status_reason"] = opp_data.get(
+                            "status_reason", ""
+                        )
+                        ms["opportunity_estimated_value"] = opp_data.get(
+                            "estimated_value"
+                        )
+                        ms["opportunity_estimated_close_date"] = opp_data.get(
+                            "estimated_close_date"
+                        )
+                        ms["opportunity_owner"] = opp_data.get("owner", "")
+                        ms["opportunity_customer_need"] = opp_data.get(
+                            "customer_need", ""
+                        )
+                        ms["opportunity_description"] = opp_data.get(
+                            "description", ""
+                        )
+                        ms["opportunity_compete_threat"] = opp_data.get(
+                            "compete_threat", ""
+                        )
+                        milestones_by_customer[cust_id].append(ms)
+                        ms_total += 1
+
+            pct = 16 + int((chunk_idx / total_chunks) * 61)  # 16-77%
+            yield _sse_event('progress', {
+                'current': chunk_idx,
+                'total': total_chunks,
+                'customer': f'Milestones batch {chunk_idx}/{total_chunks}'
+                            f' ({ms_total} so far)',
+                'status': 'fetching',
+                'progress': min(pct, 77),
+            })
+
+    ms_count = sum(len(v) for v in milestones_by_customer.values())
+    yield _sse_event('progress', {
+        'current': ms_count,
+        'total': ms_count or 1,
+        'customer': f'Fetched {ms_count} milestones',
+        'status': 'ok',
+        'progress': 77,
+    })
+
+    # -----------------------------------------------------------------
+    # Phase 2: Sequential DB writes (milestones + opportunities)
+    # -----------------------------------------------------------------
     synced = 0
     failed = len(skip_ids)
     total_created = 0
@@ -390,30 +451,13 @@ def sync_all_customer_milestones_stream(
     all_seen_opp_ids = set()
 
     write_count = len(customer_tasks)
-    for i, (cust_id, cust_name, _acct) in enumerate(customer_tasks, 1):
+    for i, (cust_id, cust_name, acct_id) in enumerate(customer_tasks, 1):
         customer = customer_map[cust_id]
-        fetch_data = fetch_results.get(cust_id)
+        ms_list = milestones_by_customer.get(cust_id, [])
         SyncStatus.update_heartbeat('milestones')
 
-        if not fetch_data or not fetch_data.get('success'):
-            failed += 1
-            err = fetch_data.get('error', 'Fetch failed') if fetch_data else 'No data'
-            errors.append(f"{cust_name}: {err}")
-            pct = 65 + int((i / write_count) * 5)  # 65-70%
-            yield _sse_event('progress', {
-                'current': fetched + i,
-                'total': total,
-                'customer': cust_name,
-                'status': 'error',
-                'error': err,
-                'progress': pct,
-            })
-            continue
-
         try:
-            wr = _apply_customer_milestones(
-                customer, fetch_data.get('milestones', [])
-            )
+            wr = _apply_customer_milestones(customer, ms_list)
             if wr['success']:
                 synced += 1
                 total_created += wr['created']
@@ -424,15 +468,15 @@ def sync_all_customer_milestones_stream(
                     wr.get('seen_opportunity_ids', set())
                 )
 
-                pct = 65 + int((i / write_count) * 5)  # 65-70%
+                pct = 77 + int((i / write_count) * 5)  # 77-82%
                 yield _sse_event('progress', {
-                    'current': fetched + i,
-                    'total': total,
+                    'current': i,
+                    'total': write_count,
                     'customer': cust_name,
                     'status': 'ok',
                     'created': wr['created'],
                     'updated': wr['updated'],
-                    'progress': pct,
+                    'progress': min(pct, 82),
                 })
             else:
                 failed += 1
@@ -443,129 +487,93 @@ def sync_all_customer_milestones_stream(
             logger.exception(f"Error saving milestones for customer {cust_id}")
 
     # -----------------------------------------------------------------
-    # Phase 2a: Direct opportunity sync (catches opps with no milestones)
-    #   Batched OData queries (15 accounts per request), sequential DB writes.
+    # Phase 2 (cont): Upsert opportunities into DB (catches milestone-less opps)
     # -----------------------------------------------------------------
-    yield _phase_debug('Phase 2 END / Phase 2a START: Direct opportunity sync')
-    total_opps_synced = 0
-    total_opps_updated = 0
-    # Build account_id -> customer_id mapping for customers with tpid_url
-    acct_to_cust: Dict[str, int] = {}
-    for cid, cname, acct in customer_tasks:
-        if customer_map[cid].tpid_url:
-            acct_to_cust[acct] = cid
-    opp_account_ids = list(acct_to_cust.keys())
+    for acct_id, opp_ids in opp_by_account.items():
+        cid = acct_to_cust.get(acct_id)
+        if not cid:
+            continue
+        existing_map = {
+            opp.msx_opportunity_id: opp
+            for opp in Opportunity.query.filter_by(customer_id=cid).all()
+            if opp.msx_opportunity_id
+        }
+        for opp_id in opp_ids:
+            opp_data = opp_map.get(opp_id)
+            if not opp_data:
+                continue
+            existing = existing_map.get(opp_id)
+            if existing:
+                existing.name = opp_data.get("name") or existing.name
+                existing.opportunity_number = (
+                    opp_data.get("number") or existing.opportunity_number
+                )
+                existing.statecode = opp_data.get("statecode")
+                existing.state = opp_data.get("state") or existing.state
+                existing.status_reason = (
+                    opp_data.get("status_reason") or existing.status_reason
+                )
+                existing.estimated_value = opp_data.get("estimated_value")
+                existing.estimated_close_date = opp_data.get(
+                    "estimated_close_date"
+                )
+                existing.owner_name = (
+                    opp_data.get("owner") or existing.owner_name
+                )
+                existing.customer_need = (
+                    opp_data.get("customer_need") or existing.customer_need
+                )
+                existing.description = (
+                    opp_data.get("description") or existing.description
+                )
+                existing.compete_threat = (
+                    opp_data.get("compete_threat") or existing.compete_threat
+                )
+                existing.msx_url = opp_data.get("url") or existing.msx_url
+                total_opps_updated += 1
+            else:
+                opp = Opportunity(
+                    msx_opportunity_id=opp_id,
+                    name=opp_data.get("name", "Unknown Opportunity"),
+                    customer_id=cid,
+                    opportunity_number=opp_data.get("number"),
+                    statecode=opp_data.get("statecode"),
+                    state=opp_data.get("state"),
+                    status_reason=opp_data.get("status_reason"),
+                    estimated_value=opp_data.get("estimated_value"),
+                    estimated_close_date=opp_data.get("estimated_close_date"),
+                    owner_name=opp_data.get("owner"),
+                    customer_need=opp_data.get("customer_need"),
+                    description=opp_data.get("description"),
+                    compete_threat=opp_data.get("compete_threat"),
+                    msx_url=opp_data.get("url"),
+                )
+                db.session.add(opp)
+                existing_map[opp_id] = opp
+                total_opps_synced += 1
 
-    if opp_account_ids:
-        yield _sse_event('opp_sync_start', {
-            'message': 'Syncing opportunities...',
-            'total': len(opp_account_ids),
-        })
+        try:
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+            logger.exception(
+                "Error committing opportunities for customer %s", cid
+            )
 
-        # Batched fetch (15 accounts per OData call)
-        batch_result = batch_get_opportunities(opp_account_ids, open_only=True)
-        SyncStatus.update_heartbeat('milestones')
-        yield _sse_event('progress', {
-            'current': len(opp_account_ids),
-            'total': len(opp_account_ids),
-            'customer': 'Fetched opportunities',
-            'status': 'fetching',
-            'progress': 68,
-        })
-
-        if batch_result.get("success"):
-            by_account = batch_result.get("by_account", {})
-
-            # Sequential DB upsert per customer
-            write_items = [
-                (acct, cust_id) for acct, cust_id in acct_to_cust.items()
-                if by_account.get(acct)
-            ]
-            for i, (acct, cid) in enumerate(write_items, 1):
-                msx_opps = by_account[acct]
-                existing_map = {
-                    opp.msx_opportunity_id: opp
-                    for opp in Opportunity.query.filter_by(customer_id=cid).all()
-                    if opp.msx_opportunity_id
-                }
-                for msx_opp in msx_opps:
-                    opp_id = msx_opp.get("id")
-                    if not opp_id:
-                        continue
-                    existing = existing_map.get(opp_id)
-                    if existing:
-                        existing.name = msx_opp.get("name") or existing.name
-                        existing.opportunity_number = (
-                            msx_opp.get("number") or existing.opportunity_number
-                        )
-                        existing.statecode = msx_opp.get("statecode")
-                        existing.state = (
-                            msx_opp.get("state") or existing.state
-                        )
-                        existing.status_reason = (
-                            msx_opp.get("status_reason")
-                            or existing.status_reason
-                        )
-                        existing.estimated_value = msx_opp.get(
-                            "estimated_value"
-                        )
-                        existing.estimated_close_date = msx_opp.get(
-                            "estimated_close_date"
-                        )
-                        existing.owner_name = (
-                            msx_opp.get("owner") or existing.owner_name
-                        )
-                        existing.msx_url = (
-                            msx_opp.get("url") or existing.msx_url
-                        )
-                        total_opps_updated += 1
-                    else:
-                        opp = Opportunity(
-                            msx_opportunity_id=opp_id,
-                            name=msx_opp.get("name", "Unknown Opportunity"),
-                            customer_id=cid,
-                            opportunity_number=msx_opp.get("number"),
-                            statecode=msx_opp.get("statecode"),
-                            state=msx_opp.get("state"),
-                            status_reason=msx_opp.get("status_reason"),
-                            estimated_value=msx_opp.get("estimated_value"),
-                            estimated_close_date=msx_opp.get(
-                                "estimated_close_date"
-                            ),
-                            owner_name=msx_opp.get("owner"),
-                            msx_url=msx_opp.get("url"),
-                        )
-                        db.session.add(opp)
-                        existing_map[opp_id] = opp
-                        total_opps_synced += 1
-
-                try:
-                    db.session.commit()
-                except Exception:
-                    db.session.rollback()
-                    logger.exception(
-                        "Error committing opportunities for customer %s", cid
-                    )
-
-                SyncStatus.update_heartbeat('milestones')
-
-            pct_end = 70
-            yield _sse_event('progress', {
-                'current': len(write_items),
-                'total': len(write_items) or 1,
-                'customer': 'Opportunities saved',
-                'status': 'ok',
-                'progress': pct_end,
-            })
-
-        yield _sse_event('opp_sync_end', {
-            'opportunities_synced': total_opps_synced,
-        })
+    yield _sse_event('progress', {
+        'current': len(opp_map),
+        'total': len(opp_map) or 1,
+        'customer': 'Opportunities saved',
+        'status': 'ok',
+        'progress': 82,
+    })
+    yield _sse_event('opp_sync_end', {
+        'opportunities_synced': total_opps_synced,
+    })
 
     # -----------------------------------------------------------------
-    # Phase 2b: Sync stale opportunities not covered by active sync
+    # Phase 3: Sync stale opportunities not covered by active sync
     # -----------------------------------------------------------------
-    yield _phase_debug('Phase 2a END / Phase 2b START: Stale opportunity milestones')
     yield _sse_event('stale_sync_start', {
         'message': 'Syncing stale opportunity milestones...',
     })
@@ -579,7 +587,7 @@ def sync_all_customer_milestones_stream(
                 'total': total_s,
                 'customer': f'Stale opps: {cust_name_s}',
                 'status': 'ok',
-                'progress': 70,
+                'progress': 82,
             })
     except StopIteration as stop:
         stale_result = stop.value
@@ -591,9 +599,8 @@ def sync_all_customer_milestones_stream(
     })
 
     # -----------------------------------------------------------------
-    # Phase 2c: Batched task sync (per-batch progress)
+    # Phase 4: Batched task sync (per-batch progress)
     # -----------------------------------------------------------------
-    yield _phase_debug('Phase 2b END / Phase 2c START: Batched task sync')
     yield _sse_event('task_sync_start', {
         'message': 'Syncing tasks for milestones...',
     })
@@ -602,13 +609,13 @@ def sync_all_customer_milestones_stream(
         while True:
             batch_num, total_batches, info, status = next(task_gen)
             SyncStatus.update_heartbeat('milestones')
-            pct = 70 + int((batch_num / max(total_batches, 1)) * 17)  # 70-87%
+            pct = 82 + int((batch_num / max(total_batches, 1)) * 10)  # 82-92%
             yield _sse_event('progress', {
                 'current': batch_num,
                 'total': total_batches,
                 'customer': info,
                 'status': status,
-                'progress': min(pct, 87),
+                'progress': min(pct, 92),
             })
     except StopIteration as stop:
         task_result = stop.value
@@ -622,24 +629,21 @@ def sync_all_customer_milestones_stream(
     })
 
     # -----------------------------------------------------------------
-    # Phase 3: Team membership update (one API call)
+    # Phase 5: Team membership update (one API call)
     # -----------------------------------------------------------------
-    yield _phase_debug('Phase 2c END / Phase 3 START: Team memberships')
     yield _sse_event('progress', {
         'current': total,
         'total': total,
         'customer': 'Updating team memberships...',
         'status': 'ok',
-        'progress': 87,
+        'progress': 92,
     })
     _update_team_memberships()
     _update_deal_team_memberships()
-    yield _phase_debug('Phase 3 END')
 
     # -----------------------------------------------------------------
     # Phase 4: Sync comments for milestones I'm on the team for
     # -----------------------------------------------------------------
-    yield _phase_debug('Phase 4 START: Comments sync')
     total_comments_synced = 0
     total_comments_failed = 0
     yield _sse_event('comment_sync_start', {
@@ -652,13 +656,13 @@ def sync_all_customer_milestones_stream(
         while True:
             current_ms, total_ms, ms_title = next(comment_gen)
             SyncStatus.update_heartbeat('milestones')
-            pct = 87 + int((current_ms / max(total_ms, 1)) * 2)  # 87-89%
+            pct = 95 + int((current_ms / max(total_ms, 1)) * 0)  # 95% (instant)
             yield _sse_event('progress', {
                 'current': current_ms,
                 'total': total_ms,
                 'customer': f'Comments: {ms_title}',
                 'status': 'ok',
-                'progress': min(pct, 89),
+                'progress': 95,
             })
     except StopIteration as stop:
         comment_result = stop.value
@@ -671,7 +675,6 @@ def sync_all_customer_milestones_stream(
         'comments_failed': total_comments_failed,
     })
 
-    yield _phase_debug('Phase 4 END / Phase 5 START: Audit trail sync')
     # Sync audit trail for recently-modified milestones
     yield _sse_event('audit_sync_start', {
         'message': 'Syncing audit trail for recently-modified milestones...',
@@ -682,7 +685,7 @@ def sync_all_customer_milestones_stream(
         while True:
             batch_done, batch_total = next(audit_gen)
             SyncStatus.update_heartbeat('milestones')
-            pct = 89 + int((batch_done / max(batch_total, 1)) * 10)  # 89-99%
+            pct = 95 + int((batch_done / max(batch_total, 1)) * 4)  # 95-99%
             yield _sse_event('progress', {
                 'current': batch_done,
                 'total': batch_total,
@@ -697,7 +700,6 @@ def sync_all_customer_milestones_stream(
         'audit_fields_saved': audit_fields_saved,
     })
 
-    yield _phase_debug('Phase 5 END: All phases complete')
     duration = round(_time.time() - start_time, 1)
     sync_success = synced > 0 or failed == 0
 
