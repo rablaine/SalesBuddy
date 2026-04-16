@@ -159,6 +159,13 @@ class TestMilestoneModel:
 class TestMilestoneSyncService:
     """Test the milestone sync service."""
     
+    @pytest.fixture(autouse=True)
+    def mock_opp_sync(self):
+        """Mock get_opportunities_by_account for all sync tests."""
+        with patch('app.services.milestone_sync.get_opportunities_by_account') as mock:
+            mock.return_value = {'success': True, 'opportunities': [], 'count': 0}
+            yield mock
+
     def _create_test_customer_with_tpid_url(self, app, sample_data):
         """Helper to ensure we have a customer with a proper MSX tpid_url."""
         with app.app_context():
@@ -1457,10 +1464,13 @@ class TestSSESync:
             assert payload['success'] is True
             assert payload['count'] == 42
 
+    @patch('app.services.milestone_sync.batch_get_opportunities')
     @patch('app.services.milestone_sync._update_team_memberships')
     @patch('app.services.milestone_sync.get_milestones_by_account')
-    def test_stream_yields_start_progress_complete(self, mock_get, mock_teams, app, sample_data):
+    def test_stream_yields_start_progress_complete(self, mock_get, mock_teams,
+                                                    mock_batch_opps, app, sample_data):
         """Streaming sync should yield start, progress, and complete events."""
+        mock_batch_opps.return_value = {'success': True, 'by_account': {}}
         import json
         # The parallel stream calls get_milestones_by_account from worker threads
         mock_get.return_value = {
@@ -2354,7 +2364,9 @@ class TestSyncTeamMilestoneComments:
 
             with patch('app.services.milestone_sync.get_milestones_by_account') as mock_get, \
                  patch('app.services.milestone_sync._update_team_memberships'), \
-                 patch('app.services.milestone_sync.get_milestone_comments') as mock_comments:
+                 patch('app.services.milestone_sync.get_milestone_comments') as mock_comments, \
+                 patch('app.services.milestone_sync.batch_get_opportunities') as mock_batch_opps:
+                mock_batch_opps.return_value = {'success': True, 'by_account': {}}
                 mock_get.return_value = {
                     'success': True,
                     'milestones': [{

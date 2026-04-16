@@ -1076,6 +1076,99 @@ def get_opportunities_by_account(
         return {"success": False, "error": str(e)}
 
 
+def batch_get_opportunities(
+    account_ids: List[str],
+    open_only: bool = True,
+    batch_size: int = 15,
+) -> Dict[str, Any]:
+    """
+    Get open opportunities for multiple accounts in batched OData queries.
+
+    Groups account IDs into batches and uses OR filters to fetch
+    opportunities for many accounts per request.
+
+    Args:
+        account_ids: List of account GUIDs.
+        open_only: If True, only return open opportunities (statecode=0).
+        batch_size: Accounts per OData query (default 15).
+
+    Returns:
+        Dict with success, and opportunities keyed by account ID.
+        {
+            "success": True,
+            "by_account": {account_id: [opp_dicts], ...},
+        }
+    """
+    by_account: Dict[str, list] = {aid: [] for aid in account_ids}
+
+    try:
+        for i in range(0, len(account_ids), batch_size):
+            batch = account_ids[i:i + batch_size]
+
+            acct_filter = " or ".join(
+                f"_parentaccountid_value eq '{aid}'" for aid in batch
+            )
+            if open_only:
+                filter_query = f"({acct_filter}) and statecode eq 0"
+            else:
+                filter_query = acct_filter
+
+            result = query_entity(
+                "opportunities",
+                select=[
+                    "opportunityid", "name", "msp_opportunitynumber",
+                    "statecode", "statuscode", "estimatedvalue",
+                    "estimatedclosedate", "_ownerid_value",
+                    "_parentaccountid_value",
+                ],
+                filter_query=filter_query,
+                order_by="name",
+                top=batch_size * 50,
+            )
+
+            if not result.get("success"):
+                logger.warning("Batch opp query failed: %s", result.get("error"))
+                continue
+
+            for raw in result.get("records", []):
+                opp_id = raw.get("opportunityid")
+                acct_id = raw.get("_parentaccountid_value")
+                if not opp_id or not acct_id:
+                    continue
+
+                state_code = raw.get("statecode")
+                state = raw.get(
+                    "statecode@OData.Community.Display.V1.FormattedValue",
+                    {0: "Open", 1: "Won", 2: "Lost"}.get(state_code, "Unknown"),
+                )
+                status_reason = raw.get(
+                    "statuscode@OData.Community.Display.V1.FormattedValue", ""
+                )
+                owner = raw.get(
+                    "_ownerid_value@OData.Community.Display.V1.FormattedValue", ""
+                )
+                opp_dict = {
+                    "id": opp_id,
+                    "name": raw.get("name", ""),
+                    "number": raw.get("msp_opportunitynumber", ""),
+                    "state": state,
+                    "statecode": state_code,
+                    "status_reason": status_reason,
+                    "estimated_value": raw.get("estimatedvalue"),
+                    "estimated_close_date": raw.get("estimatedclosedate"),
+                    "owner": owner,
+                    "url": build_opportunity_url(opp_id),
+                }
+                if acct_id in by_account:
+                    by_account[acct_id].append(opp_dict)
+
+        return {"success": True, "by_account": by_account}
+
+    except Exception as e:
+        logger.exception("Error in batch opportunity query")
+        return {"success": False, "error": str(e), "by_account": by_account}
+
+
 def build_opportunity_url(opportunity_id: str) -> str:
     """
     Build a direct MSX URL for an opportunity.
