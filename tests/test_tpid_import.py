@@ -183,10 +183,17 @@ class TestTpidImport:
                            content_type='application/json')
         assert resp.status_code == 400
 
+    @patch('app.services.milestone_sync.sync_customer_opportunities')
+    @patch('app.services.milestone_sync.sync_customer_comments')
+    @patch('app.services.milestone_sync.sync_customer_milestones')
     @patch('app.routes.admin.fetch_favicon_for_domain')
-    def test_import_creates_customer(self, mock_favicon, client, app):
+    def test_import_creates_customer(self, mock_favicon, mock_sync, mock_comments,
+                                      mock_opp_sync, client, app):
         """Should create customer with territory, seller, and favicon."""
         mock_favicon.return_value = 'base64favicondata'
+        mock_sync.return_value = {'success': True, 'created': 0, 'updated': 0}
+        mock_comments.return_value = {'success': True, 'comments_synced': 0}
+        mock_opp_sync.return_value = {'success': True, 'created': 0, 'updated': 0}
 
         account = {
             'name': 'Import Corp',
@@ -223,12 +230,21 @@ class TestTpidImport:
             # Seller should be linked to territory
             assert cust.territory in cust.seller.territories
 
+    @patch('app.services.milestone_sync.sync_customer_opportunities')
+    @patch('app.services.milestone_sync.sync_customer_comments')
+    @patch('app.services.milestone_sync.sync_customer_milestones')
     @patch('app.routes.admin.fetch_favicon_for_domain')
     def test_import_reuses_existing_territory_and_seller(self, mock_favicon,
+                                                          mock_sync,
+                                                          mock_comments,
+                                                          mock_opp_sync,
                                                           client, app,
                                                           sample_data):
         """Should reuse existing territory and seller, not create duplicates."""
         mock_favicon.return_value = None
+        mock_sync.return_value = {'success': True}
+        mock_comments.return_value = {'success': True, 'comments_synced': 0}
+        mock_opp_sync.return_value = {'success': True, 'created': 0, 'updated': 0}
 
         with app.app_context():
             from app.models import Territory, Seller
@@ -260,8 +276,13 @@ class TestTpidImport:
             assert Territory.query.count() == t_count
             assert Seller.query.count() == s_count
 
+    @patch('app.services.milestone_sync.sync_customer_opportunities')
+    @patch('app.services.milestone_sync.sync_customer_comments')
+    @patch('app.services.milestone_sync.sync_customer_milestones')
     @patch('app.routes.admin.fetch_favicon_for_domain')
-    def test_import_rejects_duplicate_tpid(self, mock_favicon, client, app,
+    def test_import_rejects_duplicate_tpid(self, mock_favicon, mock_sync,
+                                            mock_comments, mock_opp_sync,
+                                            client, app,
                                             sample_data):
         """Should return 409 if TPID already exists."""
         with app.app_context():
@@ -280,10 +301,18 @@ class TestTpidImport:
                            content_type='application/json')
         assert resp.status_code == 409
 
+    @patch('app.services.milestone_sync.sync_customer_opportunities')
+    @patch('app.services.milestone_sync.sync_customer_comments')
+    @patch('app.services.milestone_sync.sync_customer_milestones')
     @patch('app.routes.admin.fetch_favicon_for_domain')
-    def test_import_without_territory_or_seller(self, mock_favicon, client, app):
+    def test_import_without_territory_or_seller(self, mock_favicon, mock_sync,
+                                                 mock_comments, mock_opp_sync,
+                                                 client, app):
         """Should create customer even without territory/seller info."""
         mock_favicon.return_value = None
+        mock_sync.return_value = {'success': True}
+        mock_comments.return_value = {'success': True, 'comments_synced': 0}
+        mock_opp_sync.return_value = {'success': True, 'created': 0, 'updated': 0}
 
         account = {
             'name': 'Bare Corp',
@@ -309,6 +338,141 @@ class TestTpidImport:
             assert cust is not None
             assert cust.territory is None
             assert cust.seller is None
+
+    @patch('app.services.milestone_sync.sync_customer_opportunities')
+    @patch('app.services.milestone_sync.sync_customer_comments')
+    @patch('app.services.milestone_sync.sync_customer_milestones')
+    @patch('app.routes.admin.fetch_favicon_for_domain')
+    def test_import_triggers_milestone_sync(self, mock_favicon, mock_sync,
+                                             mock_comments, mock_opp_sync,
+                                             client, app):
+        """Should call milestone sync after creating a customer with tpid_url."""
+        mock_favicon.return_value = None
+        mock_sync.return_value = {
+            'success': True, 'created': 2, 'updated': 0,
+            'opportunities_created': 1, 'tasks_created': 3, 'tasks_updated': 0,
+        }
+        mock_comments.return_value = {'success': True, 'comments_synced': 2}
+        mock_opp_sync.return_value = {'success': True, 'created': 3, 'updated': 0}
+
+        account = {
+            'name': 'Sync Corp',
+            'tpid': '55555',
+            'url': 'https://msx/account/sync123',
+            'website': '',
+        }
+
+        resp = client.post('/api/customer/tpid-import',
+                           json={'account': account},
+                           content_type='application/json')
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data['success'] is True
+
+        # Sync should have been called with the new customer
+        mock_sync.assert_called_once()
+        customer_arg = mock_sync.call_args[0][0]
+        assert customer_arg.tpid == 55555
+
+        # Opportunity sync should have been called
+        mock_opp_sync.assert_called_once()
+
+        # Comments should have been called after successful milestone sync
+        mock_comments.assert_called_once()
+
+        # Sync results should be in response
+        assert data['sync']['created'] == 2
+        assert data['sync']['comments_synced'] == 2
+        assert data['sync']['opportunities_synced'] == 3
+
+    @patch('app.services.milestone_sync.sync_customer_opportunities')
+    @patch('app.services.milestone_sync.sync_customer_comments')
+    @patch('app.services.milestone_sync.sync_customer_milestones')
+    @patch('app.routes.admin.fetch_favicon_for_domain')
+    def test_import_skips_sync_without_tpid_url(self, mock_favicon, mock_sync,
+                                                  mock_comments, mock_opp_sync,
+                                                  client, app):
+        """Should skip milestone sync if customer has no tpid_url."""
+        mock_favicon.return_value = None
+
+        account = {
+            'name': 'NoUrl Corp',
+            'tpid': '44444',
+            'url': '',
+            'website': '',
+        }
+
+        resp = client.post('/api/customer/tpid-import',
+                           json={'account': account},
+                           content_type='application/json')
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data['success'] is True
+
+        # Sync should NOT have been called (no tpid_url)
+        mock_sync.assert_not_called()
+        mock_comments.assert_not_called()
+        mock_opp_sync.assert_not_called()
+
+    @patch('app.services.milestone_sync.sync_customer_opportunities')
+    @patch('app.services.milestone_sync.sync_customer_comments')
+    @patch('app.services.milestone_sync.sync_customer_milestones')
+    @patch('app.routes.admin.fetch_favicon_for_domain')
+    def test_import_succeeds_even_if_sync_fails(self, mock_favicon, mock_sync,
+                                                  mock_comments, mock_opp_sync,
+                                                  client, app):
+        """Customer import should still succeed if milestone sync fails."""
+        mock_favicon.return_value = None
+        mock_opp_sync.side_effect = Exception("MSX API down")
+
+        account = {
+            'name': 'SyncFail Corp',
+            'tpid': '33333',
+            'url': 'https://msx/account/fail123',
+            'website': '',
+        }
+
+        resp = client.post('/api/customer/tpid-import',
+                           json={'account': account},
+                           content_type='application/json')
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data['success'] is True
+        assert data['customer_name'] == 'SyncFail Corp'
+
+    @patch('app.services.milestone_sync.sync_customer_opportunities')
+    @patch('app.services.milestone_sync.sync_customer_comments')
+    @patch('app.services.milestone_sync.sync_customer_milestones')
+    @patch('app.routes.admin.fetch_favicon_for_domain')
+    def test_import_skips_comments_on_failed_sync(self, mock_favicon, mock_sync,
+                                                    mock_comments, mock_opp_sync,
+                                                    client, app):
+        """Should skip comment sync if milestone sync reports failure."""
+        mock_favicon.return_value = None
+        mock_opp_sync.return_value = {'success': True, 'created': 0, 'updated': 0}
+        mock_sync.return_value = {
+            'success': False, 'error': 'No account ID',
+            'created': 0, 'updated': 0,
+        }
+
+        account = {
+            'name': 'PartialFail Corp',
+            'tpid': '22222',
+            'url': 'https://msx/account/partial',
+            'website': '',
+        }
+
+        resp = client.post('/api/customer/tpid-import',
+                           json={'account': account},
+                           content_type='application/json')
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data['success'] is True
+
+        # Milestone sync was called but failed
+        mock_sync.assert_called_once()
+        # Comment sync should NOT have been called
+        mock_comments.assert_not_called()
 
 
 class TestTpidImportModal:

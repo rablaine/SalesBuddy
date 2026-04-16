@@ -237,11 +237,21 @@ def customer_view(id):
     opportunity_count = customer.opportunities.count()
 
     # Pass favorited opportunity IDs and pre-sort opportunities (favorites first)
-    from app.models import Favorite
+    from app.models import Favorite, Milestone
     favorited_opp_ids = {f.object_id for f in Favorite.query.filter_by(object_type='opportunity').all()}
+    opp_list = customer.opportunities.order_by(None).all()
+    opp_ids_with_milestones = {
+        row[0] for row in db.session.query(Milestone.opportunity_id).filter(
+            Milestone.opportunity_id.in_([o.id for o in opp_list]),
+        ).distinct()
+    } if opp_list else set()
     sorted_opps = sorted(
-        customer.opportunities.order_by(None).all(),
-        key=lambda o: (0 if o.id in favorited_opp_ids else 1, (o.name or '').lower())
+        opp_list,
+        key=lambda o: (
+            0 if o.id in favorited_opp_ids else 1,
+            0 if o.id in opp_ids_with_milestones else 1,
+            (o.name or '').lower(),
+        )
     )
 
     return render_template('customer_view.html', 
@@ -746,8 +756,13 @@ def api_tpid_import():
     POST JSON: result from tpid-lookup's account object.
     Creates territory, seller, and customer as needed.
     Fetches favicon for the customer's website.
+    Then syncs opportunities, milestones, tasks, and comments from MSX.
     """
     from app.routes.admin import fetch_favicon_for_domain
+    from app.services.milestone_sync import (
+        sync_customer_milestones, sync_customer_comments,
+        sync_customer_opportunities,
+    )
 
     data = request.get_json(silent=True) or {}
     account = data.get('account')
@@ -824,12 +839,45 @@ def api_tpid_import():
         db.session.commit()
         logger.info("Imported customer '%s' (TPID %s) via TPID lookup", name, tpid)
 
+        # --- Sync opportunities, milestones, tasks, and comments from MSX ---
+        sync_result = {}
+        if customer.tpid_url:
+            try:
+                # Sync opportunities first (catches opps with no milestones)
+                opp_result = sync_customer_opportunities(customer)
+                sync_result["opportunities_synced"] = opp_result.get("created", 0)
+
+                # Then sync milestones (creates more opps as parents + milestones)
+                ms_result = sync_customer_milestones(customer)
+                sync_result.update(ms_result)
+
+                # Then comments on milestones
+                if ms_result.get("success"):
+                    comment_result = sync_customer_comments(customer)
+                    sync_result["comments_synced"] = comment_result.get(
+                        "comments_synced", 0
+                    )
+                logger.info(
+                    "Post-import sync for '%s': %s", name, sync_result,
+                )
+            except Exception:
+                logger.exception(
+                    "Post-import sync failed for '%s'", name,
+                )
+
+        # Sanitize sync_result: convert any sets to lists for JSON
+        safe_sync = {
+            k: list(v) if isinstance(v, set) else v
+            for k, v in sync_result.items()
+        }
+
         return jsonify({
             "success": True,
             "customer_id": customer.id,
             "customer_name": customer.name,
             "territory_name": territory.name if territory else None,
             "seller_name": seller.name if seller else None,
+            "sync": safe_sync,
         })
 
     except Exception as e:
