@@ -43,9 +43,8 @@
         <Property Id="DESKTOPSHORTCUT" Value="1" />
         <Property Id="AUTOSTART" Value="1" />
 
-        <!-- Exit dialog: "Launch Sales Buddy" checkbox (checked by default) -->
-        <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOX" Value="1" />
-        <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT" Value="Launch Sales Buddy" />
+        <!-- Exit dialog: always launch Sales Buddy on finish (no checkbox) -->
+        <Property Id="WIXUI_EXITDIALOGOPTIONALTEXT" Value="Sales Buddy will launch when you click Finish." />
 
         <!-- Custom UI: Welcome -> License -> Options -> Progress -> Finish -->
         <UIRef Id="SalesBuddyUI" />
