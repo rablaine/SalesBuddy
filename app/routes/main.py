@@ -29,11 +29,15 @@ main_bp = Blueprint('main', __name__)
 @main_bp.route('/sw.js')
 def service_worker():
     """Serve service worker from root scope so it can control all routes."""
-    return send_from_directory(
+    response = send_from_directory(
         os.path.join(current_app.root_path, '..', 'static'),
         'sw.js',
         mimetype='application/javascript'
     )
+    # Always revalidate - service worker updates must propagate quickly
+    response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    response.headers['Service-Worker-Allowed'] = '/'
+    return response
 
 
 @main_bp.route('/manifest.json')

@@ -201,8 +201,16 @@ function Register-ProtocolHandler {
 
     try {
         New-Item -Path "$regPath\shell\open\command" -Force | Out-Null
+        # Friendly names so the browser dialog says "Sales Buddy" not "Microsoft Windows Based Script Host"
         Set-ItemProperty -Path $regPath -Name '(Default)' -Value 'URL:Sales Buddy'
         New-ItemProperty -Path $regPath -Name 'URL Protocol' -Value '' -PropertyType String -Force | Out-Null
+        New-ItemProperty -Path $regPath -Name 'FriendlyTypeName' -Value 'Sales Buddy' -PropertyType String -Force | Out-Null
+
+        # Application metadata - controls the name shown in the browser's "Open?" prompt
+        New-Item -Path "$regPath\Application" -Force | Out-Null
+        Set-ItemProperty -Path "$regPath\Application" -Name 'ApplicationName' -Value 'Sales Buddy'
+        Set-ItemProperty -Path "$regPath\Application" -Name 'ApplicationDescription' -Value 'Start the Sales Buddy server'
+
         Set-ItemProperty -Path "$regPath\shell\open\command" -Name '(Default)' -Value $command
     } catch {
         Write-Host "  [WARNING] Could not register salesbuddy:// protocol: $_" -ForegroundColor Yellow

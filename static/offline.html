@@ -90,10 +90,61 @@
 
         .fallback-hint {
             margin-top: 1.5rem;
-            font-size: 0.8rem;
-            color: #475569;
-            line-height: 1.5;
+            font-size: 0.85rem;
+            color: #94a3b8;
+            line-height: 1.6;
+            background: rgba(255,255,255,0.04);
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 8px;
+            padding: 1rem 1.25rem;
+            text-align: left;
         }
+
+        kbd {
+            display: inline-block;
+            padding: 1px 6px;
+            font-family: 'SF Mono', Monaco, Consolas, monospace;
+            font-size: 0.8em;
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-bottom-width: 2px;
+            border-radius: 4px;
+            color: #e2e8f0;
+        }
+
+        .copy-row {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            margin-top: 0.75rem;
+        }
+
+        code {
+            flex: 1;
+            font-family: 'SF Mono', Monaco, Consolas, monospace;
+            font-size: 0.85em;
+            background: #0a1322;
+            border: 1px solid #1e293b;
+            border-radius: 6px;
+            padding: 0.5rem 0.75rem;
+            color: #cbd5e1;
+            overflow-x: auto;
+            white-space: nowrap;
+        }
+
+        .copy-btn {
+            background: #1e293b;
+            color: #e2e8f0;
+            border: 1px solid #334155;
+            border-radius: 6px;
+            padding: 0.5rem 0.85rem;
+            font-size: 0.8rem;
+            cursor: pointer;
+            transition: background 0.15s;
+        }
+
+        .copy-btn:hover { background: #334155; }
+        .copy-btn.copied { background: #166534; border-color: #166534; }
     </style>
 </head>
 <body>
@@ -108,8 +159,11 @@
         <div class="status" id="status"></div>
 
         <div class="fallback-hint" id="fallbackHint" style="display:none;">
-            If nothing happened, open <strong>Sales Buddy</strong> from your Start Menu
-            or run <strong>start.bat</strong> from the install folder.
+            <strong>Didn't work?</strong> Press <kbd>Win</kbd>+<kbd>R</kbd>, paste this, and press Enter:
+            <div class="copy-row">
+                <code id="runCmd">%localappdata%\salesbuddy\start.bat</code>
+                <button type="button" class="copy-btn" id="copyBtn">Copy</button>
+            </div>
         </div>
     </div>
 
@@ -146,6 +200,21 @@
             setTimeout(function() { hintEl.style.display = 'block'; }, 4000);
             startPolling();
         });
+
+        var copyBtn = document.getElementById('copyBtn');
+        if (copyBtn) {
+            copyBtn.addEventListener('click', function() {
+                var text = document.getElementById('runCmd').textContent;
+                navigator.clipboard.writeText(text).then(function() {
+                    copyBtn.textContent = 'Copied!';
+                    copyBtn.classList.add('copied');
+                    setTimeout(function() {
+                        copyBtn.textContent = 'Copy';
+                        copyBtn.classList.remove('copied');
+                    }, 1500);
+                });
+            });
+        }
 
         // Also start polling immediately in case the server is coming back on its own
         // (e.g. auto-start task fired, or user started it manually)

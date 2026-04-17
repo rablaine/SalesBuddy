@@ -1,7 +1,7 @@
 // Sales Buddy Service Worker
 // Satisfies PWA installability and serves an offline page when the server is down.
 
-var CACHE_NAME = 'salesbuddy-offline-v1';
+var CACHE_NAME = 'salesbuddy-offline-v2';
 var OFFLINE_URL = '/static/offline.html';
 
 self.addEventListener('install', function(event) {
