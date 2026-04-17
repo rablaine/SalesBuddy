@@ -2190,3 +2190,35 @@ class U2CSnapshotItem(db.Model):
 
     def __repr__(self) -> str:
         return f'<U2CSnapshotItem {self.milestone_title} ${self.monthly_acr}>'
+
+
+# =============================================================================
+# Daily Meeting Cache
+# =============================================================================
+
+class DailyMeetingCache(db.Model):
+    """Cached WorkIQ meetings for a given date.
+
+    Pre-fetched daily at 7 AM local time (or on startup catchup) so that
+    note creation and Fill My Day never block on a live WorkIQ call for
+    the meeting list. The user can manually refresh to pick up meetings
+    added after the initial sync.
+    """
+    __tablename__ = 'daily_meeting_cache'
+
+    id = db.Column(db.Integer, primary_key=True)
+    meeting_date = db.Column(db.Date, unique=True, nullable=False, index=True)
+    meetings_json = db.Column(db.Text, nullable=False, default='[]')
+    raw_response = db.Column(db.Text, nullable=True)
+    synced_at = db.Column(db.DateTime, default=utc_now, nullable=False)
+
+    def get_meetings(self) -> list:
+        """Deserialize meetings_json into a list of meeting dicts."""
+        import json
+        try:
+            return json.loads(self.meetings_json)
+        except (json.JSONDecodeError, TypeError):
+            return []
+
+    def __repr__(self) -> str:
+        return f'<DailyMeetingCache {self.meeting_date}>'

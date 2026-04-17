@@ -3,7 +3,7 @@ Note routes for Sales Buddy.
 Handles note listing, creation, viewing, editing, and Fill My Day bulk import.
 """
 from flask import Blueprint, render_template, request, redirect, url_for, flash, g, jsonify, session
-from datetime import datetime
+from datetime import datetime, date
 import logging
 
 from app.models import db, Note, Customer, Seller, Territory, Topic, Partner, Milestone, Opportunity, MsxTask, UserPreference, NoteTemplate, NoteAttendee, SolutionEngineer, CustomerContact, PartnerContact, InternalContact
@@ -877,68 +877,150 @@ def note_retry_msx(id):
 def api_get_meetings():
     """
     Get meetings for a specific date with optional fuzzy matching.
-    
+
+    For today's date: returns cached meetings from the daily sync (instant).
+    If no cache exists yet, does a live fetch and caches the result.
+
+    For other dates: always does a live WorkIQ fetch (no caching).
+
     Query params:
         date: Date in YYYY-MM-DD format (required)
         customer_name: Customer name to fuzzy match against (optional)
-        
+
     Returns JSON:
         - meetings: List of meeting objects
         - auto_selected_index: Index of fuzzy-matched meeting (or null)
         - auto_selected_reason: Explanation of why meeting was selected
+        - from_cache: Whether the result came from the daily cache
+        - synced_at: ISO timestamp of when meetings were last synced (if cached)
     """
     from flask import jsonify
     from app.services.workiq_service import get_meetings_for_date, find_best_customer_match
-    
+    from app.services.meeting_sync import get_cached_meetings, sync_meetings_for_date
+
     date_str = request.args.get('date')
     customer_name = request.args.get('customer_name', '')
-    
+
     if not date_str:
         return jsonify({'error': 'date parameter is required'}), 400
-    
+
     # Validate date format
     try:
-        datetime.strptime(date_str, '%Y-%m-%d')
+        parsed_date = datetime.strptime(date_str, '%Y-%m-%d').date()
     except ValueError:
         return jsonify({'error': 'Invalid date format. Use YYYY-MM-DD'}), 400
-    
-    # Get meetings from WorkIQ
-    try:
-        meetings, raw_response = get_meetings_for_date(date_str)
-    except Exception as e:
-        logger.error(f"WorkIQ error: {e}")
-        return jsonify({'error': f'Failed to fetch meetings: {str(e)}'}), 500
-    
-    # Format for API response
-    formatted_meetings = []
-    for m in meetings:
-        formatted_meetings.append({
-            'id': m.get('id', ''),
-            'title': m.get('title', ''),
-            'start_time': m['start_time'].isoformat() if m.get('start_time') else None,
-            'start_time_display': m['start_time'].strftime('%I:%M %p') if m.get('start_time') else m.get('start_time_str', ''),
-            'customer': m.get('customer', ''),
-            'attendees': m.get('attendees', [])
-        })
-    
+
+    is_today = (parsed_date == date.today())
+    from_cache = False
+    synced_at = None
+
+    if is_today:
+        # Today: use daily cache if available, otherwise live fetch + cache
+        cached_meetings, synced_at = get_cached_meetings(date_str)
+        if cached_meetings is not None:
+            formatted_meetings = cached_meetings
+            from_cache = True
+        else:
+            try:
+                formatted_meetings, err = sync_meetings_for_date(date_str)
+                if err and not formatted_meetings:
+                    return jsonify({'error': f'Failed to fetch meetings: {err}'}), 500
+            except Exception as e:
+                logger.error(f"WorkIQ error: {e}")
+                return jsonify({'error': f'Failed to fetch meetings: {str(e)}'}), 500
+            _, synced_at = get_cached_meetings(date_str)
+    else:
+        # Non-today: live WorkIQ fetch, no caching
+        try:
+            meetings, raw_response = get_meetings_for_date(date_str)
+        except Exception as e:
+            logger.error(f"WorkIQ error: {e}")
+            return jsonify({'error': f'Failed to fetch meetings: {str(e)}'}), 500
+
+        formatted_meetings = []
+        for m in meetings:
+            formatted_meetings.append({
+                'id': m.get('id', ''),
+                'title': m.get('title', ''),
+                'start_time': m['start_time'].isoformat() if m.get('start_time') else None,
+                'start_time_display': m['start_time'].strftime('%I:%M %p') if m.get('start_time') else m.get('start_time_str', ''),
+                'customer': m.get('customer', ''),
+                'attendees': m.get('attendees', []),
+            })
+
     # Find best match if customer name provided
     auto_selected = None
     auto_selected_reason = None
-    
-    if customer_name and meetings:
-        match_idx = find_best_customer_match(meetings, customer_name)
+
+    if customer_name and formatted_meetings:
+        # Build dicts compatible with find_best_customer_match
+        match_dicts = []
+        for m in formatted_meetings:
+            match_dicts.append({
+                'title': m.get('title', ''),
+                'customer': m.get('customer', ''),
+            })
+        match_idx = find_best_customer_match(match_dicts, customer_name)
         if match_idx is not None:
             auto_selected = match_idx
-            matched = meetings[match_idx]
-            auto_selected_reason = f"Auto-selected: '{matched.get('customer') or matched.get('title')}' matches '{customer_name}'"
-    
+            matched = formatted_meetings[match_idx]
+            auto_selected_reason = (
+                f"Auto-selected: '{matched.get('customer') or matched.get('title')}'"
+                f" matches '{customer_name}'"
+            )
+
     return jsonify({
         'meetings': formatted_meetings,
         'auto_selected_index': auto_selected,
         'auto_selected_reason': auto_selected_reason,
         'date': date_str,
         'customer_name': customer_name,
-        'debug_raw_response': raw_response if not formatted_meetings else None,
+        'from_cache': from_cache,
+        'synced_at': synced_at.isoformat() if synced_at else None,
+    })
+
+
+@notes_bp.route('/api/meetings/refresh', methods=['POST'])
+def api_refresh_meetings():
+    """
+    Force-refresh meetings for a date from WorkIQ, replacing the cache.
+
+    Used when user wants to pick up meetings added after the daily 7 AM sync.
+
+    Request JSON:
+        - date: Date in YYYY-MM-DD format (required)
+
+    Returns JSON with the same shape as GET /api/meetings.
+    """
+    from flask import jsonify
+    from app.services.meeting_sync import sync_meetings_for_date, get_cached_meetings
+
+    data = request.get_json(silent=True) or {}
+    date_str = data.get('date') or request.args.get('date')
+
+    if not date_str:
+        return jsonify({'error': 'date parameter is required'}), 400
+
+    try:
+        datetime.strptime(date_str, '%Y-%m-%d')
+    except ValueError:
+        return jsonify({'error': 'Invalid date format. Use YYYY-MM-DD'}), 400
+
+    try:
+        meetings, err = sync_meetings_for_date(date_str)
+        if err and not meetings:
+            return jsonify({'error': f'Failed to refresh meetings: {err}'}), 500
+    except Exception as e:
+        logger.error(f"Meeting refresh error: {e}")
+        return jsonify({'error': f'Failed to refresh meetings: {str(e)}'}), 500
+
+    _, synced_at = get_cached_meetings(date_str)
+
+    return jsonify({
+        'meetings': meetings,
+        'date': date_str,
+        'from_cache': False,
+        'synced_at': synced_at.isoformat() if synced_at else None,
     })
 
 

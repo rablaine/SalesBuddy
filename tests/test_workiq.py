@@ -105,6 +105,27 @@ class TestMeetingsResponseParsing:
         assert len(meetings) == 1
         assert meetings[0]['start_time'].hour == 14
 
+    def test_parse_24_hour_time(self):
+        """Test parsing 24-hour time format (e.g. 08:00-09:00)."""
+        response = """
+| Time | Meeting Title | External Company |
+|---|---|---|
+| 08:00-09:00 | Start of day calendar block |  |
+| 10:00-11:00 | Eastwall - Technical Deep Dive | Eastwall, WakeMed |
+| 14:30-15:00 | Internal Sync |  |
+        """
+        meetings = _parse_meetings_response(response, "2026-04-17")
+
+        assert len(meetings) == 3
+        assert meetings[0]['title'] == "Start of day calendar block"
+        assert meetings[0]['start_time'].hour == 8
+        assert meetings[0]['start_time'].minute == 0
+        assert meetings[1]['title'] == "Eastwall - Technical Deep Dive"
+        assert meetings[1]['start_time'].hour == 10
+        assert meetings[1]['customer'] == "Eastwall, WakeMed"
+        assert meetings[2]['start_time'].hour == 14
+        assert meetings[2]['start_time'].minute == 30
+
 
 class TestSummaryResponseParsing:
     """Test parsing of WorkIQ summary responses."""
