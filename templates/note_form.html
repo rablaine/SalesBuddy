@@ -661,12 +661,22 @@
                     <div id="meetingAutoSelectNote" class="alert alert-info mb-3" style="display: none;">
                         <i class="bi bi-magic"></i> <span id="meetingAutoSelectReason"></span>
                     </div>
-                    
+
+                    <!-- Cache info bar with refresh button -->
+                    <div id="meetingCacheInfo" class="d-flex justify-content-between align-items-center mb-2" style="display: none !important;">
+                        <small class="text-muted">
+                            <i class="bi bi-clock-history"></i> <span id="meetingCacheSyncedAt"></span>
+                        </small>
+                        <button type="button" class="btn btn-sm btn-outline-primary" id="refreshMeetingsBtn" onclick="refreshMeetings()">
+                            <i class="bi bi-arrow-clockwise"></i> Refresh Meetings
+                        </button>
+                    </div>
+
                     <div id="meetingNoResults" class="alert alert-warning" style="display: none;">
                         <i class="bi bi-calendar-x"></i> No meetings found for this date.
                         <br><small>The calendar service occasionally returns empty results - try again.</small>
-                        <br><button type="button" class="btn btn-sm btn-warning mt-2" onclick="meetingImportModal.hide(); openMeetingImport();">
-                            <i class="bi bi-arrow-clockwise"></i> Retry
+                        <br><button type="button" class="btn btn-sm btn-warning mt-2" onclick="refreshMeetings()">
+                            <i class="bi bi-arrow-clockwise"></i> Refresh from WorkIQ
                         </button>
                     </div>
                     
@@ -5700,7 +5710,7 @@ function saveDraft() {
         var pendingSel = _pendingMeetingSelection;
         _pendingMeetingSelection = null;
         hideMeetingStatusCard();
-        showMeetingImportModalReady(pendingSel.meetings, pendingSel.autoSelectedIndex, pendingSel.autoSelectedReason);
+        showMeetingImportModalReady(pendingSel.meetings, pendingSel.autoSelectedIndex, pendingSel.autoSelectedReason, pendingSel.syncedAt);
     }
     // Apply any pending meeting import (insert content)
     if (_pendingMeetingImport) {
@@ -6464,9 +6474,21 @@ document.addEventListener('DOMContentLoaded', function() {
 // =============================================================================
 // PREFETCH MEETINGS ON PAGE LOAD
 // =============================================================================
+// Today's meetings are pre-cached by the daily meeting sync (7 AM).
+// For non-today dates, fire a background pre-fetch so the meeting list is
+// ready when the user clicks "Import Summary".
+var _isToday = false;
 (function() {
     var dateStr = document.getElementById('call_date').value;
     if (!dateStr) return;
+    // Check if the note date is today
+    var today = new Date();
+    var todayStr = today.getFullYear() + '-' +
+        String(today.getMonth() + 1).padStart(2, '0') + '-' +
+        String(today.getDate()).padStart(2, '0');
+    _isToday = (dateStr === todayStr);
+    if (_isToday) return;  // Today uses server-side daily cache, no prefetch needed
+
     _prefetchDate = dateStr;
     var url = '/api/meetings?date=' + encodeURIComponent(dateStr);
     _prefetchMeetingsPromise = fetch(url)
@@ -6860,7 +6882,8 @@ function _saveMeetingContext() {
     if (loadedMeetings.length > 0) {
         _lastMeetingContext = {
             meetings: loadedMeetings,
-            selectedIndex: selectedMeetingIndex
+            selectedIndex: selectedMeetingIndex,
+            syncedAt: (_lastMeetingContext && _lastMeetingContext.syncedAt) || null
         };
         var btn = document.getElementById('importMeetingBtn');
         btn.innerHTML = '<i class="bi bi-arrow-clockwise"></i> Import Again';
@@ -7022,7 +7045,7 @@ function applyPendingMeetingSelection() {
         var pending = _pendingMeetingSelection;
         _pendingMeetingSelection = null;
         hideMeetingStatusCard();
-        showMeetingImportModalReady(pending.meetings, pending.autoSelectedIndex, pending.autoSelectedReason);
+        showMeetingImportModalReady(pending.meetings, pending.autoSelectedIndex, pending.autoSelectedReason, pending.syncedAt);
     }
 }
 
@@ -7114,19 +7137,19 @@ function openMeetingImport() {
             _importAttendeesMode = false; // Reset if modal dismissed without selecting
         });
     }
-    
+
     // If we have cached meetings from a previous import, reuse them
     if (_lastMeetingContext) {
         loadedMeetings = _lastMeetingContext.meetings;
         var preSelect = _lastMeetingContext.selectedIndex;
-        showMeetingImportModalReady(loadedMeetings, preSelect, preSelect !== null ? 'Previously selected' : null);
+        showMeetingImportModalReady(loadedMeetings, preSelect, preSelect !== null ? 'Previously selected' : null, _lastMeetingContext.syncedAt);
         return;
     }
-    
+
     // Reset state
     selectedMeetingIndex = null;
     loadedMeetings = [];
-    
+
     // Get date and customer name
     var dateStr = document.getElementById('call_date').value;
     var customerName = '';
@@ -7135,85 +7158,97 @@ function openMeetingImport() {
         customerName = customerSelect.options[customerSelect.selectedIndex].text;
         customerName = customerName.replace(/\s*\([^)]*\)\s*$/, '').trim();
     }
-    
+
     if (!dateStr) {
         alert('Please select a date first.');
         return;
     }
-    
-    // Check if we have a usable prefetch for this date
-    var prefetch = _consumePrefetch(dateStr);
-    if (prefetch) {
-        document.getElementById('importMeetingBtn').disabled = true;
-        showMeetingStatusCard(
-            '<div class="d-flex align-items-center">' +
-            '<span class="spinner-border spinner-border-sm text-primary me-2"></span>' +
-            '<div><strong>Loading meetings...</strong><br><small class="text-muted">Pre-fetch in progress</small></div>' +
-            '</div>'
-        );
-        prefetch.then(function(cached) {
-            document.getElementById('importMeetingBtn').disabled = false;
-            hideMeetingStatusCard();
-            if (!cached || !cached.meetings) {
+
+    // Recalculate _isToday in case the date field changed since page load
+    var today = new Date();
+    var todayStr = today.getFullYear() + '-' +
+        String(today.getMonth() + 1).padStart(2, '0') + '-' +
+        String(today.getDate()).padStart(2, '0');
+    var isNoteToday = (dateStr === todayStr);
+
+    // Non-today: check if we have a usable prefetch for this date
+    if (!isNoteToday) {
+        var prefetch = _consumePrefetch(dateStr);
+        if (prefetch) {
+            document.getElementById('importMeetingBtn').disabled = true;
+            showMeetingStatusCard(
+                '<div class="d-flex align-items-center">' +
+                '<span class="spinner-border spinner-border-sm text-primary me-2"></span>' +
+                '<div><strong>Loading meetings...</strong><br><small class="text-muted">Pre-fetch in progress</small></div>' +
+                '</div>'
+            );
+            prefetch.then(function(cached) {
+                document.getElementById('importMeetingBtn').disabled = false;
+                hideMeetingStatusCard();
+                if (!cached || !cached.meetings) {
+                    showMeetingImportModalWithError('Failed to pre-fetch meetings. Try again.');
+                    return;
+                }
+                loadedMeetings = cached.meetings;
+                _lastMeetingContext = { meetings: loadedMeetings, selectedIndex: null, syncedAt: null };
+                var autoIdx = customerName ? _findBestMeetingMatch(loadedMeetings, customerName) : null;
+                var autoReason = autoIdx !== null
+                    ? "Auto-selected: '" + (loadedMeetings[autoIdx].customer || loadedMeetings[autoIdx].title) + "' matches '" + customerName + "'"
+                    : null;
+                showMeetingImportModalReady(loadedMeetings, autoIdx, autoReason, null);
+            }).catch(function() {
+                document.getElementById('importMeetingBtn').disabled = false;
+                hideMeetingStatusCard();
                 showMeetingImportModalWithError('Failed to pre-fetch meetings. Try again.');
-                return;
-            }
-            loadedMeetings = cached.meetings;
-            _lastMeetingContext = { meetings: loadedMeetings, selectedIndex: null };
-            var autoIdx = customerName ? _findBestMeetingMatch(loadedMeetings, customerName) : null;
-            var autoReason = autoIdx !== null
-                ? "Auto-selected: '" + (loadedMeetings[autoIdx].customer || loadedMeetings[autoIdx].title) + "' matches '" + customerName + "'"
-                : null;
-            showMeetingImportModalReady(loadedMeetings, autoIdx, autoReason);
-        }).catch(function() {
-            document.getElementById('importMeetingBtn').disabled = false;
-            hideMeetingStatusCard();
-            showMeetingImportModalWithError('Failed to pre-fetch meetings. Try again.');
-        });
-        return;
+            });
+            return;
+        }
     }
 
     // Show non-blocking docked status card while loading meetings
+    // Today: instant from daily cache. Non-today without prefetch: ~60s live fetch.
     document.getElementById('importMeetingBtn').disabled = true;
     showMeetingStatusCard(
         '<div class="d-flex align-items-center">' +
         '<span class="spinner-border spinner-border-sm text-primary me-2"></span>' +
-        '<div><strong>Loading meetings...</strong><br><small class="text-muted">This can take up to a minute</small></div>' +
-        '</div>'
+        '<div><strong>Loading meetings...</strong><br><small class="text-muted">' +
+        (isNoteToday ? 'Checking cache...' : 'This can take up to a minute') +
+        '</small></div></div>'
     );
-    
+
     // Fetch meetings
     _meetingAbortController = new AbortController();
     var url = '/api/meetings?date=' + encodeURIComponent(dateStr);
     if (customerName) {
         url += '&customer_name=' + encodeURIComponent(customerName);
     }
-    
+
     fetch(url, { signal: _meetingAbortController.signal })
         .then(response => response.json())
         .then(data => {
             _meetingAbortController = null;
-            
+
             if (data.error) {
                 hideMeetingStatusCard();
                 document.getElementById('importMeetingBtn').disabled = false;
                 showMeetingImportModalWithError(data.error);
                 return;
             }
-            
+
             loadedMeetings = data.meetings || [];
-            _lastMeetingContext = { meetings: loadedMeetings, selectedIndex: null };
-            
-            // Meetings loaded — hide status card
+            _lastMeetingContext = { meetings: loadedMeetings, selectedIndex: null, syncedAt: data.synced_at };
+
+            // Meetings loaded - hide status card
             hideMeetingStatusCard();
             document.getElementById('importMeetingBtn').disabled = false;
-            
+
             // If user is typing, defer the selection modal
             if (quill.hasFocus()) {
                 _pendingMeetingSelection = {
                     meetings: loadedMeetings,
                     autoSelectedIndex: data.auto_selected_index,
-                    autoSelectedReason: data.auto_selected_reason
+                    autoSelectedReason: data.auto_selected_reason,
+                    syncedAt: data.synced_at
                 };
                 var msg = loadedMeetings.length === 0
                     ? '<strong class="text-warning"><i class="bi bi-calendar-x"></i> No meetings found</strong>'
@@ -7224,7 +7259,7 @@ function openMeetingImport() {
                     '<br><button class="btn btn-sm btn-primary mt-2" onclick="applyPendingMeetingSelection()"><i class="bi bi-list-check"></i> Show Now</button></div>'
                 );
             } else {
-                showMeetingImportModalReady(loadedMeetings, data.auto_selected_index, data.auto_selected_reason);
+                showMeetingImportModalReady(loadedMeetings, data.auto_selected_index, data.auto_selected_reason, data.synced_at);
             }
         })
         .catch(error => {
@@ -7247,7 +7282,61 @@ function showMeetingError(message) {
     if (window.hideBrainrotPanel) window.hideBrainrotPanel();
 }
 
-function showMeetingImportModalReady(meetings, autoSelectedIndex, autoSelectedReason) {
+function refreshMeetings() {
+    // Force-refresh meetings from WorkIQ and update the daily cache.
+    var dateStr = document.getElementById('call_date').value;
+    if (!dateStr) return;
+
+    // Show loading state in the modal
+    document.getElementById('meetingImportContent').style.display = 'none';
+    document.getElementById('meetingImportLoading').style.display = 'block';
+    document.getElementById('meetingImportLoading').innerHTML =
+        '<div class="spinner-border text-primary" role="status"></div>' +
+        '<p class="mt-2">Refreshing meetings from WorkIQ...</p>' +
+        '<small class="text-muted">This can take up to a minute</small>';
+
+    var refreshBtn = document.getElementById('refreshMeetingsBtn');
+    if (refreshBtn) refreshBtn.disabled = true;
+
+    fetch('/api/meetings/refresh', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ date: dateStr })
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        if (refreshBtn) refreshBtn.disabled = false;
+
+        if (data.error) {
+            showMeetingImportModalWithError('Refresh failed: ' + data.error);
+            return;
+        }
+
+        loadedMeetings = data.meetings || [];
+        _lastMeetingContext = { meetings: loadedMeetings, selectedIndex: null, syncedAt: data.synced_at };
+        selectedMeetingIndex = null;
+
+        // Get customer name for auto-match
+        var customerName = '';
+        var customerSelect = document.getElementById('customer_id');
+        if (customerSelect && customerSelect.selectedIndex > 0) {
+            customerName = customerSelect.options[customerSelect.selectedIndex].text;
+            customerName = customerName.replace(/\s*\([^)]*\)\s*$/, '').trim();
+        }
+        var autoIdx = customerName ? _findBestMeetingMatch(loadedMeetings, customerName) : null;
+        var autoReason = autoIdx !== null
+            ? "Auto-selected: '" + (loadedMeetings[autoIdx].customer || loadedMeetings[autoIdx].title) + "' matches '" + customerName + "'"
+            : null;
+
+        showMeetingImportModalReady(loadedMeetings, autoIdx, autoReason, data.synced_at);
+    })
+    .catch(function(err) {
+        if (refreshBtn) refreshBtn.disabled = false;
+        showMeetingImportModalWithError('Refresh failed: ' + err.message);
+    });
+}
+
+function showMeetingImportModalReady(meetings, autoSelectedIndex, autoSelectedReason, syncedAt) {
     // Reset modal to content state (skip loading spinner)
     document.getElementById('meetingImportLoading').style.display = 'none';
     document.getElementById('meetingImportError').style.display = 'none';
@@ -7256,6 +7345,17 @@ function showMeetingImportModalReady(meetings, autoSelectedIndex, autoSelectedRe
     document.getElementById('meetingAutoSelectNote').style.display = 'none';
     document.getElementById('meetingNoResults').style.display = 'none';
     document.getElementById('importSelectedMeetingBtn').disabled = true;
+
+    // Show cache info bar
+    var cacheInfo = document.getElementById('meetingCacheInfo');
+    if (syncedAt) {
+        var syncDate = new Date(syncedAt);
+        var timeStr = syncDate.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+        document.getElementById('meetingCacheSyncedAt').textContent = 'Synced at ' + timeStr;
+        cacheInfo.style.cssText = 'display: flex !important;';
+    } else {
+        cacheInfo.style.cssText = 'display: none !important;';
+    }
     // Update button text based on mode
     var importBtn = document.getElementById('importSelectedMeetingBtn');
     importBtn.innerHTML = _importAttendeesMode

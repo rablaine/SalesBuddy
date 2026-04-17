@@ -420,7 +420,12 @@ def _parse_meetings_response(response: str, date_str: str) -> List[Dict[str, Any
     
     # Try table format first (most common from WorkIQ)
     # Look for lines that start with | and contain times
-    time_pattern = re.compile(r'(\d{1,2}:\d{2}\s*(?:AM|PM))', re.IGNORECASE)
+    # Handles both 12-hour ("10:00 AM") and 24-hour ("08:00-09:00") formats
+    time_pattern = re.compile(
+        r'(\d{1,2}:\d{2}\s*(?:AM|PM))'        # 12-hour with AM/PM
+        r'|(\d{1,2}:\d{2})(?:\s*-\s*\d{1,2}:\d{2})?',  # 24-hour, optional range
+        re.IGNORECASE
+    )
     
     # Detect column layout from header row (WorkIQ varies column order)
     # Default: time=0, title=1, company=2
@@ -466,11 +471,18 @@ def _parse_meetings_response(response: str, date_str: str) -> List[Dict[str, Any
         # Find which part has the time
         time_col = None
         time_str = None
+        time_is_24h = False
         for i, part in enumerate(parts):
             match = time_pattern.search(part)
             if match:
                 time_col = i
-                time_str = match.group(1)
+                if match.group(1):
+                    # 12-hour format (e.g. "10:00 AM")
+                    time_str = match.group(1)
+                else:
+                    # 24-hour format (e.g. "08:00" from "08:00-09:00")
+                    time_str = match.group(2)
+                    time_is_24h = True
                 break
         
         if time_str is None:
@@ -502,7 +514,10 @@ def _parse_meetings_response(response: str, date_str: str) -> List[Dict[str, Any
         
         # Parse time
         try:
-            time_obj = datetime.strptime(time_str, '%I:%M %p').time()
+            if time_is_24h:
+                time_obj = datetime.strptime(time_str.strip(), '%H:%M').time()
+            else:
+                time_obj = datetime.strptime(time_str.strip(), '%I:%M %p').time()
             date_obj = datetime.strptime(date_str, '%Y-%m-%d').date()
             meeting['start_time'] = datetime.combine(date_obj, time_obj)
         except ValueError as e:
