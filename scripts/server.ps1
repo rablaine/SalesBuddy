@@ -191,6 +191,24 @@ function Stop-Server {
     }
 }
 
+# Register salesbuddy:// URL protocol handler (idempotent, HKCU - no admin needed)
+# Allows the offline page to start the server via a browser link.
+function Register-ProtocolHandler {
+    $regPath = 'HKCU:\Software\Classes\salesbuddy'
+    $vbsPath = Join-Path $RepoRoot 'scripts\run-hidden.vbs'
+    $scriptPath = Join-Path $RepoRoot 'scripts\server.ps1'
+    $command = "wscript.exe `"$vbsPath`" `"$scriptPath`""
+
+    try {
+        New-Item -Path "$regPath\shell\open\command" -Force | Out-Null
+        Set-ItemProperty -Path $regPath -Name '(Default)' -Value 'URL:Sales Buddy'
+        New-ItemProperty -Path $regPath -Name 'URL Protocol' -Value '' -PropertyType String -Force | Out-Null
+        Set-ItemProperty -Path "$regPath\shell\open\command" -Name '(Default)' -Value $command
+    } catch {
+        Write-Host "  [WARNING] Could not register salesbuddy:// protocol: $_" -ForegroundColor Yellow
+    }
+}
+
 # Start waitress in a hidden window (no lingering console)
 function Start-Server {
     param([int]$Port)
@@ -738,6 +756,9 @@ if ($hasUpdates) {
         Write-Host "  [ERROR] Migrations failed!" -ForegroundColor Red
     }
 }
+
+# Register protocol handler (idempotent)
+Register-ProtocolHandler
 
 # Start server
 Start-Server -Port $Port

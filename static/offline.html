@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sales Buddy - Not Running</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0E1A2B;
+            color: #e0e0e0;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .container {
+            text-align: center;
+            max-width: 480px;
+            padding: 2rem;
+        }
+
+        .icon {
+            width: 96px;
+            height: 96px;
+            margin-bottom: 1.5rem;
+            opacity: 0.6;
+        }
+
+        h1 {
+            font-size: 1.5rem;
+            font-weight: 600;
+            color: #ffffff;
+            margin-bottom: 0.75rem;
+        }
+
+        .message {
+            color: #94a3b8;
+            line-height: 1.6;
+            margin-bottom: 2rem;
+        }
+
+        .start-btn {
+            display: inline-block;
+            background: #3b82f6;
+            color: #ffffff;
+            text-decoration: none;
+            padding: 0.75rem 2rem;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-weight: 500;
+            transition: background 0.15s;
+            cursor: pointer;
+            border: none;
+        }
+
+        .start-btn:hover {
+            background: #2563eb;
+        }
+
+        .status {
+            margin-top: 2rem;
+            font-size: 0.85rem;
+            color: #64748b;
+            min-height: 1.5em;
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 14px;
+            height: 14px;
+            border: 2px solid #64748b;
+            border-top-color: transparent;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            vertical-align: middle;
+            margin-right: 6px;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .status-connected {
+            color: #22c55e;
+        }
+
+        .fallback-hint {
+            margin-top: 1.5rem;
+            font-size: 0.8rem;
+            color: #475569;
+            line-height: 1.5;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <img src="/static/icon-192.png" alt="Sales Buddy" class="icon"
+             onerror="this.style.display='none'">
+        <h1>Sales Buddy isn't running</h1>
+        <p class="message">The server needs to be started before you can use the app.</p>
+
+        <a href="salesbuddy://start" class="start-btn" id="startBtn">Start Sales Buddy</a>
+
+        <div class="status" id="status"></div>
+
+        <div class="fallback-hint" id="fallbackHint" style="display:none;">
+            If nothing happened, open <strong>Sales Buddy</strong> from your Start Menu
+            or run <strong>start.bat</strong> from the install folder.
+        </div>
+    </div>
+
+    <script>
+        var statusEl = document.getElementById('status');
+        var hintEl = document.getElementById('fallbackHint');
+        var polling = false;
+        var pollTimer = null;
+
+        function checkServer() {
+            fetch('/health', { method: 'GET', cache: 'no-store' })
+                .then(function(resp) {
+                    if (resp.ok) {
+                        statusEl.innerHTML = '<span class="status-connected">Server is running. Reloading...</span>';
+                        clearInterval(pollTimer);
+                        window.location.reload();
+                    }
+                })
+                .catch(function() {
+                    // Still down, keep polling
+                });
+        }
+
+        function startPolling() {
+            if (polling) return;
+            polling = true;
+            statusEl.innerHTML = '<span class="spinner"></span> Waiting for server to start...';
+            pollTimer = setInterval(checkServer, 3000);
+        }
+
+        document.getElementById('startBtn').addEventListener('click', function() {
+            // Show fallback hint after a few seconds in case the protocol handler
+            // isn't registered (e.g. dev environment without MSI/server.ps1)
+            setTimeout(function() { hintEl.style.display = 'block'; }, 4000);
+            startPolling();
+        });
+
+        // Also start polling immediately in case the server is coming back on its own
+        // (e.g. auto-start task fired, or user started it manually)
+        startPolling();
+    </script>
+</body>
+</html>
