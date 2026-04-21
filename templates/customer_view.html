@@ -804,22 +804,121 @@ function cancelContactEdit() {
 function addContactEditRow() {
     editRowCounter++;
     const container = document.getElementById('contactsNewRows');
+    const rowId = editRowCounter;
     const div = document.createElement('div');
     div.className = 'card mb-2 border-primary';
-    div.id = 'contact-new-' + editRowCounter;
+    div.id = 'contact-new-' + rowId;
     div.innerHTML = `
-        <div class="card-body py-2 px-3">
+        <div class="card-body py-2 px-3" data-state="editing">
             <div class="d-flex justify-content-between align-items-start mb-1">
                 <strong class="small"><i class="bi bi-person-circle me-1"></i>New Contact</strong>
                 <button class="btn btn-sm btn-outline-danger py-0 px-1" onclick="this.closest('.card').remove()" title="Remove"><i class="bi bi-trash" style="font-size:0.75rem;"></i></button>
             </div>
             <div class="mb-1"><input type="text" class="form-control form-control-sm" data-field="name" placeholder="Name *"></div>
             <div class="mb-1"><input type="text" class="form-control form-control-sm" data-field="title" placeholder="Title"></div>
-            <div><input type="email" class="form-control form-control-sm" data-field="email" placeholder="Email"></div>
+            <div class="mb-2"><input type="email" class="form-control form-control-sm" data-field="email" placeholder="Email"></div>
+            <div class="d-flex gap-2">
+                <button type="button" class="btn btn-sm btn-primary flex-grow-1" onclick="saveNewContactRow(${rowId})">
+                    <i class="bi bi-check-lg"></i> Save
+                </button>
+                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="this.closest('.card').remove()" title="Cancel">
+                    <i class="bi bi-x"></i>
+                </button>
+            </div>
         </div>
     `;
     container.appendChild(div);
-    div.querySelector('[data-field="name"]').focus();
+    const nameInput = div.querySelector('[data-field="name"]');
+    nameInput.focus();
+    // Enter in any input saves
+    div.querySelectorAll('input').forEach(function(inp) {
+        inp.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') { e.preventDefault(); saveNewContactRow(rowId); }
+        });
+    });
+}
+
+// POST a new contact immediately so it gets a real id and a clickable avatar slot
+// without requiring the user to click "Save Changes" first.
+function saveNewContactRow(rowId) {
+    const customerId = {{ customer.id }};
+    const card = document.getElementById('contact-new-' + rowId);
+    if (!card) return;
+    const nameInput = card.querySelector('[data-field="name"]');
+    const titleInput = card.querySelector('[data-field="title"]');
+    const emailInput = card.querySelector('[data-field="email"]');
+    const name = nameInput.value.trim();
+    if (!name) { nameInput.classList.add('is-invalid'); nameInput.focus(); return; }
+    nameInput.classList.remove('is-invalid');
+
+    const saveBtn = card.querySelector('.btn-primary');
+    saveBtn.disabled = true;
+    const originalHtml = saveBtn.innerHTML;
+    saveBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+
+    fetch('/api/customer/' + customerId + '/contacts', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            name: name,
+            title: titleInput.value.trim(),
+            email: emailInput.value.trim()
+        })
+    })
+    .then(function(r) { return r.json().then(function(d) { return { ok: r.ok, data: d }; }); })
+    .then(function(res) {
+        if (!res.ok) {
+            saveBtn.disabled = false;
+            saveBtn.innerHTML = originalHtml;
+            nameInput.classList.add('is-invalid');
+            return;
+        }
+        renderSavedNewContact(card, res.data);
+    })
+    .catch(function() {
+        saveBtn.disabled = false;
+        saveBtn.innerHTML = originalHtml;
+    });
+}
+
+// Replace the new-row editing card with a display card matching the read-only
+// contact list, including a clickable avatar wrap.
+function renderSavedNewContact(card, c) {
+    const safeName = _escContactHtml(c.name || '');
+    const safeTitle = c.title ? _escContactHtml(c.title) : '';
+    const safeEmail = c.email ? _escContactHtml(c.email) : '';
+    const emailHtml = safeEmail
+        ? '<div class="text-muted small">' + safeEmail + '</div>'
+        : '';
+    const titleHtml = safeTitle
+        ? '<div class="text-muted small">' + safeTitle + '</div>'
+        : '';
+    const nameHtml = safeEmail
+        ? '<a href="mailto:' + safeEmail + '" class="text-decoration-none fw-semibold">' + safeName + '</a>'
+        : '<span class="fw-semibold">' + safeName + '</span>';
+
+    card.className = 'card mb-2';
+    card.innerHTML =
+        '<div class="card-body py-2 px-3">' +
+            '<div class="d-flex align-items-center gap-2">' +
+                '<div class="contact-photo-wrap" data-contact-id="' + c.id + '" data-contact-type="customer" ' +
+                     'onclick="openContactPhotoModal(this)" title="Click to add/view photo" ' +
+                     'style="width: 48px; height: 48px; min-width: 48px; border-radius: 50%; overflow: hidden; cursor: pointer; background: var(--sb-border); display: flex; align-items: center; justify-content: center;">' +
+                    '<i class="bi bi-person-circle text-muted" style="font-size: 1.5rem;"></i>' +
+                '</div>' +
+                '<div class="flex-grow-1">' +
+                    '<div>' + nameHtml + '</div>' +
+                    titleHtml +
+                    emailHtml +
+                '</div>' +
+            '</div>' +
+        '</div>';
+}
+
+function _escContactHtml(s) {
+    var d = document.createElement('div');
+    d.textContent = s;
+    return d.innerHTML;
 }
 
 function deleteContactEdit(id) {
@@ -855,9 +954,12 @@ async function saveAllContacts() {
     }
 
     // Create new contacts
+    // (rows that have already been saved per-row no longer have a name input)
     const newRows = document.querySelectorAll('#contactsNewRows > div');
     for (const row of newRows) {
-        const name = row.querySelector('[data-field="name"]').value.trim();
+        const nameField = row.querySelector('[data-field="name"]');
+        if (!nameField) continue;
+        const name = nameField.value.trim();
         if (!name) continue;
         const data = {
             name: name,
