@@ -289,6 +289,7 @@ def notes_list():
         notes=pagination.items,
         pagination=pagination,
         filter_type=filter_type,
+        per_page=per_page,
     )
 
 

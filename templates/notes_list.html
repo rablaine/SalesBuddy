@@ -6,10 +6,18 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
     <h1 class="mb-0"><i class="bi bi-journal-text"></i> Notes</h1>
-    <div class="btn-group" role="group" aria-label="Filter notes">
-        <a href="{{ url_for('notes.notes_list') }}" class="btn btn-sm {% if not filter_type %}btn-primary{% else %}btn-outline-primary{% endif %}">All</a>
-        <a href="{{ url_for('notes.notes_list', filter='customer') }}" class="btn btn-sm {% if filter_type == 'customer' %}btn-primary{% else %}btn-outline-primary{% endif %}">Customer</a>
-        <a href="{{ url_for('notes.notes_list', filter='general') }}" class="btn btn-sm {% if filter_type == 'general' %}btn-primary{% else %}btn-outline-primary{% endif %}">General</a>
+    <div class="d-flex align-items-center gap-2">
+        <label for="perPageSelect" class="form-label mb-0 small text-muted">Per page</label>
+        <select id="perPageSelect" class="form-select form-select-sm" style="width: auto;">
+            {% for opt in [25, 50, 100, 200] %}
+                <option value="{{ opt }}" {% if per_page == opt %}selected{% endif %}>{{ opt }}</option>
+            {% endfor %}
+        </select>
+        <div class="btn-group" role="group" aria-label="Filter notes">
+            <a href="{{ url_for('notes.notes_list') }}" class="btn btn-sm {% if not filter_type %}btn-primary{% else %}btn-outline-primary{% endif %}">All</a>
+            <a href="{{ url_for('notes.notes_list', filter='customer') }}" class="btn btn-sm {% if filter_type == 'customer' %}btn-primary{% else %}btn-outline-primary{% endif %}">Customer</a>
+            <a href="{{ url_for('notes.notes_list', filter='general') }}" class="btn btn-sm {% if filter_type == 'general' %}btn-primary{% else %}btn-outline-primary{% endif %}">General</a>
+        </div>
     </div>
 </div>
 
@@ -96,24 +104,57 @@
             </small>
             <ul class="pagination pagination-sm mb-0">
                 <li class="page-item {% if not pagination.has_prev %}disabled{% endif %}">
-                    <a class="page-link" href="{{ url_for('notes.notes_list', filter=filter_type or None, page=pagination.prev_num) }}">&laquo; Prev</a>
+                    <a class="page-link" href="{{ url_for('notes.notes_list', filter=filter_type or None, per_page=per_page, page=pagination.prev_num) }}">&laquo; Prev</a>
                 </li>
                 {% for p in pagination.iter_pages(left_edge=1, left_current=2, right_current=2, right_edge=1) %}
                     {% if p %}
                         <li class="page-item {% if p == pagination.page %}active{% endif %}">
-                            <a class="page-link" href="{{ url_for('notes.notes_list', filter=filter_type or None, page=p) }}">{{ p }}</a>
+                            <a class="page-link" href="{{ url_for('notes.notes_list', filter=filter_type or None, per_page=per_page, page=p) }}">{{ p }}</a>
                         </li>
                     {% else %}
                         <li class="page-item disabled"><span class="page-link">&hellip;</span></li>
                     {% endif %}
                 {% endfor %}
                 <li class="page-item {% if not pagination.has_next %}disabled{% endif %}">
-                    <a class="page-link" href="{{ url_for('notes.notes_list', filter=filter_type or None, page=pagination.next_num) }}">Next &raquo;</a>
+                    <a class="page-link" href="{{ url_for('notes.notes_list', filter=filter_type or None, per_page=per_page, page=pagination.next_num) }}">Next &raquo;</a>
                 </li>
             </ul>
         </div>
     </nav>
 {% endif %}
+
+<script>
+(function () {
+    var STORAGE_KEY = 'notesList.perPage';
+    var select = document.getElementById('perPageSelect');
+    if (!select) return;
+
+    var url = new URL(window.location.href);
+    var urlPerPage = url.searchParams.get('per_page');
+    var savedPerPage = localStorage.getItem(STORAGE_KEY);
+
+    // If the URL has no per_page but localStorage has a saved choice that
+    // differs from the current rendered value, redirect once to apply it.
+    if (!urlPerPage && savedPerPage && savedPerPage !== select.value) {
+        url.searchParams.set('per_page', savedPerPage);
+        url.searchParams.delete('page');
+        window.location.replace(url.toString());
+        return;
+    }
+
+    // Persist the rendered value so it survives refresh on links from other pages.
+    localStorage.setItem(STORAGE_KEY, select.value);
+
+    select.addEventListener('change', function () {
+        var newPerPage = select.value;
+        localStorage.setItem(STORAGE_KEY, newPerPage);
+        var u = new URL(window.location.href);
+        u.searchParams.set('per_page', newPerPage);
+        u.searchParams.delete('page');
+        window.location.href = u.toString();
+    });
+})();
+</script>
 {% endblock %}
 
 
