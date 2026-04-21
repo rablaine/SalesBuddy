@@ -9,7 +9,7 @@ import logging
 from app.models import db, Note, Customer, Seller, Territory, Topic, Partner, Milestone, Opportunity, MsxTask, UserPreference, NoteTemplate, NoteAttendee, SolutionEngineer, CustomerContact, PartnerContact, InternalContact
 from app.services.msx_api import TASK_CATEGORIES, add_user_to_milestone_team
 from app.services.seller_mode import get_seller_mode_seller_id as _get_seller_mode_seller_id
-from app.services.backup import backup_customer as _backup_customer
+from app.services.backup import schedule_customer_backup as _schedule_customer_backup
 from app.services.milestone_tracking import track_note_on_milestones
 
 logger = logging.getLogger(__name__)
@@ -419,12 +419,9 @@ def note_create():
 
         db.session.commit()
 
-        # Back up this customer's notes
+        # Back up this customer's notes (async, debounced - never blocks save)
         if note.customer_id:
-            try:
-                _backup_customer(note.customer_id)
-            except Exception:
-                logger.debug("Backup skipped", exc_info=True)
+            _schedule_customer_backup(note.customer_id)
         
         flash('Note created successfully!', 'success')
         
@@ -759,12 +756,9 @@ def note_edit(id):
 
         db.session.commit()
 
-        # Back up this customer's notes
+        # Back up this customer's notes (async, debounced - never blocks save)
         if note.customer_id:
-            try:
-                _backup_customer(note.customer_id)
-            except Exception:
-                logger.debug("Backup skipped", exc_info=True)
+            _schedule_customer_backup(note.customer_id)
         
         flash('Note updated successfully!', 'success')
 
@@ -840,11 +834,8 @@ def note_delete(id):
     db.session.delete(note)
     db.session.commit()
 
-    # Back up this customer's notes (reflects the deletion)
-    try:
-        _backup_customer(customer_id)
-    except Exception:
-        logger.debug("Backup skipped", exc_info=True)
+    # Back up this customer's notes (async, debounced - reflects the deletion)
+    _schedule_customer_backup(customer_id)
     
     flash('Note deleted successfully.', 'success')
     

@@ -24,6 +24,7 @@ import logging
 import os
 import re
 import sys
+import threading
 import winreg
 from datetime import datetime, timezone
 from pathlib import Path
@@ -651,6 +652,76 @@ def backup_customer(customer_id: int) -> bool:
     except Exception:
         logger.exception("Failed to write backup for customer %d", customer_id)
         return False
+
+
+# ── Async / debounced backup scheduler ───────────────────────────────────────
+#
+# Customer backups can be expensive: serializing every note, engagement,
+# partner and contact, then writing the JSON into a OneDrive-synced folder
+# that may stall on cloud sync. Running this on the request thread can make
+# note saves take 20-60 seconds.
+#
+# `schedule_customer_backup` runs the backup on a daemon thread and debounces
+# rapid edits to the same customer so we only write once per quiet window.
+
+_BACKUP_DEBOUNCE_SECONDS = 5.0
+_pending_backups: Dict[int, threading.Timer] = {}
+_pending_backups_lock = threading.Lock()
+
+
+def _run_scheduled_backup(customer_id: int, app) -> None:
+    """Timer callback: pop the pending entry and run the backup in app context."""
+    with _pending_backups_lock:
+        _pending_backups.pop(customer_id, None)
+    try:
+        with app.app_context():
+            backup_customer(customer_id)
+    except Exception:
+        logger.exception("Async backup failed for customer %d", customer_id)
+
+
+def schedule_customer_backup(customer_id: Optional[int], app=None) -> None:
+    """Schedule a debounced async backup for a customer.
+
+    Returns immediately. The actual backup runs on a background daemon
+    thread after a short quiet window, so multiple rapid edits coalesce
+    into a single backup write.
+
+    Args:
+        customer_id: Customer to back up. ``None`` is a no-op.
+        app: Flask app instance (optional). If omitted, uses ``current_app``.
+    """
+    if not customer_id:
+        return
+
+    if app is None:
+        try:
+            from flask import current_app
+            app = current_app._get_current_object()
+        except RuntimeError:
+            logger.debug("schedule_customer_backup called outside app context", exc_info=True)
+            return
+
+    # In tests, run synchronously so assertions can check the file immediately.
+    if app.config.get('TESTING'):
+        try:
+            backup_customer(customer_id)
+        except Exception:
+            logger.exception("Backup failed for customer %d", customer_id)
+        return
+
+    with _pending_backups_lock:
+        existing = _pending_backups.get(customer_id)
+        if existing is not None:
+            existing.cancel()
+        timer = threading.Timer(
+            _BACKUP_DEBOUNCE_SECONDS,
+            _run_scheduled_backup,
+            args=(customer_id, app),
+        )
+        timer.daemon = True
+        _pending_backups[customer_id] = timer
+        timer.start()
 
 
 def backup_all_customers() -> Dict[str, int]:

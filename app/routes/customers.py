@@ -10,7 +10,7 @@ from sqlalchemy import func, or_
 
 from app.models import (db, Customer, CustomerCSAM, CustomerContact, Seller,
                         Territory, Note, UserPreference)
-from app.services.backup import backup_customer as _backup_customer
+from app.services.backup import schedule_customer_backup as _schedule_customer_backup
 from app.services.seller_mode import get_seller_mode_seller_id
 
 logger = logging.getLogger(__name__)
@@ -327,11 +327,8 @@ def customer_edit(id):
 
         db.session.commit()
 
-        # Trigger backup to include updated customer data in OneDrive JSON
-        try:
-            _backup_customer(customer.id)
-        except Exception:
-            pass  # Backup failure should not block customer edit
+        # Trigger backup to include updated customer data in OneDrive JSON (async)
+        _schedule_customer_backup(customer.id)
         
         flash(f'Customer "{name}" updated successfully!', 'success')
         return redirect(url_for('customers.customer_view', id=customer.id))
@@ -409,11 +406,8 @@ def customer_update_overview(id):
     
     db.session.commit()
 
-    # Trigger backup to include updated context in OneDrive JSON
-    try:
-        _backup_customer(customer.id)
-    except Exception:
-        pass  # Backup failure should not block save
+    # Trigger backup to include updated context in OneDrive JSON (async)
+    _schedule_customer_backup(customer.id)
     
     # Check if AJAX request
     if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
