@@ -253,29 +253,44 @@ def _handle_opportunity(note):
 
 @notes_bp.route('/notes')
 def notes_list():
-    """List all notes (FR010)."""
+    """List all notes (FR010), paginated for performance."""
     filter_type = request.args.get('filter', '')
-    
+    page = max(1, request.args.get('page', 1, type=int))
+    per_page = min(200, max(10, request.args.get('per_page', 50, type=int)))
+
+    # selectinload for to-many relationships avoids the cartesian-product
+    # explosion that joinedload causes when stacked.
     query = Note.query.options(
-        db.joinedload(Note.customer).joinedload(Customer.seller),
-        db.joinedload(Note.customer).joinedload(Customer.territory),
-        db.joinedload(Note.topics),
-        db.joinedload(Note.partners),
-        db.joinedload(Note.engagements)
+        db.joinedload(Note.customer).options(
+            db.joinedload(Customer.seller),
+            db.joinedload(Customer.territory),
+        ),
+        db.selectinload(Note.topics),
+        db.selectinload(Note.partners),
+        db.selectinload(Note.engagements),
+        db.selectinload(Note.opportunities),
     )
-    
+
     # Seller mode scoping
     seller_mode_seller_id = _get_seller_mode_seller_id()
     if seller_mode_seller_id:
         query = query.join(Note.customer).filter(Customer.seller_id == seller_mode_seller_id)
-    
+
     if filter_type == 'customer':
         query = query.filter(Note.customer_id.isnot(None))
     elif filter_type == 'general':
         query = query.filter(Note.customer_id.is_(None))
-    
-    notes = query.order_by(Note.call_date.desc()).all()
-    return render_template('notes_list.html', notes=notes, filter_type=filter_type)
+
+    pagination = query.order_by(Note.call_date.desc()).paginate(
+        page=page, per_page=per_page, error_out=False
+    )
+    return render_template(
+        'notes_list.html',
+        notes=pagination.items,
+        pagination=pagination,
+        filter_type=filter_type,
+        per_page=per_page,
+    )
 
 
 @notes_bp.route('/note/new', methods=['GET', 'POST'])
