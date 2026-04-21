@@ -86,6 +86,34 @@
         <i class="bi bi-info-circle"></i> No notes yet. <button type="button" class="btn btn-link p-0" data-bs-toggle="modal" data-bs-target="#quickNoteModal">Create your first note</button>!
     </div>
 {% endif %}
+
+{% if pagination and pagination.pages > 1 %}
+    <nav aria-label="Notes pagination" class="mt-4">
+        <div class="d-flex justify-content-between align-items-center">
+            <small class="text-muted">
+                Showing {{ (pagination.page - 1) * pagination.per_page + 1 }}-{{ (pagination.page - 1) * pagination.per_page + notes|length }}
+                of {{ pagination.total }} notes
+            </small>
+            <ul class="pagination pagination-sm mb-0">
+                <li class="page-item {% if not pagination.has_prev %}disabled{% endif %}">
+                    <a class="page-link" href="{{ url_for('notes.notes_list', filter=filter_type or None, page=pagination.prev_num) }}">&laquo; Prev</a>
+                </li>
+                {% for p in pagination.iter_pages(left_edge=1, left_current=2, right_current=2, right_edge=1) %}
+                    {% if p %}
+                        <li class="page-item {% if p == pagination.page %}active{% endif %}">
+                            <a class="page-link" href="{{ url_for('notes.notes_list', filter=filter_type or None, page=p) }}">{{ p }}</a>
+                        </li>
+                    {% else %}
+                        <li class="page-item disabled"><span class="page-link">&hellip;</span></li>
+                    {% endif %}
+                {% endfor %}
+                <li class="page-item {% if not pagination.has_next %}disabled{% endif %}">
+                    <a class="page-link" href="{{ url_for('notes.notes_list', filter=filter_type or None, page=pagination.next_num) }}">Next &raquo;</a>
+                </li>
+            </ul>
+        </div>
+    </nav>
+{% endif %}
 {% endblock %}
 
 
