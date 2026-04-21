@@ -4004,6 +4004,43 @@ function saveFlyoutGhost(id) {
     if (!name) { document.getElementById('fgName' + id).classList.add('is-invalid'); return; }
     var title = document.getElementById('fgTitle' + id).value.trim();
     var email = document.getElementById('fgEmail' + id).value.trim();
+
+    // If editing an existing partner, POST the contact now so it gets a real id
+    // (and therefore a clickable avatar) without needing the parent "Save Changes".
+    if (_flyoutEditPartnerId) {
+        var btn = document.querySelector('#flyoutGhost-' + id + ' .btn-primary');
+        if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>'; }
+        fetch('/api/partner/' + _flyoutEditPartnerId + '/contacts', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: name, title: title, email: email })
+        })
+        .then(function(r) { return r.json().then(function(d) { return { ok: r.ok, data: d }; }); })
+        .then(function(res) {
+            if (!res.ok) {
+                if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-check-lg"></i> Save'; }
+                document.getElementById('fgName' + id).classList.add('is-invalid');
+                return;
+            }
+            flyoutContacts.push({
+                id: res.data.id,
+                name: res.data.name,
+                title: res.data.title || '',
+                email: res.data.email || ''
+            });
+            renderFlyoutContacts();
+            // Update clean state so this immediate-save isn't seen as "dirty"
+            _flyoutCleanState = _getFlyoutState();
+            var ghost = document.getElementById('flyoutGhost-' + id);
+            if (ghost) ghost.remove();
+        })
+        .catch(function() {
+            if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-check-lg"></i> Save'; }
+        });
+        return;
+    }
+
+    // New partner (not yet saved): keep client-side only; id assigned on partner create
     flyoutContacts.push({ name: name, title: title, email: email });
     renderFlyoutContacts();
     var ghost = document.getElementById('flyoutGhost-' + id);
