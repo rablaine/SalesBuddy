@@ -42,6 +42,35 @@ def create_app():
     
     # Initialize extensions with app
     db.init_app(app)
+
+    # Configure SQLite for concurrent access:
+    # - WAL mode lets readers and writers proceed in parallel (background backup
+    #   thread no longer blocks user saves/deletes)
+    # - busy_timeout gives the engine 10s to wait out a competing writer instead
+    #   of immediately failing with "database is locked"
+    if db_url.startswith('sqlite'):
+        from sqlalchemy import event, text
+
+        with app.app_context():
+            engine = db.engine
+
+            @event.listens_for(engine, 'connect')
+            def _set_sqlite_pragmas(dbapi_conn, _conn_record):
+                cur = dbapi_conn.cursor()
+                try:
+                    cur.execute('PRAGMA journal_mode=WAL')
+                    cur.execute('PRAGMA busy_timeout=10000')
+                    cur.execute('PRAGMA synchronous=NORMAL')
+                finally:
+                    cur.close()
+
+            # Apply pragmas to the already-open connection (the listener
+            # only fires on subsequent new connections).
+            with engine.connect() as conn:
+                conn.execute(text('PRAGMA journal_mode=WAL'))
+                conn.execute(text('PRAGMA busy_timeout=10000'))
+                conn.execute(text('PRAGMA synchronous=NORMAL'))
+                conn.commit()
     
     # Import models to register them with SQLAlchemy
     from app import models

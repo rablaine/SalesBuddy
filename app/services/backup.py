@@ -642,6 +642,14 @@ def backup_customer(customer_id: int) -> bool:
     try:
         Path(folder).mkdir(parents=True, exist_ok=True)
         data = _customer_to_dict(customer)
+        # Release the SQLite read transaction BEFORE the slow JSON dump and
+        # OneDrive file write. Otherwise we hold a SHARED lock for seconds,
+        # which (without WAL) blocks user-facing saves/deletes and can cause
+        # 500s with "database is locked".
+        try:
+            db.session.close()
+        except Exception:
+            pass
         # Atomic-ish write: write to temp file then rename
         tmp_path = filepath + ".tmp"
         with open(tmp_path, "w", encoding="utf-8") as f:
