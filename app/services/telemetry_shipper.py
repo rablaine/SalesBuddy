@@ -18,11 +18,22 @@ Sent (per request):
     - response_time_ms
     - is_api       (bool)
 
+Sent (per WorkIQ failure):
+    - instance_id, app_version
+    - operation     (e.g. "query", "meeting_summary", "meeting_list",
+                     "attendee_scrape")
+    - failure_type  (taxonomy: "npx_missing", "subprocess_timeout",
+                     "nonzero_exit", "eula_failed", "server_error",
+                     "planning_narration", "refusal", "too_short", "empty",
+                     "json_parse_failed")
+    - duration_ms   (optional, rounded)
+
 NOT sent (ever):
     - IP addresses, usernames, email addresses, session tokens
-    - Customer names, TPID, or any business data
+    - Customer names, TPID, meeting titles, or any business data
     - Full endpoint paths (only the feature category)
     - User-agent strings
+    - Raw stderr / stdout from WorkIQ (only the failure_type bucket)
 
 **Opt-out:**
     Set the environment variable ``SALESBUDDY_TELEMETRY_OPT_OUT=true`` to
@@ -227,6 +238,81 @@ def queue_event(
         _stats['events_queued'] += 1
 
     # If buffer is getting large, flush early in a background thread
+    if len(_buffer) >= MAX_BUFFER_SIZE:
+        threading.Thread(target=flush_buffer, daemon=True).start()
+
+
+# Allowed WorkIQ failure_type values. Anything outside this set is rejected
+# so we don't accidentally leak free-form error text into telemetry.
+_WORKIQ_FAILURE_TYPES = frozenset({
+    'npx_missing',
+    'subprocess_timeout',
+    'nonzero_exit',
+    'eula_failed',
+    'server_error',
+    'planning_narration',
+    'refusal',
+    'too_short',
+    'empty',
+    'json_parse_failed',
+})
+
+# Allowed WorkIQ operation values.
+_WORKIQ_OPERATIONS = frozenset({
+    'query',
+    'meeting_summary',
+    'meeting_list',
+    'attendee_scrape',
+})
+
+
+def queue_workiq_failure(
+    operation: str,
+    failure_type: str,
+    duration_ms: Optional[float] = None,
+) -> None:
+    """Record a WorkIQ failure as a custom telemetry event.
+
+    Emits ``SalesBuddy.WorkIQFailure`` with anonymous instance/app metadata
+    plus a small fixed taxonomy of operation and failure_type. No raw
+    error text, meeting titles, or stderr is included.
+
+    Args:
+        operation: One of ``query``, ``meeting_summary``, ``meeting_list``.
+        failure_type: One of the values in :data:`_WORKIQ_FAILURE_TYPES`.
+        duration_ms: Optional elapsed time before the failure was detected.
+    """
+    if not is_telemetry_enabled():
+        return
+
+    # Defensive: reject anything outside the known taxonomy so a future
+    # caller can't accidentally ship free-form text.
+    if operation not in _WORKIQ_OPERATIONS:
+        operation = 'query'
+    if failure_type not in _WORKIQ_FAILURE_TYPES:
+        failure_type = 'nonzero_exit'
+
+    measurements: dict[str, float] = {'count': 1.0}
+    if duration_ms is not None:
+        measurements['duration_ms'] = round(float(duration_ms), 1)
+
+    envelope = _build_custom_event(
+        name='SalesBuddy.WorkIQFailure',
+        properties={
+            'instance_id': _instance_id or get_instance_id(),
+            'app_version': _app_version,
+            'operation': operation,
+            'failure_type': failure_type,
+        },
+        measurements=measurements,
+    )
+
+    with _buffer_lock:
+        _buffer.append(envelope)
+
+    with _stats_lock:
+        _stats['events_queued'] += 1
+
     if len(_buffer) >= MAX_BUFFER_SIZE:
         threading.Thread(target=flush_buffer, daemon=True).start()
 

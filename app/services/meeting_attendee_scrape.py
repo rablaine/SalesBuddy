@@ -38,7 +38,8 @@ def scrape_meeting_attendees(
     question = _build_attendee_prompt(meeting_title, meeting_date)
 
     try:
-        raw_response = query_workiq(question, timeout=180)
+        raw_response = query_workiq(question, timeout=180,
+                                    operation='attendee_scrape')
     except Exception as e:
         logger.error(f"WorkIQ attendee query failed: {e}")
         raise
@@ -97,6 +98,11 @@ def _parse_response(raw: str) -> List[Dict[str, str]]:
         return data.get("attendees", [])
     except json.JSONDecodeError as e:
         logger.warning(f"Failed to parse WorkIQ attendee JSON: {e}")
+        try:
+            from app.services.telemetry_shipper import queue_workiq_failure
+            queue_workiq_failure('attendee_scrape', 'json_parse_failed')
+        except Exception:
+            pass
         return []
 
 
