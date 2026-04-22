@@ -16,6 +16,12 @@ from difflib import SequenceMatcher
 logger = logging.getLogger(__name__)
 
 
+# Matches CSI ANSI escape sequences (e.g. `\x1b[90m`, `\x1b[0m`).
+# WorkIQ emits these on Windows even when piped through subprocess, and
+# they break every JSON parser downstream. Strip once at the boundary.
+_ANSI_ESCAPE_RE = re.compile(r'\x1b\[[0-9;]*[A-Za-z]')
+
+
 def _record_workiq_failure(operation: str, failure_type: str,
                            duration_ms: Optional[float] = None) -> None:
     """Best-effort: emit a WorkIQ failure telemetry event.
@@ -364,8 +370,16 @@ def query_workiq(question: str, timeout: int = 120,
         
         logger.info(f"WorkIQ response received ({len(result.stdout)} chars)")
 
+        # Strip ANSI color escape sequences. WorkIQ wraps every line of its
+        # output in `\x1b[90m...\x1b[0m` (gray) when it thinks it's writing
+        # to a TTY -- which it does even under subprocess on Windows when
+        # invoked through `powershell -Command`. These escapes are invisible
+        # in the terminal but break every JSON parser downstream because
+        # the literal bytes `[90m` look like the start of a JSON array.
+        stdout = _ANSI_ESCAPE_RE.sub('', result.stdout)
+
         # Detect WorkIQ server errors returned as stdout with exit code 0
-        output = result.stdout.strip()
+        output = stdout.strip()
         if output.startswith('Error:') or 'Server error:' in output:
             logger.error(f"WorkIQ returned a server error: {output[:200]}")
             _record_workiq_failure(operation, 'server_error',
@@ -375,7 +389,7 @@ def query_workiq(question: str, timeout: int = 120,
                 "won't help - try again later."
             )
 
-        return result.stdout
+        return stdout
         
     except subprocess.TimeoutExpired:
         logger.error(f"WorkIQ query timed out after {timeout}s")

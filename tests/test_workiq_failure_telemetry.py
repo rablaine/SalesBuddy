@@ -205,3 +205,44 @@ class TestAttendeeScrapeFailures:
             result = meeting_attendee_scrape._parse_response(valid)
             assert len(result) == 1
             q.assert_not_called()
+
+
+# =============================================================================
+# ANSI escape stripping in query_workiq
+# =============================================================================
+
+class TestAnsiStripping:
+    """WorkIQ wraps every line in `\\x1b[90m...\\x1b[0m` on Windows.
+
+    These escapes are invisible in the terminal but break every JSON parser
+    downstream. ``query_workiq`` strips them at the boundary so callers see
+    clean text.
+    """
+
+    def test_ansi_escapes_stripped_from_response(self):
+        from app.services import workiq_service
+
+        ansi_wrapped = (
+            '\x1b[90m\x1b[90m{\n'
+            '\x1b[90m  "attendees": [\n'
+            '\x1b[90m    {"name": "X", "email": "x@y.com"}\n'
+            '\x1b[90m  ]\n'
+            '\x1b[90m}\n'
+            '\x1b[0m'
+        )
+        fake_result = MagicMock(returncode=0, stderr='', stdout=ansi_wrapped)
+        with patch('shutil.which', return_value='/usr/bin/npx'), \
+             patch('platform.system', return_value='Linux'), \
+             patch('subprocess.run', return_value=fake_result):
+            cleaned = workiq_service.query_workiq('hi', operation='attendee_scrape')
+            assert '\x1b' not in cleaned
+            assert '[90m' not in cleaned
+            assert '"attendees"' in cleaned
+
+    def test_ansi_strip_regex_matches_common_codes(self):
+        from app.services.workiq_service import _ANSI_ESCAPE_RE
+
+        assert _ANSI_ESCAPE_RE.sub('', '\x1b[90mhi\x1b[0m') == 'hi'
+        assert _ANSI_ESCAPE_RE.sub('', '\x1b[1;31mred\x1b[0m') == 'red'
+        # No false positives on literal `[90m` text without ESC prefix.
+        assert _ANSI_ESCAPE_RE.sub('', 'array [90m]') == 'array [90m]'
