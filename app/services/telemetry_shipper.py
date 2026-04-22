@@ -20,10 +20,12 @@ Sent (per request):
 
 Sent (per WorkIQ failure):
     - instance_id, app_version
-    - operation     (e.g. "query", "meeting_summary", "meeting_list")
+    - operation     (e.g. "query", "meeting_summary", "meeting_list",
+                     "attendee_scrape")
     - failure_type  (taxonomy: "npx_missing", "subprocess_timeout",
                      "nonzero_exit", "eula_failed", "server_error",
-                     "planning_narration", "refusal", "too_short", "empty")
+                     "planning_narration", "refusal", "too_short", "empty",
+                     "json_parse_failed")
     - duration_ms   (optional, rounded)
 
 NOT sent (ever):
@@ -252,6 +254,7 @@ _WORKIQ_FAILURE_TYPES = frozenset({
     'refusal',
     'too_short',
     'empty',
+    'json_parse_failed',
 })
 
 # Allowed WorkIQ operation values.
@@ -259,6 +262,7 @@ _WORKIQ_OPERATIONS = frozenset({
     'query',
     'meeting_summary',
     'meeting_list',
+    'attendee_scrape',
 })
 
 

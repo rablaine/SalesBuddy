@@ -178,3 +178,30 @@ class TestMeetingSummarySoftFailures:
             assert result.get('retry_suggested') is True
             assert any(c.args == ('meeting_summary', 'planning_narration')
                        for c in rec.call_args_list)
+
+
+# =============================================================================
+# Attendee scrape JSON parse failure
+# =============================================================================
+
+class TestAttendeeScrapeFailures:
+    """Verifies attendee scrape emits json_parse_failed when WorkIQ returns prose."""
+
+    def test_non_json_response_records_failure(self):
+        from app.services import meeting_attendee_scrape
+
+        # Prose response with no JSON braces - common when meeting has no transcript.
+        prose = "I don't have a transcript for that meeting yet, sorry."
+        with patch('app.services.telemetry_shipper.queue_workiq_failure') as q:
+            result = meeting_attendee_scrape._parse_response(prose)
+            assert result == []
+            q.assert_called_once_with('attendee_scrape', 'json_parse_failed')
+
+    def test_valid_json_does_not_record_failure(self):
+        from app.services import meeting_attendee_scrape
+
+        valid = '{"attendees": [{"name": "X", "email": "x@y.com", "title": null}]}'
+        with patch('app.services.telemetry_shipper.queue_workiq_failure') as q:
+            result = meeting_attendee_scrape._parse_response(valid)
+            assert len(result) == 1
+            q.assert_not_called()
