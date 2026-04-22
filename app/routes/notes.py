@@ -1766,6 +1766,7 @@ def api_scrape_meeting_attendees():
             meeting_date=data['meeting_date'],
             customer_id=data.get('customer_id'),
             partner_ids=data.get('partner_ids', []),
+            force_refresh=bool(data.get('force_refresh')),
         )
         return jsonify({'success': True, **result})
     except TimeoutError:

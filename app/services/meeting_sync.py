@@ -105,6 +105,14 @@ def _should_sync_today() -> bool:
     return cache is None
 
 
+def _should_prefetch_today() -> bool:
+    """Check if today's attendee prefetch has run."""
+    from app.models import PrefetchedMeeting
+    today = date.today()
+    row = PrefetchedMeeting.query.filter_by(meeting_date=today).first()
+    return row is None
+
+
 def _run_sync(app) -> None:
     """Run the daily meeting sync with the sync lock held.
 
@@ -118,10 +126,33 @@ def _run_sync(app) -> None:
         with app.app_context():
             today_str = date.today().strftime('%Y-%m-%d')
             sync_meetings_for_date(today_str)
+            # Phase 1 of PREFETCH_MEETINGS_BACKLOG.md: also pull attendees
+            # so the note-form attendee scrape can hit the cache instead of
+            # firing a live WorkIQ call mid-call.
+            try:
+                from app.services.meeting_prefetch import prefetch_for_date
+                prefetch_for_date(today_str)
+            except Exception:
+                logger.exception("Meeting prefetch (attendees) failed")
     except Exception:
         logger.exception("Error in daily meeting sync")
     finally:
         _sync_lock.release()
+
+
+def _run_prefetch_only(app) -> None:
+    """Run only the attendee prefetch (skip the meeting-list sync).
+
+    Used at startup when the meeting list is already cached but the
+    attendee prefetch hasn't run yet -- e.g. user upgrades mid-day.
+    """
+    try:
+        with app.app_context():
+            from app.services.meeting_prefetch import prefetch_for_date
+            today_str = date.today().strftime('%Y-%m-%d')
+            prefetch_for_date(today_str)
+    except Exception:
+        logger.exception("Standalone meeting prefetch failed")
 
 
 def start_meeting_sync_background(app) -> None:
@@ -135,6 +166,15 @@ def start_meeting_sync_background(app) -> None:
     with app.app_context():
         if not _should_sync_today():
             logger.debug("Today's meetings already cached, skipping startup sync")
+            # Meeting list is cached but attendees may not be -- catch up the
+            # prefetch independently so users who upgrade mid-day get the
+            # benefit without waiting for tomorrow's 7 AM run.
+            if _should_prefetch_today():
+                logger.info("Today's attendee prefetch missing, kicking off")
+                thread = threading.Thread(
+                    target=_run_prefetch_only, args=(app,), daemon=True,
+                )
+                thread.start()
             return
 
     logger.info("Daily meeting cache missing for today, starting catchup sync")

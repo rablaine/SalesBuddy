@@ -21,6 +21,7 @@ def scrape_meeting_attendees(
     meeting_date: str,
     customer_id: Optional[int] = None,
     partner_ids: Optional[List[int]] = None,
+    force_refresh: bool = False,
 ) -> Dict[str, Any]:
     """Query WorkIQ for attendees of a specific meeting and categorize them.
 
@@ -29,22 +30,40 @@ def scrape_meeting_attendees(
         meeting_date: Date string (YYYY-MM-DD).
         customer_id: Optional customer ID for domain matching.
         partner_ids: Optional list of partner IDs already on the note.
+        force_refresh: If True, skip the prefetch cache and call WorkIQ live.
+            The cache lacks transcript-derived titles, so the user can opt
+            in to a slower live call to pick those up.
 
     Returns:
-        Dict with categorized attendees ready for review.
+        Dict with categorized attendees ready for review. Includes
+        ``source`` ("cache" or "workiq") so the UI can show a badge.
     """
     from app.services.workiq_service import query_workiq
+    from app.services.meeting_prefetch import get_cached_attendees
 
-    question = _build_attendee_prompt(meeting_title, meeting_date)
+    raw_response = ''
+    source = 'workiq'
+    parsed_attendees: List[Dict[str, Any]] = []
 
-    try:
-        raw_response = query_workiq(question, timeout=180,
-                                    operation='attendee_scrape')
-    except Exception as e:
-        logger.error(f"WorkIQ attendee query failed: {e}")
-        raise
+    if not force_refresh:
+        cached = get_cached_attendees(meeting_title, meeting_date)
+        if cached is not None:
+            logger.info(
+                "Attendee scrape: cache hit for %r on %s (%d attendees)",
+                meeting_title, meeting_date, len(cached),
+            )
+            parsed_attendees = cached
+            source = 'cache'
 
-    parsed_attendees = _parse_response(raw_response)
+    if source != 'cache':
+        question = _build_attendee_prompt(meeting_title, meeting_date)
+        try:
+            raw_response = query_workiq(question, timeout=180,
+                                        operation='attendee_scrape')
+        except Exception as e:
+            logger.error(f"WorkIQ attendee query failed: {e}")
+            raise
+        parsed_attendees = _parse_response(raw_response)
 
     # Build domain maps for matching
     customer = db.session.get(Customer, customer_id) if customer_id else None
@@ -61,6 +80,7 @@ def scrape_meeting_attendees(
     return {
         "attendees": categorized,
         "raw_response": raw_response,
+        "source": source,
     }
 
 
