@@ -8,11 +8,26 @@ import subprocess
 import platform
 import logging
 import re
+import time
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 from difflib import SequenceMatcher
 
 logger = logging.getLogger(__name__)
+
+
+def _record_workiq_failure(operation: str, failure_type: str,
+                           duration_ms: Optional[float] = None) -> None:
+    """Best-effort: emit a WorkIQ failure telemetry event.
+
+    Wrapped so any telemetry import or shipping failure can never break
+    the actual WorkIQ call path.
+    """
+    try:
+        from app.services.telemetry_shipper import queue_workiq_failure
+        queue_workiq_failure(operation, failure_type, duration_ms=duration_ms)
+    except Exception:
+        pass
 
 # Default meeting summary prompt template.
 # Users can customize this in Settings. Use {title} and {date} as placeholders.
@@ -247,13 +262,16 @@ def fuzzy_match_score(text1: str, text2: str) -> float:
     return SequenceMatcher(None, t1, t2).ratio()
 
 
-def query_workiq(question: str, timeout: int = 120) -> str:
+def query_workiq(question: str, timeout: int = 120,
+                 operation: str = 'query') -> str:
     """
     Run a WorkIQ query and return the response.
     
     Args:
         question: The natural language question to ask WorkIQ
         timeout: Maximum seconds to wait for response
+        operation: Telemetry tag for the calling context. One of
+            ``query``, ``meeting_summary``, ``meeting_list``.
         
     Returns:
         The text response from WorkIQ
@@ -279,10 +297,12 @@ def query_workiq(question: str, timeout: int = 120) -> str:
                 break
     
     if not npx_path:
+        _record_workiq_failure(operation, 'npx_missing')
         raise RuntimeError("npx not found. Please install Node.js.")
     
     logger.info(f"Querying WorkIQ: {question[:100]}...")
     
+    started = time.perf_counter()
     try:
         if is_windows:
             # On Windows, use PowerShell to avoid cmd.exe escaping issues
@@ -316,6 +336,8 @@ def query_workiq(question: str, timeout: int = 120) -> str:
         
         if result.returncode != 0:
             logger.error(f"WorkIQ error: {result.stderr}")
+            _record_workiq_failure(operation, 'nonzero_exit',
+                                   duration_ms=(time.perf_counter() - started) * 1000)
             raise RuntimeError(f"WorkIQ query failed: {result.stderr}")
         
         # Auto-accept EULA if WorkIQ prompts for it, then retry the query
@@ -327,6 +349,8 @@ def query_workiq(question: str, timeout: int = 120) -> str:
             )
             logger.info(f"EULA acceptance result: {eula_result.stdout.strip()}")
             if eula_result.returncode != 0:
+                _record_workiq_failure(operation, 'eula_failed',
+                                       duration_ms=(time.perf_counter() - started) * 1000)
                 raise RuntimeError(f"Failed to accept WorkIQ EULA: {eula_result.stderr}")
             # Retry the original query
             logger.info("Retrying WorkIQ query after EULA acceptance...")
@@ -334,6 +358,8 @@ def query_workiq(question: str, timeout: int = 120) -> str:
                 cmd, capture_output=True, text=True, timeout=timeout, shell=False
             )
             if result.returncode != 0:
+                _record_workiq_failure(operation, 'nonzero_exit',
+                                       duration_ms=(time.perf_counter() - started) * 1000)
                 raise RuntimeError(f"WorkIQ query failed after EULA acceptance: {result.stderr}")
         
         logger.info(f"WorkIQ response received ({len(result.stdout)} chars)")
@@ -342,6 +368,8 @@ def query_workiq(question: str, timeout: int = 120) -> str:
         output = result.stdout.strip()
         if output.startswith('Error:') or 'Server error:' in output:
             logger.error(f"WorkIQ returned a server error: {output[:200]}")
+            _record_workiq_failure(operation, 'server_error',
+                                   duration_ms=(time.perf_counter() - started) * 1000)
             raise RuntimeError(
                 "WorkIQ is experiencing server issues. Retrying now likely "
                 "won't help - try again later."
@@ -351,6 +379,8 @@ def query_workiq(question: str, timeout: int = 120) -> str:
         
     except subprocess.TimeoutExpired:
         logger.error(f"WorkIQ query timed out after {timeout}s")
+        _record_workiq_failure(operation, 'subprocess_timeout',
+                               duration_ms=(time.perf_counter() - started) * 1000)
         raise TimeoutError(f"WorkIQ query timed out after {timeout} seconds")
 
 
@@ -380,7 +410,7 @@ def get_meetings_for_date(date_str: str) -> tuple[List[Dict[str, Any]], str]:
     )
     
     try:
-        response = query_workiq(question)
+        response = query_workiq(question, operation='meeting_list')
         logger.info(f"WorkIQ raw response length: {len(response)}, first 200 chars: {response[:200]}")
         meetings = _parse_meetings_response(response, date_str)
         logger.info(f"Parsed {len(meetings)} meetings from response")
@@ -674,7 +704,7 @@ def get_meeting_summary(meeting_title: str, date_str: str = None,
         question += _CONNECT_IMPACT_SUFFIX
     
     try:
-        response = query_workiq(question, timeout=120)
+        response = query_workiq(question, timeout=120, operation='meeting_summary')
 
         # Guard against WorkIQ echoing back the question/prompt text.
         # This can happen when WorkIQ can't find a transcript for the meeting.
@@ -693,6 +723,7 @@ def get_meeting_summary(meeting_title: str, date_str: str = None,
         if planning_hits >= 2:
             logger.warning(f"AI returned planning narration instead of summary "
                            f"for: {meeting_title} ({planning_hits} planning phrases)")
+            _record_workiq_failure('meeting_summary', 'planning_narration')
             return {
                 'summary': '',
                 'topics': [],
@@ -707,6 +738,7 @@ def get_meeting_summary(meeting_title: str, date_str: str = None,
         # Detect refusal/deflection responses ("Sorry I can't chat about this")
         if any(p.search(response) for p in _REFUSAL_PATTERNS):
             logger.warning(f"AI returned refusal response for: {meeting_title}")
+            _record_workiq_failure('meeting_summary', 'refusal')
             return {
                 'summary': '',
                 'topics': [],
@@ -723,6 +755,7 @@ def get_meeting_summary(meeting_title: str, date_str: str = None,
         if word_count < _MIN_SUMMARY_WORDS and 'SUMMARY:' not in response:
             logger.warning(f"AI returned too-short response for: {meeting_title} "
                            f"({word_count} words)")
+            _record_workiq_failure('meeting_summary', 'too_short')
             return {
                 'summary': '',
                 'topics': [],
@@ -735,6 +768,7 @@ def get_meeting_summary(meeting_title: str, date_str: str = None,
             }
 
         if not response:
+            _record_workiq_failure('meeting_summary', 'empty')
             return {
                 'summary': '',
                 'topics': [],
