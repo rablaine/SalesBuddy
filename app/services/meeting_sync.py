@@ -27,54 +27,41 @@ _sync_lock = threading.Lock()
 
 
 def sync_meetings_for_date(date_str: str) -> tuple[list, str | None]:
-    """Fetch meetings from WorkIQ for the given date and cache them.
+    """Fetch meetings + attendees from WorkIQ and update both caches.
+
+    Single WorkIQ call (JSON shape per Phase 0 of
+    PREFETCH_MEETINGS_BACKLOG.md) populates the PrefetchedMeeting tables
+    AND the legacy DailyMeetingCache so the meeting picker keeps working
+    without any additional WorkIQ traffic.
 
     Args:
         date_str: Date in YYYY-MM-DD format.
 
     Returns:
-        Tuple of (meetings list, error message or None).
+        Tuple of (meetings list in picker shape, error message or None).
     """
-    from app.services.workiq_service import get_meetings_for_date
+    from app.services.meeting_prefetch import prefetch_for_date_full
 
     logger.info("Syncing meetings for %s", date_str)
-    try:
-        meetings, raw_response = get_meetings_for_date(date_str)
-    except Exception as e:
-        logger.error("WorkIQ meeting fetch failed for %s: %s", date_str, e)
-        return [], str(e)
+    _, picker_meetings, err = prefetch_for_date_full(date_str)
+    if err:
+        return [], err
 
-    # Serialize meetings for storage (datetimes to ISO strings)
-    serializable = []
-    for m in meetings:
-        entry = {
-            'id': m.get('id', ''),
-            'title': m.get('title', ''),
-            'start_time': m['start_time'].isoformat() if m.get('start_time') else None,
-            'start_time_display': m['start_time'].strftime('%I:%M %p') if m.get('start_time') else '',
-            'customer': m.get('customer', ''),
-            'attendees': m.get('attendees', []),
-        }
-        serializable.append(entry)
-
-    # Upsert cache row
     target_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+    payload = json.dumps(picker_meetings)
     cache = DailyMeetingCache.query.filter_by(meeting_date=target_date).first()
     if cache:
-        cache.meetings_json = json.dumps(serializable)
-        cache.raw_response = raw_response
+        cache.meetings_json = payload
         cache.synced_at = datetime.now(timezone.utc)
     else:
         cache = DailyMeetingCache(
             meeting_date=target_date,
-            meetings_json=json.dumps(serializable),
-            raw_response=raw_response,
+            meetings_json=payload,
         )
         db.session.add(cache)
-
     db.session.commit()
-    logger.info("Cached %d meetings for %s", len(serializable), date_str)
-    return serializable, None
+    logger.info("Cached %d meetings for %s", len(picker_meetings), date_str)
+    return picker_meetings, None
 
 
 def get_cached_meetings(date_str: str) -> tuple[list | None, datetime | None]:
@@ -125,15 +112,9 @@ def _run_sync(app) -> None:
     try:
         with app.app_context():
             today_str = date.today().strftime('%Y-%m-%d')
+            # Single WorkIQ JSON pull populates both the legacy meeting
+            # picker cache AND the PrefetchedMeeting attendee tables.
             sync_meetings_for_date(today_str)
-            # Phase 1 of PREFETCH_MEETINGS_BACKLOG.md: also pull attendees
-            # so the note-form attendee scrape can hit the cache instead of
-            # firing a live WorkIQ call mid-call.
-            try:
-                from app.services.meeting_prefetch import prefetch_for_date
-                prefetch_for_date(today_str)
-            except Exception:
-                logger.exception("Meeting prefetch (attendees) failed")
     except Exception:
         logger.exception("Error in daily meeting sync")
     finally:
@@ -141,10 +122,11 @@ def _run_sync(app) -> None:
 
 
 def _run_prefetch_only(app) -> None:
-    """Run only the attendee prefetch (skip the meeting-list sync).
+    """Run only the attendee prefetch (skip the meeting-list cache write).
 
     Used at startup when the meeting list is already cached but the
-    attendee prefetch hasn't run yet -- e.g. user upgrades mid-day.
+    PrefetchedMeeting tables are empty -- e.g. user upgraded after the
+    morning sync already ran today.
     """
     try:
         with app.app_context():

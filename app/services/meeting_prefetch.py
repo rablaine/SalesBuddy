@@ -327,12 +327,25 @@ def prefetch_for_date(date_str: str) -> Tuple[int, Optional[str]]:
     Returns:
         ``(meetings_stored, error_or_none)``.
     """
+    stored, _, err = prefetch_for_date_full(date_str)
+    return stored, err
+
+
+def prefetch_for_date_full(
+    date_str: str,
+) -> Tuple[int, List[Dict[str, Any]], Optional[str]]:
+    """Same as ``prefetch_for_date`` but also returns the picker-shaped list.
+
+    The picker list is what the meeting-selection modal expects; returning
+    it here lets the legacy DailyMeetingCache be populated from the SAME
+    WorkIQ call instead of making a second one.
+    """
     from app.services.workiq_service import query_workiq
 
     try:
         target_date = datetime.strptime(date_str, '%Y-%m-%d').date()
     except ValueError as exc:
-        return 0, f"Bad date: {exc}"
+        return 0, [], f"Bad date: {exc}"
 
     purge_expired()
 
@@ -343,25 +356,61 @@ def prefetch_for_date(date_str: str) -> Tuple[int, Optional[str]]:
         response = query_workiq(prompt, timeout=240, operation='meeting_list')
     except Exception as exc:  # noqa: BLE001
         logger.error("Prefetch: WorkIQ call failed for %s: %s", date_str, exc)
-        return 0, str(exc)
+        return 0, [], str(exc)
 
     raw_meetings = _extract_json_array(response)
     if not raw_meetings:
         logger.warning("Prefetch: no meetings parsed for %s", date_str)
-        return 0, None
+        return 0, [], None
 
     domain_map = _build_domain_map()
-    stored = 0
+    stored_meetings: List[PrefetchedMeeting] = []
     for raw in raw_meetings:
         if not isinstance(raw, dict):
             continue
         meeting = _upsert_meeting(raw, target_date, domain_map)
         if meeting is not None:
-            stored += 1
+            stored_meetings.append(meeting)
 
     db.session.commit()
-    logger.info("Prefetch: stored %d meetings for %s", stored, date_str)
-    return stored, None
+    picker_list = [_to_picker_dict(m) for m in stored_meetings]
+    logger.info("Prefetch: stored %d meetings for %s",
+                len(stored_meetings), date_str)
+    return len(stored_meetings), picker_list, None
+
+
+def _to_picker_dict(meeting: PrefetchedMeeting) -> Dict[str, Any]:
+    """Convert a PrefetchedMeeting into the meeting-picker payload shape.
+
+    Mirrors what the legacy markdown-table sync produced so the
+    DailyMeetingCache and the /api/meetings response stay backwards
+    compatible. ``customer`` is the matched customer name when known,
+    otherwise the first external attendee's domain (best-effort hint for
+    the fuzzy customer-name matcher).
+    """
+    if meeting.customer is not None:
+        customer_display = meeting.customer.name
+    else:
+        customer_display = ''
+        for att in meeting.attendees:
+            if att.is_external and att.domain:
+                customer_display = att.domain
+                break
+
+    start_local = meeting.start_time
+    return {
+        'id': meeting.workiq_id,
+        'title': meeting.subject,
+        'start_time': start_local.isoformat() if start_local else None,
+        'start_time_display': (
+            start_local.strftime('%I:%M %p') if start_local else ''
+        ),
+        'customer': customer_display,
+        'attendees': [
+            {'name': a.name, 'email': a.email}
+            for a in meeting.attendees
+        ],
+    }
 
 
 # ---------------------------------------------------------------------------
