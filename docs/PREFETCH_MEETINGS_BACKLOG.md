@@ -2,9 +2,11 @@
 
 ## Status
 
-Backlog / not started. Blocked on WorkIQ being available so we can theorycraft
-realistic latency, payload shape, and per-day attendee limits before locking in
-a model.
+Phase 0 complete (2026-04-22). Probe results in `logs/workiq-probe/20260422-135052/`.
+Ready to start Phase 1.
+
+See **Phase 0 Findings** below for what WorkIQ actually returns and the
+resulting schema/architecture decisions.
 
 ## The Idea
 
@@ -111,19 +113,140 @@ see what WorkIQ gives us for recurrence info.
 
 ## Phased Plan
 
-### Phase 0 - WorkIQ Probe (1-2 hours, do first the moment WorkIQ is up)
+### Phase 0 - WorkIQ Probe (DONE 2026-04-22)
 
 Goal: don't write any model code until we know what WorkIQ can actually
 return. Build a throwaway script.
 
-- [ ] `scripts/probe_workiq_meetings.py` - prompt WorkIQ for "today's meetings
-  with attendees" and dump the raw JSON response to a file.
-- [ ] Repeat for "this week's meetings". Time both.
-- [ ] Document findings: payload shape, attendee field names, recurrence info,
-  response statuses, latency for 1 day vs 7 days, any pagination, max returnable.
+- [x] `scripts/probe_workiq_meetings.py` - 5 probes (today markdown, today
+  JSON, today free-form, week markdown, week JSON). Dumps raw responses to
+  `logs/workiq-probe/<timestamp>/`.
+- [x] Ran probe; all 5 probes succeeded. Findings below.
 
-**Decision gate:** based on probe results, lock in the model schema and
-decide whether week-ahead prefetch is one query or N queries.
+**Decision gate (resolved):**
+- Schema is mostly fine as drafted; drop `recurrence_pattern`, drop
+  `online_meeting_url`, keep `response_status` column but expect it to be
+  null indefinitely (Graph doesn't expose per-attendee RSVP via WorkIQ).
+- Week-ahead prefetch must **chunk by day** -- the single 7-day JSON call
+  silently truncated to 15 of 44 meetings.
+
+---
+
+### Phase 0 Findings (2026-04-22)
+
+**What WorkIQ returns reliably:**
+- `subject` (string, sometimes contains pipe-separated parts like
+  `"Microsoft Monthly Sync | DPS Ad Tracker"`)
+- `start_time` / `end_time` as ISO 8601 with the user's local timezone offset
+  (e.g. `2026-04-22T13:00:00-05:00`). Already timezone-aware - good.
+- `organizer_email` - usually a clean SMTP address, but for the user's own
+  events sometimes returns a legacy X.500 / Exchange DN like
+  `/O=EXCHANGELABS/OU=.../CN=RECIPIENTS/CN=...-ALEX BLAINE`. Prefetch parser
+  needs to detect and either resolve or skip these (treat as "self").
+- `is_recurring` (boolean) - WorkIQ infers this from the presence of a
+  `previousInstance`. Reliable.
+- `attendees[].name` and `attendees[].email` - both available, including
+  internal Microsoft attendees. Domain matching plan still works.
+
+**What WorkIQ does NOT return (kill these from the schema):**
+- `recurrence_pattern` - WorkIQ explicitly states the recurrence *rule* is
+  not exposed, only evidence of recurrence. Drop the column. For Phase 3
+  per-recurring-meeting dismissal we'll hash `subject + organizer_email`
+  ourselves, as the backlog already noted.
+- `online_meeting_url` / Teams join URL - not in metadata. Kills the
+  one-click-join idea. Don't add the column.
+- `attendees[].response_status` - WorkIQ explicitly: "Graph metadata does
+  not provide per-attendee RSVP states - only the user's RSVP." Keep the
+  column nullable so we can populate it later if WorkIQ improves, but the
+  "hide declined ghosts" idea is dead for now.
+
+**JSON willingness:** WorkIQ happily returns valid JSON inside ```json
+code blocks when asked. Wraps with prose preamble + closing offer-suggestions
+("If you want, I can..."), so the parser must extract the JSON block, not
+parse the whole response. Use `re.search(r'\[[\s\S]*\]', ...)` or extract
+between ```json fences.
+
+**Latency (single user, observed once - not benchmarked):**
+| Probe                    | Elapsed | Chars  | Notes |
+|--------------------------|---------|--------|-------|
+| Today markdown table     | 45 s    | 4 222  | Current production shape |
+| Today JSON w/ attendees  | 131 s   | 12 624 | Full payload |
+| Today free-form prose    | 152 s   | 23 529 | Slowest, biggest |
+| Week markdown table      | 62 s    | 4 533  | 44 meetings listed |
+| Week JSON w/ attendees   | 96 s    | 6 669  | **Only 15 of 44 meetings - silently truncated** |
+
+A single 7-day JSON pull is **not** safe. Either chunk by day (7 calls,
+~130s each = ~15 min wall clock) or run them in parallel (subprocess pool)
+-- the WorkIQ CLI spins up a fresh `npx` invocation per call so parallelism
+is bounded by Node startup cost and rate limits. **Decision:** Phase 1 does
+today only (single call, ~130 s). Phase 4 (week-ahead, opt-in) chunks by
+day and runs sequentially in the background.
+
+**Output noise:**
+- WorkIQ emits OSC 8 hyperlink escape sequences (`\x1b]8;;<url>\x1b\\`) for
+  every meeting reference. The existing `_ANSI_ESCAPE_RE` only strips CSI
+  sequences (`\x1b[...m`), not OSC 8. JSON code blocks are unaffected
+  (URLs only appear in prose), but if we ever fall back to parsing the
+  free-form prose we need to extend the regex. Logged as a follow-up; not
+  blocking.
+- Microsoft.com email addresses appear in mixed case (`Alex.Blaine@...`,
+  `dakraft@...`). Lowercase before doing the domain match.
+
+**Pagination / limits:** No explicit pagination signal. Truncation appears
+to be soft (model decides to cut). No way to ask for "next page". Chunking
+by day is the workaround.
+
+**Open questions resolved:**
+- ~~Recurrence info?~~ Boolean only, no rule. Hash subject+organizer for
+  per-series dismissal.
+- ~~Response status?~~ No. Drop the "dim declined" idea.
+- ~~7-day latency?~~ Truncates badly. Chunk by day.
+- ~~Rate limits on daily 7-day pull?~~ Don't pull 7 days in one call -
+  question is moot.
+- ~~Online-meeting links?~~ Not exposed. Drop one-click-join.
+
+**Updated proposed schema (supersedes the sketch above):**
+
+```python
+class PrefetchedMeeting(db.Model):
+    id = Column(Integer, primary_key=True)
+    workiq_id = Column(String, unique=True, index=True)
+        # Synthetic: hash of (subject, start_time, organizer_email).
+        # WorkIQ does not expose Graph eventId in the JSON response.
+    subject = Column(String)
+    start_time = Column(DateTime(timezone=True))
+    end_time = Column(DateTime(timezone=True))
+    organizer_email = Column(String)  # may be X.500 DN for self-organized
+    is_recurring = Column(Boolean, default=False)
+    recurring_key = Column(String, index=True, nullable=True)
+        # sha1(subject + organizer_email) when is_recurring; for dismissal
+    customer_id = Column(Integer, ForeignKey('customers.id'),
+                         nullable=True, index=True)
+    matched_via = Column(String, nullable=True)  # 'website' | 'contact_email'
+    dismissed = Column(Boolean, default=False)
+    fetched_at = Column(DateTime(timezone=True), default=utc_now)
+    expires_at = Column(DateTime(timezone=True), index=True)
+    note_id = Column(Integer, ForeignKey('notes.id'), nullable=True)
+
+class PrefetchedMeetingAttendee(db.Model):
+    id = Column(Integer, primary_key=True)
+    meeting_id = Column(Integer, ForeignKey('prefetched_meetings.id'),
+                        index=True)
+    name = Column(String)
+    email = Column(String, index=True)  # store lowercased
+    domain = Column(String, index=True)  # split on '@', lowercased
+    is_external = Column(Boolean)        # domain != 'microsoft.com'
+    response_status = Column(String, nullable=True)  # always null for now
+```
+
+Differences from the original sketch:
+- `workiq_id` is a synthetic hash, not a real Graph ID.
+- `recurrence_pattern` removed.
+- `online_meeting_url` never added.
+- `recurring_key` added now (we know we'll need it Phase 3, cheap to add).
+- Datetime columns are `timezone=True` since WorkIQ already returns offsets.
+  (But note: SQLite stores naive strings. Plan to normalize to UTC before
+  storing per repo datetime conventions, then render local in UI.)
 
 ### Phase 1 - Storage & Daily Prefetch (no UI yet)
 
