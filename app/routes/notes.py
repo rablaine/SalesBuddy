@@ -968,7 +968,8 @@ def api_get_meetings():
     For today's date: returns cached meetings from the daily sync (instant).
     If no cache exists yet, does a live fetch and caches the result.
 
-    For other dates: always does a live WorkIQ fetch (no caching).
+    For other dates: checks DailyMeetingCache first (in case user manually
+    pulled that day), then falls back to a live WorkIQ fetch.
 
     Query params:
         date: Date in YYYY-MM-DD format (required)
@@ -1017,23 +1018,29 @@ def api_get_meetings():
                 return jsonify({'error': f'Failed to fetch meetings: {str(e)}'}), 500
             _, synced_at = get_cached_meetings(date_str)
     else:
-        # Non-today: live WorkIQ fetch, no caching
-        try:
-            meetings, raw_response = get_meetings_for_date(date_str)
-        except Exception as e:
-            logger.error(f"WorkIQ error: {e}")
-            return jsonify({'error': f'Failed to fetch meetings: {str(e)}'}), 500
+        # Non-today: check cache first (user may have manually pulled this day),
+        # then fall back to a live WorkIQ fetch.
+        cached_meetings, synced_at = get_cached_meetings(date_str)
+        if cached_meetings is not None:
+            formatted_meetings = cached_meetings
+            from_cache = True
+        else:
+            try:
+                meetings, raw_response = get_meetings_for_date(date_str)
+            except Exception as e:
+                logger.error(f"WorkIQ error: {e}")
+                return jsonify({'error': f'Failed to fetch meetings: {str(e)}'}), 500
 
-        formatted_meetings = []
-        for m in meetings:
-            formatted_meetings.append({
-                'id': m.get('id', ''),
-                'title': m.get('title', ''),
-                'start_time': m['start_time'].isoformat() if m.get('start_time') else None,
-                'start_time_display': m['start_time'].strftime('%I:%M %p') if m.get('start_time') else m.get('start_time_str', ''),
-                'customer': m.get('customer', ''),
-                'attendees': m.get('attendees', []),
-            })
+            formatted_meetings = []
+            for m in meetings:
+                formatted_meetings.append({
+                    'id': m.get('id', ''),
+                    'title': m.get('title', ''),
+                    'start_time': m['start_time'].isoformat() if m.get('start_time') else None,
+                    'start_time_display': m['start_time'].strftime('%I:%M %p') if m.get('start_time') else m.get('start_time_str', ''),
+                    'customer': m.get('customer', ''),
+                    'attendees': m.get('attendees', []),
+                })
 
     # Find best match if customer name provided
     auto_selected = None
