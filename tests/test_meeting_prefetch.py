@@ -257,6 +257,107 @@ class TestPrefetchForDate:
 
 
 # ---------------------------------------------------------------------------
+# Subject-based customer matching
+# ---------------------------------------------------------------------------
+
+class TestSubjectMatching:
+    def test_phrase_is_distinctive_drops_pure_stopwords(self):
+        assert meeting_prefetch._phrase_is_distinctive('Redsail') is True
+        assert meeting_prefetch._phrase_is_distinctive('QS/1 Data Systems') is True
+        # Pure stopwords / too-short tokens fail
+        assert meeting_prefetch._phrase_is_distinctive('Inc') is False
+        assert meeting_prefetch._phrase_is_distinctive('The Group') is False
+        assert meeting_prefetch._phrase_is_distinctive('') is False
+
+    def test_subject_match_via_nickname(self, app, clean_prefetch_tables):
+        with app.app_context():
+            c = Customer(name='QS/1 Data Systems', tpid=930001,
+                         nickname='Redsail')
+            db.session.add(c)
+            db.session.commit()
+            cid = c.id
+
+            matchers = meeting_prefetch._build_subject_matchers()
+            customer_id, via = meeting_prefetch._resolve_customer(
+                attendees=[{'email': 'me@microsoft.com'}],  # only internal
+                domain_map={},
+                subject='Redsail - Fabric Cadence',
+                subject_matchers=matchers,
+            )
+            assert customer_id == cid
+            assert via == 'subject_nickname'
+
+            db.session.delete(c)
+            db.session.commit()
+
+    def test_subject_match_word_bounded(self, app, clean_prefetch_tables):
+        """Don't match 'redsail' inside a longer word like 'redsailing'."""
+        with app.app_context():
+            c = Customer(name='Redsail', tpid=930002)
+            db.session.add(c)
+            db.session.commit()
+
+            matchers = meeting_prefetch._build_subject_matchers()
+            customer_id, _ = meeting_prefetch._resolve_customer(
+                attendees=[],
+                domain_map={},
+                subject='Redsailing competition recap',
+                subject_matchers=matchers,
+            )
+            assert customer_id is None
+
+            db.session.delete(c)
+            db.session.commit()
+
+    def test_domain_match_wins_over_subject(self, app, clean_prefetch_tables):
+        """If both domain AND subject match different customers, domain wins."""
+        with app.app_context():
+            c1 = Customer(name='Acme Corp', tpid=930003,
+                          website='https://acme.com')
+            c2 = Customer(name='Redsail', tpid=930004)
+            db.session.add_all([c1, c2])
+            db.session.commit()
+            acme_id = c1.id
+
+            matchers = meeting_prefetch._build_subject_matchers()
+            domain_map = meeting_prefetch._build_domain_map()
+            customer_id, via = meeting_prefetch._resolve_customer(
+                attendees=[{'email': 'x@acme.com'}],
+                domain_map=domain_map,
+                subject='Redsail catchup',  # subject says Redsail
+                subject_matchers=matchers,
+            )
+            assert customer_id == acme_id  # domain wins
+            assert via == 'website'
+
+            db.session.delete(c1)
+            db.session.delete(c2)
+            db.session.commit()
+
+    def test_longest_match_wins_among_subjects(self, app, clean_prefetch_tables):
+        with app.app_context():
+            short = Customer(name='Acme', tpid=930005)
+            longer = Customer(name='Acme Industrial Holdings', tpid=930006,
+                              nickname='Acme Industrial')
+            db.session.add_all([short, longer])
+            db.session.commit()
+            longer_id = longer.id
+
+            matchers = meeting_prefetch._build_subject_matchers()
+            customer_id, _ = meeting_prefetch._resolve_customer(
+                attendees=[],
+                domain_map={},
+                subject='Acme Industrial weekly review',
+                subject_matchers=matchers,
+            )
+            assert customer_id == longer_id  # longer phrase wins
+
+            db.session.delete(short)
+            db.session.delete(longer)
+            db.session.commit()
+
+
+# ---------------------------------------------------------------------------
 # Purge
 # ---------------------------------------------------------------------------
 

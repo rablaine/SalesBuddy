@@ -43,6 +43,21 @@ logger = logging.getLogger(__name__)
 
 INTERNAL_DOMAIN = 'microsoft.com'
 
+
+def _is_internal_domain(domain: Optional[str]) -> bool:
+    """True if a domain belongs to Microsoft.
+
+    Catches both ``microsoft.com`` and any subdomain like
+    ``service.microsoft.com`` (FastTrack/CAT shared mailboxes,
+    Garage rooms) or ``expansion.microsoft.com``. These are all
+    internal resource accounts and should not be treated as external
+    customer/partner attendees.
+    """
+    if not domain:
+        return False
+    d = domain.lower().strip()
+    return d == INTERNAL_DOMAIN or d.endswith('.' + INTERNAL_DOMAIN)
+
 # Match a JSON array spanning the whole match. Non-greedy so we stop at the
 # first balanced ``]``. WorkIQ wraps the array with prose preamble + tail
 # offer-suggestions, so we can't just ``json.loads(response)``.
@@ -151,6 +166,71 @@ def _customer_domain(customer: Customer) -> Optional[str]:
     return d or None
 
 
+# Words that are too generic to match a customer on. If a customer name OR
+# nickname is *only* these words after tokenization, we skip subject matching
+# for it (domain matching still works). Lowercase comparison.
+_SUBJECT_STOPWORDS = frozenset({
+    'the', 'a', 'an', 'and', 'of', 'for', 'inc', 'llc', 'ltd', 'corp',
+    'corporation', 'company', 'co', 'group', 'holdings', 'systems',
+    'solutions', 'technologies', 'tech', 'services', 'data', 'global',
+    'international', 'us', 'usa', 'na', 'north', 'america',
+})
+
+# Tokenize on any non-word run (so "QS/1", "AT&T", "Coca-Cola" all split
+# cleanly). We keep digits because some customer names are numeric ("3M").
+_TOKEN_RE = re.compile(r'\w+', re.UNICODE)
+
+
+def _phrase_is_distinctive(phrase: str) -> bool:
+    """True if a phrase has at least one non-stopword, non-trivial token.
+
+    Used to gate which customer name / nickname strings are safe to match
+    against meeting subjects. Prevents "Data" alone from matching every
+    meeting with the word "data" in the title.
+    """
+    tokens = [t.lower() for t in _TOKEN_RE.findall(phrase)]
+    meaningful = [t for t in tokens if len(t) >= 2 and t not in _SUBJECT_STOPWORDS]
+    return bool(meaningful)
+
+
+def _build_subject_matchers() -> List[Tuple[re.Pattern, int, str]]:
+    """Build ``(compiled_regex, customer_id, matched_via)`` list.
+
+    For each customer with a distinctive name and/or nickname, compile a
+    case-insensitive word-bounded regex. Order: nicknames first (usually
+    shorter and more specific), then names. Caller picks the longest match.
+    """
+    matchers: List[Tuple[re.Pattern, int, str]] = []
+    customers = (
+        Customer.query
+        .order_by(Customer.created_at.desc().nullslast())
+        .all()
+    )
+    seen_phrases: set = set()
+    for c in customers:
+        for phrase, label in ((c.nickname, 'subject_nickname'),
+                              (c.name, 'subject_name')):
+            if not phrase:
+                continue
+            phrase = phrase.strip()
+            if not phrase or not _phrase_is_distinctive(phrase):
+                continue
+            key = (phrase.lower(), c.id)
+            if key in seen_phrases:
+                continue
+            seen_phrases.add(key)
+            # Word-bounded, case-insensitive. Escape to handle "QS/1", "AT&T".
+            try:
+                pattern = re.compile(
+                    r'(?<!\w)' + re.escape(phrase) + r'(?!\w)',
+                    re.IGNORECASE,
+                )
+            except re.error:
+                continue
+            matchers.append((pattern, c.id, label))
+    return matchers
+
+
 def _build_domain_map() -> Dict[str, Tuple[int, str]]:
     """Build ``{domain: (customer_id, matched_via)}`` for fast lookup.
 
@@ -178,7 +258,7 @@ def _build_domain_map() -> Dict[str, Tuple[int, str]]:
             if not contact.email or '@' not in contact.email:
                 continue
             domain = contact.email.split('@', 1)[1].lower().strip()
-            if domain and domain != INTERNAL_DOMAIN and domain not in domain_map:
+            if domain and not _is_internal_domain(domain) and domain not in domain_map:
                 domain_map[domain] = (c.id, 'contact_email')
 
     return domain_map
@@ -187,8 +267,16 @@ def _build_domain_map() -> Dict[str, Tuple[int, str]]:
 def _resolve_customer(
     attendees: List[Dict[str, Any]],
     domain_map: Dict[str, Tuple[int, str]],
+    subject: str = '',
+    subject_matchers: Optional[List[Tuple[re.Pattern, int, str]]] = None,
 ) -> Tuple[Optional[int], Optional[str]]:
-    """Pick the first external attendee domain that matches a known customer.
+    """Resolve a meeting to a known customer.
+
+    Order of precedence:
+    1. External attendee domain matches a customer website / contact email.
+    2. Subject contains a customer's nickname or full name (word-bounded).
+       Longest matching phrase wins, so "Redsail" beats "Acme" if a meeting
+       title is "Redsail Acme cross-sell".
 
     Returns ``(customer_id, matched_via)`` or ``(None, None)``.
     """
@@ -198,12 +286,25 @@ def _resolve_customer(
         if not email or '@' not in email:
             continue
         domain = email.split('@', 1)[1]
-        if domain == INTERNAL_DOMAIN or domain in seen:
+        if _is_internal_domain(domain) or domain in seen:
             continue
         seen.append(domain)
         if domain in domain_map:
             customer_id, matched_via = domain_map[domain]
             return customer_id, matched_via
+
+    # Subject-based fallback. Picks the longest matched phrase for specificity.
+    if subject and subject_matchers:
+        best_len = 0
+        best: Optional[Tuple[int, str]] = None
+        for pattern, cid, label in subject_matchers:
+            m = pattern.search(subject)
+            if m and (m.end() - m.start()) > best_len:
+                best_len = m.end() - m.start()
+                best = (cid, label)
+        if best is not None:
+            return best
+
     return None, None
 
 
@@ -223,6 +324,7 @@ def _upsert_meeting(
     raw: Dict[str, Any],
     target_date: date,
     domain_map: Dict[str, Tuple[int, str]],
+    subject_matchers: Optional[List[Tuple[re.Pattern, int, str]]] = None,
 ) -> Optional[PrefetchedMeeting]:
     """Create or update a PrefetchedMeeting from one raw WorkIQ JSON item."""
     subject = (raw.get('subject') or '').strip()
@@ -240,7 +342,10 @@ def _upsert_meeting(
     if not isinstance(raw_attendees, list):
         raw_attendees = []
 
-    customer_id, matched_via = _resolve_customer(raw_attendees, domain_map)
+    customer_id, matched_via = _resolve_customer(
+        raw_attendees, domain_map,
+        subject=subject, subject_matchers=subject_matchers,
+    )
 
     existing = PrefetchedMeeting.query.filter_by(workiq_id=workiq_id).first()
     if existing:
@@ -290,7 +395,7 @@ def _upsert_meeting(
         if email:
             seen_emails.add(email)
         domain = email.split('@', 1)[1] if email and '@' in email else None
-        is_external = bool(domain and domain != INTERNAL_DOMAIN)
+        is_external = bool(domain and not _is_internal_domain(domain))
         db.session.add(PrefetchedMeetingAttendee(
             meeting=meeting,
             name=name,
@@ -364,11 +469,12 @@ def prefetch_for_date_full(
         return 0, [], None
 
     domain_map = _build_domain_map()
+    subject_matchers = _build_subject_matchers()
     stored_meetings: List[PrefetchedMeeting] = []
     for raw in raw_meetings:
         if not isinstance(raw, dict):
             continue
-        meeting = _upsert_meeting(raw, target_date, domain_map)
+        meeting = _upsert_meeting(raw, target_date, domain_map, subject_matchers)
         if meeting is not None:
             stored_meetings.append(meeting)
 

@@ -21,6 +21,21 @@ logger = logging.getLogger(__name__)
 # they break every JSON parser downstream. Strip once at the boundary.
 _ANSI_ESCAPE_RE = re.compile(r'\x1b\[[0-9;]*[A-Za-z]')
 
+# Matches OSC 8 terminal hyperlinks (clickable links in modern terminals):
+#   ESC ] 8 ; <params> ; <URL> ST   (link text)   ESC ] 8 ; ; ST
+# where ST (string terminator) is either `ESC \` or BEL (0x07).
+# WorkIQ wraps Teams meeting URLs in these and they bleed into the
+# summary text as garbage like `]8;;https://...]8;;\` once the leading
+# ESC bytes are dropped (e.g. on copy-paste).
+_OSC8_RE = re.compile(r'\x1b\]8;[^;]*;[^\x1b\x07]*(?:\x1b\\|\x07)')
+
+
+def _strip_terminal_escapes(text: str) -> str:
+    """Strip CSI color codes AND OSC 8 hyperlink wrappers from terminal output."""
+    text = _OSC8_RE.sub('', text)
+    text = _ANSI_ESCAPE_RE.sub('', text)
+    return text
+
 
 def _record_workiq_failure(operation: str, failure_type: str,
                            duration_ms: Optional[float] = None) -> None:
@@ -370,13 +385,15 @@ def query_workiq(question: str, timeout: int = 120,
         
         logger.info(f"WorkIQ response received ({len(result.stdout)} chars)")
 
-        # Strip ANSI color escape sequences. WorkIQ wraps every line of its
-        # output in `\x1b[90m...\x1b[0m` (gray) when it thinks it's writing
-        # to a TTY -- which it does even under subprocess on Windows when
-        # invoked through `powershell -Command`. These escapes are invisible
-        # in the terminal but break every JSON parser downstream because
-        # the literal bytes `[90m` look like the start of a JSON array.
-        stdout = _ANSI_ESCAPE_RE.sub('', result.stdout)
+        # Strip ANSI color escape sequences AND OSC 8 hyperlinks. WorkIQ
+        # wraps every line of its output in `\x1b[90m...\x1b[0m` (gray)
+        # and Teams meeting URLs in `\x1b]8;;URL\x1b\\` (clickable links)
+        # when it thinks it's writing to a TTY -- which it does even
+        # under subprocess on Windows when invoked through
+        # `powershell -Command`. These escapes are invisible in the
+        # terminal but break every JSON parser downstream and bleed into
+        # summary text as garbage like `]8;;https://...]8;;\`.
+        stdout = _strip_terminal_escapes(result.stdout)
 
         # Detect WorkIQ server errors returned as stdout with exit code 0
         output = stdout.strip()

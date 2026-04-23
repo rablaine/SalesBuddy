@@ -2300,3 +2300,21 @@ class PrefetchedMeetingAttendee(db.Model):
 
     def __repr__(self) -> str:
         return f'<PrefetchedMeetingAttendee {self.id} {self.email}>'
+
+
+class DismissedRecurringMeeting(db.Model):
+    """Persistent dismissal flag for a recurring meeting series.
+
+    When a user dismisses a ghost meeting that has ``is_recurring = True``,
+    we record its ``recurring_key`` here so future prefetches of the same
+    series stay hidden from the calendar. Without this, tomorrow's instance
+    of the same recurring meeting (different start_time → different
+    workiq_id) would re-emerge.
+    """
+    __tablename__ = 'dismissed_recurring_meetings'
+
+    recurring_key = db.Column(db.String, primary_key=True)
+    dismissed_at = db.Column(db.DateTime, default=utc_now, nullable=False)
+
+    def __repr__(self) -> str:
+        return f'<DismissedRecurringMeeting {self.recurring_key}>'

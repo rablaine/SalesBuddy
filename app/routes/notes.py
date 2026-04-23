@@ -3,7 +3,7 @@ Note routes for Sales Buddy.
 Handles note listing, creation, viewing, editing, and Fill My Day bulk import.
 """
 from flask import Blueprint, render_template, request, redirect, url_for, flash, g, jsonify, session
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 import logging
 
 from app.models import db, Note, Customer, Seller, Territory, Topic, Partner, Milestone, Opportunity, MsxTask, UserPreference, NoteTemplate, NoteAttendee, SolutionEngineer, CustomerContact, PartnerContact, InternalContact
@@ -16,6 +16,23 @@ logger = logging.getLogger(__name__)
 
 # Create blueprint
 notes_bp = Blueprint('notes', __name__)
+
+
+def _synced_at_iso_utc(dt):
+    """Serialize a synced_at datetime as a UTC-tagged ISO string.
+
+    SQLite drops tzinfo on read so values written with
+    ``datetime.now(timezone.utc)`` come back naive. Calling ``isoformat()``
+    on a naive datetime emits no offset, which JS ``new Date()`` then
+    parses as LOCAL time — shifting "Synced at 8:59 PM" to "Synced at
+    12:59 AM" for a Pacific user. Tag explicitly as UTC so the browser
+    converts to local on display.
+    """
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.isoformat()
 
 
 def _cross_link_milestones_to_engagements(note):
@@ -434,6 +451,28 @@ def note_create():
 
         db.session.commit()
 
+        # Ghost back-linking: if this note was created from a ghost meeting on
+        # the home calendar, stamp note_id onto the PrefetchedMeeting so
+        # tomorrow's sync (and the display layer today) treats the meeting as
+        # already noted and stops surfacing a ghost for it.
+        from_meeting = request.form.get('from_meeting') or request.args.get('from_meeting')
+        if from_meeting:
+            try:
+                from app.models import PrefetchedMeeting
+                meeting = db.session.get(PrefetchedMeeting, int(from_meeting))
+                if meeting is not None:
+                    meeting.note_id = note.id
+                    db.session.commit()
+                else:
+                    logger.warning(
+                        "from_meeting=%s passed to note_create but no "
+                        "PrefetchedMeeting row found", from_meeting,
+                    )
+            except (ValueError, TypeError):
+                logger.warning("Invalid from_meeting value: %r", from_meeting)
+            except Exception:
+                logger.exception("Failed to link ghost meeting to note")
+
         # Back up this customer's notes (async, debounced - never blocks save)
         if note.customer_id:
             _schedule_customer_backup(note.customer_id)
@@ -490,6 +529,16 @@ def note_create():
     
     # Capture referrer for redirect after creation
     referrer = request.referrer or ''
+
+    # Ghost-meeting back-link: pass through to the form so the POST stamps
+    # the resulting note onto the PrefetchedMeeting row.
+    from_meeting = request.args.get('from_meeting', type=int)
+    from_meeting_workiq_id = None
+    if from_meeting:
+        from app.models import PrefetchedMeeting
+        ghost = db.session.get(PrefetchedMeeting, from_meeting)
+        if ghost:
+            from_meeting_workiq_id = ghost.workiq_id
     
     # Pass date and time (from query param or now)
     from datetime import date
@@ -551,6 +600,8 @@ def note_create():
                          workiq_prompt=user_prompt,
                          default_workiq_prompt=DEFAULT_SUMMARY_PROMPT,
                          workiq_connect_impact=connect_impact_enabled,
+                         from_meeting=from_meeting,
+                         from_meeting_workiq_id=from_meeting_workiq_id,
                          next_url='')
 
 
@@ -982,7 +1033,7 @@ def api_get_meetings():
         'date': date_str,
         'customer_name': customer_name,
         'from_cache': from_cache,
-        'synced_at': synced_at.isoformat() if synced_at else None,
+        'synced_at': _synced_at_iso_utc(synced_at),
     })
 
 
@@ -1026,8 +1077,121 @@ def api_refresh_meetings():
         'meetings': meetings,
         'date': date_str,
         'from_cache': False,
-        'synced_at': synced_at.isoformat() if synced_at else None,
+        'synced_at': _synced_at_iso_utc(synced_at),
     })
+
+
+@notes_bp.route('/api/meetings/sync-aura', methods=['POST'])
+def api_sync_aura():
+    """Trigger an aura sync (today + next 7 weekdays) in the background.
+
+    Optional JSON/query params:
+        ``anchor``      YYYY-MM-DD start date (defaults to today)
+        ``days_ahead``  int (defaults to module DEFAULT_AURA_DAYS_AHEAD)
+
+    Returns ``{started: bool, state: <snapshot>}``. If a sync is already
+    in flight, ``started`` is False and the caller should display the
+    in-progress modal driven by ``/api/meetings/sync-status``.
+    """
+    import threading
+    from flask import current_app, jsonify
+    from app.services.meeting_sync import (
+        DEFAULT_AURA_DAYS_AHEAD,
+        ensure_meeting_aura,
+        get_sync_state_snapshot,
+    )
+
+    data = request.get_json(silent=True) or {}
+    anchor_str = data.get('anchor') or request.args.get('anchor')
+    days_ahead_raw = data.get('days_ahead', request.args.get('days_ahead'))
+
+    anchor: date | None = None
+    if anchor_str:
+        try:
+            anchor = datetime.strptime(anchor_str, '%Y-%m-%d').date()
+        except ValueError:
+            return jsonify({'error': 'Invalid anchor format. Use YYYY-MM-DD'}), 400
+
+    try:
+        days_ahead = int(days_ahead_raw) if days_ahead_raw is not None else DEFAULT_AURA_DAYS_AHEAD
+    except (TypeError, ValueError):
+        return jsonify({'error': 'days_ahead must be an integer'}), 400
+
+    # Pre-check the lock: if it's held, don't start a thread, just report.
+    state = get_sync_state_snapshot()
+    if state.get('running'):
+        return jsonify({'started': False, 'reason': 'already running', 'state': state})
+
+    app_obj = current_app._get_current_object()
+
+    def _bg():
+        with app_obj.app_context():
+            ensure_meeting_aura(start=anchor, days_ahead=days_ahead)
+
+    threading.Thread(target=_bg, daemon=True).start()
+
+    # Brief snapshot - the thread may or may not have flipped state yet,
+    # but the modal will pick up "running" within its first poll.
+    return jsonify({'started': True, 'state': get_sync_state_snapshot()})
+
+
+@notes_bp.route('/api/meetings/sync-status', methods=['GET'])
+def api_sync_status():
+    """Return the current background sync state. Cheap, never blocks."""
+    from flask import jsonify
+    from app.services.meeting_sync import get_sync_state_snapshot
+    return jsonify(get_sync_state_snapshot())
+
+
+@notes_bp.route('/api/meetings/today-status', methods=['GET'])
+def api_today_status():
+    """Return whether today's meeting cache is fresh (synced today)."""
+    from flask import jsonify
+    from app.models import DailyMeetingCache
+    today = date.today()
+    cache = DailyMeetingCache.query.filter_by(meeting_date=today).first()
+    synced = False
+    synced_at_iso = None
+    if cache and cache.synced_at:
+        # synced_at is stored as UTC. Compare against today's start in UTC.
+        # We treat "synced" as "synced_at falls on the user's local today",
+        # so convert to local before comparing.
+        local_today_start = datetime.combine(today, datetime.min.time())
+        synced_at_local = cache.synced_at
+        if synced_at_local.tzinfo is not None:
+            synced_at_local = synced_at_local.astimezone().replace(tzinfo=None)
+        synced = synced_at_local >= local_today_start
+        synced_at_iso = _synced_at_iso_utc(cache.synced_at)
+    return jsonify({
+        'synced': synced,
+        'synced_at': synced_at_iso,
+        'today': today.strftime('%Y-%m-%d'),
+    })
+
+
+@notes_bp.route('/api/meetings/ghosts/<int:meeting_id>/dismiss', methods=['POST'])
+def api_dismiss_ghost_meeting(meeting_id):
+    """Dismiss a ghost meeting from the home-page Activities calendar.
+
+    Query/body param ``series=true`` will also store the ``recurring_key``
+    in ``DismissedRecurringMeeting`` so future prefetches of the same
+    series stay hidden. Default is single-occurrence dismissal only.
+
+    Returns JSON: ``{success: bool, error?: str}``
+    """
+    from flask import jsonify
+    from app.services.ghost_meetings import dismiss_ghost
+
+    # Accept ?series=true OR a JSON body {"series": true}
+    series_flag = request.args.get('series', '').lower() in ('1', 'true', 'yes')
+    if not series_flag:
+        body = request.get_json(silent=True) or {}
+        series_flag = bool(body.get('series'))
+
+    success, err = dismiss_ghost(meeting_id, dismiss_series=series_flag)
+    if not success:
+        return jsonify({'success': False, 'error': err}), 404
+    return jsonify({'success': True})
 
 
 @notes_bp.route('/api/meetings/summary')

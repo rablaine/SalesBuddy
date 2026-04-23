@@ -485,20 +485,30 @@ class TestMeetingSyncScheduler:
     def test_start_meeting_sync_background_skips_if_cached(
         self, mock_run, app
     ):
-        """start_meeting_sync_background does nothing if today is cached."""
+        """start_meeting_sync_background does nothing if the full aura window is cached."""
         with app.app_context():
-            from app.services.meeting_sync import start_meeting_sync_background
-
-            DailyMeetingCache.query.filter_by(meeting_date=date.today()).delete()
-            cache = DailyMeetingCache(
-                meeting_date=date.today(), meetings_json='[]'
+            from datetime import timedelta, datetime, timezone
+            from app.services.meeting_sync import (
+                start_meeting_sync_background,
+                _aura_window_dates,
             )
-            db.session.add(cache)
+
+            window = _aura_window_dates()
+            for d in window:
+                DailyMeetingCache.query.filter_by(meeting_date=d).delete()
+                # synced_at must be on/after the day itself to count as fresh.
+                synced_at = datetime.combine(
+                    d, datetime.min.time(), tzinfo=timezone.utc,
+                ) + timedelta(hours=8)
+                db.session.add(DailyMeetingCache(
+                    meeting_date=d, meetings_json='[]', synced_at=synced_at,
+                ))
             db.session.commit()
 
         start_meeting_sync_background(app)
         mock_run.assert_not_called()
 
         with app.app_context():
-            DailyMeetingCache.query.filter_by(meeting_date=date.today()).delete()
+            for d in window:
+                DailyMeetingCache.query.filter_by(meeting_date=d).delete()
             db.session.commit()
