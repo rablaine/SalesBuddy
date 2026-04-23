@@ -50,8 +50,13 @@ def app():
     original_database_url = os.environ.get('DATABASE_URL')
     original_testing = os.environ.get('TESTING')
     
-    # Create a temporary database file for testing
-    db_fd, db_path = tempfile.mkstemp(suffix='.db')
+    # Create a temporary database file for testing inside its own
+    # per-session subdirectory. Otherwise every xdist worker shares the
+    # same Temp dir, and tests that drop archive files (FY*.db) into
+    # _get_data_dir() collide with each other's globs.
+    test_data_dir = tempfile.mkdtemp(prefix='salesbuddy_test_')
+    db_path = os.path.join(test_data_dir, 'salesbuddy.db')
+    db_fd = os.open(db_path, os.O_CREAT | os.O_RDWR)
     
     # Set test database URI BEFORE importing app
     os.environ['DATABASE_URL'] = f'sqlite:///{db_path}'
@@ -101,6 +106,14 @@ def app():
         os.unlink(db_path)
     except (PermissionError, OSError):
         # Windows may keep the file locked; it will be cleaned up by OS temp cleanup
+        pass
+    
+    # Best-effort cleanup of the per-session data dir (and any FY*.db
+    # archive files tests dropped into it).
+    try:
+        import shutil
+        shutil.rmtree(test_data_dir, ignore_errors=True)
+    except Exception:
         pass
     
     # Restore original environment variables

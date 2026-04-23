@@ -204,7 +204,12 @@ def list_archives() -> list[dict]:
     data_dir = _get_data_dir()
     archives = []
     for f in sorted(data_dir.glob("FY*.db")):
-        stat = f.stat()
+        try:
+            stat = f.stat()
+        except FileNotFoundError:
+            # File was deleted between the glob and the stat (e.g. by a
+            # parallel test or concurrent cleanup). Skip it.
+            continue
         archives.append({
             "fy_label": f.stem,
             "path": str(f),

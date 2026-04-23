@@ -3,7 +3,16 @@
 ## Status
 
 Phase 0 complete (2026-04-22). Probe results in `logs/workiq-probe/20260422-135052/`.
-Ready to start Phase 1.
+Phase 1 complete (2026-04-22). Single-call WorkIQ JSON pull powers the
+meeting picker, attendee cache, and live refresh path.
+Phase 2 **dropped** (2026-04-22). Auto-populating attendees doesn't fly:
+every external attendee needs human triage (customer vs partner vs noise),
+and a `customer.website` match alone would silently mis-bucket partners
+as customer contacts. The cache still benefits the user via instant
+attendee scrape when they pick a meeting in the note form.
+Phase 3 ready for testing (2026-04-22). Ghost meetings render on the
+home-page Activities calendar with click-to-create + per-meeting and
+per-recurring-series dismissal.
 
 See **Phase 0 Findings** below for what WorkIQ actually returns and the
 resulting schema/architecture decisions.
