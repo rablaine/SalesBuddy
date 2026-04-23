@@ -836,12 +836,94 @@ def get_meeting_summary(meeting_title: str, date_str: str = None,
         }
 
 
+def _normalize_workiq_response(response: str) -> str:
+    """Normalize a WorkIQ response so the section-marker regexes work.
+
+    WorkIQ output is fragile in three known ways (see
+    docs/WORKIQ_JSON_RESPONSE_BACKLOG.md - now retired):
+
+    1. Section markers appear without the underscore (`TASKTITLE:` instead of
+       `TASK_TITLE:`) and may be glued to the previous sentence with no
+       whitespace (`...refreshes.TASKTITLE:`). The regex `TASK[_\\s]?TITLE`
+       handles the missing underscore but needs a newline boundary to anchor
+       the line-end match. We pre-insert one.
+
+    2. CONNECT_IMPACT bullets get collapsed onto a single line - WorkIQ
+       drops newlines between dash-prefixed items (`- foo - bar - baz`).
+       We re-insert newlines before each ` - ` inside the impact block so
+       the dash-prefix line regex matches each item.
+
+    3. Words run together because WorkIQ emits NBSPs (\\u00a0) and
+       zero-width characters (\\u200b, \\u200c, \\u200d, \\ufeff) where
+       real spaces should be. Normalize them to ASCII spaces / strip them.
+    """
+    if not response:
+        return response
+
+    # Fix 3: Strip zero-width chars and convert NBSPs.
+    response = response.translate({
+        0x00A0: ' ',   # NBSP -> space
+        0x200B: None,  # zero-width space
+        0x200C: None,  # zero-width non-joiner
+        0x200D: None,  # zero-width joiner
+        0xFEFF: None,  # zero-width no-break space / BOM
+    })
+
+    # Fix 1: Insert a newline before any section marker that's glued to prior
+    # text. Catches both underscored (`TASK_TITLE:`) and unseparated
+    # (`TASKTITLE:`) variants. Looks for the marker preceded by a non-space,
+    # non-newline character (so we don't insert blank lines).
+    _GLUED_MARKER_RE = re.compile(
+        r'(?<=[^\s\n])'
+        r'(TASK[_ ]?TITLE:|TASK[_ ]?DESCRIPTION:|'
+        r'CONNECT[_ ]?IMPACT:|ENGAGEMENT[_ ]?DATA:|'
+        r'SUGGESTED[_ ]?TOPICS:|SUMMARY:|TECHNOLOGIES:|ACTION[_ ]?ITEMS:)',
+        re.IGNORECASE,
+    )
+    response = _GLUED_MARKER_RE.sub(r'\n\1', response)
+
+    # Fix 2: De-jam CONNECT_IMPACT bullets. Find the impact block (from the
+    # marker to the next ALLCAPS_MARKER: or end of text) and insert a newline
+    # before every ` - ` (or ` * `) bullet separator. Only operates on the
+    # impact block so we don't accidentally split em-dashes in the summary.
+    _IMPACT_BLOCK_RE = re.compile(
+        r'(CONNECT[_ ]?IMPACT:)(.*?)'
+        r'(?=\n[A-Z][A-Z_ ]+:|\Z)',
+        re.IGNORECASE | re.DOTALL,
+    )
+
+    def _split_jammed_bullets(match: 're.Match[str]') -> str:
+        marker, block = match.group(1), match.group(2)
+        # Only act if the block is on a single line (jammed). If it already
+        # has newlines with dash-prefixed items, leave it alone.
+        if '\n' in block.strip():
+            return match.group(0)
+        # Split on dash separators. Pad with a leading space so a block that
+        # starts with `- foo` (no preceding whitespace) still gets split on
+        # its first dash.
+        padded = ' ' + block.strip()
+        parts = re.split(r'\s+-\s+', padded)
+        items = [p.strip() for p in parts if p.strip()]
+        if len(items) <= 1:
+            return match.group(0)
+        bullet_lines = '\n'.join(f'- {item}' for item in items)
+        return f'{marker}\n{bullet_lines}'
+
+    response = _IMPACT_BLOCK_RE.sub(_split_jammed_bullets, response)
+
+    return response
+
+
 def _parse_summary_response(response: str) -> Dict[str, Any]:
     """Parse WorkIQ summary response into structured data.
     
     Handles both structured format (SUMMARY:/TECHNOLOGIES:/ACTION_ITEMS:) 
     and natural language responses.
     """
+    # Normalize first - fixes glued section markers, jammed bullets, and
+    # zero-width chars before any regex tries to match.
+    response = _normalize_workiq_response(response)
+
     result = {
         'summary': '',
         'topics': [],
@@ -871,7 +953,7 @@ def _parse_summary_response(response: str) -> Dict[str, Any]:
         'Risks/Blockers',
     ]
     engagement_match = re.search(
-        r'ENGAGEMENT[_\s]DATA:\s*\n((?:.+\n?)+)',
+        r'ENGAGEMENT[_\s]?DATA:\s*\n((?:.+\n?)+)',
         response, re.IGNORECASE
     )
     if engagement_match:
@@ -891,14 +973,14 @@ def _parse_summary_response(response: str) -> Dict[str, Any]:
     
     # Remove ENGAGEMENT_DATA block from response before further parsing
     response = re.sub(
-        r'ENGAGEMENT[_\s]DATA:\s*\n(?:.+\n?)+',
+        r'ENGAGEMENT[_\s]?DATA:\s*\n(?:.+\n?)+',
         '', response, flags=re.IGNORECASE
     ).strip()
     
     # Extract CONNECT_IMPACT block before other parsing
     # Matches "CONNECT_IMPACT:" followed by dash-prefixed lines
     impact_match = re.search(
-        r'CONNECT[_\s]IMPACT:\s*\n((?:\s*[-*]\s*.+\n?)+)',
+        r'CONNECT[_\s]?IMPACT:\s*\n((?:\s*[-*]\s*.+\n?)+)',
         response, re.IGNORECASE
     )
     if impact_match:
@@ -912,21 +994,21 @@ def _parse_summary_response(response: str) -> Dict[str, Any]:
     
     # Remove CONNECT_IMPACT block from response before further parsing
     response = re.sub(
-        r'CONNECT[_\s]IMPACT:\s*\n(?:\s*[-*]\s*.+\n?)+',
+        r'CONNECT[_\s]?IMPACT:\s*\n(?:\s*[-*]\s*.+\n?)+',
         '', response, flags=re.IGNORECASE
     ).strip()
     
     # Remove any SUGGESTED_TOPICS line if WorkIQ includes one from cached prompts
     response = re.sub(
-        r'SUGGESTED[_\s]TOPICS:\s*.+?(?:\n|$)', '', response, flags=re.IGNORECASE
+        r'SUGGESTED[_\s]?TOPICS:\s*.+?(?:\n|$)', '', response, flags=re.IGNORECASE
     ).strip()
     
     # Extract TASK_TITLE and TASK_DESCRIPTION from response (works for both formats)
     task_title_match = re.search(
-        r'TASK[_\s]TITLE:\s*(.+?)(?:\n|$)', response, re.IGNORECASE
+        r'TASK[_\s]?TITLE:\s*(.+?)(?:\n|$)', response, re.IGNORECASE
     )
     task_desc_match = re.search(
-        r'TASK[_\s]DESCRIPTION:\s*(.+?)(?:\n|$)', response, re.IGNORECASE
+        r'TASK[_\s]?DESCRIPTION:\s*(.+?)(?:\n|$)', response, re.IGNORECASE
     )
     if task_title_match:
         result['task_subject'] = task_title_match.group(1).strip().strip('"\'*')
@@ -937,7 +1019,7 @@ def _parse_summary_response(response: str) -> Dict[str, Any]:
     # Remove TASK_TITLE/TASK_DESCRIPTION lines from response before further parsing
     # so they don't pollute the summary text
     cleaned_response = re.sub(
-        r'TASK[_\s](?:TITLE|DESCRIPTION):\s*.+?(?:\n|$)', '', response, flags=re.IGNORECASE
+        r'TASK[_\s]?(?:TITLE|DESCRIPTION):\s*.+?(?:\n|$)', '', response, flags=re.IGNORECASE
     ).strip()
     
     # Check if response has structured format

@@ -499,5 +499,109 @@ class TestCitationStripping:
         assert '[3]' not in result['summary']
 
 
+class TestNormalizeWorkiqResponse:
+    """Regression tests for the three WorkIQ output bugs from the JSON-response backlog."""
+
+    def test_tasktitle_without_underscore_is_parsed(self):
+        """Bug 1a: WorkIQ sometimes drops the underscore (TASKTITLE: vs TASK_TITLE:)."""
+        response = (
+            "The team discussed cloud migration timelines.\n\n"
+            "TASKTITLE: Send AKS docs\n"
+            "TASKDESCRIPTION: Email the customer the AKS quickstart guide.\n"
+        )
+        result = _parse_summary_response(response)
+        assert result['task_subject'] == "Send AKS docs"
+        assert "AKS quickstart" in result['task_description']
+        # Bare TASKTITLE: marker should not leak into summary
+        assert 'TASKTITLE' not in result['summary']
+        assert 'TASKDESCRIPTION' not in result['summary']
+
+    def test_tasktitle_glued_to_prior_sentence_is_parsed(self):
+        """Bug 1b: TASKTITLE: jammed into the end of the previous sentence."""
+        response = (
+            "The team aligned on quarterly model refreshes.TASKTITLE: Schedule "
+            "next refresh review\nTASK_DESCRIPTION: Confirm refresh cadence with the customer.\n"
+        )
+        result = _parse_summary_response(response)
+        assert result['task_subject'] == "Schedule next refresh review"
+        assert "refresh cadence" in result['task_description']
+        # Marker name should not leak into summary
+        assert 'TASKTITLE' not in result['summary']
+        # The original sentence content should survive (with newline inserted before marker)
+        assert 'model refreshes' in result['summary']
+
+    def test_connect_impact_jammed_onto_one_line_is_parsed(self):
+        """Bug 2: WorkIQ collapses CONNECT_IMPACT bullets onto a single line."""
+        response = (
+            "The customer made strong progress this quarter.\n\n"
+            "CONNECT_IMPACT: - Migrated 500TB to Azure Data Lake "
+            "- Reduced query latency by 80% "
+            "- Onboarded 3 new business units to Synapse\n"
+        )
+        result = _parse_summary_response(response)
+        assert len(result['connect_impact']) == 3
+        assert "500TB" in result['connect_impact'][0]
+        assert "80%" in result['connect_impact'][1]
+        assert "Synapse" in result['connect_impact'][2]
+        # Impact block should not leak into summary
+        assert 'CONNECT_IMPACT' not in result['summary']
+        assert '500TB' not in result['summary']
+
+    def test_connect_impact_jammed_with_glued_marker(self):
+        """Bug 1+2 combined: glued marker AND jammed bullets in one response."""
+        response = (
+            "Strong quarter for the customer.CONNECT_IMPACT: - Win one - Win two - Win three"
+        )
+        result = _parse_summary_response(response)
+        assert len(result['connect_impact']) == 3
+        assert result['connect_impact'] == ['Win one', 'Win two', 'Win three']
+        assert 'Strong quarter' in result['summary']
+
+    def test_normal_multiline_connect_impact_still_works(self):
+        """The de-jam fix must not break already-correct multi-line impact blocks."""
+        response = (
+            "Good meeting.\n\n"
+            "CONNECT_IMPACT:\n"
+            "- First win\n"
+            "- Second win\n"
+            "- Third win\n"
+        )
+        result = _parse_summary_response(response)
+        assert result['connect_impact'] == ['First win', 'Second win', 'Third win']
+
+    def test_nbsp_replaced_with_space(self):
+        """Bug 3a: WorkIQ emits NBSPs (U+00A0) where real spaces should be."""
+        response = (
+            "The team discussed Dataverse\u00a0Fabric integration "
+            "and the differences\u00a0between\u00a0charges.\n"
+        )
+        result = _parse_summary_response(response)
+        # NBSPs should be normalized to ASCII spaces (or at least not present)
+        assert '\u00a0' not in result['summary']
+        # The text should still be readable
+        assert 'Dataverse Fabric integration' in result['summary']
+        assert 'between charges' in result['summary']
+
+    def test_zero_width_chars_stripped(self):
+        """Bug 3b: WorkIQ emits zero-width chars that corrupt downstream rendering."""
+        response = (
+            "Discussion about\u200bAzure\u200cmigration\u200dstrategy\ufeff.\n"
+        )
+        result = _parse_summary_response(response)
+        for ch in ('\u200b', '\u200c', '\u200d', '\ufeff'):
+            assert ch not in result['summary'], f"Zero-width char {hex(ord(ch))} leaked"
+
+    def test_engagement_data_without_underscore(self):
+        """ENGAGEMENTDATA (no underscore) should also parse."""
+        response = (
+            "Meeting notes.\n\n"
+            "ENGAGEMENTDATA:\n"
+            "Key Individuals & Titles: Jane Smith (CTO)\n"
+            "Risks/Blockers: Compliance review pending\n"
+        )
+        result = _parse_summary_response(response)
+        eng = result['engagement_signals']
+        assert 'Jane Smith' in eng['Key Individuals & Titles']
+        assert 'Compliance review' in eng['Risks/Blockers']
 
 
