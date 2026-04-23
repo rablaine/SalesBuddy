@@ -911,6 +911,31 @@ def _normalize_workiq_response(response: str) -> str:
 
     response = _IMPACT_BLOCK_RE.sub(_split_jammed_bullets, response)
 
+    # Fix 4: Re-flow hard-wrapped paragraphs. WorkIQ wraps prose at ~80 chars
+    # by inserting bare newlines mid-paragraph. When Quill renders the result,
+    # those newlines collapse and adjacent words merge ("on\naligning" becomes
+    # "onaligning"). Convert single newlines into spaces, but preserve:
+    #   - Paragraph breaks (\n\n stays as \n\n)
+    #   - Lines starting with a bullet (- or * or "1.")
+    #   - Lines starting with an ALLCAPS_MARKER: (TASK_TITLE:, etc.)
+    #   - Lines starting with an engagement-data field label (e.g.
+    #     "Key Individuals & Titles:") - capitalized words ending in colon.
+    # Run this LAST so the glued-marker fix above has already put markers
+    # on their own lines.
+    _REFLOW_RE = re.compile(
+        r'(?<!\n)\n'
+        r'(?!\n)'                         # not part of \n\n
+        r'(?!\s*[-*]\s)'                  # not a bullet line
+        r'(?!\s*\d+\.\s)'                 # not a numbered list line
+        r'(?!\s*[A-Z][A-Z_ ]*:)'          # not an ALLCAPS marker line
+        r'(?!\s*[A-Z][A-Za-z &/$]*:)'     # not a Title-Case label line
+    )
+    response = _REFLOW_RE.sub(' ', response)
+
+    # Collapse runs of spaces that the reflow may have introduced (e.g. when
+    # a wrapped line started with leading whitespace).
+    response = re.sub(r' {2,}', ' ', response)
+
     return response
 
 

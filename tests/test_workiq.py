@@ -604,4 +604,72 @@ class TestNormalizeWorkiqResponse:
         assert 'Jane Smith' in eng['Key Individuals & Titles']
         assert 'Compliance review' in eng['Risks/Blockers']
 
+    def test_hard_wrapped_paragraphs_are_reflowed(self):
+        """Bug 4: WorkIQ wraps prose at ~80 chars; single newlines must become spaces.
+
+        Otherwise Quill renders 'on\\naligning' as 'onaligning' (words merge).
+        """
+        response = (
+            "The team focused on\n"
+            "aligning the technical messaging for the customer's\n"
+            "Dataverse-to-Fabric scenario, with particular emphasis on cost.\n"
+            "\n"
+            "A second paragraph discussed Fabric Link versus Synapse Link\n"
+            "and the team agreed Fabric Link was the right choice.\n"
+        )
+        result = _parse_summary_response(response)
+        # Words must not be merged
+        assert 'onaligning' not in result['summary']
+        assert "customer'sDataverse" not in result['summary']
+        assert 'Linkand' not in result['summary']
+        # The proper space-joined text must be present
+        assert 'focused on aligning' in result['summary']
+        assert "customer's Dataverse-to-Fabric" in result['summary']
+        assert 'Synapse Link and' in result['summary']
+
+    def test_reflow_preserves_paragraph_breaks(self):
+        """Double newlines (paragraph breaks) must survive reflow."""
+        response = (
+            "First paragraph about Azure.\n"
+            "Continues on next line.\n"
+            "\n"
+            "Second paragraph about migration.\n"
+        )
+        result = _parse_summary_response(response)
+        # Paragraph break preserved
+        assert '\n\n' in result['summary']
+        # Lines within paragraph reflowed
+        assert 'Azure. Continues on next line.' in result['summary']
+
+    def test_reflow_preserves_bullet_lists(self):
+        """Bulleted lines must NOT get joined into prose by the reflow."""
+        response = (
+            "Action items from the meeting:\n"
+            "- Send follow-up email\n"
+            "- Schedule next sync\n"
+            "- Share the deck\n"
+        )
+        result = _parse_summary_response(response)
+        # Bullets must remain on their own lines
+        assert '- Send follow-up email' in result['summary']
+        assert '- Schedule next sync' in result['summary']
+        # Bullets must NOT be joined into prose
+        assert 'email - Schedule' not in result['summary']
+
+    def test_reflow_preserves_engagement_field_labels(self):
+        """Engagement data field labels (Title Case + colon) must stay on their own lines."""
+        response = (
+            "Meeting summary text.\n\n"
+            "ENGAGEMENT_DATA:\n"
+            "Key Individuals & Titles: Jane Smith (CTO)\n"
+            "Technical/Business Problem: Legacy systems are slow\n"
+            "Risks/Blockers: Compliance review pending\n"
+        )
+        result = _parse_summary_response(response)
+        eng = result['engagement_signals']
+        # All three fields must be parsed - reflow must not have joined them
+        assert 'Jane Smith' in eng['Key Individuals & Titles']
+        assert 'Legacy systems' in eng['Technical/Business Problem']
+        assert 'Compliance review' in eng['Risks/Blockers']
+
 
