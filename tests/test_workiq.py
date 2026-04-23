@@ -672,4 +672,47 @@ class TestNormalizeWorkiqResponse:
         assert 'Legacy systems' in eng['Technical/Business Problem']
         assert 'Compliance review' in eng['Risks/Blockers']
 
+    def test_task_markers_on_same_line_are_split(self):
+        """Bug: TASKTITLE: foo TASKDESCRIPTION: bar on one line - the description
+        marker isn't glued to a non-space char, but it still needs to be split
+        out so task_title doesn't capture 'foo TASKDESCRIPTION: bar'."""
+        response = (
+            "Summary of the meeting.\n\n"
+            "TASKTITLE: Clarify Fabric vs Dataverse Costs TASKDESCRIPTION: "
+            "Consolidate customer comms and explain the charging model.\n"
+        )
+        result = _parse_summary_response(response)
+        assert result['task_subject'] == "Clarify Fabric vs Dataverse Costs"
+        assert "Consolidate customer comms" in result['task_description']
+        assert 'TASKDESCRIPTION' not in result['task_subject']
+
+    def test_connect_impact_strips_trailing_footnote_markers(self):
+        """Trailing orphan citation numbers (e.g. ' 1') must be stripped from impact items."""
+        response = (
+            "Good meeting.\n\n"
+            "CONNECT_IMPACT:\n"
+            "- Helped customer understand Fabric capacity. 1\n"
+            "- Identified Fabric Link as the right pattern. 1\n"
+            "- Delivered better capacity estimates. 1\n"
+        )
+        result = _parse_summary_response(response)
+        assert len(result['connect_impact']) == 3
+        for item in result['connect_impact']:
+            assert not item.endswith(' 1'), f"Citation marker leaked: {item!r}"
+            assert not item.endswith('1'), f"Citation marker leaked: {item!r}"
+        assert result['connect_impact'][0].endswith('Fabric capacity.')
+
+    def test_engagement_value_strips_trailing_footnote_marker(self):
+        """Engagement field values must also strip trailing orphan citation numbers."""
+        response = (
+            "Meeting notes.\n\n"
+            "ENGAGEMENT_DATA:\n"
+            "Key Individuals & Titles: Jane Smith (CTO) 1\n"
+            "Risks/Blockers: Compliance review pending 2\n"
+        )
+        result = _parse_summary_response(response)
+        eng = result['engagement_signals']
+        assert eng['Key Individuals & Titles'] == 'Jane Smith (CTO)'
+        assert eng['Risks/Blockers'] == 'Compliance review pending'
+
 

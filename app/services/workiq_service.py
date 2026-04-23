@@ -219,8 +219,9 @@ def _clean_ai_preamble(text: str) -> str:
     text = re.sub(r'\n---+\s*$', '', text).strip()
 
     # Remove orphaned footnote reference numbers (e.g. " 1" at end of paragraphs)
-    # These are WorkIQ citation markers that have no corresponding footnote
-    text = re.sub(r'\s+\d+\s*$', '', text, flags=re.MULTILINE)
+    # These are WorkIQ citation markers that have no corresponding footnote.
+    # Limit to 1-2 digit numbers so we don't eat 4-digit years (e.g. "by 2026").
+    text = re.sub(r'\s+\d{1,2}\s*$', '', text, flags=re.MULTILINE)
 
     return text
 
@@ -869,12 +870,14 @@ def _normalize_workiq_response(response: str) -> str:
         0xFEFF: None,  # zero-width no-break space / BOM
     })
 
-    # Fix 1: Insert a newline before any section marker that's glued to prior
-    # text. Catches both underscored (`TASK_TITLE:`) and unseparated
-    # (`TASKTITLE:`) variants. Looks for the marker preceded by a non-space,
-    # non-newline character (so we don't insert blank lines).
+    # Fix 1: Insert a newline before any section marker that isn't already at
+    # the start of a line. Catches both underscored (`TASK_TITLE:`) and
+    # unseparated (`TASKTITLE:`) variants. Triggers whether the marker is
+    # glued to text (`...refreshes.TASKTITLE:`) or just on the same line as
+    # other content (`Clarify Costs TASKDESCRIPTION: ...`). Lookbehind for
+    # any non-newline char so we always end up with the marker line-leading.
     _GLUED_MARKER_RE = re.compile(
-        r'(?<=[^\s\n])'
+        r'(?<=[^\n])\s*'
         r'(TASK[_ ]?TITLE:|TASK[_ ]?DESCRIPTION:|'
         r'CONNECT[_ ]?IMPACT:|ENGAGEMENT[_ ]?DATA:|'
         r'SUGGESTED[_ ]?TOPICS:|SUMMARY:|TECHNOLOGIES:|ACTION[_ ]?ITEMS:)',
@@ -991,6 +994,9 @@ def _parse_summary_response(response: str) -> Dict[str, Any]:
             )
             if field_match:
                 value = field_match.group(1).strip()
+                # Strip trailing orphan footnote markers (citation 1s, etc.).
+                # Limit to 1-2 digit numbers so we don't eat 4-digit years.
+                value = re.sub(r'\s+\d{1,2}\s*$', '', value).strip()
                 # Skip placeholder or empty values
                 if value and value not in ('N/A', 'None', '-', '[not mentioned]',
                                            'Not identified', 'Not mentioned'):
@@ -1015,6 +1021,10 @@ def _parse_summary_response(response: str) -> Dict[str, Any]:
             for line in impact_lines
             if line.strip() and re.sub(r'^\s*[-*]\s*', '', line).strip()
         ]
+        # Strip trailing orphan footnote markers (e.g. "Win one. 1" -> "Win one.").
+        # WorkIQ emits citation numbers after each bullet that have no real footnote.
+        # Limit to 1-2 digit numbers so we don't eat 4-digit years (e.g. "by Q3 2026").
+        raw_items = [re.sub(r'\s+\d{1,2}\s*$', '', item).strip() for item in raw_items]
         result['connect_impact'] = [item for item in raw_items if item]
     
     # Remove CONNECT_IMPACT block from response before further parsing
