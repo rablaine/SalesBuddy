@@ -1417,14 +1417,28 @@ def api_stale_customers():
         auto_imported = {'marketing_summary', 'marketing_contacts', 'marketing_interactions'}
         user_data = sum(v for k, v in counts.items() if k not in auto_imported)
 
+        # SQLite strips tzinfo on read; stale_since is UTC by convention.
+        # Emit a 'Z'-suffixed ISO string so JS parses it as UTC, not local time
+        # (otherwise users west of UTC see negative "days ago" values).
+        if c.stale_since:
+            stale_iso = c.stale_since.isoformat()
+            if not stale_iso.endswith('Z') and '+' not in stale_iso:
+                stale_iso += 'Z'
+        else:
+            stale_iso = None
+
         result.append({
             "id": c.id,
             "name": c.get_display_name(),
             "tpid": c.tpid,
-            "stale_since": c.stale_since.isoformat() if c.stale_since else None,
+            "stale_since": stale_iso,
             "notes_count": counts.get('notes', 0),
             "engagements_count": counts.get('engagements', 0),
             "has_data": user_data > 0,
+            "seller_id": c.seller.id if c.seller else None,
+            "seller_name": c.seller.name if c.seller else None,
+            "territory_id": c.territory.id if c.territory else None,
+            "territory_name": c.territory.name if c.territory else None,
         })
 
     return jsonify(result)

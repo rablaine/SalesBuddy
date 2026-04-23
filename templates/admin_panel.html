@@ -3857,12 +3857,21 @@ function loadStaleCustomers() {
             let html = '<div class="list-group">';
             data.forEach(c => {
                 const staleDays = Math.floor((Date.now() - new Date(c.stale_since).getTime()) / 86400000);
+                const staleLabel = staleDays <= 0 ? 'Today' : (staleDays === 1 ? '1d ago' : `${staleDays}d ago`);
+                const sellerBadge = c.seller_id
+                    ? `<a href="/seller/${c.seller_id}" class="badge bg-primary text-decoration-none ms-1" title="Seller"><i class="bi bi-person"></i> ${escapeHtmlMerge(c.seller_name)}</a>`
+                    : '';
+                const territoryBadge = c.territory_id
+                    ? `<a href="/territory/${c.territory_id}" class="badge bg-info text-dark text-decoration-none ms-1" title="Territory"><i class="bi bi-geo-alt"></i> ${escapeHtmlMerge(c.territory_name)}</a>`
+                    : '';
                 html += `
                     <div class="list-group-item d-flex justify-content-between align-items-center py-2" id="stale-${c.id}">
                         <div>
-                            <strong>${escapeHtmlMerge(c.name)}</strong>
-                            <span class="text-muted small ms-2">TPID ${c.tpid}</span>
-                            <span class="badge bg-secondary ms-2">${staleDays}d ago</span>
+                            <a href="/customer/${c.id}" class="text-decoration-none"><strong>${escapeHtmlMerge(c.name)}</strong></a>
+                            <a href="/customer/${c.id}" class="text-muted small ms-2 text-decoration-none">TPID ${c.tpid}</a>
+                            <span class="badge bg-secondary ms-2">${staleLabel}</span>
+                            ${sellerBadge}
+                            ${territoryBadge}
                             ${c.notes_count > 0 ? `<span class="badge bg-info text-dark ms-1">${c.notes_count} notes</span>` : ''}
                             ${c.engagements_count > 0 ? `<span class="badge bg-info text-dark ms-1">${c.engagements_count} engagements</span>` : ''}
                         </div>
