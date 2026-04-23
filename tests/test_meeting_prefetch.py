@@ -356,6 +356,208 @@ class TestSubjectMatching:
             db.session.delete(longer)
             db.session.commit()
 
+    # -----------------------------------------------------------------
+    # First-distinctive-token fallback
+    # -----------------------------------------------------------------
+
+    def test_first_token_matches_acronym_with_legal_suffix(
+        self, app, clean_prefetch_tables
+    ):
+        """Customer 'AWP Inc' should match meeting 'AWP & MSFT sync'
+        via the first-token fallback (full name needs 'Inc')."""
+        with app.app_context():
+            c = Customer(name='AWP Inc', tpid=940001)
+            db.session.add(c)
+            db.session.commit()
+            cid = c.id
+
+            matchers = meeting_prefetch._build_subject_matchers()
+            customer_id, via = meeting_prefetch._resolve_customer(
+                attendees=[],
+                domain_map={},
+                subject='AWP & MSFT sync',
+                subject_matchers=matchers,
+            )
+            assert customer_id == cid
+            assert via == 'subject_first_token_name'
+
+            db.session.delete(c)
+            db.session.commit()
+
+    def test_first_token_matches_name_with_corporate_suffix(
+        self, app, clean_prefetch_tables
+    ):
+        """Customer 'Raptor Technologies, LLC' should match meeting
+        'Raptor/MSFT' via first-token fallback."""
+        with app.app_context():
+            c = Customer(name='Raptor Technologies, LLC', tpid=940002)
+            db.session.add(c)
+            db.session.commit()
+            cid = c.id
+
+            matchers = meeting_prefetch._build_subject_matchers()
+            customer_id, via = meeting_prefetch._resolve_customer(
+                attendees=[],
+                domain_map={},
+                subject='Raptor/MSFT review',
+                subject_matchers=matchers,
+            )
+            assert customer_id == cid
+            assert via == 'subject_first_token_name'
+
+            db.session.delete(c)
+            db.session.commit()
+
+    def test_first_token_skips_generic_adjective(
+        self, app, clean_prefetch_tables
+    ):
+        """'American Widgets Inc' must NOT first-token-match every
+        meeting with 'American' in the title."""
+        with app.app_context():
+            c = Customer(name='American Widgets Inc', tpid=940003)
+            db.session.add(c)
+            db.session.commit()
+
+            matchers = meeting_prefetch._build_subject_matchers()
+            customer_id, _ = meeting_prefetch._resolve_customer(
+                attendees=[],
+                domain_map={},
+                subject='American manufacturing trends Q2',
+                subject_matchers=matchers,
+            )
+            assert customer_id is None
+
+            db.session.delete(c)
+            db.session.commit()
+
+    def test_first_token_skips_common_english_noun(
+        self, app, clean_prefetch_tables
+    ):
+        """'BLOCK Communications' must NOT first-token-match meetings
+        like 'Start of day calendar block'. Regression for the BLOCK
+        false positive seen in production on 2026-04-23."""
+        with app.app_context():
+            c = Customer(name='BLOCK Communications', tpid=940010)
+            db.session.add(c)
+            db.session.commit()
+
+            matchers = meeting_prefetch._build_subject_matchers()
+            customer_id, _ = meeting_prefetch._resolve_customer(
+                attendees=[],
+                domain_map={},
+                subject='Start of day calendar block',
+                subject_matchers=matchers,
+            )
+            assert customer_id is None
+
+            db.session.delete(c)
+            db.session.commit()
+
+    def test_first_token_skips_short_acronym_AT(
+        self, app, clean_prefetch_tables
+    ):
+        """'AT Kearney' first-token = 'AT' (2 chars) → skipped entirely."""
+        with app.app_context():
+            c = Customer(name='AT Kearney', tpid=940004)
+            db.session.add(c)
+            db.session.commit()
+
+            matchers = meeting_prefetch._build_subject_matchers()
+            customer_id, _ = meeting_prefetch._resolve_customer(
+                attendees=[],
+                domain_map={},
+                subject='AT review meeting',
+                subject_matchers=matchers,
+            )
+            assert customer_id is None
+
+            db.session.delete(c)
+            db.session.commit()
+
+    def test_first_token_ambiguous_token_dropped(
+        self, app, clean_prefetch_tables
+    ):
+        """Two customers sharing 'Acme' as first distinctive token → neither
+        gets a first-token matcher (ambiguous)."""
+        with app.app_context():
+            c1 = Customer(name='Acme Industrial Holdings', tpid=940005)
+            c2 = Customer(name='Acme Medical Group', tpid=940006)
+            db.session.add_all([c1, c2])
+            db.session.commit()
+
+            matchers = meeting_prefetch._build_subject_matchers()
+            customer_id, _ = meeting_prefetch._resolve_customer(
+                attendees=[],
+                domain_map={},
+                subject='Acme check-in',
+                subject_matchers=matchers,
+            )
+            assert customer_id is None
+
+            db.session.delete(c1)
+            db.session.delete(c2)
+            db.session.commit()
+
+    def test_first_token_skips_leading_article(
+        self, app, clean_prefetch_tables
+    ):
+        """'The Raptor Group' should match 'Raptor/MSFT' — leading 'The'
+        is a stopword and must not count as the first token."""
+        with app.app_context():
+            c = Customer(name='The Raptor Group', tpid=940007)
+            db.session.add(c)
+            db.session.commit()
+            cid = c.id
+
+            matchers = meeting_prefetch._build_subject_matchers()
+            customer_id, _ = meeting_prefetch._resolve_customer(
+                attendees=[],
+                domain_map={},
+                subject='Raptor/MSFT review',
+                subject_matchers=matchers,
+            )
+            assert customer_id == cid
+
+            db.session.delete(c)
+            db.session.commit()
+
+    def test_first_token_full_name_still_wins_when_present(
+        self, app, clean_prefetch_tables
+    ):
+        """Full-name match outranks first-token match for the same customer
+        via the longest-match tiebreak."""
+        with app.app_context():
+            c = Customer(name='Raptor Technologies, LLC', tpid=940008)
+            db.session.add(c)
+            db.session.commit()
+            cid = c.id
+
+            matchers = meeting_prefetch._build_subject_matchers()
+            customer_id, via = meeting_prefetch._resolve_customer(
+                attendees=[],
+                domain_map={},
+                subject='Raptor Technologies, LLC quarterly',
+                subject_matchers=matchers,
+            )
+            assert customer_id == cid
+            assert via == 'subject_name'
+
+            db.session.delete(c)
+            db.session.commit()
+
+    def test_first_distinctive_token_helper(self):
+        """Direct unit tests for the helper."""
+        f = meeting_prefetch._first_distinctive_token
+        assert f('AWP Inc') == 'AWP'
+        assert f('Raptor Technologies, LLC') == 'Raptor'
+        assert f('The Raptor Group') == 'Raptor'
+        assert f('American Widgets') is None  # generic first token
+        assert f('Apple Inc') is None
+        assert f('Delta Airlines') is None
+        assert f('AT Kearney') is None  # 'AT' too short
+        assert f('IBM') == 'IBM'
+        assert f('Inc LLC Corp') is None  # all stopwords
+
 
 # ---------------------------------------------------------------------------
 # Purge

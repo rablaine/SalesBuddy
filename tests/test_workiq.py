@@ -126,6 +126,26 @@ class TestMeetingsResponseParsing:
         assert meetings[2]['start_time'].hour == 14
         assert meetings[2]['start_time'].minute == 30
 
+    def test_parse_escaped_pipe_with_space_in_title(self):
+        """Title containing `|` is markdown-escaped by WorkIQ as `\\|`,
+        but the LLM sometimes emits `\\ |` with whitespace between the
+        backslash and the pipe. Both forms should round-trip cleanly --
+        regression for `Eastwall | Wakemed` rendering as `Eastwall \\`.
+        """
+        response = (
+            "| Time | Meeting Title | External Company |\n"
+            "|---|---|---|\n"
+            "| 10:00 AM | Eastwall \\| Wakemed | Eastwall |\n"
+            "| 11:00 AM | Foo \\ | Bar | FooBar Inc |\n"
+        )
+        meetings = _parse_meetings_response(response, "2026-04-23")
+
+        assert len(meetings) == 2
+        assert meetings[0]['title'] == "Eastwall | Wakemed"
+        assert meetings[0]['customer'] == "Eastwall"
+        assert meetings[1]['title'] == "Foo | Bar"
+        assert meetings[1]['customer'] == "FooBar Inc"
+
 
 class TestSummaryResponseParsing:
     """Test parsing of WorkIQ summary responses."""

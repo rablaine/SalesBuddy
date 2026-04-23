@@ -534,11 +534,38 @@ def note_create():
     # the resulting note onto the PrefetchedMeeting row.
     from_meeting = request.args.get('from_meeting', type=int)
     from_meeting_workiq_id = None
+    from_meeting_title = None
+    from_meeting_date = None
+    from_meeting_data = None
     if from_meeting:
         from app.models import PrefetchedMeeting
         ghost = db.session.get(PrefetchedMeeting, from_meeting)
         if ghost:
             from_meeting_workiq_id = ghost.workiq_id
+            from_meeting_title = ghost.subject
+            from_meeting_date = (
+                ghost.meeting_date.isoformat() if ghost.meeting_date else None
+            )
+            # Minimal meeting dict matching the shape returned by
+            # /api/meetings -- lets the picker render this ghost without
+            # firing a live WorkIQ fetch when the user clicks Import Summary.
+            from_meeting_data = {
+                'id': ghost.workiq_id,
+                'title': ghost.subject,
+                'start_time': (
+                    ghost.start_time.isoformat()
+                    if ghost.start_time else None
+                ),
+                'start_time_display': (
+                    ghost.start_time.strftime('%I:%M %p')
+                    if ghost.start_time else ''
+                ),
+                'customer': (
+                    ghost.customer.name
+                    if ghost.customer else ''
+                ),
+                'attendees': [],
+            }
     
     # Pass date and time (from query param or now)
     from datetime import date
@@ -602,6 +629,9 @@ def note_create():
                          workiq_connect_impact=connect_impact_enabled,
                          from_meeting=from_meeting,
                          from_meeting_workiq_id=from_meeting_workiq_id,
+                         from_meeting_title=from_meeting_title,
+                         from_meeting_date=from_meeting_date,
+                         from_meeting_data=from_meeting_data,
                          next_url='')
 
 

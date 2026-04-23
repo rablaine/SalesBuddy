@@ -499,7 +499,11 @@ def _parse_meetings_response(response: str, date_str: str) -> List[Dict[str, Any
     for line in lines:
         line_stripped = line.strip()
         if line_stripped.startswith('|') and ('Meeting' in line_stripped or 'Title' in line_stripped):
-            temp = line_stripped.replace('\\|', '\x00')
+            # Normalize escaped pipes (the LLM sometimes emits `\ |` with
+            # whitespace between the backslash and the pipe instead of the
+            # tight `\|` markdown form). Collapse both into a sentinel so
+            # we can split the row safely.
+            temp = re.sub(r'\\\s*\|', '\x00', line_stripped)
             header_parts = [p.replace('\x00', '|').strip().lower() for p in temp.split('|')]
             header_parts = [p for p in header_parts if p]
             for i, h in enumerate(header_parts):
@@ -518,9 +522,11 @@ def _parse_meetings_response(response: str, date_str: str) -> List[Dict[str, Any
         if not line.startswith('|') or '---' in line or ('Time' in line and 'Meeting' in line):
             continue
         
-        # Split carefully on unescaped pipes
-        # Replace escaped pipes temporarily
-        temp = line.replace('\\|', '\x00')
+        # Split carefully on unescaped pipes. Tolerate the LLM emitting
+        # `\ |` (backslash + whitespace + pipe) in addition to the proper
+        # `\|` form -- without this, titles like `Eastwall \| Wakemed`
+        # render as just `Eastwall \` in the picker.
+        temp = re.sub(r'\\\s*\|', '\x00', line)
         parts = [p.replace('\x00', '|').strip() for p in temp.split('|')]
         
         # Filter empty parts (from leading/trailing pipes)
