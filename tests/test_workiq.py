@@ -499,5 +499,220 @@ class TestCitationStripping:
         assert '[3]' not in result['summary']
 
 
+class TestNormalizeWorkiqResponse:
+    """Regression tests for the three WorkIQ output bugs from the JSON-response backlog."""
+
+    def test_tasktitle_without_underscore_is_parsed(self):
+        """Bug 1a: WorkIQ sometimes drops the underscore (TASKTITLE: vs TASK_TITLE:)."""
+        response = (
+            "The team discussed cloud migration timelines.\n\n"
+            "TASKTITLE: Send AKS docs\n"
+            "TASKDESCRIPTION: Email the customer the AKS quickstart guide.\n"
+        )
+        result = _parse_summary_response(response)
+        assert result['task_subject'] == "Send AKS docs"
+        assert "AKS quickstart" in result['task_description']
+        # Bare TASKTITLE: marker should not leak into summary
+        assert 'TASKTITLE' not in result['summary']
+        assert 'TASKDESCRIPTION' not in result['summary']
+
+    def test_tasktitle_glued_to_prior_sentence_is_parsed(self):
+        """Bug 1b: TASKTITLE: jammed into the end of the previous sentence."""
+        response = (
+            "The team aligned on quarterly model refreshes.TASKTITLE: Schedule "
+            "next refresh review\nTASK_DESCRIPTION: Confirm refresh cadence with the customer.\n"
+        )
+        result = _parse_summary_response(response)
+        assert result['task_subject'] == "Schedule next refresh review"
+        assert "refresh cadence" in result['task_description']
+        # Marker name should not leak into summary
+        assert 'TASKTITLE' not in result['summary']
+        # The original sentence content should survive (with newline inserted before marker)
+        assert 'model refreshes' in result['summary']
+
+    def test_connect_impact_jammed_onto_one_line_is_parsed(self):
+        """Bug 2: WorkIQ collapses CONNECT_IMPACT bullets onto a single line."""
+        response = (
+            "The customer made strong progress this quarter.\n\n"
+            "CONNECT_IMPACT: - Migrated 500TB to Azure Data Lake "
+            "- Reduced query latency by 80% "
+            "- Onboarded 3 new business units to Synapse\n"
+        )
+        result = _parse_summary_response(response)
+        assert len(result['connect_impact']) == 3
+        assert "500TB" in result['connect_impact'][0]
+        assert "80%" in result['connect_impact'][1]
+        assert "Synapse" in result['connect_impact'][2]
+        # Impact block should not leak into summary
+        assert 'CONNECT_IMPACT' not in result['summary']
+        assert '500TB' not in result['summary']
+
+    def test_connect_impact_jammed_with_glued_marker(self):
+        """Bug 1+2 combined: glued marker AND jammed bullets in one response."""
+        response = (
+            "Strong quarter for the customer.CONNECT_IMPACT: - Win one - Win two - Win three"
+        )
+        result = _parse_summary_response(response)
+        assert len(result['connect_impact']) == 3
+        assert result['connect_impact'] == ['Win one', 'Win two', 'Win three']
+        assert 'Strong quarter' in result['summary']
+
+    def test_normal_multiline_connect_impact_still_works(self):
+        """The de-jam fix must not break already-correct multi-line impact blocks."""
+        response = (
+            "Good meeting.\n\n"
+            "CONNECT_IMPACT:\n"
+            "- First win\n"
+            "- Second win\n"
+            "- Third win\n"
+        )
+        result = _parse_summary_response(response)
+        assert result['connect_impact'] == ['First win', 'Second win', 'Third win']
+
+    def test_nbsp_replaced_with_space(self):
+        """Bug 3a: WorkIQ emits NBSPs (U+00A0) where real spaces should be."""
+        response = (
+            "The team discussed Dataverse\u00a0Fabric integration "
+            "and the differences\u00a0between\u00a0charges.\n"
+        )
+        result = _parse_summary_response(response)
+        # NBSPs should be normalized to ASCII spaces (or at least not present)
+        assert '\u00a0' not in result['summary']
+        # The text should still be readable
+        assert 'Dataverse Fabric integration' in result['summary']
+        assert 'between charges' in result['summary']
+
+    def test_zero_width_chars_stripped(self):
+        """Bug 3b: WorkIQ emits zero-width chars that corrupt downstream rendering."""
+        response = (
+            "Discussion about\u200bAzure\u200cmigration\u200dstrategy\ufeff.\n"
+        )
+        result = _parse_summary_response(response)
+        for ch in ('\u200b', '\u200c', '\u200d', '\ufeff'):
+            assert ch not in result['summary'], f"Zero-width char {hex(ord(ch))} leaked"
+
+    def test_engagement_data_without_underscore(self):
+        """ENGAGEMENTDATA (no underscore) should also parse."""
+        response = (
+            "Meeting notes.\n\n"
+            "ENGAGEMENTDATA:\n"
+            "Key Individuals & Titles: Jane Smith (CTO)\n"
+            "Risks/Blockers: Compliance review pending\n"
+        )
+        result = _parse_summary_response(response)
+        eng = result['engagement_signals']
+        assert 'Jane Smith' in eng['Key Individuals & Titles']
+        assert 'Compliance review' in eng['Risks/Blockers']
+
+    def test_hard_wrapped_paragraphs_are_reflowed(self):
+        """Bug 4: WorkIQ wraps prose at ~80 chars; single newlines must become spaces.
+
+        Otherwise Quill renders 'on\\naligning' as 'onaligning' (words merge).
+        """
+        response = (
+            "The team focused on\n"
+            "aligning the technical messaging for the customer's\n"
+            "Dataverse-to-Fabric scenario, with particular emphasis on cost.\n"
+            "\n"
+            "A second paragraph discussed Fabric Link versus Synapse Link\n"
+            "and the team agreed Fabric Link was the right choice.\n"
+        )
+        result = _parse_summary_response(response)
+        # Words must not be merged
+        assert 'onaligning' not in result['summary']
+        assert "customer'sDataverse" not in result['summary']
+        assert 'Linkand' not in result['summary']
+        # The proper space-joined text must be present
+        assert 'focused on aligning' in result['summary']
+        assert "customer's Dataverse-to-Fabric" in result['summary']
+        assert 'Synapse Link and' in result['summary']
+
+    def test_reflow_preserves_paragraph_breaks(self):
+        """Double newlines (paragraph breaks) must survive reflow."""
+        response = (
+            "First paragraph about Azure.\n"
+            "Continues on next line.\n"
+            "\n"
+            "Second paragraph about migration.\n"
+        )
+        result = _parse_summary_response(response)
+        # Paragraph break preserved
+        assert '\n\n' in result['summary']
+        # Lines within paragraph reflowed
+        assert 'Azure. Continues on next line.' in result['summary']
+
+    def test_reflow_preserves_bullet_lists(self):
+        """Bulleted lines must NOT get joined into prose by the reflow."""
+        response = (
+            "Action items from the meeting:\n"
+            "- Send follow-up email\n"
+            "- Schedule next sync\n"
+            "- Share the deck\n"
+        )
+        result = _parse_summary_response(response)
+        # Bullets must remain on their own lines
+        assert '- Send follow-up email' in result['summary']
+        assert '- Schedule next sync' in result['summary']
+        # Bullets must NOT be joined into prose
+        assert 'email - Schedule' not in result['summary']
+
+    def test_reflow_preserves_engagement_field_labels(self):
+        """Engagement data field labels (Title Case + colon) must stay on their own lines."""
+        response = (
+            "Meeting summary text.\n\n"
+            "ENGAGEMENT_DATA:\n"
+            "Key Individuals & Titles: Jane Smith (CTO)\n"
+            "Technical/Business Problem: Legacy systems are slow\n"
+            "Risks/Blockers: Compliance review pending\n"
+        )
+        result = _parse_summary_response(response)
+        eng = result['engagement_signals']
+        # All three fields must be parsed - reflow must not have joined them
+        assert 'Jane Smith' in eng['Key Individuals & Titles']
+        assert 'Legacy systems' in eng['Technical/Business Problem']
+        assert 'Compliance review' in eng['Risks/Blockers']
+
+    def test_task_markers_on_same_line_are_split(self):
+        """Bug: TASKTITLE: foo TASKDESCRIPTION: bar on one line - the description
+        marker isn't glued to a non-space char, but it still needs to be split
+        out so task_title doesn't capture 'foo TASKDESCRIPTION: bar'."""
+        response = (
+            "Summary of the meeting.\n\n"
+            "TASKTITLE: Clarify Fabric vs Dataverse Costs TASKDESCRIPTION: "
+            "Consolidate customer comms and explain the charging model.\n"
+        )
+        result = _parse_summary_response(response)
+        assert result['task_subject'] == "Clarify Fabric vs Dataverse Costs"
+        assert "Consolidate customer comms" in result['task_description']
+        assert 'TASKDESCRIPTION' not in result['task_subject']
+
+    def test_connect_impact_strips_trailing_footnote_markers(self):
+        """Trailing orphan citation numbers (e.g. ' 1') must be stripped from impact items."""
+        response = (
+            "Good meeting.\n\n"
+            "CONNECT_IMPACT:\n"
+            "- Helped customer understand Fabric capacity. 1\n"
+            "- Identified Fabric Link as the right pattern. 1\n"
+            "- Delivered better capacity estimates. 1\n"
+        )
+        result = _parse_summary_response(response)
+        assert len(result['connect_impact']) == 3
+        for item in result['connect_impact']:
+            assert not item.endswith(' 1'), f"Citation marker leaked: {item!r}"
+            assert not item.endswith('1'), f"Citation marker leaked: {item!r}"
+        assert result['connect_impact'][0].endswith('Fabric capacity.')
+
+    def test_engagement_value_strips_trailing_footnote_marker(self):
+        """Engagement field values must also strip trailing orphan citation numbers."""
+        response = (
+            "Meeting notes.\n\n"
+            "ENGAGEMENT_DATA:\n"
+            "Key Individuals & Titles: Jane Smith (CTO) 1\n"
+            "Risks/Blockers: Compliance review pending 2\n"
+        )
+        result = _parse_summary_response(response)
+        eng = result['engagement_signals']
+        assert eng['Key Individuals & Titles'] == 'Jane Smith (CTO)'
+        assert eng['Risks/Blockers'] == 'Compliance review pending'
 
 

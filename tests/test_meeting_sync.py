@@ -512,3 +512,239 @@ class TestMeetingSyncScheduler:
             for d in window:
                 DailyMeetingCache.query.filter_by(meeting_date=d).delete()
             db.session.commit()
+
+    @patch('app.services.meeting_sync._run_sync')
+    def test_aura_needs_run_false_when_morning_sync_just_ran(
+        self, mock_run, app
+    ):
+        """Regression: morning sync stamps every day in the window with the
+        same synced_at (today 7am). A future-day cache must NOT be considered
+        stale just because today 7am < tomorrow midnight. Otherwise every
+        server restart after the morning sync re-triggers the full aura sync
+        and runs the pre-sync ghost purge.
+        """
+        with app.app_context():
+            from app.services.meeting_sync import (
+                start_meeting_sync_background,
+                _aura_window_dates,
+                _aura_needs_run,
+            )
+
+            window = _aura_window_dates()
+            for d in window:
+                DailyMeetingCache.query.filter_by(meeting_date=d).delete()
+            # Simulate a real morning sync: every day in the window gets
+            # the SAME synced_at (today at 7am local).
+            morning_sync_time = datetime.combine(
+                date.today(), datetime.min.time()
+            ).replace(hour=7)
+            for d in window:
+                db.session.add(DailyMeetingCache(
+                    meeting_date=d,
+                    meetings_json='[]',
+                    synced_at=morning_sync_time,
+                ))
+            db.session.commit()
+
+            # Direct check: the freshness rule should accept today's morning
+            # sync as fresh for every day in the window.
+            assert _aura_needs_run(app) is False
+
+        # Startup catchup should also NOT trigger a re-sync.
+        start_meeting_sync_background(app)
+        mock_run.assert_not_called()
+
+        with app.app_context():
+            for d in window:
+                DailyMeetingCache.query.filter_by(meeting_date=d).delete()
+            db.session.commit()
+
+    @patch('app.services.meeting_sync._run_sync')
+    def test_aura_needs_run_true_when_cache_from_yesterday(
+        self, mock_run, app
+    ):
+        """If the cache was synced yesterday (or earlier), it IS stale and
+        a fresh sync should fire."""
+        from datetime import timedelta as _td
+        from unittest.mock import patch as _patch
+
+        with app.app_context():
+            from app.services.meeting_sync import (
+                _aura_window_dates,
+                _aura_needs_run,
+            )
+
+            window = _aura_window_dates()
+            for d in window:
+                DailyMeetingCache.query.filter_by(meeting_date=d).delete()
+            # Stamp every day with yesterday-7am as synced_at.
+            yesterday_sync = datetime.combine(
+                date.today() - _td(days=1), datetime.min.time()
+            ).replace(hour=7)
+            for d in window:
+                db.session.add(DailyMeetingCache(
+                    meeting_date=d,
+                    meetings_json='[]',
+                    synced_at=yesterday_sync,
+                ))
+            db.session.commit()
+
+            # Pin the boundary to "today 7am" so the test is not
+            # time-of-day dependent (would fail if run before 7am local).
+            today_boundary = datetime.combine(
+                date.today(), datetime.min.time()
+            ).replace(hour=7)
+            with _patch(
+                'app.services.meeting_sync._most_recent_sync_boundary',
+                return_value=today_boundary,
+            ):
+                assert _aura_needs_run(app) is True
+
+            for d in window:
+                DailyMeetingCache.query.filter_by(meeting_date=d).delete()
+            db.session.commit()
+
+    @patch('app.services.meeting_sync._run_sync')
+    def test_aura_needs_run_true_when_prefetched_table_drifts_from_cache(
+        self, mock_run, app
+    ):
+        """Self-heal: cache promises N meetings but prefetched_meetings has
+        fewer rows for that date (interrupted sync, expired purge, etc).
+        Restart should detect the drift and re-run the aura.
+
+        Caught 2026-04-22: 27/28 had cached picker meetings but zero
+        PrefetchedMeeting rows, so no ghosts appeared and restart didn't
+        self-heal until this check was added.
+        """
+        from app.models import PrefetchedMeeting, PrefetchedMeetingAttendee
+        from datetime import timedelta as _td
+
+        with app.app_context():
+            from app.services.meeting_sync import (
+                _aura_window_dates,
+                _aura_needs_run,
+                SYNC_HOUR,
+            )
+
+            window = _aura_window_dates()
+            for d in window:
+                DailyMeetingCache.query.filter_by(meeting_date=d).delete()
+            PrefetchedMeetingAttendee.query.delete()
+            PrefetchedMeeting.query.delete()
+
+            # Fresh sync stamp on every cache row.
+            fresh_sync = datetime.combine(
+                date.today(), datetime.min.time()
+            ).replace(hour=SYNC_HOUR)
+            picker_payload = json.dumps([
+                {'id': 'a', 'title': 'Meeting A'},
+                {'id': 'b', 'title': 'Meeting B'},
+            ])
+            for d in window:
+                db.session.add(DailyMeetingCache(
+                    meeting_date=d,
+                    meetings_json=picker_payload,
+                    synced_at=fresh_sync,
+                ))
+            db.session.commit()
+
+            # No PrefetchedMeeting rows at all -> drift -> needs run.
+            assert _aura_needs_run(app) is True
+
+            # Add matching rows for every day -> no drift -> no run needed.
+            for d in window:
+                for i, wid in enumerate(('a', 'b')):
+                    db.session.add(PrefetchedMeeting(
+                        workiq_id=f'{d.isoformat()}-{wid}',
+                        subject=f'Meeting {wid.upper()}',
+                        start_time=datetime.combine(
+                            d, datetime.min.time()
+                        ).replace(hour=10 + i),
+                        meeting_date=d,
+                        expires_at=datetime.combine(
+                            d + _td(days=1), datetime.min.time()
+                        ).replace(hour=23, minute=59),
+                    ))
+            db.session.commit()
+            assert _aura_needs_run(app) is False
+
+            for d in window:
+                DailyMeetingCache.query.filter_by(meeting_date=d).delete()
+            PrefetchedMeetingAttendee.query.delete()
+            PrefetchedMeeting.query.delete()
+            db.session.commit()
+
+    def test_most_recent_sync_boundary_before_sync_hour(self):
+        """Before today's SYNC_HOUR, the boundary is yesterday at SYNC_HOUR
+        so a sync that ran yesterday morning still counts as fresh."""
+        from datetime import timedelta as _td
+        from app.services.meeting_sync import (
+            _most_recent_sync_boundary, SYNC_HOUR,
+        )
+
+        early_morning = datetime.combine(
+            date.today(), datetime.min.time()
+        ).replace(hour=SYNC_HOUR - 1)
+        boundary = _most_recent_sync_boundary(now=early_morning)
+        expected = datetime.combine(
+            date.today() - _td(days=1), datetime.min.time()
+        ).replace(hour=SYNC_HOUR)
+        assert boundary == expected
+
+    def test_most_recent_sync_boundary_after_sync_hour(self):
+        """At/after today's SYNC_HOUR, the boundary is today at SYNC_HOUR."""
+        from app.services.meeting_sync import (
+            _most_recent_sync_boundary, SYNC_HOUR,
+        )
+
+        midday = datetime.combine(
+            date.today(), datetime.min.time()
+        ).replace(hour=SYNC_HOUR + 5)
+        boundary = _most_recent_sync_boundary(now=midday)
+        expected = datetime.combine(
+            date.today(), datetime.min.time()
+        ).replace(hour=SYNC_HOUR)
+        assert boundary == expected
+
+    @patch('app.services.meeting_sync._run_sync')
+    def test_aura_needs_run_false_for_early_morning_restart(
+        self, mock_run, app
+    ):
+        """Restart at 6am (before today's 7am sync) must NOT re-trigger:
+        yesterday's 7am sync is still the current cycle."""
+        from datetime import timedelta as _td
+        from unittest.mock import patch as _patch
+
+        with app.app_context():
+            from app.services.meeting_sync import (
+                _aura_window_dates,
+                _aura_needs_run,
+                SYNC_HOUR,
+            )
+
+            window = _aura_window_dates()
+            for d in window:
+                DailyMeetingCache.query.filter_by(meeting_date=d).delete()
+            # Yesterday's 7am sync stamped every day in the window.
+            yesterday_sync = datetime.combine(
+                date.today() - _td(days=1), datetime.min.time()
+            ).replace(hour=SYNC_HOUR)
+            for d in window:
+                db.session.add(DailyMeetingCache(
+                    meeting_date=d,
+                    meetings_json='[]',
+                    synced_at=yesterday_sync,
+                ))
+            db.session.commit()
+
+            # Pretend "now" is 6am today (before the next scheduled sync) by
+            # forcing the boundary helper to return yesterday's 7am.
+            with _patch(
+                'app.services.meeting_sync._most_recent_sync_boundary',
+                return_value=yesterday_sync,
+            ):
+                assert _aura_needs_run(app) is False
+
+            for d in window:
+                DailyMeetingCache.query.filter_by(meeting_date=d).delete()
+            db.session.commit()

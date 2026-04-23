@@ -124,8 +124,13 @@ class TestShouldSync:
             # Set last sync to yesterday 7 AM UTC
             pref.last_copilot_sync = datetime(2026, 3, 25, 12, 0, tzinfo=timezone.utc)
             db.session.commit()
-            # Now is after 6 AM today
-            assert should_sync() is True
+            # Force "now" to be after today's 6 AM local boundary so the
+            # check isn't time-of-day dependent (test would fail if run
+            # before 6 AM local).
+            with patch('app.services.copilot_actions.datetime') as mock_dt:
+                mock_dt.now.return_value = datetime(2026, 3, 26, 9, 0)  # 9 AM local
+                mock_dt.combine = datetime.combine
+                assert should_sync() is True
 
     def test_should_not_sync_if_already_done_today(self, app):
         """Should return False if sync already ran today after 6 AM."""

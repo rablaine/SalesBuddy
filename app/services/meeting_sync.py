@@ -71,6 +71,15 @@ def sync_meetings_for_date(date_str: str) -> tuple[list, str | None]:
     AND the legacy DailyMeetingCache so the meeting picker keeps working
     without any additional WorkIQ traffic.
 
+    Stale-ghost handling is post-sync, not pre-sync: we snapshot the
+    workiq_ids already present for this date, run the WorkIQ call (which
+    upserts what's still on the calendar), and only THEN drop the
+    snapshot ids that WorkIQ no longer returned. If WorkIQ fails or
+    returns nothing usable, the existing ghosts are preserved so the
+    user doesn't get a wiped-out day from a transient WorkIQ hiccup.
+
+    Dismissed ghosts and noted ghosts are always preserved.
+
     Args:
         date_str: Date in YYYY-MM-DD format.
 
@@ -82,40 +91,62 @@ def sync_meetings_for_date(date_str: str) -> tuple[list, str | None]:
 
     logger.info("Syncing meetings for %s", date_str)
 
-    # Pre-sync purge: drop ghosts that the user has neither dismissed nor
-    # noted, so canceled / moved meetings disappear instead of lingering
-    # until expires_at. Dismissed ghosts and noted ghosts are preserved so
-    # those user actions survive re-sync.
     try:
         target_date = datetime.strptime(date_str, '%Y-%m-%d').date()
-        stale_ids = [
-            row.id for row in (
+    except ValueError:
+        # Malformed date: let prefetch_for_date_full surface the error.
+        target_date = None
+
+    # Snapshot purge candidates BEFORE the WorkIQ call so a failure
+    # leaves the day intact.
+    purge_candidate_ids: set[str] = set()
+    if target_date is not None:
+        purge_candidate_ids = {
+            row.workiq_id for row in (
                 PrefetchedMeeting.query
                 .filter(PrefetchedMeeting.meeting_date == target_date)
                 .filter(PrefetchedMeeting.note_id.is_(None))
                 .filter(PrefetchedMeeting.dismissed.is_(False))
                 .all()
             )
-        ]
-        if stale_ids:
-            (PrefetchedMeetingAttendee.query
-                .filter(PrefetchedMeetingAttendee.meeting_id.in_(stale_ids))
-                .delete(synchronize_session=False))
-            (PrefetchedMeeting.query
-                .filter(PrefetchedMeeting.id.in_(stale_ids))
-                .delete(synchronize_session=False))
-            db.session.commit()
-            logger.info("Pre-sync purge: removed %d stale ghosts for %s",
-                        len(stale_ids), date_str)
-    except ValueError:
-        # date_str is malformed; let prefetch_for_date_full surface the error.
-        pass
+        }
 
     _, picker_meetings, err = prefetch_for_date_full(date_str)
     if err:
+        # WorkIQ call failed -- leave existing ghosts alone.
         return [], err
 
-    target_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+    # WorkIQ succeeded. Anything in the snapshot that wasn't re-upserted
+    # by this run is stale (canceled / moved) and should go.
+    if target_date is not None and purge_candidate_ids:
+        returned_ids = {
+            m.get('id') for m in picker_meetings if m.get('id')
+        }
+        stale_workiq_ids = purge_candidate_ids - returned_ids
+        if stale_workiq_ids:
+            stale_rows = (
+                PrefetchedMeeting.query
+                .filter(PrefetchedMeeting.workiq_id.in_(stale_workiq_ids))
+                .filter(PrefetchedMeeting.note_id.is_(None))
+                .filter(PrefetchedMeeting.dismissed.is_(False))
+                .all()
+            )
+            stale_ids = [row.id for row in stale_rows]
+            if stale_ids:
+                (PrefetchedMeetingAttendee.query
+                    .filter(PrefetchedMeetingAttendee.meeting_id.in_(stale_ids))
+                    .delete(synchronize_session=False))
+                (PrefetchedMeeting.query
+                    .filter(PrefetchedMeeting.id.in_(stale_ids))
+                    .delete(synchronize_session=False))
+                db.session.commit()
+                logger.info(
+                    "Post-sync purge: removed %d stale ghosts for %s",
+                    len(stale_ids), date_str,
+                )
+
+    if target_date is None:
+        target_date = datetime.strptime(date_str, '%Y-%m-%d').date()
     payload = json.dumps(picker_meetings)
     cache = DailyMeetingCache.query.filter_by(meeting_date=target_date).first()
     if cache:
@@ -298,14 +329,48 @@ def _aura_window_dates(start: date | None = None,
     return out
 
 
+def _most_recent_sync_boundary(now: datetime | None = None) -> datetime:
+    """Return the most recent SYNC_HOUR boundary in local naive time.
+
+    If ``now`` is at or after today's SYNC_HOUR, the boundary is today
+    at SYNC_HOUR. Otherwise it's yesterday at SYNC_HOUR. A cache is
+    "fresh" iff its ``synced_at`` is at or after this boundary.
+    """
+    from datetime import timedelta
+    if now is None:
+        now = datetime.now()
+    today_boundary = datetime.combine(
+        now.date(), datetime.min.time()
+    ).replace(hour=SYNC_HOUR)
+    if now >= today_boundary:
+        return today_boundary
+    return today_boundary - timedelta(days=1)
+
+
 def _aura_needs_run(app) -> bool:
     """True if any weekday in the aura window lacks a fresh cache.
 
-    "Fresh" = there is a DailyMeetingCache row for that date AND its
-    ``synced_at`` is on/after the date itself (i.e. it was synced on or
-    after the day it represents -- so a Monday cache from last week is
-    stale for next Monday).
+    Two checks per day:
+      1. The DailyMeetingCache row was synced at or after the most recent
+         SYNC_HOUR boundary (see :func:`_most_recent_sync_boundary`). The
+         morning sync stamps every day in the window with the same
+         ``synced_at``, so a future-date cache is fresh as long as it was
+         synced in the current cycle.
+      2. The PrefetchedMeeting table has at least as many rows for that
+         date as the cached picker list. The picker cache and the
+         prefetched_meetings table can drift (interrupted sync, expired
+         rows purged out from under us, etc.). When they disagree, the
+         calendar shows fewer ghosts than the cache promises, so we
+         re-run the aura to repopulate.
+
+    Previous versions only checked freshness of the picker cache and
+    missed the drift case entirely (caught 2026-04-22: 27/28 had cached
+    picker meetings but zero PrefetchedMeeting rows, so no ghosts
+    appeared and restart didn't self-heal).
     """
+    from app.models import PrefetchedMeeting
+
+    boundary = _most_recent_sync_boundary()
     with app.app_context():
         for d in _aura_window_dates():
             cache = DailyMeetingCache.query.filter_by(meeting_date=d).first()
@@ -314,9 +379,31 @@ def _aura_needs_run(app) -> bool:
             synced_at_local = cache.synced_at
             if synced_at_local.tzinfo is not None:
                 synced_at_local = synced_at_local.astimezone().replace(tzinfo=None)
-            day_start = datetime.combine(d, datetime.min.time())
-            if synced_at_local < day_start:
+            if synced_at_local < boundary:
                 return True
+
+            # Drift check: cache promises N meetings, prefetched table
+            # should have at least N rows for that date. We allow >=
+            # because prefetched rows can survive across syncs (dismissed
+            # / noted) while the cached picker list reflects only the
+            # most recent WorkIQ snapshot.
+            try:
+                expected = len(cache.get_meetings() or [])
+            except Exception:
+                expected = 0
+            if expected > 0:
+                actual = (
+                    PrefetchedMeeting.query
+                    .filter_by(meeting_date=d)
+                    .count()
+                )
+                if actual < expected:
+                    logger.info(
+                        "Aura drift: %s cache has %d meetings but "
+                        "prefetched table has %d rows; re-syncing",
+                        d, expected, actual,
+                    )
+                    return True
     return False
 
 
