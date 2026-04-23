@@ -403,8 +403,13 @@
     .cal-add-btn:hover { opacity: 1; color: var(--bs-primary) !important; }
     .cal-fill-btn { opacity: 0.3; transition: opacity 0.15s; font-size: 0.85rem; }
     .cal-fill-btn:hover { opacity: 1; color: var(--bs-warning) !important; }
+    .cal-sync-btn { opacity: 0.3; transition: opacity 0.15s; font-size: 0.85rem; }
+    .cal-sync-btn:hover { opacity: 1; color: var(--bs-info) !important; }
     #calendarTable td:hover .cal-add-btn { opacity: 0.7; }
     #calendarTable td:hover .cal-fill-btn { opacity: 0.7; }
+    #calendarTable td:hover .cal-sync-btn { opacity: 0.7; }
+    @keyframes cal-sync-spin { to { transform: rotate(360deg); } }
+    .cal-sync-spinning { display: inline-block; animation: cal-sync-spin 0.9s linear infinite; }
 
     /* Ghost meeting (PrefetchedMeeting) styling - clearly distinct from real notes.
        Dashed border + lower opacity says "this is a placeholder, click to make it real". */
@@ -942,6 +947,45 @@
             });
     }
 
+    // Triggered by the per-cell refresh icon. Pulls WorkIQ for a specific
+    // date (past or future, even outside the aura window) and re-renders
+    // that cell's ghosts. Rows for past dates beyond the normal retention
+    // window will be cleaned up by the next morning sync's purge pass;
+    // that's expected and fine for ad-hoc lookups.
+    function triggerDaySync(dateStr, btnEl) {
+        if (!dateStr) return;
+        const icon = btnEl ? btnEl.querySelector('i') : null;
+        const originalClass = icon ? icon.className : null;
+        if (icon) {
+            icon.className = 'bi bi-arrow-clockwise cal-sync-spinning';
+        }
+        if (btnEl) btnEl.style.pointerEvents = 'none';
+
+        fetch('/api/meetings/refresh', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({date: dateStr}),
+        })
+            .then(r => r.json().then(body => ({ok: r.ok, body})))
+            .then(({ok, body}) => {
+                if (!ok) {
+                    console.error('Day sync failed:', body && body.error);
+                    return;
+                }
+                // Repaint just this cell's ghosts.
+                if (typeof refreshDaysInPlace === 'function') {
+                    refreshDaysInPlace([dateStr]);
+                }
+            })
+            .catch(err => {
+                console.error('Day sync error:', err);
+            })
+            .finally(() => {
+                if (icon && originalClass) icon.className = originalClass;
+                if (btnEl) btnEl.style.pointerEvents = '';
+            });
+    }
+
     // ===== TODAY-CELL HEALTH INDICATOR =====
     function checkTodayStatus() {
         fetch('/api/meetings/today-status')
@@ -1312,7 +1356,22 @@
                         openQuickCreateModal(dateStr);
                     });
                     iconsContainer.appendChild(addBtn);
-                    
+
+                    // Ad-hoc "sync this day" button. Fires a WorkIQ pull for
+                    // just this date, even past dates outside the aura
+                    // window (rows will be pruned on the next morning sync).
+                    const syncBtn = document.createElement('a');
+                    syncBtn.href = '#';
+                    syncBtn.className = 'text-muted text-decoration-none cal-sync-btn';
+                    syncBtn.innerHTML = '<i class="bi bi-arrow-clockwise"></i>';
+                    syncBtn.title = 'Pull meetings for this day';
+                    syncBtn.setAttribute('data-date', dateStr);
+                    syncBtn.addEventListener('click', function(e) {
+                        e.preventDefault();
+                        triggerDaySync(dateStr, syncBtn);
+                    });
+                    iconsContainer.appendChild(syncBtn);
+
                     dayHeader.appendChild(iconsContainer);
                     
                     cell.appendChild(dayHeader);

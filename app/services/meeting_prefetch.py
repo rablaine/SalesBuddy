@@ -176,6 +176,25 @@ _SUBJECT_STOPWORDS = frozenset({
     'international', 'us', 'usa', 'na', 'north', 'america',
 })
 
+# Tokens that are real English adjectives, common brand words, or short
+# acronyms that would collide with non-customer meeting titles if used as
+# a standalone first-token matcher. A customer whose first distinctive
+# token is in this set falls back to domain-only / full-name matching.
+# "American Express" won't match a meeting titled "American manufacturing
+# playbook"; "Apple Inc" won't match "Apple vs Microsoft privacy talk".
+_GENERIC_FIRST_TOKENS = frozenset({
+    # Common English adjectives that also appear in company names.
+    'american', 'national', 'general', 'united', 'global', 'pacific',
+    'atlantic', 'premier', 'advanced', 'digital', 'modern', 'central',
+    'southern', 'northern', 'eastern', 'western', 'first', 'prime',
+    'core', 'alpha', 'beta', 'home', 'federal', 'state', 'city',
+    'metro', 'regional', 'local', 'new', 'old', 'big', 'best',
+    'true', 'pure', 'smart', 'simple', 'open', 'free', 'direct',
+    # Consumer-brand first tokens that show up in generic meeting titles.
+    'apple', 'delta', 'uber', 'oracle', 'amazon', 'google', 'meta',
+    'microsoft', 'msft', 'azure', 'aws', 'gcp',
+})
+
 # Tokenize on any non-word run (so "QS/1", "AT&T", "Coca-Cola" all split
 # cleanly). We keep digits because some customer names are numeric ("3M").
 _TOKEN_RE = re.compile(r'\w+', re.UNICODE)
@@ -193,12 +212,50 @@ def _phrase_is_distinctive(phrase: str) -> bool:
     return bool(meaningful)
 
 
+def _first_distinctive_token(phrase: str) -> Optional[str]:
+    """Return the first token that's safe to use as a standalone matcher.
+
+    Skips leading stopwords ("The", "A", corporate suffixes) and returns
+    the original-case token if it passes the standalone-safety rules:
+
+      * all-uppercase AND >= 3 chars (e.g. "AWP", "IBM", "BMW"), OR
+      * mixed/lowercase AND >= 4 chars AND not in _GENERIC_FIRST_TOKENS
+        (e.g. "Raptor", "Tesla", but NOT "American", "Delta", "Apple").
+
+    Returns ``None`` if no token qualifies; the caller should skip
+    registering a first-token matcher for that phrase.
+    """
+    # Preserve original case so we can check all-uppercase-ness below,
+    # but still split on non-word runs consistently.
+    raw_tokens = _TOKEN_RE.findall(phrase)
+    for tok in raw_tokens:
+        low = tok.lower()
+        if len(low) < 2 or low in _SUBJECT_STOPWORDS:
+            continue
+        # First non-stopword token. Decide if it's safe to use standalone.
+        if tok.isupper() and len(tok) >= 3:
+            return tok
+        if len(tok) >= 4 and low not in _GENERIC_FIRST_TOKENS:
+            return tok
+        # First distinctive token exists but isn't safe; don't fall
+        # through to later tokens (that would drift too far from the
+        # customer's actual name).
+        return None
+    return None
+
+
 def _build_subject_matchers() -> List[Tuple[re.Pattern, int, str]]:
     """Build ``(compiled_regex, customer_id, matched_via)`` list.
 
-    For each customer with a distinctive name and/or nickname, compile a
-    case-insensitive word-bounded regex. Order: nicknames first (usually
-    shorter and more specific), then names. Caller picks the longest match.
+    Two tiers, returned as a single list (caller picks the longest match,
+    so the full-name tier wins whenever it can):
+
+      1. Full nickname / legal name word-bounded regex. Most specific.
+      2. First-distinctive-token fallback (see :func:`_first_distinctive_token`
+         and :func:`_build_first_token_matchers`) so titles like
+         "AWP & MSFT sync" resolve to "AWP Inc" without needing the
+         legal suffix. Ambiguous tokens (claimed by >1 customer) are
+         dropped.
     """
     matchers: List[Tuple[re.Pattern, int, str]] = []
     customers = (
@@ -228,6 +285,55 @@ def _build_subject_matchers() -> List[Tuple[re.Pattern, int, str]]:
             except re.error:
                 continue
             matchers.append((pattern, c.id, label))
+
+    matchers.extend(_build_first_token_matchers())
+    return matchers
+
+
+def _build_first_token_matchers() -> List[Tuple[re.Pattern, int, str]]:
+    """Build fallback ``(regex, customer_id, matched_via)`` list keyed on
+    each customer's first distinctive token.
+
+    Used as a lower-priority tier after full-name / nickname matching so
+    meetings like "AWP & MSFT sync" or "Raptor/MSFT review" resolve to
+    "AWP Inc" and "Raptor Technologies, LLC" respectively, without
+    requiring the full legal suffix in the title.
+
+    A token registered by two or more customers is ambiguous -- drop it
+    entirely so we don't silently pick the wrong one.
+    """
+    # token.lower() -> list of (customer_id, original_token, source_phrase_label)
+    token_owners: Dict[str, List[Tuple[int, str, str]]] = {}
+    customers = (
+        Customer.query
+        .order_by(Customer.created_at.desc().nullslast())
+        .all()
+    )
+    for c in customers:
+        for phrase, label in ((c.nickname, 'subject_first_token_nickname'),
+                              (c.name, 'subject_first_token_name')):
+            if not phrase:
+                continue
+            tok = _first_distinctive_token(phrase)
+            if not tok:
+                continue
+            token_owners.setdefault(tok.lower(), []).append((c.id, tok, label))
+
+    matchers: List[Tuple[re.Pattern, int, str]] = []
+    for low, owners in token_owners.items():
+        # Ambiguous: same token claimed by multiple customers. Skip.
+        unique_cids = {cid for cid, _, _ in owners}
+        if len(unique_cids) > 1:
+            continue
+        cid, tok, label = owners[0]
+        try:
+            pattern = re.compile(
+                r'(?<!\w)' + re.escape(tok) + r'(?!\w)',
+                re.IGNORECASE,
+            )
+        except re.error:
+            continue
+        matchers.append((pattern, cid, label))
     return matchers
 
 
