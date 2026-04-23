@@ -359,9 +359,13 @@ if ($Setup) {
     Write-Host "  Setting up daily automatic backup..." -ForegroundColor Yellow
 
     $scriptPath = Join-Path $PSScriptRoot 'backup.ps1'
+    $vbsLauncher = Join-Path $PSScriptRoot 'run-hidden.vbs'
+    # Use wscript + VBS launcher so the powershell console window never flashes.
+    # (powershell.exe -WindowStyle Hidden still shows a brief console flash;
+    #  wscript starts the process with no console at all.)
     $action = New-ScheduledTaskAction `
-        -Execute 'powershell.exe' `
-        -Argument "-ExecutionPolicy Bypass -WindowStyle Hidden -File `"$scriptPath`" -Silent" `
+        -Execute 'wscript.exe' `
+        -Argument "`"$vbsLauncher`" `"$scriptPath`" -Silent" `
         -WorkingDirectory $RepoRoot
 
     # Run daily at 11:00 AM
