@@ -401,17 +401,50 @@
     .cal-general-note { cursor: pointer; transition: all 0.15s ease; }
     .cal-add-btn { opacity: 0.3; transition: opacity 0.15s; font-size: 0.85rem; }
     .cal-add-btn:hover { opacity: 1; color: var(--bs-primary) !important; }
+    /* Per-day sync control lives inside the day-number span and only
+       appears when the user hovers the date. Click replaces the number
+       with a spinning teal refresh icon until the WorkIQ pull finishes. */
+    .cal-day-num-wrap {
+        position: relative;
+        display: inline-block;
+        cursor: pointer;
+        min-width: 1.4em;
+        text-align: center;
+    }
+    .cal-day-sync-overlay {
+        position: absolute;
+        inset: 0;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        color: var(--bs-info);
+        font-size: 0.9em;
+        pointer-events: none;
+    }
+    .cal-day-num-wrap:hover .cal-day-sync-overlay { display: flex; }
+    .cal-day-num-wrap:hover .cal-day-num { visibility: hidden; }
+    /* If the aura sync is already syncing/queueing this day, don't
+       advertise the manual refresh affordance -- the morning sync owns
+       it. We block the click in JS too (see triggerDaySync). */
+    td:has(> .d-flex .cal-aura-dots) .cal-day-num-wrap {
+        cursor: default;
+    }
+    td:has(> .d-flex .cal-aura-dots) .cal-day-num-wrap:hover .cal-day-sync-overlay {
+        display: none;
+    }
+    td:has(> .d-flex .cal-aura-dots) .cal-day-num-wrap:hover .cal-day-num {
+        visibility: visible;
+    }
+    .cal-day-num-wrap.cal-day-syncing .cal-day-num { visibility: hidden; }
+    .cal-day-num-wrap.cal-day-syncing .cal-day-sync-overlay {
+        display: flex;
+        animation: cal-sync-spin 0.9s linear infinite;
+    }
+    @keyframes cal-sync-spin { to { transform: rotate(360deg); } }
     .cal-fill-btn { opacity: 0.3; transition: opacity 0.15s; font-size: 0.85rem; }
     .cal-fill-btn:hover { opacity: 1; color: var(--bs-warning) !important; }
-    .cal-sync-btn { opacity: 0.3; transition: opacity 0.15s; font-size: 0.85rem; }
-    .cal-sync-btn:hover { opacity: 1; color: var(--bs-info) !important; }
-    /* While spinning, force the btn to look hovered even when not hovered. */
-    .cal-sync-btn:has(.cal-sync-spinning) { opacity: 1; color: var(--bs-info) !important; }
     #calendarTable td:hover .cal-add-btn { opacity: 0.7; }
     #calendarTable td:hover .cal-fill-btn { opacity: 0.7; }
-    #calendarTable td:hover .cal-sync-btn { opacity: 0.7; }
-    @keyframes cal-sync-spin { to { transform: rotate(360deg); } }
-    .cal-sync-spinning { display: inline-block; animation: cal-sync-spin 0.9s linear infinite; }
 
     /* Ghost meeting (PrefetchedMeeting) styling - clearly distinct from real notes.
        Dashed border + lower opacity says "this is a placeholder, click to make it real". */
@@ -509,17 +542,13 @@
     .cal-ghost.cal-ghost-customer-15.cal-highlight { background-color: rgba(184, 134, 11, 0.45) !important; }
 
     /* Today-cell health indicator. The day-number badge goes blue (default)
-       when this morning's sync covered today, orange when it didn't. Hover
-       the orange badge to swap to a refresh icon and trigger a re-sync. */
+       when this morning's sync covered today, orange when it didn't. The
+       actual refresh affordance comes from the standard date-number hover
+       overlay (see .cal-day-num-wrap) -- this rule only colors the badge. */
     .cal-today-incomplete .badge.bg-primary {
         background-color: var(--bs-warning) !important;
         color: #000 !important;
-        cursor: pointer;
     }
-    .cal-today-incomplete .badge.bg-primary .today-num { display: inline; }
-    .cal-today-incomplete .badge.bg-primary .today-refresh { display: none; }
-    .cal-today-incomplete .badge.bg-primary:hover .today-num { display: none; }
-    .cal-today-incomplete .badge.bg-primary:hover .today-refresh { display: inline; }
 
     /* Aura sync indicator: typing-dots overlay on each calendar day cell
        that the morning aura is currently working through. Three opacity
@@ -941,42 +970,28 @@
         return `${y}-${m}-${day}`;
     }
 
-    // Triggered by clicking the orange today-cell badge.
-    function triggerTodaySync() {
-        const today = localDateStr();
-        fetch('/api/meetings/sync-aura', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({anchor: today, days_ahead: 0}),
-        })
-            .then(r => r.json())
-            .then(resp => {
-                // Whether we started fresh or attached to an in-flight sync,
-                // surface the floating card.
-                if (window.SyncStatus) window.SyncStatus.forceShow(resp.state || {});
-                // Also kick the calendar dot-indicator immediately so the
-                // user sees the typing dots without waiting for the next
-                // 3s poll.
-                checkAuraSync();
-            })
-            .catch(err => {
-                console.error('Today sync trigger failed:', err);
-            });
-    }
-
-    // Triggered by the per-cell refresh icon. Pulls WorkIQ for a specific
-    // date (past or future, even outside the aura window) and re-renders
-    // that cell's ghosts. Rows for past dates beyond the normal retention
-    // window will be cleaned up by the next morning sync's purge pass;
-    // that's expected and fine for ad-hoc lookups.
-    function triggerDaySync(dateStr, btnEl) {
+    // Triggered by clicking the day-number in a calendar cell. Pulls
+    // WorkIQ for that specific date (past or future, even outside the
+    // aura window) and re-renders that cell's ghosts. Rows for past
+    // dates beyond the normal retention window will be cleaned up by
+    // the next morning sync's purge pass; that's expected and fine for
+    // ad-hoc lookups.
+    function triggerDaySync(dateStr, wrapEl) {
         if (!dateStr) return;
-        const icon = btnEl ? btnEl.querySelector('i') : null;
-        const originalClass = icon ? icon.className : null;
-        if (icon) {
-            icon.className = 'bi bi-arrow-clockwise cal-sync-spinning';
+        // If the morning aura sync already has this date queued or
+        // in-flight, don't fire a duplicate WorkIQ pull. The aura dots
+        // (rendered by applyAuraIndicators) live in the same cell, so
+        // their presence is the source of truth.
+        if (wrapEl) {
+            const cell = wrapEl.closest('td[data-cal-date]');
+            if (cell && cell.querySelector('.cal-aura-dots')) {
+                return;
+            }
         }
-        if (btnEl) btnEl.style.pointerEvents = 'none';
+        if (wrapEl) {
+            wrapEl.classList.add('cal-day-syncing');
+            wrapEl.style.pointerEvents = 'none';
+        }
 
         fetch('/api/meetings/refresh', {
             method: 'POST',
@@ -989,7 +1004,9 @@
                     console.error('Day sync failed:', body && body.error);
                     return;
                 }
-                // Repaint just this cell's ghosts.
+                // Repaint just this cell's ghosts (this re-renders the
+                // whole cell including the day number, so the spinner
+                // naturally goes away).
                 if (typeof refreshDaysInPlace === 'function') {
                     refreshDaysInPlace([dateStr]);
                 }
@@ -998,8 +1015,12 @@
                 console.error('Day sync error:', err);
             })
             .finally(() => {
-                if (icon && originalClass) icon.className = originalClass;
-                if (btnEl) btnEl.style.pointerEvents = '';
+                // If refreshDaysInPlace didn't exist or didn't swap out
+                // this element, make sure we clean up the spinner state.
+                if (wrapEl && wrapEl.isConnected) {
+                    wrapEl.classList.remove('cal-day-syncing');
+                    wrapEl.style.pointerEvents = '';
+                }
             });
     }
 
@@ -1014,36 +1035,17 @@
     window.checkTodayStatus = checkTodayStatus;
 
     function applyTodayStatus(data) {
-        // Find the today-cell by the badge bg-primary inside #calendarBody.
-        // We tag the wrapping <td> with cal-today-incomplete when stale.
+        // Tag the today <td> with cal-today-incomplete when this morning's
+        // sync didn't cover today, which colors the day-number badge orange.
+        // The actual re-sync is handled by the standard date-number hover
+        // refresh icon (triggerDaySync) -- no special today click handler.
         const calendarBody = document.getElementById('calendarBody');
         if (!calendarBody) return;
         const badges = calendarBody.querySelectorAll('.badge.bg-primary.rounded-circle');
         badges.forEach(badge => {
             const td = badge.closest('td');
             if (!td) return;
-            // Reset prior state.
-            td.classList.remove('cal-today-incomplete');
-            badge.removeAttribute('title');
-            // Restore plain text content if we previously injected the
-            // hover-swap markup.
-            const num = badge.dataset.dayNum || badge.textContent.trim();
-            badge.dataset.dayNum = num;
-            if (data.synced) {
-                badge.innerHTML = num;
-                badge.setAttribute('title', "Today's meetings are up to date");
-                badge.style.cursor = '';
-                badge.onclick = null;
-            } else {
-                td.classList.add('cal-today-incomplete');
-                badge.innerHTML = `<span class="today-num">${num}</span>`
-                    + `<span class="today-refresh"><i class="bi bi-arrow-clockwise"></i></span>`;
-                badge.setAttribute('title', "Today's sync is incomplete - click to refresh");
-                badge.onclick = function(e) {
-                    e.stopPropagation();
-                    triggerTodaySync();
-                };
-            }
+            td.classList.toggle('cal-today-incomplete', !data.synced);
         });
     }
 
@@ -1089,6 +1091,24 @@
             } else {
                 desired.delete(dateStr); // already correct
             }
+        });
+
+        // Update the day-number wrap title to reflect the current gating
+        // state for every cell in view: pending cells say "morning sync
+        // owns this", everything else gets the manual-refresh affordance.
+        document.querySelectorAll('#calendarBody td[data-cal-date] .cal-day-num-wrap').forEach(wrap => {
+            const cell = wrap.closest('td[data-cal-date]');
+            const dateStr = cell ? cell.getAttribute('data-cal-date') : null;
+            const pending = dateStr && desired.has(dateStr);
+            // Note: by this point in the function we've removed dots that
+            // were no longer wanted and deleted matching entries from
+            // `desired`, so `desired.has(dateStr)` only tells us about
+            // newly-pending cells. Use the DOM as the source of truth
+            // instead -- aura dots present == aura owns this cell.
+            const auraOwns = !!cell.querySelector('.cal-aura-dots') || pending;
+            wrap.title = auraOwns
+                ? 'Morning sync is already refreshing this day'
+                : 'Click to pull meetings for this day';
         });
 
         // Add dots for any newly-pending dates not already in the DOM.
@@ -1346,12 +1366,29 @@
                     dayHeader.className = 'd-flex justify-content-between align-items-center mb-1';
                     
                     const dayNumber = document.createElement('span');
-                    dayNumber.className = 'fw-bold';
+                    dayNumber.className = 'fw-bold cal-day-num-wrap';
+                    dayNumber.title = 'Click to pull meetings for this day';
+                    dayNumber.setAttribute('data-date', cellDateStr);
+                    // Inner span holds the actual number/badge so we can
+                    // hide just that on hover/sync and overlay the spinner.
+                    const numInner = document.createElement('span');
+                    numInner.className = 'cal-day-num';
                     if (dayNum === todayDay) {
-                        dayNumber.innerHTML = `<span class="badge bg-primary rounded-circle">${dayNum}</span>`;
+                        numInner.innerHTML = `<span class="badge bg-primary rounded-circle">${dayNum}</span>`;
                     } else {
-                        dayNumber.textContent = dayNum;
+                        numInner.textContent = dayNum;
                     }
+                    dayNumber.appendChild(numInner);
+                    // Overlay is hidden by default; shown on hover (teal
+                    // static icon) or while syncing (teal spinning icon).
+                    const syncOverlay = document.createElement('span');
+                    syncOverlay.className = 'cal-day-sync-overlay';
+                    syncOverlay.innerHTML = '<i class="bi bi-arrow-clockwise"></i>';
+                    dayNumber.appendChild(syncOverlay);
+                    dayNumber.addEventListener('click', function(e) {
+                        e.preventDefault();
+                        triggerDaySync(cellDateStr, dayNumber);
+                    });
                     dayHeader.appendChild(dayNumber);
                     
                     // Date string already built above as cellDateStr.
@@ -1360,21 +1397,6 @@
                     // Add icons container (right side)
                     const iconsContainer = document.createElement('span');
                     iconsContainer.className = 'd-flex gap-1';
-
-                    // Ad-hoc "sync this day" button. Fires a WorkIQ pull for
-                    // just this date, even past dates outside the aura
-                    // window (rows will be pruned on the next morning sync).
-                    const syncBtn = document.createElement('a');
-                    syncBtn.href = '#';
-                    syncBtn.className = 'text-muted text-decoration-none cal-sync-btn';
-                    syncBtn.innerHTML = '<i class="bi bi-arrow-clockwise"></i>';
-                    syncBtn.title = 'Pull meetings for this day';
-                    syncBtn.setAttribute('data-date', dateStr);
-                    syncBtn.addEventListener('click', function(e) {
-                        e.preventDefault();
-                        triggerDaySync(dateStr, syncBtn);
-                    });
-                    iconsContainer.appendChild(syncBtn);
 
                     // Add "+" button for quick create
                     const addBtn = document.createElement('a');
