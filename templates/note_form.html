@@ -103,6 +103,7 @@
             <div class="card-body" style="overflow: visible;">
                 <form method="POST" id="noteForm">
                     <input type="hidden" name="referrer" value="{{ referrer if referrer else '' }}">
+                    {% if from_meeting %}<input type="hidden" name="from_meeting" value="{{ from_meeting }}">{% endif %}
                     
                     <!-- Customer + Engagement side by side -->
                     {% if is_general_note %}
@@ -6476,6 +6477,46 @@ function applyPendingTaskSuggestion() {
 var _pendingMeetingImport = null;  // Queued WorkIQ response waiting for typing pause
 var _pendingMeetingSelection = null;  // Queued meeting list waiting for typing pause
 
+// When the note was created via a ghost click, the server passes the
+// PrefetchedMeeting's workiq_id so we can pre-select that meeting in the
+// picker and skip the manual selection step.
+var _fromMeetingWorkiqId = {{ from_meeting_workiq_id|tojson if from_meeting_workiq_id else 'null' }};
+
+// Typing-pause debounce. Mirrors DRAFT autosave (DEBOUNCE_DELAY = 1500ms)
+// so when WorkIQ data arrives mid-keystroke we wait for the same idle
+// window before yanking focus into a modal.
+var _lastTypingAt = 0;
+var TYPING_PAUSE_MS = 1500;
+var _pendingFireTimer = null;
+
+// Returns true if the user has been idle long enough that we can safely
+// open a modal without interrupting them.
+function _isTypingIdle() {
+    return (Date.now() - _lastTypingAt) >= TYPING_PAUSE_MS;
+}
+
+// Schedule a callback to fire as soon as the user has been idle for
+// TYPING_PAUSE_MS. If they're already idle, fires on next tick.
+function _fireWhenIdle(cb) {
+    if (_pendingFireTimer) {
+        clearTimeout(_pendingFireTimer);
+        _pendingFireTimer = null;
+    }
+    var elapsed = Date.now() - _lastTypingAt;
+    var wait = Math.max(0, TYPING_PAUSE_MS - elapsed);
+    _pendingFireTimer = setTimeout(function check() {
+        if (_isTypingIdle()) {
+            _pendingFireTimer = null;
+            cb();
+        } else {
+            // User typed again while we were waiting; re-arm for the
+            // remaining gap.
+            var remaining = TYPING_PAUSE_MS - (Date.now() - _lastTypingAt);
+            _pendingFireTimer = setTimeout(check, Math.max(50, remaining));
+        }
+    }, wait);
+}
+
 // WorkIQ prompt customization
 var userWorkiqPrompt = {{ (workiq_prompt or default_workiq_prompt)|tojson }};
 var defaultWorkiqPrompt = {{ default_workiq_prompt|tojson }};
@@ -6987,6 +7028,103 @@ function setAutoFillStep(stepNum, state) {
 
 var _meetingAbortController = null;
 
+// =============================================================================
+// AURA GATE — wait for the morning ghost-aura sync's "today" slot to finish
+// before firing a duplicate WorkIQ call.
+// =============================================================================
+//
+// The 7AM scheduler (and app-restart catchup) runs ensure_meeting_aura()
+// which sweeps today + the next 4 business days through WorkIQ. While
+// that sweep is in flight, today's PrefetchedMeeting / DailyMeetingCache
+// rows may not exist yet. If the user clicks Import Meeting / Import
+// Attendees during that window we want to PIGGYBACK on the aura instead
+// of firing a parallel duplicate WorkIQ scrape.
+//
+// Pattern: poll /api/meetings/today-status; when synced=true call onReady().
+// Card has a "Show meetings now" button to skip the wait (forces a live
+// fetch via the existing code path).
+//
+// Only used when the note's call_date == today. Non-today imports go
+// straight through to the existing live-fetch flow.
+
+var _auraGatePoll = null;
+var _auraGateOnReady = null;
+
+function _isCallDateToday() {
+    var dateStr = document.getElementById('call_date').value;
+    if (!dateStr) return false;
+    var t = new Date();
+    var todayStr = t.getFullYear() + '-' +
+        String(t.getMonth() + 1).padStart(2, '0') + '-' +
+        String(t.getDate()).padStart(2, '0');
+    return dateStr === todayStr;
+}
+
+function _stopAuraGatePoll() {
+    if (_auraGatePoll) {
+        clearInterval(_auraGatePoll);
+        _auraGatePoll = null;
+    }
+}
+
+// Cancel handler for the X button on the gate card. Aborts the import
+// entirely (does NOT proceed). Re-enables both import buttons.
+function cancelAuraGate() {
+    _stopAuraGatePoll();
+    _auraGateOnReady = null;
+    hideMeetingStatusCard();
+    var mb = document.getElementById('importMeetingBtn');
+    if (mb) mb.disabled = false;
+    var ab = document.getElementById('importAttendeesBtn');
+    if (ab) ab.disabled = false;
+    _importAttendeesMode = false;
+}
+
+// onReady is invoked exactly once when today's aura slot is done OR when
+// the user clicks "Show meetings now". If today's aura is not running
+// at all (already done or never started), fires synchronously.
+function waitForTodayAuraIfNeeded(onReady) {
+    fetch('/api/meetings/today-status')
+        .then(function(r) { return r.json(); })
+        .then(function(s) {
+            if (s.synced) { onReady(); return; }
+            // Aura hasn't finished today yet. Show the gate card and poll.
+            // No "Show meetings now" button here — bypassing the aura just
+            // fires a duplicate WorkIQ call that races the in-flight one.
+            // The bypass button only makes sense AFTER fetch completes,
+            // during the typing-pause debounce.
+            _auraGateOnReady = onReady;
+            showMeetingStatusCard(
+                '<div>' +
+                '<div class="d-flex align-items-center mb-2">' +
+                '<span class="spinner-border spinner-border-sm text-primary me-2"></span>' +
+                '<strong>Waiting for today\'s WorkIQ sync</strong>' +
+                '</div>' +
+                '<div class="small text-muted">Hold please...</div>' +
+                '</div>'
+            );
+            _auraGatePoll = setInterval(function() {
+                fetch('/api/meetings/today-status')
+                    .then(function(r) { return r.json(); })
+                    .then(function(s2) {
+                        if (s2.synced) {
+                            _stopAuraGatePoll();
+                            hideMeetingStatusCard();
+                            var cb = _auraGateOnReady;
+                            _auraGateOnReady = null;
+                            if (cb) cb();
+                        }
+                    })
+                    .catch(function() { /* keep polling */ });
+            }, 2000);
+        })
+        .catch(function() {
+            // today-status failed; fall back to firing immediately so we
+            // don't deadlock the user.
+            onReady();
+        });
+}
+
 // Apply a queued meeting import (insert content into editor)
 function applyMeetingImport(pendingData) {
     var meeting = pendingData.meeting;
@@ -7069,6 +7207,7 @@ function applyMeetingImport(pendingData) {
 
 // Manual trigger from the "Insert Now" button on the status card
 function applyPendingMeetingImport() {
+    if (_pendingFireTimer) { clearTimeout(_pendingFireTimer); _pendingFireTimer = null; }
     if (_pendingMeetingImport) {
         var pending = _pendingMeetingImport;
         _pendingMeetingImport = null;
@@ -7078,6 +7217,7 @@ function applyPendingMeetingImport() {
 
 // Manual trigger from the "Pick Now" button on the status card
 function applyPendingMeetingSelection() {
+    if (_pendingFireTimer) { clearTimeout(_pendingFireTimer); _pendingFireTimer = null; }
     if (_pendingMeetingSelection) {
         var pending = _pendingMeetingSelection;
         _pendingMeetingSelection = null;
@@ -7149,6 +7289,10 @@ function hideMeetingStatusCard() {
 })();
 
 function cancelMeetingStatus() {
+    // Aura-gate cancel path
+    _stopAuraGatePoll();
+    _auraGateOnReady = null;
+    // In-flight WorkIQ fetch cancel path
     if (_meetingAbortController) {
         _meetingAbortController.abort();
         _meetingAbortController = null;
@@ -7156,14 +7300,34 @@ function cancelMeetingStatus() {
     _pendingMeetingImport = null;
     _pendingMeetingSelection = null;
     hideMeetingStatusCard();
-    document.getElementById('importMeetingBtn').disabled = false;
+    var mb = document.getElementById('importMeetingBtn');
+    if (mb) mb.disabled = false;
+    var ab = document.getElementById('importAttendeesBtn');
+    if (ab) {
+        ab.disabled = false;
+        var t = document.getElementById('importAttendeesBtnText');
+        if (t) t.textContent = 'Import Attendees';
+    }
+    _importAttendeesMode = false;
 }
 
 // =============================================================================
 // MANUAL MEETING IMPORT
 // =============================================================================
 
+// Public entry point. If the note is dated TODAY and the morning aura
+// hasn't finished today's slot yet, gates on /api/meetings/today-status
+// before kicking off the existing fetch — otherwise we'd race the aura
+// with a duplicate WorkIQ call.
 function openMeetingImport() {
+    if (_isCallDateToday()) {
+        waitForTodayAuraIfNeeded(_doMeetingImport);
+    } else {
+        _doMeetingImport();
+    }
+}
+
+function _doMeetingImport() {
     // Initialize modal if needed (for meeting selection step only)
     if (!meetingImportModal) {
         meetingImportModal = new bootstrap.Modal(document.getElementById('meetingImportModal'));
@@ -7279,8 +7443,40 @@ function openMeetingImport() {
             hideMeetingStatusCard();
             document.getElementById('importMeetingBtn').disabled = false;
 
-            // If user is typing, defer the selection modal
-            if (quill.hasFocus()) {
+            // Ghost-creation shortcut: if the note was created by clicking
+            // a ghost meeting AND the user clicked Import Attendees, skip
+            // the picker and go straight to the attendee review modal
+            // (where they can still tweak which attendees to import).
+            //
+            // We do NOT skip for Import Summary — the picker is also where
+            // the user tweaks the WorkIQ summary prompt before firing.
+            if (_fromMeetingWorkiqId && _importAttendeesMode) {
+                var ghostIdx = -1;
+                for (var gi = 0; gi < loadedMeetings.length; gi++) {
+                    if (loadedMeetings[gi].id === _fromMeetingWorkiqId) {
+                        ghostIdx = gi;
+                        break;
+                    }
+                }
+                if (ghostIdx >= 0) {
+                    selectedMeetingIndex = ghostIdx;
+                    _lastMeetingContext.selectedIndex = ghostIdx;
+                    // Clear so a second click on Import opens the picker
+                    // normally rather than silently re-running.
+                    _fromMeetingWorkiqId = null;
+                    importSelectedMeeting();
+                    return;
+                }
+                // Ghost not found in WorkIQ result (rare — meeting got
+                // canceled between ghost cache and now). Fall through to
+                // normal picker so user can pick something else.
+                _fromMeetingWorkiqId = null;
+            }
+
+            // If user typed in the last TYPING_PAUSE_MS, defer the
+            // selection modal until they pause (matches DRAFT autosave
+            // debounce so we don't yank focus mid-keystroke).
+            if (!_isTypingIdle()) {
                 _pendingMeetingSelection = {
                     meetings: loadedMeetings,
                     autoSelectedIndex: data.auto_selected_index,
@@ -7295,6 +7491,7 @@ function openMeetingImport() {
                     '<br><small class="text-muted">Will show when you pause typing</small>' +
                     '<br><button class="btn btn-sm btn-primary mt-2" onclick="applyPendingMeetingSelection()"><i class="bi bi-list-check"></i> Show Now</button></div>'
                 );
+                _fireWhenIdle(applyPendingMeetingSelection);
             } else {
                 showMeetingImportModalReady(loadedMeetings, data.auto_selected_index, data.auto_selected_reason, data.synced_at);
             }
@@ -7449,7 +7646,12 @@ function renderMeetingList(meetings, autoSelectedIndex, autoSelectedReason) {
                 </small>
                 ${meeting.attendees && meeting.attendees.length > 0 ? 
                     '<br><small class="text-' + (index === autoSelectedIndex ? 'light' : 'muted') + '"><i class="bi bi-people"></i> ' + 
-                    meeting.attendees.slice(0, 3).map(escapeHtml).join(', ') + 
+                    meeting.attendees.slice(0, 3).map(function(a) {
+                        // Cached/picker shape returns {name, email} dicts;
+                        // legacy live-fetch returned plain strings.
+                        if (typeof a === 'string') return escapeHtml(a);
+                        return escapeHtml(a.name || a.email || '');
+                    }).join(', ') + 
                     (meeting.attendees.length > 3 ? ' +' + (meeting.attendees.length - 3) + ' more' : '') + '</small>' 
                     : ''}
             </div>
@@ -7618,13 +7820,14 @@ function importSelectedMeeting() {
                         
                         // Retry succeeded - apply the import
                         var pendingData = { meeting: meeting, data: retryData };
-                        if (quill.hasFocus()) {
+                        if (!_isTypingIdle()) {
                             _pendingMeetingImport = pendingData;
                             showMeetingStatusCard(
                                 '<div><strong class="text-success"><i class="bi bi-check-circle"></i> Summary ready</strong>' +
                                 '<br><small class="text-muted">Will insert when you pause typing</small>' +
                                 '<br><button class="btn btn-sm btn-success mt-2" onclick="applyPendingMeetingImport()"><i class="bi bi-arrow-down-circle"></i> Insert Now</button></div>'
                             );
+                            _fireWhenIdle(applyPendingMeetingImport);
                         } else {
                             applyMeetingImport(pendingData);
                         }
@@ -7644,14 +7847,16 @@ function importSelectedMeeting() {
             // Success — queue the import instead of inserting immediately
             var pendingData = { meeting: meeting, data: data };
             
-            // If user is actively typing in the editor, defer insertion
-            if (quill.hasFocus()) {
+            // If user typed in the last TYPING_PAUSE_MS, defer insertion
+            // (matches DRAFT autosave debounce). Auto-fires once idle.
+            if (!_isTypingIdle()) {
                 _pendingMeetingImport = pendingData;
                 showMeetingStatusCard(
                     '<div><strong class="text-success"><i class="bi bi-check-circle"></i> Summary ready</strong>' +
                     '<br><small class="text-muted">Will insert when you pause typing</small>' +
                     '<br><button class="btn btn-sm btn-success mt-2" onclick="applyPendingMeetingImport()"><i class="bi bi-arrow-down-circle"></i> Insert Now</button></div>'
                 );
+                _fireWhenIdle(applyPendingMeetingImport);
             } else {
                 // User isn't typing — apply immediately
                 applyMeetingImport(pendingData);
@@ -7750,6 +7955,7 @@ quill.on('text-change', function() {
     if (sel) {
         _lastQuillCursorPos = sel.index + sel.length;
     }
+    _lastTypingAt = Date.now();
 });
 
 function _getEngTaskFormState() {

@@ -105,47 +105,53 @@ class TestDailyMeetingCacheModel:
 class TestMeetingSyncService:
     """Tests for app.services.meeting_sync functions."""
 
-    @patch('app.services.workiq_service.get_meetings_for_date')
-    def test_sync_meetings_for_date_caches_result(self, mock_fetch, app):
+    @patch('app.services.workiq_service.query_workiq')
+    def test_sync_meetings_for_date_caches_result(self, mock_query, app):
         """sync_meetings_for_date stores meetings in DailyMeetingCache."""
-        mock_fetch.return_value = (
-            [
-                {
-                    'id': '1',
-                    'title': 'Customer Sync',
-                    'start_time': datetime(2026, 4, 21, 14, 0),
-                    'customer': 'Contoso',
-                    'attendees': ['Alice'],
-                },
-            ],
-            'raw workiq response',
+        mock_query.return_value = (
+            '```json\n[{"subject": "Customer Sync", '
+            '"start_time": "2026-04-21T14:00:00-05:00", '
+            '"end_time": "2026-04-21T15:00:00-05:00", '
+            '"organizer_email": "alice@contoso.com", '
+            '"is_recurring": false, '
+            '"attendees": [{"name": "Alice", "email": "alice@contoso.com"}]'
+            '}]\n```'
         )
 
         with app.app_context():
             from app.services.meeting_sync import sync_meetings_for_date
+            from app.models import PrefetchedMeeting, PrefetchedMeetingAttendee
+            PrefetchedMeetingAttendee.query.delete()
+            PrefetchedMeeting.query.delete()
+            db.session.commit()
 
             result, err = sync_meetings_for_date('2026-04-21')
             assert err is None
             assert len(result) == 1
             assert result[0]['title'] == 'Customer Sync'
-            assert result[0]['start_time_display'] == '02:00 PM'
+            assert result[0]['start_time_display'] == '07:00 PM'  # UTC-normalized
 
             # Verify DB row
             cache = DailyMeetingCache.query.filter_by(
                 meeting_date=date(2026, 4, 21)
             ).first()
             assert cache is not None
-            assert cache.raw_response == 'raw workiq response'
             assert len(cache.get_meetings()) == 1
 
             db.session.delete(cache)
+            PrefetchedMeetingAttendee.query.delete()
+            PrefetchedMeeting.query.delete()
             db.session.commit()
 
-    @patch('app.services.workiq_service.get_meetings_for_date')
-    def test_sync_meetings_updates_existing_cache(self, mock_fetch, app):
+    @patch('app.services.workiq_service.query_workiq')
+    def test_sync_meetings_updates_existing_cache(self, mock_query, app):
         """sync_meetings_for_date updates an existing cache row."""
         with app.app_context():
             from app.services.meeting_sync import sync_meetings_for_date
+            from app.models import PrefetchedMeeting, PrefetchedMeetingAttendee
+            PrefetchedMeetingAttendee.query.delete()
+            PrefetchedMeeting.query.delete()
+            db.session.commit()
 
             # Seed existing cache
             cache = DailyMeetingCache(
@@ -155,17 +161,12 @@ class TestMeetingSyncService:
             db.session.add(cache)
             db.session.commit()
 
-            mock_fetch.return_value = (
-                [
-                    {
-                        'id': '2',
-                        'title': 'New Meeting',
-                        'start_time': datetime(2026, 4, 22, 10, 0),
-                        'customer': '',
-                        'attendees': [],
-                    },
-                ],
-                'new raw',
+            mock_query.return_value = (
+                '```json\n[{"subject": "New Meeting", '
+                '"start_time": "2026-04-22T10:00:00+00:00", '
+                '"end_time": "2026-04-22T11:00:00+00:00", '
+                '"organizer_email": "x@y.com", '
+                '"is_recurring": false, "attendees": []}]\n```'
             )
 
             result, err = sync_meetings_for_date('2026-04-22')
@@ -180,6 +181,8 @@ class TestMeetingSyncService:
             assert rows[0].get_meetings()[0]['title'] == 'New Meeting'
 
             db.session.delete(rows[0])
+            PrefetchedMeetingAttendee.query.delete()
+            PrefetchedMeeting.query.delete()
             db.session.commit()
 
     def test_get_cached_meetings_returns_none_when_missing(self, app):
@@ -213,10 +216,10 @@ class TestMeetingSyncService:
             db.session.delete(cache)
             db.session.commit()
 
-    @patch('app.services.workiq_service.get_meetings_for_date')
-    def test_sync_handles_workiq_error(self, mock_fetch, app):
+    @patch('app.services.workiq_service.query_workiq')
+    def test_sync_handles_workiq_error(self, mock_query, app):
         """sync_meetings_for_date returns error string on failure."""
-        mock_fetch.side_effect = RuntimeError('WorkIQ timed out')
+        mock_query.side_effect = RuntimeError('WorkIQ timed out')
 
         with app.app_context():
             from app.services.meeting_sync import sync_meetings_for_date
@@ -293,29 +296,27 @@ class TestMeetingsAPI:
         assert data['meetings'][0]['title'] == 'Old Meeting'
         mock_fetch.assert_called_once_with('2026-03-15')
 
-    @patch('app.services.workiq_service.get_meetings_for_date')
+    @patch('app.services.workiq_service.query_workiq')
     def test_api_meetings_today_no_cache_does_live_fetch_and_caches(
-        self, mock_fetch, client, app
+        self, mock_query, client, app
     ):
         """GET /api/meetings for today with no cache fetches live and caches."""
         today_str = date.today().strftime('%Y-%m-%d')
 
         # Ensure no cache
         with app.app_context():
+            from app.models import PrefetchedMeeting, PrefetchedMeetingAttendee
             DailyMeetingCache.query.filter_by(meeting_date=date.today()).delete()
+            PrefetchedMeetingAttendee.query.delete()
+            PrefetchedMeeting.query.delete()
             db.session.commit()
 
-        mock_fetch.return_value = (
-            [
-                {
-                    'id': 'live1',
-                    'title': 'Live Meeting',
-                    'start_time': datetime(2026, 4, 17, 15, 0),
-                    'customer': 'Litware',
-                    'attendees': [],
-                },
-            ],
-            'raw live',
+        mock_query.return_value = (
+            '```json\n[{"subject": "Live Meeting", '
+            '"start_time": "' + today_str + 'T15:00:00+00:00", '
+            '"end_time": "' + today_str + 'T16:00:00+00:00", '
+            '"organizer_email": "x@litware.com", '
+            '"is_recurring": false, "attendees": []}]\n```'
         )
 
         resp = client.get(f'/api/meetings?date={today_str}')
@@ -325,11 +326,14 @@ class TestMeetingsAPI:
 
         # Verify it was cached
         with app.app_context():
+            from app.models import PrefetchedMeeting, PrefetchedMeetingAttendee
             cache = DailyMeetingCache.query.filter_by(
                 meeting_date=date.today()
             ).first()
             assert cache is not None
             db.session.delete(cache)
+            PrefetchedMeetingAttendee.query.delete()
+            PrefetchedMeeting.query.delete()
             db.session.commit()
 
     def test_api_meetings_missing_date_returns_400(self, client):
@@ -342,14 +346,17 @@ class TestMeetingsAPI:
         resp = client.get('/api/meetings?date=not-a-date')
         assert resp.status_code == 400
 
-    @patch('app.services.workiq_service.get_meetings_for_date')
-    def test_api_refresh_meetings(self, mock_fetch, client, app):
+    @patch('app.services.workiq_service.query_workiq')
+    def test_api_refresh_meetings(self, mock_query, client, app):
         """POST /api/meetings/refresh force-fetches and updates cache."""
         today_str = date.today().strftime('%Y-%m-%d')
 
         # Seed stale cache
         with app.app_context():
+            from app.models import PrefetchedMeeting, PrefetchedMeetingAttendee
             DailyMeetingCache.query.filter_by(meeting_date=date.today()).delete()
+            PrefetchedMeetingAttendee.query.delete()
+            PrefetchedMeeting.query.delete()
             stale = DailyMeetingCache(
                 meeting_date=date.today(),
                 meetings_json=json.dumps([{'title': 'Stale'}]),
@@ -357,17 +364,12 @@ class TestMeetingsAPI:
             db.session.add(stale)
             db.session.commit()
 
-        mock_fetch.return_value = (
-            [
-                {
-                    'id': 'fresh',
-                    'title': 'Fresh Meeting',
-                    'start_time': datetime(2026, 4, 17, 16, 0),
-                    'customer': 'Contoso',
-                    'attendees': [],
-                },
-            ],
-            'refreshed raw',
+        mock_query.return_value = (
+            '```json\n[{"subject": "Fresh Meeting", '
+            '"start_time": "' + today_str + 'T16:00:00+00:00", '
+            '"end_time": "' + today_str + 'T17:00:00+00:00", '
+            '"organizer_email": "x@contoso.com", '
+            '"is_recurring": false, "attendees": []}]\n```'
         )
 
         resp = client.post(
@@ -382,12 +384,15 @@ class TestMeetingsAPI:
 
         # Verify cache updated
         with app.app_context():
+            from app.models import PrefetchedMeeting, PrefetchedMeetingAttendee
             cache = DailyMeetingCache.query.filter_by(
                 meeting_date=date.today()
             ).first()
             assert cache is not None
             assert cache.get_meetings()[0]['title'] == 'Fresh Meeting'
             db.session.delete(cache)
+            PrefetchedMeetingAttendee.query.delete()
+            PrefetchedMeeting.query.delete()
             db.session.commit()
 
     def test_api_refresh_missing_date_returns_400(self, client):
@@ -480,20 +485,30 @@ class TestMeetingSyncScheduler:
     def test_start_meeting_sync_background_skips_if_cached(
         self, mock_run, app
     ):
-        """start_meeting_sync_background does nothing if today is cached."""
+        """start_meeting_sync_background does nothing if the full aura window is cached."""
         with app.app_context():
-            from app.services.meeting_sync import start_meeting_sync_background
-
-            DailyMeetingCache.query.filter_by(meeting_date=date.today()).delete()
-            cache = DailyMeetingCache(
-                meeting_date=date.today(), meetings_json='[]'
+            from datetime import timedelta, datetime, timezone
+            from app.services.meeting_sync import (
+                start_meeting_sync_background,
+                _aura_window_dates,
             )
-            db.session.add(cache)
+
+            window = _aura_window_dates()
+            for d in window:
+                DailyMeetingCache.query.filter_by(meeting_date=d).delete()
+                # synced_at must be on/after the day itself to count as fresh.
+                synced_at = datetime.combine(
+                    d, datetime.min.time(), tzinfo=timezone.utc,
+                ) + timedelta(hours=8)
+                db.session.add(DailyMeetingCache(
+                    meeting_date=d, meetings_json='[]', synced_at=synced_at,
+                ))
             db.session.commit()
 
         start_meeting_sync_background(app)
         mock_run.assert_not_called()
 
         with app.app_context():
-            DailyMeetingCache.query.filter_by(meeting_date=date.today()).delete()
+            for d in window:
+                DailyMeetingCache.query.filter_by(meeting_date=d).delete()
             db.session.commit()

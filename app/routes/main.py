@@ -638,12 +638,25 @@ def notes_calendar_api():
     # Shift to Sunday-start week: Sunday = 0
     first_weekday = (first_weekday + 1) % 7
     days_in_month = cal.monthrange(year, month)[1]
-    
+
+    # Phase 3: ghost meetings from PrefetchedMeeting cache.
+    # Only meetings with external attendees + not dismissed + not promoted.
+    from app.services.ghost_meetings import get_ghost_meetings_for_range
+    last_day = date(year, month, days_in_month)
+    try:
+        ghosts = get_ghost_meetings_for_range(first_day, last_day)
+    except Exception as exc:
+        # Ghost rendering must never break the calendar.
+        from flask import current_app
+        current_app.logger.warning("Ghost meeting load failed: %s", exc)
+        ghosts = {}
+
     return jsonify({
         'year': year,
         'month': month,
         'month_name': cal.month_name[month],
         'days': days,
+        'ghosts': ghosts,
         'first_weekday': first_weekday,
         'days_in_month': days_in_month,
         'prev_year': prev_year,

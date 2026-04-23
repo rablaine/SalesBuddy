@@ -2222,3 +2222,99 @@ class DailyMeetingCache(db.Model):
 
     def __repr__(self) -> str:
         return f'<DailyMeetingCache {self.meeting_date}>'
+
+
+# =============================================================================
+# Pre-fetched Meetings (Phase 1 of PREFETCH_MEETINGS_BACKLOG.md)
+# =============================================================================
+
+class PrefetchedMeeting(db.Model):
+    """A single calendar meeting pulled in advance by the morning prefetch.
+
+    Holds enough metadata for the note form to populate attendees instantly
+    instead of firing a live WorkIQ call. Per Phase 0 findings, recurrence
+    rule and Teams join URL are NOT exposed by WorkIQ, so they're not stored.
+
+    The ``workiq_id`` column is a synthetic hash of (subject, start_time,
+    organizer_email) since WorkIQ does not return Graph eventIds.
+    """
+    __tablename__ = 'prefetched_meetings'
+
+    id = db.Column(db.Integer, primary_key=True)
+    workiq_id = db.Column(db.String, unique=True, nullable=False, index=True)
+    subject = db.Column(db.String, nullable=False)
+    start_time = db.Column(db.DateTime, nullable=False, index=True)
+    end_time = db.Column(db.DateTime, nullable=True)
+    meeting_date = db.Column(db.Date, nullable=False, index=True)
+    organizer_email = db.Column(db.String, nullable=True)
+    is_recurring = db.Column(db.Boolean, default=False, nullable=False)
+    recurring_key = db.Column(db.String, nullable=True, index=True)
+    customer_id = db.Column(
+        db.Integer, db.ForeignKey('customers.id'),
+        nullable=True, index=True,
+    )
+    matched_via = db.Column(db.String, nullable=True)  # 'website' | 'contact_email'
+    dismissed = db.Column(db.Boolean, default=False, nullable=False)
+    fetched_at = db.Column(db.DateTime, default=utc_now, nullable=False)
+    expires_at = db.Column(db.DateTime, nullable=False, index=True)
+    note_id = db.Column(
+        db.Integer, db.ForeignKey('notes.id'),
+        nullable=True,
+    )
+
+    attendees = db.relationship(
+        'PrefetchedMeetingAttendee',
+        back_populates='meeting',
+        cascade='all, delete-orphan',
+        lazy='select',
+    )
+    customer = db.relationship('Customer', foreign_keys=[customer_id])
+    note = db.relationship('Note', foreign_keys=[note_id])
+
+    def __repr__(self) -> str:
+        return f'<PrefetchedMeeting {self.id} {self.subject!r} @ {self.start_time}>'
+
+
+class PrefetchedMeetingAttendee(db.Model):
+    """One attendee on a PrefetchedMeeting.
+
+    Stored separately so we can index by domain for fast customer/partner
+    lookup. ``response_status`` is currently always null (Graph does not
+    expose per-attendee RSVP through WorkIQ) but kept nullable for forward
+    compat.
+    """
+    __tablename__ = 'prefetched_meeting_attendees'
+
+    id = db.Column(db.Integer, primary_key=True)
+    meeting_id = db.Column(
+        db.Integer, db.ForeignKey('prefetched_meetings.id'),
+        nullable=False, index=True,
+    )
+    name = db.Column(db.String, nullable=True)
+    email = db.Column(db.String, nullable=True, index=True)
+    domain = db.Column(db.String, nullable=True, index=True)
+    is_external = db.Column(db.Boolean, default=False, nullable=False)
+    response_status = db.Column(db.String, nullable=True)
+
+    meeting = db.relationship('PrefetchedMeeting', back_populates='attendees')
+
+    def __repr__(self) -> str:
+        return f'<PrefetchedMeetingAttendee {self.id} {self.email}>'
+
+
+class DismissedRecurringMeeting(db.Model):
+    """Persistent dismissal flag for a recurring meeting series.
+
+    When a user dismisses a ghost meeting that has ``is_recurring = True``,
+    we record its ``recurring_key`` here so future prefetches of the same
+    series stay hidden from the calendar. Without this, tomorrow's instance
+    of the same recurring meeting (different start_time → different
+    workiq_id) would re-emerge.
+    """
+    __tablename__ = 'dismissed_recurring_meetings'
+
+    recurring_key = db.Column(db.String, primary_key=True)
+    dismissed_at = db.Column(db.DateTime, default=utc_now, nullable=False)
+
+    def __repr__(self) -> str:
+        return f'<DismissedRecurringMeeting {self.recurring_key}>'

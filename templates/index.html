@@ -405,7 +405,144 @@
     .cal-fill-btn:hover { opacity: 1; color: var(--bs-warning) !important; }
     #calendarTable td:hover .cal-add-btn { opacity: 0.7; }
     #calendarTable td:hover .cal-fill-btn { opacity: 0.7; }
+
+    /* Ghost meeting (PrefetchedMeeting) styling - clearly distinct from real notes.
+       Dashed border + lower opacity says "this is a placeholder, click to make it real". */
+    .cal-ghost {
+        background-color: transparent !important;
+        border: 1px dashed rgba(108, 117, 125, 0.6);
+        opacity: 0.75;
+        cursor: pointer;
+        transition: all 0.15s ease;
+        position: relative;
+        padding-right: 1.1rem !important;
+    }
+    .cal-ghost:hover {
+        opacity: 1;
+        background-color: rgba(108, 117, 125, 0.08) !important;
+        border-style: solid;
+    }
+    html[data-bs-theme="dark"] .cal-ghost {
+        border-color: rgba(255, 255, 255, 0.35);
+    }
+    html[data-bs-theme="dark"] .cal-ghost:hover {
+        background-color: rgba(255, 255, 255, 0.06) !important;
+    }
+    .cal-ghost-dismiss {
+        position: absolute;
+        top: 0;
+        right: 2px;
+        opacity: 0;
+        font-size: 0.7rem;
+        line-height: 1;
+        color: var(--bs-secondary);
+        text-decoration: none;
+        padding: 1px 3px;
+    }
+    .cal-ghost:hover .cal-ghost-dismiss { opacity: 0.8; }
+    .cal-ghost-dismiss:hover { opacity: 1 !important; color: var(--bs-danger); }
+    .cal-ghost-unmatched { border-color: rgba(255, 193, 7, 0.7); }
+    .cal-ghost-unmatched:hover { background-color: rgba(255, 193, 7, 0.1) !important; }
+    .cal-ghost-recur { display: inline-block; cursor: pointer; }
+    .cal-ghost-recur:hover { transform: scale(1.15); }
+
+    /* Ghost color tints - share the same hue as real customer notes for
+       visual continuity, but at much lower opacity so ghosts still read
+       as placeholders. Border stays dashed in the matching color too. */
+    .cal-ghost-customer-1  { background-color: rgba(220, 53, 69, 0.10) !important; border-color: rgba(220, 53, 69, 0.55); }
+    .cal-ghost-customer-2  { background-color: rgba(25, 135, 84, 0.12) !important; border-color: rgba(25, 135, 84, 0.55); }
+    .cal-ghost-customer-3  { background-color: rgba(13, 110, 253, 0.10) !important; border-color: rgba(13, 110, 253, 0.55); }
+    .cal-ghost-customer-4  { background-color: rgba(255, 193, 7, 0.14) !important; border-color: rgba(255, 193, 7, 0.65); }
+    .cal-ghost-customer-5  { background-color: rgba(111, 66, 193, 0.12) !important; border-color: rgba(111, 66, 193, 0.55); }
+    .cal-ghost-customer-6  { background-color: rgba(253, 126, 20, 0.12) !important; border-color: rgba(253, 126, 20, 0.55); }
+    .cal-ghost-customer-7  { background-color: rgba(214, 51, 132, 0.10) !important; border-color: rgba(214, 51, 132, 0.55); }
+    .cal-ghost-customer-8  { background-color: rgba(13, 202, 240, 0.10) !important; border-color: rgba(13, 202, 240, 0.55); }
+    .cal-ghost-customer-9  { background-color: rgba(102, 16, 242, 0.10) !important; border-color: rgba(102, 16, 242, 0.55); }
+    .cal-ghost-customer-10 { background-color: rgba(32, 201, 151, 0.12) !important; border-color: rgba(32, 201, 151, 0.55); }
+    .cal-ghost-customer-11 { background-color: rgba(165, 42, 42, 0.12) !important;  border-color: rgba(165, 42, 42, 0.55); }
+    .cal-ghost-customer-12 { background-color: rgba(0, 128, 128, 0.12) !important;  border-color: rgba(0, 128, 128, 0.55); }
+    .cal-ghost-customer-13 { background-color: rgba(255, 99, 71, 0.12) !important;  border-color: rgba(255, 99, 71, 0.55); }
+    .cal-ghost-customer-14 { background-color: rgba(75, 0, 130, 0.10) !important;   border-color: rgba(75, 0, 130, 0.55); }
+    .cal-ghost-customer-15 { background-color: rgba(184, 134, 11, 0.14) !important; border-color: rgba(184, 134, 11, 0.65); }
+    /* Slightly stronger tint on hover */
+    .cal-ghost.cal-ghost-customer-1:hover  { background-color: rgba(220, 53, 69, 0.20) !important; }
+    .cal-ghost.cal-ghost-customer-2:hover  { background-color: rgba(25, 135, 84, 0.22) !important; }
+    .cal-ghost.cal-ghost-customer-3:hover  { background-color: rgba(13, 110, 253, 0.20) !important; }
+    .cal-ghost.cal-ghost-customer-4:hover  { background-color: rgba(255, 193, 7, 0.25) !important; }
+    .cal-ghost.cal-ghost-customer-5:hover  { background-color: rgba(111, 66, 193, 0.22) !important; }
+    .cal-ghost.cal-ghost-customer-6:hover  { background-color: rgba(253, 126, 20, 0.22) !important; }
+    .cal-ghost.cal-ghost-customer-7:hover  { background-color: rgba(214, 51, 132, 0.20) !important; }
+    .cal-ghost.cal-ghost-customer-8:hover  { background-color: rgba(13, 202, 240, 0.20) !important; }
+    .cal-ghost.cal-ghost-customer-9:hover  { background-color: rgba(102, 16, 242, 0.20) !important; }
+    .cal-ghost.cal-ghost-customer-10:hover { background-color: rgba(32, 201, 151, 0.22) !important; }
+    .cal-ghost.cal-ghost-customer-11:hover { background-color: rgba(165, 42, 42, 0.22) !important; }
+    .cal-ghost.cal-ghost-customer-12:hover { background-color: rgba(0, 128, 128, 0.22) !important; }
+    .cal-ghost.cal-ghost-customer-13:hover { background-color: rgba(255, 99, 71, 0.22) !important; }
+    .cal-ghost.cal-ghost-customer-14:hover { background-color: rgba(75, 0, 130, 0.20) !important; }
+    .cal-ghost.cal-ghost-customer-15:hover { background-color: rgba(184, 134, 11, 0.25) !important; }
+    /* Cross-highlight: when user hovers a real note for the same customer,
+       this ghost lights up subtly (border becomes solid + slightly stronger
+       fill). The existing .cal-customer-N.cal-highlight rules handle the
+       real notes; this rule handles the ghost side. */
+    .cal-ghost.cal-highlight { opacity: 1; border-style: solid; }
+
+    /* Today-cell health indicator. The day-number badge goes blue (default)
+       when this morning's sync covered today, orange when it didn't. Hover
+       the orange badge to swap to a refresh icon and trigger a re-sync. */
+    .cal-today-incomplete .badge.bg-primary {
+        background-color: var(--bs-warning) !important;
+        color: #000 !important;
+        cursor: pointer;
+    }
+    .cal-today-incomplete .badge.bg-primary .today-num { display: inline; }
+    .cal-today-incomplete .badge.bg-primary .today-refresh { display: none; }
+    .cal-today-incomplete .badge.bg-primary:hover .today-num { display: none; }
+    .cal-today-incomplete .badge.bg-primary:hover .today-refresh { display: inline; }
+
+    /* Aura sync indicator: typing-dots overlay on each calendar day cell
+       that the morning aura is currently working through. Three opacity
+       states: queued (dim), syncing (full intensity, faster cycle), done
+       (no dots — cell gets re-rendered with fresh ghosts). Pure CSS
+       opacity animation, no transforms, no transitions on layout — keeps
+       GPU usage near zero. */
+    .cal-aura-dots {
+        display: inline-flex;
+        align-items: center;
+        gap: 2px;
+        margin-left: 6px;
+        vertical-align: middle;
+    }
+    .cal-aura-dots span {
+        width: 4px;
+        height: 4px;
+        border-radius: 50%;
+        background-color: var(--bs-primary);
+        opacity: 0.2;
+        animation: cal-aura-pulse 1.2s infinite ease-in-out;
+    }
+    .cal-aura-dots span:nth-child(1) { animation-delay: 0s; }
+    .cal-aura-dots span:nth-child(2) { animation-delay: 0.4s; }
+    .cal-aura-dots span:nth-child(3) { animation-delay: 0.8s; }
+    .cal-aura-dots.cal-aura-queued span {
+        animation-duration: 2.1s;
+        background-color: var(--bs-secondary);
+    }
+    .cal-aura-dots.cal-aura-queued span:nth-child(2) { animation-delay: 0.7s; }
+    .cal-aura-dots.cal-aura-queued span:nth-child(3) { animation-delay: 1.4s; }
+    @keyframes cal-aura-pulse {
+        0%, 100% { opacity: 0.2; }
+        50%      { opacity: 1; }
+    }
+
+    /* Per-day ghost-container fade-in used by refreshDaysInPlace().
+       Starts at opacity 0; bumped to 1 on next animation frame so the
+       transition actually animates instead of snapping. */
+    .cal-ghosts-fade { opacity: 0; transition: opacity 350ms ease-in; }
+    .cal-ghosts-fade.cal-ghosts-fade-in { opacity: 1; }
 </style>
+
+<!-- Sync-in-progress modal lives in base.html as a draggable, non-blocking
+     floating card. The today-cell click handler routes through window.SyncStatus. -->
 
 <div class="row mt-4" id="draftsSection" style="display: none;">
     <div class="col-md-12">
@@ -607,6 +744,54 @@
         const modal = bootstrap.Modal.getOrCreateInstance(document.getElementById('quickCreateModal'));
         modal.show();
     }
+
+    // ===== GHOST MEETING HANDLERS (Phase 3) =====
+    function openGhostMeeting(ghost, dateStr) {
+        // Matched: jump straight to the new-note form with customer + date prefilled.
+        // Unmatched: open the existing customer picker so user assigns one first.
+        // `from_meeting=<id>` tells the note POST handler to back-link the
+        // resulting note to this PrefetchedMeeting row so future syncs don't
+        // re-create the ghost.
+        if (ghost.customer_id) {
+            const url = `/note/new?customer_id=${ghost.customer_id}`
+                + `&date=${encodeURIComponent(dateStr)}`
+                + `&from_meeting=${ghost.id}`;
+            window.location.href = url;
+        } else {
+            openQuickCreateModal(dateStr);
+        }
+    }
+
+    function dismissGhost(meetingId, element, dismissSeries) {
+        const confirmMsg = dismissSeries
+            ? 'Hide this meeting and all future occurrences in this recurring series?'
+            : 'Hide this meeting from the calendar?';
+        if (!confirm(confirmMsg)) return;
+
+        const url = `/api/meetings/ghosts/${meetingId}/dismiss`
+            + (dismissSeries ? '?series=true' : '');
+        fetch(url, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+        })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    if (dismissSeries) {
+                        // Reload calendar to drop all sibling occurrences cleanly.
+                        loadCalendar(calendarYear, calendarMonth);
+                    } else {
+                        element.remove();
+                    }
+                } else {
+                    alert('Failed to dismiss meeting: ' + (data.error || 'unknown error'));
+                }
+            })
+            .catch(err => {
+                console.error('Dismiss ghost failed', err);
+                alert('Failed to dismiss meeting');
+            });
+    }
     
     // ===== DRAFT MANAGEMENT =====
     const DRAFT_KEY_PREFIX = 'salesbuddy_draft_';
@@ -717,7 +902,196 @@
     // Load drafts when page loads
     document.addEventListener('DOMContentLoaded', function() {
         loadDrafts();
+        // Don't auto-surface the floating card on page load. The aura
+        // dots in the calendar already signal that a sync is running;
+        // the user can click a dot to bring the card up if they want
+        // detailed progress.
     });
+
+    // Build a YYYY-MM-DD string in the user's LOCAL timezone. We can't
+    // use toISOString() here because that returns UTC, which after ~7 PM
+    // in US timezones is already tomorrow's date.
+    function localDateStr(d) {
+        d = d || new Date();
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return `${y}-${m}-${day}`;
+    }
+
+    // Triggered by clicking the orange today-cell badge.
+    function triggerTodaySync() {
+        const today = localDateStr();
+        fetch('/api/meetings/sync-aura', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({anchor: today, days_ahead: 0}),
+        })
+            .then(r => r.json())
+            .then(resp => {
+                // Whether we started fresh or attached to an in-flight sync,
+                // surface the floating card.
+                if (window.SyncStatus) window.SyncStatus.forceShow(resp.state || {});
+                // Also kick the calendar dot-indicator immediately so the
+                // user sees the typing dots without waiting for the next
+                // 3s poll.
+                checkAuraSync();
+            })
+            .catch(err => {
+                console.error('Today sync trigger failed:', err);
+            });
+    }
+
+    // ===== TODAY-CELL HEALTH INDICATOR =====
+    function checkTodayStatus() {
+        fetch('/api/meetings/today-status')
+            .then(r => r.json())
+            .then(data => applyTodayStatus(data))
+            .catch(() => {});
+    }
+    // Expose for the global sync card's reload callback.
+    window.checkTodayStatus = checkTodayStatus;
+
+    function applyTodayStatus(data) {
+        // Find the today-cell by the badge bg-primary inside #calendarBody.
+        // We tag the wrapping <td> with cal-today-incomplete when stale.
+        const calendarBody = document.getElementById('calendarBody');
+        if (!calendarBody) return;
+        const badges = calendarBody.querySelectorAll('.badge.bg-primary.rounded-circle');
+        badges.forEach(badge => {
+            const td = badge.closest('td');
+            if (!td) return;
+            // Reset prior state.
+            td.classList.remove('cal-today-incomplete');
+            badge.removeAttribute('title');
+            // Restore plain text content if we previously injected the
+            // hover-swap markup.
+            const num = badge.dataset.dayNum || badge.textContent.trim();
+            badge.dataset.dayNum = num;
+            if (data.synced) {
+                badge.innerHTML = num;
+                badge.setAttribute('title', "Today's meetings are up to date");
+                badge.style.cursor = '';
+                badge.onclick = null;
+            } else {
+                td.classList.add('cal-today-incomplete');
+                badge.innerHTML = `<span class="today-num">${num}</span>`
+                    + `<span class="today-refresh"><i class="bi bi-arrow-clockwise"></i></span>`;
+                badge.setAttribute('title', "Today's sync is incomplete - click to refresh");
+                badge.onclick = function(e) {
+                    e.stopPropagation();
+                    triggerTodaySync();
+                };
+            }
+        });
+    }
+
+    // ===== AURA SYNC CALENDAR INDICATOR =====
+    // While the morning aura sweeps today + 4 business days, paint typing
+    // dots on each cell the aura plans to (or is currently) syncing. When
+    // the sync moves past a date, redraw the calendar so freshly-prefetched
+    // ghosts appear in place of the dots.
+    let _auraPoll = null;
+    let _auraLastCurrent = null;
+    let _auraLastRunning = false;
+
+    function applyAuraIndicators(state) {
+        // Build the desired set of (dateStr, isActive) pairs for the
+        // current view. We DIFF against existing dots instead of nuking
+        // them each poll - removing and re-inserting restarts the CSS
+        // animation from delay:0 every 3 seconds, which is the source
+        // of the visible "glitch" the user reported.
+        const desired = new Map(); // dateStr -> isActive
+        if (state && state.running && Array.isArray(state.aura_dates)) {
+            state.aura_dates.forEach(dateStr => {
+                if (state.current_date && dateStr < state.current_date) return;
+                desired.set(dateStr, dateStr === state.current_date);
+            });
+        }
+
+        // Remove dots that are no longer wanted (or whose active class
+        // changed -- in that case we re-add below with the right class).
+        document.querySelectorAll('.cal-aura-dots').forEach(el => {
+            const cell = el.closest('td[data-cal-date]');
+            const dateStr = cell ? cell.getAttribute('data-cal-date') : null;
+            const wantActive = desired.get(dateStr);
+            const isActive = !el.classList.contains('cal-aura-queued');
+            if (wantActive === undefined) {
+                el.remove();
+            } else if (wantActive !== isActive) {
+                // Toggle in place -- don't remount, just swap the class.
+                el.classList.toggle('cal-aura-queued', !wantActive);
+                el.title = wantActive
+                    ? 'Syncing meetings for this day...'
+                    : 'Queued for sync';
+                desired.delete(dateStr); // already handled
+            } else {
+                desired.delete(dateStr); // already correct
+            }
+        });
+
+        // Add dots for any newly-pending dates not already in the DOM.
+        desired.forEach((isActive, dateStr) => {
+            const cell = document.querySelector(
+                `#calendarBody td[data-cal-date="${dateStr}"]`);
+            if (!cell) return;
+            const header = cell.querySelector('.d-flex.justify-content-between');
+            if (!header) return;
+            const numberSpan = header.firstElementChild;
+            if (!numberSpan) return;
+
+            const dots = document.createElement('span');
+            dots.className = 'cal-aura-dots' + (isActive ? '' : ' cal-aura-queued');
+            dots.title = (isActive
+                ? 'Syncing meetings for this day...'
+                : 'Queued for sync')
+                + ' (click for details)';
+            dots.style.cursor = 'pointer';
+            dots.innerHTML = '<span></span><span></span><span></span>';
+            dots.addEventListener('click', function(e) {
+                e.stopPropagation();
+                if (window.SyncStatus) window.SyncStatus.check();
+            });
+            numberSpan.appendChild(dots);
+        });
+    }
+
+    function checkAuraSync() {
+        fetch('/api/meetings/sync-status')
+            .then(r => r.json())
+            .then(state => {
+                const wasRunning = _auraLastRunning;
+                const lastCurrent = _auraLastCurrent;
+                _auraLastRunning = !!state.running;
+                _auraLastCurrent = state.current_date;
+
+                if (state.running) {
+                    // Day advanced - surgically swap the just-finished day's
+                    // dots for fresh ghosts (no full-table rebuild flicker).
+                    if (wasRunning && lastCurrent && lastCurrent !== state.current_date) {
+                        refreshDaysInPlace([lastCurrent]);
+                    }
+                    applyAuraIndicators(state);
+                    if (!_auraPoll) {
+                        _auraPoll = setInterval(checkAuraSync, 3000);
+                    }
+                } else {
+                    // Sync done. Stop polling, then surgically refresh the
+                    // final day so its ghosts fade in. applyAuraIndicators
+                    // clears any leftover dots after the swap.
+                    if (_auraPoll) { clearInterval(_auraPoll); _auraPoll = null; }
+                    if (wasRunning) {
+                        const finalDate = lastCurrent || state.current_date;
+                        if (finalDate) {
+                            refreshDaysInPlace([finalDate]);
+                        }
+                    }
+                    applyAuraIndicators(null);
+                }
+            })
+            .catch(() => { /* ignore - try again on next loadCalendar */ });
+    }
+
     
     // Reload drafts when storage changes (multi-tab support)
     window.addEventListener('storage', function(e) {
@@ -819,6 +1193,11 @@
             .then(data => {
                 calendarTitle.textContent = `${data.month_name} ${data.year}`;
                 renderCalendar(data);
+                // After the calendar paints, color the today badge based on
+                // whether this morning's sync covered today.
+                checkTodayStatus();
+                // Also paint typing dots on any aura-pending cells in view.
+                checkAuraSync();
             })
             .catch(error => {
                 console.error('Error loading calendar:', error);
@@ -842,12 +1221,19 @@
             return div.innerHTML;
         }
         
-        // Build a map of customer_id -> color index for THIS month only
+        // Build a map of customer_id -> color index for THIS month only.
+        // Include ghost meeting customers too so a ghost shares the color of
+        // any real notes for that customer (visual continuity).
         const customerColorMap = {};
         const allCustomerIds = new Set();
         Object.values(days).forEach(logs => {
             logs.forEach(log => {
                 if (log.customer_id) allCustomerIds.add(log.customer_id);
+            });
+        });
+        Object.values(data.ghosts || {}).forEach(ghosts => {
+            ghosts.forEach(g => {
+                if (g.customer_id) allCustomerIds.add(g.customer_id);
             });
         });
         const customerList = Array.from(allCustomerIds);
@@ -889,6 +1275,11 @@
                     // This cell has content
                     const dayNum = allDays[dayIndex].dayNum;
                     
+                    // Build date string for this day (used by aura indicator
+                    // to find the cell when sync state advances).
+                    const cellDateStr = `${data.year}-${String(data.month).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}`;
+                    cell.setAttribute('data-cal-date', cellDateStr);
+
                     // Day number header
                     const dayHeader = document.createElement('div');
                     dayHeader.className = 'd-flex justify-content-between align-items-center mb-1';
@@ -902,8 +1293,8 @@
                     }
                     dayHeader.appendChild(dayNumber);
                     
-                    // Build date string for this day
-                    const dateStr = `${data.year}-${String(data.month).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}`;
+                    // Date string already built above as cellDateStr.
+                    const dateStr = cellDateStr;
                     
                     // Add icons container (right side)
                     const iconsContainer = document.createElement('span');
@@ -993,7 +1384,16 @@
                         
                         cell.appendChild(entriesContainer);
                     }
-                    
+
+                    // Phase 3: ghost meetings (cached PrefetchedMeeting rows).
+                    // Render below real notes, dashed border, click = create note.
+                    const ghostEntries = (data.ghosts || {})[dayNum] || [];
+                    if (ghostEntries.length > 0) {
+                        const ghostContainer = buildGhostsContainer(
+                            ghostEntries, customerColorMap, dateStr);
+                        cell.appendChild(ghostContainer);
+                    }
+
                     dayIndex++;
                 } else {
                     // Empty cell (day not in this week's column)
@@ -1008,6 +1408,191 @@
             
             calendarBody.appendChild(row);
         }
+    }
+
+    // Build a calendar-cell ghost container for a single day. Reusable from
+    // both the full renderCalendar pass and the surgical per-day refresh
+    // that runs after the aura finishes a date.
+    function buildGhostsContainer(ghostEntries, customerColorMap, dateStr) {
+        function escapeHtml(text) {
+            if (!text) return '';
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        const ghostContainer = document.createElement('div');
+        ghostContainer.className = 'calendar-entries cal-ghosts-container';
+        ghostContainer.style.fontSize = '0.75rem';
+        ghostContainer.style.maxHeight = '70px';
+        ghostContainer.style.overflowY = 'auto';
+
+        ghostEntries.forEach(g => {
+            const ghost = document.createElement('div');
+            const matched = !!g.customer_id;
+            const ghostColorIndex = matched ? customerColorMap[g.customer_id] : null;
+            ghost.className = 'd-block text-truncate mb-1 px-1 rounded cal-ghost'
+                + (matched ? '' : ' cal-ghost-unmatched')
+                + (ghostColorIndex ? ` cal-ghost-customer-${ghostColorIndex}` : '');
+            ghost.setAttribute('data-ghost-id', g.id);
+            if (matched) {
+                ghost.setAttribute('data-customer-id', g.customer_id);
+            }
+
+            const labelText = matched
+                ? (g.customer_name || g.subject)
+                : g.subject;
+            const recurMarkup = g.is_recurring
+                ? '<span class="cal-ghost-recur" data-role="recur"'
+                  + ' title="Recurring meeting - hover to dismiss series">'
+                  + '<i class="bi bi-arrow-repeat text-muted"></i>'
+                  + '</span> '
+                : '';
+            const matchIcon = matched
+                ? '<i class="bi bi-calendar-event text-secondary" title="Cached meeting"></i> '
+                : '<i class="bi bi-question-circle text-warning" title="Unmatched - pick a customer"></i> ';
+            let localTime = '';
+            if (g.start_time_utc) {
+                const d = new Date(g.start_time_utc);
+                if (!isNaN(d.getTime()) && (d.getHours() !== 0 || d.getMinutes() !== 0)) {
+                    localTime = d.toLocaleTimeString([], {
+                        hour: 'numeric',
+                        minute: '2-digit',
+                    });
+                }
+            }
+            const timePrefix = localTime
+                ? `<small class="text-muted">${escapeHtml(localTime)}</small> `
+                : '';
+            ghost.innerHTML = matchIcon + recurMarkup + timePrefix + escapeHtml(labelText);
+
+            const hint = matched
+                ? `Click to create a note for ${g.customer_name}`
+                : 'Click to pick a customer and create a note';
+            const attendeePreview = (g.external_attendees || [])
+                .slice(0, 5)
+                .map(a => a.name || a.email)
+                .join(', ');
+            ghost.title = `${g.subject}\n${hint}`
+                + (attendeePreview ? `\nAttendees: ${attendeePreview}` : '');
+
+            ghost.addEventListener('click', function(e) {
+                if (e.target.closest('.cal-ghost-dismiss')) return;
+                if (e.target.closest('.cal-ghost-recur')) return;
+                openGhostMeeting(g, dateStr);
+            });
+
+            if (matched) {
+                ghost.addEventListener('mouseenter', function() {
+                    document.querySelectorAll(`[data-customer-id="${g.customer_id}"]`).forEach(el => {
+                        el.classList.add('cal-highlight');
+                    });
+                });
+                ghost.addEventListener('mouseleave', function() {
+                    document.querySelectorAll(`[data-customer-id="${g.customer_id}"]`).forEach(el => {
+                        el.classList.remove('cal-highlight');
+                    });
+                });
+            }
+
+            const dismiss = document.createElement('a');
+            dismiss.href = '#';
+            dismiss.className = 'cal-ghost-dismiss';
+            dismiss.innerHTML = '<i class="bi bi-x"></i>';
+            dismiss.title = 'Hide this meeting';
+            dismiss.addEventListener('click', function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                dismissGhost(g.id, ghost, false);
+            });
+            ghost.appendChild(dismiss);
+
+            if (g.is_recurring) {
+                const recurEl = ghost.querySelector('[data-role="recur"]');
+                if (recurEl) {
+                    const arrow = '<i class="bi bi-arrow-repeat text-muted"></i>';
+                    const killX = '<i class="bi bi-x-circle-fill text-danger"></i>';
+                    recurEl.addEventListener('mouseenter', function() {
+                        recurEl.innerHTML = killX;
+                        recurEl.title = 'Hide this series (all future occurrences)';
+                    });
+                    recurEl.addEventListener('mouseleave', function() {
+                        recurEl.innerHTML = arrow;
+                        recurEl.title = 'Recurring meeting - hover to dismiss series';
+                    });
+                    recurEl.addEventListener('click', function(e) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        dismissGhost(g.id, ghost, true);
+                    });
+                }
+            }
+
+            ghostContainer.appendChild(ghost);
+        });
+
+        return ghostContainer;
+    }
+
+    // Surgically refresh just the days that finished syncing. Avoids the
+    // full-table rebuild flicker (yellow today badge briefly going blue,
+    // dots vanishing for a frame, etc.). Fetches the same calendar JSON
+    // the full render uses, but only swaps the .cal-ghosts-container in
+    // each completed cell, with a CSS fade-in.
+    function refreshDaysInPlace(completedDates) {
+        if (!Array.isArray(completedDates) || completedDates.length === 0) return;
+        const url = `/api/notes/calendar?year=${calendarYear}&month=${calendarMonth}`;
+        fetch(url)
+            .then(r => r.json())
+            .then(data => {
+                // Rebuild the customer color map from the fresh response so
+                // newly-cached ghosts pick up a stable color.
+                const allCustomerIds = new Set();
+                Object.values(data.days || {}).forEach(logs => {
+                    logs.forEach(log => { if (log.customer_id) allCustomerIds.add(log.customer_id); });
+                });
+                Object.values(data.ghosts || {}).forEach(ghosts => {
+                    ghosts.forEach(g => { if (g.customer_id) allCustomerIds.add(g.customer_id); });
+                });
+                const customerColorMap = {};
+                Array.from(allCustomerIds).forEach((id, i) => {
+                    customerColorMap[id] = (i % 15) + 1;
+                });
+
+                completedDates.forEach(dateStr => {
+                    const cell = document.querySelector(
+                        `#calendarBody td[data-cal-date="${dateStr}"]`);
+                    if (!cell) return;
+                    // Drop the dots for this cell so they don't linger
+                    // after the ghosts paint in.
+                    const dots = cell.querySelector('.cal-aura-dots');
+                    if (dots) dots.remove();
+
+                    const oldContainer = cell.querySelector('.cal-ghosts-container');
+                    const dayNum = parseInt(dateStr.split('-')[2], 10);
+                    const ghostEntries = (data.ghosts || {})[dayNum] || [];
+                    if (ghostEntries.length === 0) {
+                        if (oldContainer) oldContainer.remove();
+                        return;
+                    }
+                    const newContainer = buildGhostsContainer(
+                        ghostEntries, customerColorMap, dateStr);
+                    newContainer.classList.add('cal-ghosts-fade');
+                    if (oldContainer) {
+                        oldContainer.replaceWith(newContainer);
+                    } else {
+                        cell.appendChild(newContainer);
+                    }
+                    // Trigger the fade-in next frame so the transition
+                    // animates from 0 to 1.
+                    requestAnimationFrame(() => {
+                        newContainer.classList.add('cal-ghosts-fade-in');
+                    });
+                });
+
+                // Refresh today's badge color in case today just finished.
+                if (typeof checkTodayStatus === 'function') checkTodayStatus();
+            })
+            .catch(err => console.error('refreshDaysInPlace failed:', err));
     }
 
     {% if has_engagements %}

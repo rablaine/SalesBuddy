@@ -3526,6 +3526,169 @@
 
     {% block extra_js %}{% endblock %}
 
+    <!-- ============================================================
+         Background meeting-sync status card (global).
+         Floating, draggable, non-blocking. Position persisted in
+         localStorage. Visible on any page while a sync is running.
+         ============================================================ -->
+    <div id="syncStatusCard" class="card shadow-lg border-primary"
+         style="display:none; position:fixed; top:80px; right:16px;
+                z-index:1055; width:340px;">
+        <div class="card-header bg-primary text-white py-2 px-3"
+             style="cursor:grab;" id="syncStatusCardHeader">
+            <div class="d-flex justify-content-between align-items-center">
+                <span class="fw-semibold">
+                    <span class="spinner-border spinner-border-sm me-2"
+                          role="status" aria-hidden="true"></span>
+                    Refreshing meetings
+                </span>
+                <button type="button" class="btn-close btn-close-white btn-close-sm"
+                        onclick="document.getElementById('syncStatusCard').style.display='none';"
+                        title="Hide (sync continues in background)"
+                        aria-label="Hide"></button>
+            </div>
+        </div>
+        <div class="card-body py-2 px-3">
+            <div class="small mb-1">
+                Syncing <span id="syncStatusDate" class="fw-semibold">today</span>...
+            </div>
+            <div class="small text-muted" id="syncStatusProgress"></div>
+        </div>
+    </div>
+    <script>
+    (function() {
+        const SYNC_POSITION_KEY = 'syncStatusCardPos';
+        const card = document.getElementById('syncStatusCard');
+        const header = document.getElementById('syncStatusCardHeader');
+        const dateEl = document.getElementById('syncStatusDate');
+        const progressEl = document.getElementById('syncStatusProgress');
+        let pollHandle = null;
+        let dragOffsetX = 0, dragOffsetY = 0;
+
+        // Restore saved position so the card reappears where the user left it.
+        function restorePosition() {
+            try {
+                const raw = localStorage.getItem(SYNC_POSITION_KEY);
+                if (!raw) return;
+                const pos = JSON.parse(raw);
+                if (typeof pos.left === 'number' && typeof pos.top === 'number') {
+                    // Clamp to viewport in case window is smaller now.
+                    const left = Math.max(0, Math.min(pos.left, window.innerWidth - 100));
+                    const top = Math.max(0, Math.min(pos.top, window.innerHeight - 50));
+                    card.style.left = left + 'px';
+                    card.style.top = top + 'px';
+                    card.style.right = 'auto';
+                }
+            } catch (_) { /* ignore */ }
+        }
+
+        function savePosition() {
+            const rect = card.getBoundingClientRect();
+            try {
+                localStorage.setItem(SYNC_POSITION_KEY, JSON.stringify({
+                    left: rect.left, top: rect.top,
+                }));
+            } catch (_) { /* ignore */ }
+        }
+
+        // Drag-to-move (mirrors templates/note_form.html meetingStatusCard).
+        header.addEventListener('mousedown', function(e) {
+            if (e.target.closest('.btn-close')) return;
+            e.preventDefault();
+            const rect = card.getBoundingClientRect();
+            dragOffsetX = e.clientX - rect.left;
+            dragOffsetY = e.clientY - rect.top;
+            header.style.cursor = 'grabbing';
+            document.addEventListener('mousemove', onDrag);
+            document.addEventListener('mouseup', onDrop);
+        });
+        function onDrag(e) {
+            const x = Math.max(0, Math.min(
+                e.clientX - dragOffsetX,
+                window.innerWidth - card.offsetWidth,
+            ));
+            const y = Math.max(0, Math.min(
+                e.clientY - dragOffsetY,
+                window.innerHeight - card.offsetHeight,
+            ));
+            card.style.left = x + 'px';
+            card.style.top = y + 'px';
+            card.style.right = 'auto';
+        }
+        function onDrop() {
+            header.style.cursor = 'grab';
+            document.removeEventListener('mousemove', onDrag);
+            document.removeEventListener('mouseup', onDrop);
+            savePosition();
+        }
+
+        function show(state) {
+            restorePosition();
+            update(state);
+            card.style.display = 'block';
+            if (!pollHandle) pollHandle = setInterval(poll, 3000);
+        }
+
+        function hide({reload = false} = {}) {
+            card.style.display = 'none';
+            if (pollHandle) {
+                clearInterval(pollHandle);
+                pollHandle = null;
+            }
+            // NOTE: We intentionally do NOT call loadCalendar() here, even
+            // when reload=true. The home page's checkAuraSync() poller
+            // owns per-day refresh via refreshDaysInPlace(), which is
+            // surgical (no full table rebuild). Calling loadCalendar()
+            // here would race that and cause flicker.
+            if (reload && typeof window.checkTodayStatus === 'function') {
+                window.checkTodayStatus();
+            }
+        }
+
+        function update(state) {
+            if (state && state.current_date) {
+                dateEl.textContent = state.current_date;
+            }
+            if (state && Array.isArray(state.aura_dates) && state.current_date) {
+                const idx = state.aura_dates.indexOf(state.current_date);
+                if (idx >= 0) {
+                    progressEl.textContent =
+                        `Day ${idx + 1} of ${state.aura_dates.length}`;
+                }
+            }
+        }
+
+        function poll() {
+            fetch('/api/meetings/sync-status')
+                .then(r => r.json())
+                .then(state => {
+                    if (!state.running) {
+                        hide({reload: true});
+                        return;
+                    }
+                    update(state);
+                })
+                .catch(() => { /* swallow */ });
+        }
+
+        // Public API for other scripts (today-cell click, etc.).
+        // NOTE: The card never auto-shows. Callers must explicitly forceShow
+        // when they want to surface the running sync (e.g. the orange today
+        // badge on the home calendar, or note_form when an import is gated
+        // on today's aura slot finishing).
+        window.SyncStatus = {
+            check: function() {
+                fetch('/api/meetings/sync-status')
+                    .then(r => r.json())
+                    .then(state => { if (state.running) show(state); })
+                    .catch(() => {});
+            },
+            forceShow: function(state) { show(state || {}); },
+            hide: hide,
+        };
+    })();
+    </script>
+
     <!-- Image zoom modal (click any image in .call-content to view full size) -->
     <div class="modal fade" id="imageZoomModal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog modal-dialog-centered" style="max-width: fit-content;">
