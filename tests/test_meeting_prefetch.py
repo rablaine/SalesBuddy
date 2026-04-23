@@ -430,6 +430,29 @@ class TestSubjectMatching:
             db.session.delete(c)
             db.session.commit()
 
+    def test_first_token_skips_common_english_noun(
+        self, app, clean_prefetch_tables
+    ):
+        """'BLOCK Communications' must NOT first-token-match meetings
+        like 'Start of day calendar block'. Regression for the BLOCK
+        false positive seen in production on 2026-04-23."""
+        with app.app_context():
+            c = Customer(name='BLOCK Communications', tpid=940010)
+            db.session.add(c)
+            db.session.commit()
+
+            matchers = meeting_prefetch._build_subject_matchers()
+            customer_id, _ = meeting_prefetch._resolve_customer(
+                attendees=[],
+                domain_map={},
+                subject='Start of day calendar block',
+                subject_matchers=matchers,
+            )
+            assert customer_id is None
+
+            db.session.delete(c)
+            db.session.commit()
+
     def test_first_token_skips_short_acronym_AT(
         self, app, clean_prefetch_tables
     ):

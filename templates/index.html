@@ -405,6 +405,8 @@
     .cal-fill-btn:hover { opacity: 1; color: var(--bs-warning) !important; }
     .cal-sync-btn { opacity: 0.3; transition: opacity 0.15s; font-size: 0.85rem; }
     .cal-sync-btn:hover { opacity: 1; color: var(--bs-info) !important; }
+    /* While spinning, force the btn to look hovered even when not hovered. */
+    .cal-sync-btn:has(.cal-sync-spinning) { opacity: 1; color: var(--bs-info) !important; }
     #calendarTable td:hover .cal-add-btn { opacity: 0.7; }
     #calendarTable td:hover .cal-fill-btn { opacity: 0.7; }
     #calendarTable td:hover .cal-sync-btn { opacity: 0.7; }
@@ -1343,19 +1345,6 @@
                     // Add icons container (right side)
                     const iconsContainer = document.createElement('span');
                     iconsContainer.className = 'd-flex gap-1';
-                    
-                    // Add "+" button for quick create
-                    const addBtn = document.createElement('a');
-                    addBtn.href = '#';
-                    addBtn.className = 'text-muted text-decoration-none cal-add-btn';
-                    addBtn.innerHTML = '<i class="bi bi-plus-circle"></i>';
-                    addBtn.title = 'New note';
-                    addBtn.setAttribute('data-date', dateStr);
-                    addBtn.addEventListener('click', function(e) {
-                        e.preventDefault();
-                        openQuickCreateModal(dateStr);
-                    });
-                    iconsContainer.appendChild(addBtn);
 
                     // Ad-hoc "sync this day" button. Fires a WorkIQ pull for
                     // just this date, even past dates outside the aura
@@ -1371,6 +1360,19 @@
                         triggerDaySync(dateStr, syncBtn);
                     });
                     iconsContainer.appendChild(syncBtn);
+
+                    // Add "+" button for quick create
+                    const addBtn = document.createElement('a');
+                    addBtn.href = '#';
+                    addBtn.className = 'text-muted text-decoration-none cal-add-btn';
+                    addBtn.innerHTML = '<i class="bi bi-plus-circle"></i>';
+                    addBtn.title = 'New note';
+                    addBtn.setAttribute('data-date', dateStr);
+                    addBtn.addEventListener('click', function(e) {
+                        e.preventDefault();
+                        openQuickCreateModal(dateStr);
+                    });
+                    iconsContainer.appendChild(addBtn);
 
                     dayHeader.appendChild(iconsContainer);
                     

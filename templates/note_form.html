@@ -1638,23 +1638,34 @@ var _importAttendeesMode = false;
 
 function importMeetingAttendees() {
     _importAttendeesMode = true;
-    // Reuse the existing meeting import flow (fetch + picker)
+    // If we arrived via from_meeting=N and the pre-warm scrape already
+    // returned, skip the meeting picker + scrape wait and go straight
+    // to the review modal with pre-populated attendees.
+    if (_fromMeetingTitle && _meetingAttendeeData
+        && _meetingAttendeeData._title === _fromMeetingTitle
+        && Array.isArray(_meetingAttendeeData.attendees)) {
+        _showAttendeeReview(_meetingAttendeeData.attendees);
+        return;
+    }
+    // Otherwise reuse the existing meeting import flow (fetch + picker)
     openMeetingImport();
 }
 
-function _runAttendeeScrape(meetingTitle, meetingDate) {
+function _runAttendeeScrape(meetingTitle, meetingDate, silent) {
     var btn = document.getElementById('importAttendeesBtn');
-    btn.disabled = true;
-    document.getElementById('importAttendeesBtnText').textContent = 'Scanning...';
+    if (!silent) {
+        btn.disabled = true;
+        document.getElementById('importAttendeesBtnText').textContent = 'Scanning...';
 
-    showMeetingStatusCard(
-        '<div class="d-flex align-items-center">' +
-        '<span class="spinner-border spinner-border-sm text-primary me-2"></span>' +
-        '<div><strong>Finding attendees...</strong>' +
-        '<br><small class="text-muted">' + escHtmlNote(meetingTitle) + '</small>' +
-        '<br><small class="text-muted fst-italic">This can take up to a minute</small></div>' +
-        '</div>'
-    );
+        showMeetingStatusCard(
+            '<div class="d-flex align-items-center">' +
+            '<span class="spinner-border spinner-border-sm text-primary me-2"></span>' +
+            '<div><strong>Finding attendees...</strong>' +
+            '<br><small class="text-muted">' + escHtmlNote(meetingTitle) + '</small>' +
+            '<br><small class="text-muted fst-italic">This can take up to a minute</small></div>' +
+            '</div>'
+        );
+    }
 
     var customerId = document.getElementById('customer_id') ? document.getElementById('customer_id').value : null;
     var partnerIds = Array.from(document.querySelectorAll('input[name="partner_ids"]')).map(function(i) { return parseInt(i.value); });
@@ -1671,20 +1682,34 @@ function _runAttendeeScrape(meetingTitle, meetingDate) {
     })
     .then(function(r) { return r.json(); })
     .then(function(data) {
-        hideMeetingStatusCard();
-        btn.disabled = false;
-        document.getElementById('importAttendeesBtnText').textContent = 'Import Attendees';
-        if (!data.success) { alert(data.error || 'Failed'); return; }
+        if (!silent) {
+            hideMeetingStatusCard();
+            btn.disabled = false;
+            document.getElementById('importAttendeesBtnText').textContent = 'Import Attendees';
+        }
+        if (!data.success) {
+            if (!silent) alert(data.error || 'Failed');
+            return;
+        }
         _meetingAttendeeData = data;
         _meetingAttendeeData._title = meetingTitle;
         _meetingAttendeeData._date = meetingDate;
+        if (silent) {
+            // Pre-warm only: stash the data so importMeetingAttendees()
+            // can open the review modal instantly when the user clicks.
+            // Do NOT auto-apply -- the user needs to categorize partner
+            // vs customer domains for new attendees.
+            return;
+        }
         _showAttendeeReview(data.attendees);
     })
     .catch(function(err) {
-        hideMeetingStatusCard();
-        btn.disabled = false;
-        document.getElementById('importAttendeesBtnText').textContent = 'Import Attendees';
-        alert('Error: ' + err.message);
+        if (!silent) {
+            hideMeetingStatusCard();
+            btn.disabled = false;
+            document.getElementById('importAttendeesBtnText').textContent = 'Import Attendees';
+            alert('Error: ' + err.message);
+        }
     });
 }
 
@@ -6482,6 +6507,18 @@ var _pendingMeetingSelection = null;  // Queued meeting list waiting for typing 
 // picker and skip the manual selection step.
 var _fromMeetingWorkiqId = {{ from_meeting_workiq_id|tojson if from_meeting_workiq_id else 'null' }};
 
+// Ghost title + date -- used to auto-trigger the attendee scrape on page
+// load so the cached PrefetchedMeetingAttendee rows populate the review
+// modal instantly (no WorkIQ call, no meeting picker).
+var _fromMeetingTitle = {{ from_meeting_title|tojson if from_meeting_title else 'null' }};
+var _fromMeetingDate = {{ from_meeting_date|tojson if from_meeting_date else 'null' }};
+
+// Full ghost meeting object (shape matches /api/meetings response) -- used
+// to skip the meeting-list fetch entirely when the user clicks Import
+// Summary from a ghost-created note. The picker opens with the ghost
+// pre-selected so the user can edit the prompt and fire summarization.
+var _fromMeetingData = {{ from_meeting_data|tojson if from_meeting_data else 'null' }};
+
 // Typing-pause debounce. Mirrors DRAFT autosave (DEBOUNCE_DELAY = 1500ms)
 // so when WorkIQ data arrives mid-keystroke we wait for the same idle
 // window before yanking focus into a modal.
@@ -6546,6 +6583,28 @@ document.addEventListener('DOMContentLoaded', function() {
             if (this.checked && window.showBrainrotPanel) window.showBrainrotPanel();
             else if (!this.checked && window.hideBrainrotPanel) window.hideBrainrotPanel();
         });
+    }
+
+    // Ghost-click auto-import: we arrived via from_meeting=N in the URL,
+    // which means the ghost is already in the local prefetched cache.
+    // Fire the attendee scrape immediately -- the scrape service hits the
+    // cache first, so this round-trips to the local DB only (no WorkIQ).
+    // The user sees the attendee review modal pop up in ~50ms instead of
+    // having to click "Import Attendees" and wait for a meeting picker.
+    if (_fromMeetingTitle && _fromMeetingDate
+        && typeof _runAttendeeScrape === 'function') {
+        // Small defer so the rest of DOMContentLoaded wiring finishes
+        // (customer select, partner inputs, etc.) before the scrape reads
+        // their values.
+        setTimeout(function() {
+            // silent=true: no modal, no spinner. Just warms the local
+            // cache so importMeetingAttendees() can open the review modal
+            // instantly when the user clicks. Do NOT set
+            // _importAttendeesMode here -- that flag means "user clicked
+            // Import Attendees", not "we pre-warmed". Setting it would
+            // block the Import Summary shortcut.
+            _runAttendeeScrape(_fromMeetingTitle, _fromMeetingDate, true);
+        }, 0);
     }
 });
 
@@ -7320,6 +7379,14 @@ function cancelMeetingStatus() {
 // before kicking off the existing fetch — otherwise we'd race the aura
 // with a duplicate WorkIQ call.
 function openMeetingImport() {
+    // Ghost-creation summary shortcut: we already know the exact meeting
+    // the user wants summarized, so skip the aura gate AND the meeting-
+    // list fetch entirely. Go straight to the picker with that one
+    // meeting pre-selected.
+    if (_fromMeetingData && !_importAttendeesMode) {
+        _doMeetingImport();
+        return;
+    }
     if (_isCallDateToday()) {
         waitForTodayAuraIfNeeded(_doMeetingImport);
     } else {
@@ -7337,6 +7404,35 @@ function _doMeetingImport() {
             if (window.hideBrainrotPanel) window.hideBrainrotPanel();
             _importAttendeesMode = false; // Reset if modal dismissed without selecting
         });
+    }
+
+    // Ghost-creation summary shortcut: if the note was launched from a
+    // ghost meeting AND the user is importing a summary (not attendees),
+    // skip the live WorkIQ meeting-list fetch entirely. We already know
+    // exactly which meeting they want -- render the picker with just that
+    // one meeting pre-selected so they can tweak the prompt and fire.
+    if (_fromMeetingData && !_importAttendeesMode) {
+        loadedMeetings = [_fromMeetingData];
+        _lastMeetingContext = {
+            meetings: loadedMeetings,
+            selectedIndex: 0,
+            syncedAt: null
+        };
+        showMeetingImportModalReady(
+            loadedMeetings,
+            0,
+            "Auto-selected: you opened this note from this meeting",
+            null
+        );
+        // Since we're only showing one meeting (the ghost), the only
+        // reason the user is in this modal is to tweak the prompt before
+        // firing. Auto-expand the custom prompt collapse -- we have the
+        // real estate.
+        var promptCollapseEl = document.getElementById('customPromptCollapse');
+        if (promptCollapseEl && window.bootstrap) {
+            bootstrap.Collapse.getOrCreateInstance(promptCollapseEl, { toggle: false }).show();
+        }
+        return;
     }
 
     // If we have cached meetings from a previous import, reuse them
@@ -7396,6 +7492,17 @@ function _doMeetingImport() {
                 var autoReason = autoIdx !== null
                     ? "Auto-selected: '" + (loadedMeetings[autoIdx].customer || loadedMeetings[autoIdx].title) + "' matches '" + customerName + "'"
                     : null;
+                // Ghost-creation summary shortcut: prefer the ghost we
+                // came from over a name-based match.
+                if (_fromMeetingWorkiqId && !_importAttendeesMode) {
+                    for (var pi = 0; pi < loadedMeetings.length; pi++) {
+                        if (loadedMeetings[pi].id === _fromMeetingWorkiqId) {
+                            autoIdx = pi;
+                            autoReason = "Auto-selected: you opened this note from this meeting";
+                            break;
+                        }
+                    }
+                }
                 showMeetingImportModalReady(loadedMeetings, autoIdx, autoReason, null);
             }).catch(function() {
                 document.getElementById('importMeetingBtn').disabled = false;
@@ -7473,14 +7580,31 @@ function _doMeetingImport() {
                 _fromMeetingWorkiqId = null;
             }
 
+            // Ghost-creation summary shortcut: if the note was created
+            // by clicking a ghost AND the user clicked Import Summary,
+            // auto-select the ghost in the picker (so they don't have
+            // to click it) but leave the picker open so they can still
+            // tweak the summarization prompt before firing.
+            var ghostAutoIdx = null;
+            var ghostAutoReason = null;
+            if (_fromMeetingWorkiqId && !_importAttendeesMode) {
+                for (var si = 0; si < loadedMeetings.length; si++) {
+                    if (loadedMeetings[si].id === _fromMeetingWorkiqId) {
+                        ghostAutoIdx = si;
+                        ghostAutoReason = "Auto-selected: you opened this note from this meeting";
+                        break;
+                    }
+                }
+            }
+
             // If user typed in the last TYPING_PAUSE_MS, defer the
             // selection modal until they pause (matches DRAFT autosave
             // debounce so we don't yank focus mid-keystroke).
             if (!_isTypingIdle()) {
                 _pendingMeetingSelection = {
                     meetings: loadedMeetings,
-                    autoSelectedIndex: data.auto_selected_index,
-                    autoSelectedReason: data.auto_selected_reason,
+                    autoSelectedIndex: ghostAutoIdx !== null ? ghostAutoIdx : data.auto_selected_index,
+                    autoSelectedReason: ghostAutoIdx !== null ? ghostAutoReason : data.auto_selected_reason,
                     syncedAt: data.synced_at
                 };
                 var msg = loadedMeetings.length === 0
@@ -7493,7 +7617,12 @@ function _doMeetingImport() {
                 );
                 _fireWhenIdle(applyPendingMeetingSelection);
             } else {
-                showMeetingImportModalReady(loadedMeetings, data.auto_selected_index, data.auto_selected_reason, data.synced_at);
+                showMeetingImportModalReady(
+                    loadedMeetings,
+                    ghostAutoIdx !== null ? ghostAutoIdx : data.auto_selected_index,
+                    ghostAutoIdx !== null ? ghostAutoReason : data.auto_selected_reason,
+                    data.synced_at
+                );
             }
         })
         .catch(error => {

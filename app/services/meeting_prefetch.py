@@ -193,6 +193,25 @@ _GENERIC_FIRST_TOKENS = frozenset({
     # Consumer-brand first tokens that show up in generic meeting titles.
     'apple', 'delta', 'uber', 'oracle', 'amazon', 'google', 'meta',
     'microsoft', 'msft', 'azure', 'aws', 'gcp',
+    # Common English nouns/verbs that show up in non-customer meeting
+    # titles (e.g. "Start of day calendar block" matches "BLOCK
+    # COMMUNICATIONS"). Conservative list: only words that commonly
+    # appear in generic business meeting titles.
+    'block', 'call', 'sync', 'review', 'update', 'status', 'check',
+    'meeting', 'standup', 'stand', 'daily', 'weekly', 'monthly',
+    'team', 'group', 'office', 'hours', 'hour', 'time', 'today',
+    'tomorrow', 'next', 'last', 'final', 'initial', 'kickoff', 'kick',
+    'close', 'open', 'test', 'demo', 'training', 'plan',
+    'planning', 'project', 'program', 'portfolio', 'product',
+    'platform', 'service', 'process', 'strategy', 'vision', 'mission',
+    'start', 'stop', 'pause', 'break', 'lunch', 'focus', 'deep',
+    'quick', 'brief', 'short', 'long', 'note', 'notes', 'action',
+    'items', 'item', 'task', 'tasks', 'work', 'works', 'working',
+    'client', 'customer', 'partner', 'vendor', 'supplier', 'account',
+    'accounts', 'sales', 'marketing', 'finance', 'legal', 'hr',
+    'engineering', 'ops', 'operations', 'design', 'research',
+    'calendar', 'event', 'room', 'space', 'board', 'table', 'desk',
+    'side', 'front', 'back', 'top', 'bottom', 'main', 'sub',
 })
 
 # Tokenize on any non-word run (so "QS/1", "AT&T", "Coca-Cola" all split
@@ -233,9 +252,13 @@ def _first_distinctive_token(phrase: str) -> Optional[str]:
         if len(low) < 2 or low in _SUBJECT_STOPWORDS:
             continue
         # First non-stopword token. Decide if it's safe to use standalone.
+        if low in _GENERIC_FIRST_TOKENS:
+            # Common English word that collides with generic meeting
+            # titles (e.g. "block" matching "Start of day calendar block").
+            return None
         if tok.isupper() and len(tok) >= 3:
             return tok
-        if len(tok) >= 4 and low not in _GENERIC_FIRST_TOKENS:
+        if len(tok) >= 4:
             return tok
         # First distinctive token exists but isn't safe; don't fall
         # through to later tokens (that would drift too far from the
