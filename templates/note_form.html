@@ -665,11 +665,11 @@
 
                     <!-- Cache info bar with refresh button -->
                     <div id="meetingCacheInfo" class="d-flex justify-content-between align-items-center mb-2" style="display: none !important;">
-                        <small class="text-muted">
+                        <small class="text-muted" id="meetingSyncedAtLabel">
                             <i class="bi bi-clock-history"></i> <span id="meetingCacheSyncedAt"></span>
                         </small>
-                        <button type="button" class="btn btn-sm btn-outline-primary" id="refreshMeetingsBtn" onclick="refreshMeetings()">
-                            <i class="bi bi-arrow-clockwise"></i> Refresh Meetings
+                        <button type="button" class="btn btn-sm btn-outline-secondary" id="refreshMeetingsBtn" onclick="refreshMeetings()">
+                            <i class="bi bi-arrow-clockwise"></i> Refresh
                         </button>
                     </div>
 
@@ -7487,7 +7487,8 @@ function _doMeetingImport() {
                     return;
                 }
                 loadedMeetings = cached.meetings;
-                _lastMeetingContext = { meetings: loadedMeetings, selectedIndex: null, syncedAt: null };
+                var cachedSyncedAt = cached.synced_at || null;
+                _lastMeetingContext = { meetings: loadedMeetings, selectedIndex: null, syncedAt: cachedSyncedAt };
                 var autoIdx = customerName ? _findBestMeetingMatch(loadedMeetings, customerName) : null;
                 var autoReason = autoIdx !== null
                     ? "Auto-selected: '" + (loadedMeetings[autoIdx].customer || loadedMeetings[autoIdx].title) + "' matches '" + customerName + "'"
@@ -7503,7 +7504,7 @@ function _doMeetingImport() {
                         }
                     }
                 }
-                showMeetingImportModalReady(loadedMeetings, autoIdx, autoReason, null);
+                showMeetingImportModalReady(loadedMeetings, autoIdx, autoReason, cachedSyncedAt);
             }).catch(function() {
                 document.getElementById('importMeetingBtn').disabled = false;
                 hideMeetingStatusCard();
@@ -7709,15 +7710,17 @@ function showMeetingImportModalReady(meetings, autoSelectedIndex, autoSelectedRe
     document.getElementById('meetingNoResults').style.display = 'none';
     document.getElementById('importSelectedMeetingBtn').disabled = true;
 
-    // Show cache info bar
+    // Show cache info bar - always show refresh button, only show timestamp when available
     var cacheInfo = document.getElementById('meetingCacheInfo');
+    var syncedAtLabel = document.getElementById('meetingSyncedAtLabel');
+    cacheInfo.style.cssText = 'display: flex !important;';
     if (syncedAt) {
         var syncDate = new Date(syncedAt);
         var timeStr = syncDate.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
         document.getElementById('meetingCacheSyncedAt').textContent = 'Synced at ' + timeStr;
-        cacheInfo.style.cssText = 'display: flex !important;';
+        syncedAtLabel.style.display = '';
     } else {
-        cacheInfo.style.cssText = 'display: none !important;';
+        syncedAtLabel.style.display = 'none';
     }
     // Update button text based on mode
     var importBtn = document.getElementById('importSelectedMeetingBtn');
