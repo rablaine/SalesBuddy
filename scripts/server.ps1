@@ -653,9 +653,12 @@ if (-not $existingAutoStart) {
     Write-Host "  Registering auto-start on login..." -ForegroundColor Yellow
 
     $serverScript = Join-Path $PSScriptRoot 'server.ps1'
+    $vbsLauncher = Join-Path $PSScriptRoot 'run-hidden.vbs'
+    # wscript + VBS launcher avoids the brief console flash that
+    # powershell.exe -WindowStyle Hidden still produces.
     $asAction = New-ScheduledTaskAction `
-        -Execute 'powershell.exe' `
-        -Argument "-ExecutionPolicy Bypass -WindowStyle Hidden -File `"$serverScript`"" `
+        -Execute 'wscript.exe' `
+        -Argument "`"$vbsLauncher`" `"$serverScript`"" `
         -WorkingDirectory $RepoRoot
     $asTrigger = New-ScheduledTaskTrigger -AtLogOn
     $asTrigger.UserId = $env:USERNAME

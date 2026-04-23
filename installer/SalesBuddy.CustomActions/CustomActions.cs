@@ -1211,17 +1211,20 @@ Write-Host 'winget installation complete.'
         /// </summary>
         private static void ConfigureAutoStartTask(Session session, string installDir)
         {
-            string startBat = Path.Combine(installDir, "start.bat");
-            if (!File.Exists(startBat))
+            string serverScript = Path.Combine(installDir, "scripts", "server.ps1");
+            string vbsLauncher = Path.Combine(installDir, "scripts", "run-hidden.vbs");
+            if (!File.Exists(serverScript) || !File.Exists(vbsLauncher))
             {
-                session.Log("start.bat not found, skipping auto-start configuration.");
+                session.Log("server.ps1 or run-hidden.vbs not found, skipping auto-start configuration.");
                 return;
             }
 
-            // Use schtasks to create a logon trigger task
+            // Use wscript + VBS launcher so the autostart never flashes a console
+            // window at login. powershell.exe -WindowStyle Hidden still flashes briefly;
+            // wscript starts the process with no console at all.
             ProcessRunner.Run(session, "schtasks.exe",
                 $"/create /tn \"SalesBuddy-AutoStart\" " +
-                $"/tr \"\\\"{startBat}\\\"\" " +
+                $"/tr \"wscript.exe \\\"{vbsLauncher}\\\" \\\"{serverScript}\\\"\" " +
                 $"/sc ONLOGON /rl LIMITED /f");
             session.Log("Auto-start task created.");
         }
