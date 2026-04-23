@@ -1425,6 +1425,10 @@ def api_stale_customers():
             "notes_count": counts.get('notes', 0),
             "engagements_count": counts.get('engagements', 0),
             "has_data": user_data > 0,
+            "seller_id": c.seller.id if c.seller else None,
+            "seller_name": c.seller.name if c.seller else None,
+            "territory_id": c.territory.id if c.territory else None,
+            "territory_name": c.territory.name if c.territory else None,
         })
 
     return jsonify(result)
