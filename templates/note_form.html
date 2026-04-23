@@ -1088,6 +1088,9 @@
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-outline-primary" id="attendeeRefreshBtn" onclick="_refreshAttendeeScrape()" style="display: none;">
+                    <i class="bi bi-arrow-clockwise"></i> Refresh Attendees
+                </button>
                 <button type="button" class="btn btn-primary" id="attendeeReviewApplyBtn" onclick="applyMeetingAttendees()">
                     <i class="bi bi-check-circle"></i> Add to Attendees
                 </button>
@@ -1651,7 +1654,7 @@ function importMeetingAttendees() {
     openMeetingImport();
 }
 
-function _runAttendeeScrape(meetingTitle, meetingDate, silent) {
+function _runAttendeeScrape(meetingTitle, meetingDate, silent, forceRefresh) {
     var btn = document.getElementById('importAttendeesBtn');
     if (!silent) {
         btn.disabled = true;
@@ -1677,7 +1680,8 @@ function _runAttendeeScrape(meetingTitle, meetingDate, silent) {
             meeting_title: meetingTitle,
             meeting_date: meetingDate,
             customer_id: customerId ? parseInt(customerId) : null,
-            partner_ids: partnerIds
+            partner_ids: partnerIds,
+            force_refresh: !!forceRefresh
         })
     })
     .then(function(r) { return r.json(); })
@@ -1715,13 +1719,16 @@ function _runAttendeeScrape(meetingTitle, meetingDate, silent) {
 
 function _showAttendeeReview(attendees) {
     var body = document.getElementById('attendeeReviewBody');
+    var refreshBtn = document.getElementById('attendeeRefreshBtn');
     if (!attendees || attendees.length === 0) {
         body.innerHTML = '<div class="text-center py-4"><i class="bi bi-inbox display-4 text-muted"></i>' +
             '<p class="mt-2 text-muted">No attendees found. WorkIQ can be inconsistent - try again.</p>' +
             '<button type="button" class="btn btn-primary" onclick="_retryAttendeeScrape()"><i class="bi bi-arrow-clockwise"></i> Try Again</button></div>';
+        if (refreshBtn) refreshBtn.style.display = 'inline-block';
         bootstrap.Modal.getOrCreateInstance(document.getElementById('attendeeReviewModal')).show();
         return;
     }
+    if (refreshBtn) refreshBtn.style.display = 'inline-block';
 
     // Group by category
     var groups = { microsoft: [], customer_contact: [], partner_contact: [], new_partner: [], unknown: [] };
@@ -1871,6 +1878,17 @@ function _retryAttendeeScrape() {
         var body = document.getElementById('attendeeReviewBody');
         body.innerHTML = '<div class="text-center py-4"><div class="spinner-border text-primary"></div><p class="mt-2 text-muted">Scanning again...</p></div>';
         _runAttendeeScrape(_meetingAttendeeData._title, _meetingAttendeeData._date);
+    }
+}
+
+function _refreshAttendeeScrape() {
+    // Force refresh from WorkIQ even if we have cached attendees.
+    if (_meetingAttendeeData && _meetingAttendeeData._title && _meetingAttendeeData._date) {
+        var modal = bootstrap.Modal.getOrCreateInstance(document.getElementById('attendeeReviewModal'));
+        modal.hide();
+        var body = document.getElementById('attendeeReviewBody');
+        body.innerHTML = '<div class="text-center py-4"><div class="spinner-border text-primary"></div><p class="mt-2 text-muted">Refreshing attendees...</p></div>';
+        _runAttendeeScrape(_meetingAttendeeData._title, _meetingAttendeeData._date, false, true);
     }
 }
 
