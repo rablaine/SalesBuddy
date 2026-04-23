@@ -3857,6 +3857,7 @@ function loadStaleCustomers() {
             let html = '<div class="list-group">';
             data.forEach(c => {
                 const staleDays = Math.floor((Date.now() - new Date(c.stale_since).getTime()) / 86400000);
+                const staleLabel = staleDays <= 0 ? 'Today' : (staleDays === 1 ? '1d ago' : `${staleDays}d ago`);
                 const sellerBadge = c.seller_id
                     ? `<a href="/seller/${c.seller_id}" class="badge bg-primary text-decoration-none ms-1" title="Seller"><i class="bi bi-person"></i> ${escapeHtmlMerge(c.seller_name)}</a>`
                     : '';
@@ -3868,7 +3869,7 @@ function loadStaleCustomers() {
                         <div>
                             <a href="/customer/${c.id}" class="text-decoration-none"><strong>${escapeHtmlMerge(c.name)}</strong></a>
                             <a href="/customer/${c.id}" class="text-muted small ms-2 text-decoration-none">TPID ${c.tpid}</a>
-                            <span class="badge bg-secondary ms-2">${staleDays}d ago</span>
+                            <span class="badge bg-secondary ms-2">${staleLabel}</span>
                             ${sellerBadge}
                             ${territoryBadge}
                             ${c.notes_count > 0 ? `<span class="badge bg-info text-dark ms-1">${c.notes_count} notes</span>` : ''}
