@@ -13,13 +13,30 @@ const PageHelp = (function () {
   const helpMap = [
     // ── Home ──
     { pattern: /^\/$/, title: 'Dashboard', content: `
-      <p>Your home base — a quick overview of recent activity across Sales Buddy.</p>
+      <p>Your home base — calendar of notes &amp; meetings, plus quick access to drafts and engagements.</p>
+
+      <h6>The calendar</h6>
+      <ul>
+        <li><strong>Solid colored entries</strong> are real notes you've written. Click to view, hover to highlight all notes for that customer.</li>
+        <li><strong>Dashed-border entries</strong> are <em>ghost meetings</em> — meetings pulled from your Outlook calendar that don't have a note yet. Click one to start a note pre-filled with the meeting subject and external attendees.</li>
+        <li><strong>Today's badge</strong> turns <span class="badge bg-warning text-dark">orange</span> if today's meetings haven't been refreshed today. Click it to pull a fresh copy from WorkIQ.</li>
+        <li><strong>+</strong> on any day creates a new note dated to that day.</li>
+        <li><strong>X</strong> on a ghost dismisses it. For recurring meetings, hover the <i class="bi bi-arrow-repeat"></i> icon and click the red X to dismiss the whole series.</li>
+      </ul>
+
+      <h6>Background meeting sync (the typing dots)</h6>
+      <p>Sales Buddy quietly pulls today + the next 4 business days of meetings from WorkIQ each morning, plus a catch-up sweep whenever you start the app and any of those days are stale. While that's running, you'll see <strong>typing dots</strong> on each calendar day:</p>
+      <ul>
+        <li>Dots mean that day's meetings are being fetched or queued up next</li>
+        <li>As each day finishes, its ghosts fade in and the dots disappear</li>
+        <li><strong>Click any dot</strong> to surface the floating progress card. Close it with the X — sync keeps running in the background.</li>
+      </ul>
+
       <h6>Quick actions</h6>
       <ul>
-        <li>Use <span class="kbd">/</span> to jump to any customer</li>
-        <li>Use <span class="kbd">Ctrl</span>+<span class="kbd">K</span> to create a quick note</li>
-        <li>Press <span class="kbd">?</span> to see all keyboard shortcuts</li>
-        <li>Click any card to dive into that section</li>
+        <li><span class="kbd">/</span> — jump to any customer</li>
+        <li><span class="kbd">Ctrl</span>+<span class="kbd">K</span> — quick note creation</li>
+        <li><span class="kbd">?</span> — full keyboard shortcuts list</li>
       </ul>
     `},
 
