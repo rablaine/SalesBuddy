@@ -328,15 +328,30 @@
 
 
 <style>
-    /* Calendar styles */
-    #calendarTable {
+    /* Calendar styles - shared by notes + action items calendars */
+    #calendarTable,
+    #tasksCalendarTable {
         table-layout: fixed;
         width: 100%;
     }
     #calendarTable th,
-    #calendarTable td {
+    #calendarTable td,
+    #tasksCalendarTable th,
+    #tasksCalendarTable td {
         width: 14.28%;
         overflow: hidden;
+        max-width: 0;
+    }
+    .calendar-entries,
+    .cal-ghosts-container {
+        min-width: 0;
+        width: 100%;
+    }
+    .calendar-entries .text-truncate,
+    .cal-ghosts-container .text-truncate,
+    #tasksCalendarTable .text-truncate {
+        display: block;
+        max-width: 100%;
     }
     #calendarTable th.text-muted {
         color: var(--bs-secondary-color) !important;
@@ -1340,10 +1355,10 @@
                 const cell = document.createElement('td');
                 cell.className = 'p-1';
                 cell.style.verticalAlign = 'top';
-                cell.style.height = '100px';
+                cell.style.minHeight = '80px';
                 const isWeekend = (col === 0 || col === 6);
                 if (isWeekend) {
-                    cell.style.height = '60px';
+                    cell.style.minHeight = '50px';
                     if (document.documentElement.getAttribute('data-bs-theme') === 'dark') {
                         cell.style.backgroundColor = 'rgba(255,255,255,0.02)';
                     } else {
@@ -1850,10 +1865,10 @@
                 var cell = document.createElement('td');
                 cell.className = 'p-1';
                 cell.style.verticalAlign = 'top';
-                cell.style.height = '100px';
+                cell.style.minHeight = '80px';
                 var isWeekend = (col === 0 || col === 6);
                 if (isWeekend) {
-                    cell.style.height = '60px';
+                    cell.style.minHeight = '50px';
                     cell.style.backgroundColor = isDark ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.02)';
                 }
 
