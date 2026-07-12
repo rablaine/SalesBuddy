@@ -2,9 +2,12 @@
 
 {% block title %}Admin Panel - NoteHelper{% endblock %}
 
+{# Determine if FY card should be expanded: during FY season or active transition #}
+{% set fy_expanded = fy_season or fy_transition_active %}
+
 {% block content %}
 <style>
-    .spin { animation: spin 1s linear infinite; }
+    .spin, .spin-icon { animation: spin 1s linear infinite; }
     @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 </style>
 <div class="row">
@@ -309,6 +312,11 @@
                 </div>
             </div>
         </div>
+        {% endif %}
+
+        <!-- FY Management (promoted position - during FY season or active transition) -->
+        {% if fy_expanded %}
+        {% include 'partials/_fy_management_card.html' %}
         {% endif %}
 
         <!-- Backups -->
@@ -624,6 +632,11 @@
                 </div>
             </div>
         </div>
+        {% endif %}
+
+        <!-- Fiscal Year Management (default position) -->
+        {% if not fy_expanded %}
+        {% include 'partials/_fy_management_card.html' %}
         {% endif %}
 
         <!-- Danger Zone (collapsed by default) -->
@@ -1353,6 +1366,26 @@ if (dangerHeader) {
     });
 }
 
+// FY Management chevron rotation + scroll to bottom on expand
+const fyHeader = document.querySelector('[data-bs-target="#fyCollapse"]');
+if (fyHeader) {
+    const fyChevron = fyHeader.querySelector('.bi-chevron-down');
+    const fyCollapseEl = document.getElementById('fyCollapse');
+
+    fyCollapseEl.addEventListener('shown.bs.collapse', function() {
+        fyChevron.style.transform = 'rotate(180deg)';
+        fyChevron.style.transition = 'transform 0.2s';
+    });
+    fyCollapseEl.addEventListener('hidden.bs.collapse', function() {
+        fyChevron.style.transform = 'rotate(0deg)';
+    });
+
+    // Set chevron if already expanded on page load
+    if (fyCollapseEl.classList.contains('show')) {
+        fyChevron.style.transform = 'rotate(180deg)';
+    }
+}
+
 }); // end DOMContentLoaded
 
 // Retry VPN connection from the MSX Integration card (outside DOMContentLoaded for inline onclick)
@@ -2071,6 +2104,389 @@ function restoreFromBackup() {
         resultEl.innerHTML = '<span class="text-danger">Error: ' + err.message + '</span>';
     });
 }
+
+// ---------------------------------------------------------------------------
+// Fiscal Year Management
+// ---------------------------------------------------------------------------
+
+function loadFYStatus() {
+    fetch('/api/admin/fy/status')
+        .then(r => r.json())
+        .then(data => {
+            const statusEl = document.getElementById('fyStatus');
+            const startSection = document.getElementById('fyStartSection');
+            const transSection = document.getElementById('fyTransitionSection');
+            const archivesSection = document.getElementById('fyArchivesSection');
+
+            if (data.transition.in_transition) {
+                statusEl.style.display = 'none';
+                startSection.style.display = 'none';
+                transSection.style.display = '';
+                document.getElementById('fyTransitionLabel').textContent = data.transition.fy_label;
+
+                // Show sync status within transition section
+                if (data.transition.sync_complete) {
+                    document.getElementById('fySyncIncomplete').style.display = 'none';
+                    document.getElementById('fySyncCompleteSection').style.display = '';
+                } else {
+                    document.getElementById('fySyncIncomplete').style.display = '';
+                    document.getElementById('fySyncCompleteSection').style.display = 'none';
+                }
+            } else {
+                statusEl.style.display = 'none';
+                startSection.style.display = '';
+                transSection.style.display = 'none';
+            }
+
+            // Update FY labels from server
+            if (data.fy_labels) {
+                window._fyCurrentLabel = data.fy_labels.current_fy;
+                window._fyNextLabel = data.fy_labels.next_fy;
+                document.querySelectorAll('.fy-current-label').forEach(el => el.textContent = data.fy_labels.current_fy);
+                document.querySelectorAll('.fy-next-label').forEach(el => el.textContent = data.fy_labels.next_fy);
+                document.getElementById('fyStartBtn').innerHTML =
+                    `<i class="bi bi-archive"></i> Archive ${data.fy_labels.current_fy} & Start ${data.fy_labels.next_fy}`;
+            }
+
+            // Show archives
+            if (data.archives && data.archives.length > 0) {
+                archivesSection.style.display = '';
+                const list = document.getElementById('fyArchivesList');
+                list.innerHTML = data.archives.map(a =>
+                    `<div class="d-flex justify-content-between align-items-center border-bottom py-2">
+                        <span><i class="bi bi-file-earmark-zip"></i> <strong>${a.fy_label}</strong></span>
+                        <span class="text-muted small">${a.size_mb} MB &middot; ${new Date(a.archived_at).toLocaleDateString()}</span>
+                    </div>`
+                ).join('');
+            }
+        })
+        .catch(() => {
+            document.getElementById('fyStatus').innerHTML =
+                '<span class="text-danger">Failed to load FY status</span>';
+        });
+}
+
+function startNewFY() {
+    const oldLabel = window._fyCurrentLabel;
+    const label = window._fyNextLabel;
+    if (!confirm(`Start ${label}?\n\nYour current ${oldLabel} data will be saved as a snapshot before proceeding.`)) return;
+
+    const btn = document.getElementById('fyStartBtn');
+    const resultEl = document.getElementById('fyStartResult');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Archiving...';
+    resultEl.style.display = '';
+    resultEl.innerHTML = '<span class="text-muted">Creating archive...</span>';
+
+    fetch('/api/admin/fy/start', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'}
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            btn.style.display = 'none';
+            resultEl.innerHTML =
+                `<div class="alert alert-success mb-2">
+                    <i class="bi bi-check-circle"></i> Snapshot saved: <strong>${data.archive_path}</strong>
+                    (${data.stats.archive_size_mb} MB, ${data.stats.customers} customers, ${data.stats.notes} notes)
+                    ${data.onedrive_path ? '<br>OneDrive copy: ' + data.onedrive_path : ''}
+                </div>`;
+            // Auto-trigger account sync
+            runFYSync();
+        } else {
+            resultEl.innerHTML = `<span class="text-danger">${data.error}</span>`;
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-archive"></i> Archive & Start';
+        }
+    })
+    .catch(err => {
+        resultEl.innerHTML = `<span class="text-danger">Error: ${err.message}</span>`;
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-archive"></i> Archive & Start';
+    });
+}
+
+async function runFYSync(suffix) {
+    // suffix: '' for initial flow (fySyncSection), '2' for resume flow (fySyncSection2)
+    suffix = suffix || '';
+    const syncSection = document.getElementById('fySyncSection' + suffix);
+    const progressDiv = document.getElementById('fySyncProgress' + suffix);
+    const statusText = document.getElementById('fySyncStatusText' + suffix);
+    const progressPercent = document.getElementById('fySyncProgressPercent' + suffix);
+    const progressBar = document.getElementById('fySyncProgressBar' + suffix);
+    const resultsDiv = document.getElementById('fySyncResults' + suffix);
+    const errorDiv = document.getElementById('fySyncError' + suffix);
+
+    syncSection.style.display = '';
+    progressDiv.style.display = '';
+    resultsDiv.style.display = 'none';
+    errorDiv.style.display = 'none';
+    syncSection.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    statusText.textContent = 'Starting sync...';
+    progressPercent.textContent = '0%';
+    progressBar.style.width = '0%';
+
+    function warnOnLeave(e) { e.preventDefault(); e.returnValue = ''; }
+    window.addEventListener('beforeunload', warnOnLeave);
+
+    try {
+        const response = await fetch('/api/msx/import-stream');
+        if (!response.ok) {
+            let detail = '';
+            try {
+                const body = await response.json();
+                detail = body.error || body.message || '';
+            } catch (_) {
+                try { detail = (await response.text()).slice(0, 200); } catch (_) {}
+            }
+            throw new Error(detail || `HTTP ${response.status}: ${response.statusText}`);
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop();
+
+            for (const line of lines) {
+                if (line.startsWith('data: ')) {
+                    try {
+                        const data = JSON.parse(line.slice(6));
+
+                        if (data.error) throw new Error(data.error);
+
+                        if (data.message) statusText.textContent = data.message;
+
+                        if (data.progress !== undefined) {
+                            progressPercent.textContent = `${data.progress}%`;
+                            progressBar.style.width = `${data.progress}%`;
+                        }
+
+                        if (data.complete && data.summary) {
+                            // Mark sync complete on server
+                            await fetch('/api/admin/fy/sync-complete', { method: 'POST' });
+
+                            progressDiv.style.display = 'none';
+                            const s = data.summary;
+                            resultsDiv.style.display = '';
+
+                            // Initial/resume sync — show Continue to homepage
+                            resultsDiv.innerHTML =
+                                `<div class="alert alert-success">
+                                    <h6 class="alert-heading"><i class="bi bi-check-circle"></i> Sync Complete!</h6>
+                                    <ul class="mb-2">
+                                        <li>Territories: ${s.territories_created || 0} created</li>
+                                        <li>Sellers: ${s.sellers_created || 0} created${s.sellers_updated ? ', ' + s.sellers_updated + ' updated' : ''}</li>
+                                        <li>Customers: ${s.customers_created || 0} created${s.customers_updated ? ', ' + s.customers_updated + ' updated' : ''}${s.customers_unchanged ? ', ' + s.customers_unchanged + ' unchanged' : ''}</li>
+                                        ${s.duration ? '<li><i class="bi bi-clock"></i> Completed in ' + s.duration + 's</li>' : ''}
+                                    </ul>
+                                    <button class="btn btn-success" onclick="window.location.href='/'">
+                                        <i class="bi bi-arrow-right"></i> Continue
+                                    </button>
+                                </div>`;
+
+                            // Auto-fetch favicons
+                            fetch('/api/admin/fetch-favicons', { method: 'POST' }).catch(() => {});
+                        }
+                    } catch (parseError) {
+                        if (parseError.message !== 'Unexpected end of JSON input') {
+                            throw parseError;
+                        }
+                    }
+                }
+            }
+        }
+    } catch (error) {
+        progressDiv.style.display = 'none';
+        errorDiv.style.display = '';
+        errorDiv.innerHTML =
+            `<div class="alert alert-danger">
+                <i class="bi bi-exclamation-triangle"></i> Sync failed: ${error.message}
+                <hr class="my-2">
+                <button class="btn btn-sm btn-warning" onclick="runFYSync('${suffix}')">
+                    <i class="bi bi-arrow-clockwise"></i> Retry Sync
+                </button>
+                <button class="btn btn-sm btn-outline-secondary ms-2" onclick="location.reload()">
+                    Skip for now
+                </button>
+            </div>`;
+    } finally {
+        window.removeEventListener('beforeunload', warnOnLeave);
+    }
+}
+
+async function finalizeFY() {
+    if (!confirm('This will sync your accounts, permanently delete customers no longer in your alignment, and rebuild backups. Are you sure?')) return;
+    if (!confirm('FINAL WARNING: This cannot be undone. The archived database is your only backup. Continue?')) return;
+
+    const btn = document.getElementById('fyFinalizeBtn');
+    const progressEl = document.getElementById('fyFinalizeProgress');
+    const resultEl = document.getElementById('fyFinalizeResult');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Working...';
+    progressEl.style.display = '';
+    resultEl.style.display = 'none';
+    progressEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+    const SPINNER = '<i class="bi bi-arrow-repeat spin-icon"></i>';
+    const CHECK = '<i class="bi bi-check-circle-fill text-success"></i>';
+    const FAIL = '<i class="bi bi-x-circle-fill text-danger"></i>';
+
+    function setStep(n, icon, detail) {
+        document.getElementById('fyStep' + n + 'Icon').innerHTML = icon;
+        if (detail !== undefined) document.getElementById('fyStep' + n + 'Detail').textContent = detail;
+    }
+
+    function warnOnLeave(e) { e.preventDefault(); e.returnValue = ''; }
+    window.addEventListener('beforeunload', warnOnLeave);
+
+    let purgeSummary = null;
+
+    try {
+        // ── Step 1: Account Sync (SSE) ──
+        setStep(1, SPINNER, 'syncing...');
+        const streamEl = document.getElementById('fyStep1Stream');
+        const statusText = document.getElementById('fyFinalSyncStatus');
+        const percentText = document.getElementById('fyFinalSyncPercent');
+        const bar = document.getElementById('fyFinalSyncBar');
+        streamEl.style.display = '';
+
+        const response = await fetch('/api/msx/import-stream');
+        if (!response.ok) {
+            let detail = '';
+            try { const b = await response.json(); detail = b.error || b.message || ''; } catch (_) {}
+            throw new Error(detail || `Sync failed: HTTP ${response.status}`);
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let syncSummary = null;
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop();
+            for (const line of lines) {
+                if (!line.startsWith('data: ')) continue;
+                try {
+                    const data = JSON.parse(line.slice(6));
+                    if (data.error) throw new Error(data.error);
+                    if (data.message) statusText.textContent = data.message;
+                    if (data.progress !== undefined) {
+                        percentText.textContent = data.progress + '%';
+                        bar.style.width = data.progress + '%';
+                    }
+                    if (data.complete && data.summary) syncSummary = data.summary;
+                } catch (pe) {
+                    if (pe.message !== 'Unexpected end of JSON input') throw pe;
+                }
+            }
+        }
+
+        await fetch('/api/admin/fy/sync-complete', { method: 'POST' });
+        streamEl.style.display = 'none';
+        const custCount = (syncSummary?.customers_created || 0) + (syncSummary?.customers_updated || 0) + (syncSummary?.customers_unchanged || 0);
+        setStep(1, CHECK, custCount + ' customers');
+
+        // Auto-fetch favicons (fire-and-forget)
+        fetch('/api/admin/fetch-favicons', { method: 'POST' }).catch(() => {});
+
+        // ── Step 2: Purge Orphans ──
+        setStep(2, SPINNER, 'purging...');
+        const purgeResp = await fetch('/api/admin/fy/finalize', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'}
+        });
+        const purgeData = await purgeResp.json();
+        if (!purgeData.success) throw new Error(purgeData.error || 'Purge failed');
+        purgeSummary = purgeData;
+        setStep(2, CHECK, purgeData.purged_customers + ' purged, ' + purgeData.kept_customers + ' kept');
+
+        // ── Step 3: Clean OneDrive Backups ──
+        setStep(3, SPINNER, 'cleaning...');
+        const cleanResp = await fetch('/api/backup/clear-notes', { method: 'POST' });
+        const cleanData = await cleanResp.json();
+        if (!cleanData.success) throw new Error(cleanData.error || 'OneDrive cleanup failed');
+        setStep(3, CHECK, cleanData.message || (cleanData.deleted + ' removed'));
+
+        // ── Step 4: Fresh Backup ──
+        setStep(4, SPINNER, 'backing up...');
+        const backupResp = await fetch('/api/backup/backup-all', { method: 'POST' });
+        const backupData = await backupResp.json();
+        if (backupData.success) {
+            setStep(4, CHECK, backupData.backed_up + ' customers backed up');
+        } else {
+            // Non-fatal — backup config might not exist
+            setStep(4, CHECK, 'skipped (no backup location)');
+        }
+
+        // ── Done ──
+        resultEl.style.display = '';
+        resultEl.innerHTML =
+            `<div class="alert alert-success mt-3">
+                <h6 class="alert-heading"><i class="bi bi-check-circle"></i> Finalization Complete!</h6>
+                <ul class="mb-2">
+                    <li>Kept: ${purgeSummary.kept_customers} customers</li>
+                    <li>Purged: ${purgeSummary.purged_customers} customers, ${purgeSummary.purged_notes} notes,
+                        ${purgeSummary.purged_engagements} engagements, ${purgeSummary.purged_opportunities} opportunities,
+                        ${purgeSummary.purged_milestones} milestones, ${purgeSummary.purged_tasks} tasks,
+                        ${purgeSummary.purged_revenue} revenue records,
+                        ${purgeSummary.purged_sellers} sellers, ${purgeSummary.purged_territories} territories,
+                        ${purgeSummary.purged_pods} PODs</li>
+                </ul>
+                <button class="btn btn-success" onclick="location.reload()">
+                    <i class="bi bi-arrow-right"></i> Done
+                </button>
+            </div>`;
+    } catch (error) {
+        // Mark whichever step was active as failed
+        for (let i = 1; i <= 4; i++) {
+            const icon = document.getElementById('fyStep' + i + 'Icon').innerHTML;
+            if (icon.includes('spin-icon')) { setStep(i, FAIL, 'failed'); break; }
+        }
+        resultEl.style.display = '';
+        resultEl.innerHTML =
+            `<div class="alert alert-danger mt-3">
+                <i class="bi bi-exclamation-triangle"></i> ${error.message}
+                <hr class="my-2">
+                <button class="btn btn-sm btn-warning" onclick="location.reload()">
+                    <i class="bi bi-arrow-clockwise"></i> Reload &amp; Retry
+                </button>
+            </div>`;
+    } finally {
+        window.removeEventListener('beforeunload', warnOnLeave);
+        if (!purgeSummary) {
+            // Only re-enable if finalization didn't complete
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-lightning-charge"></i> Finalize & Purge Orphans';
+        } else {
+            btn.style.display = 'none';
+        }
+    }
+}
+
+function cancelFYTransition() {
+    if (!confirm('Cancel the FY transition? No data will be purged.')) return;
+
+    fetch('/api/admin/fy/exit-transition', {method: 'POST'})
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) location.reload();
+        });
+}
+
+// Load FY status on page load
+loadFYStatus();
 </script>
 {% endblock %}
 

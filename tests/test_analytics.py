@@ -18,10 +18,10 @@ def test_analytics_shows_key_metrics(client, sample_data):
     response = client.get('/analytics')
     assert response.status_code == 200
     
-    # Should show call counts
-    assert b'Calls This Week' in response.data
+    # Should show note counts
+    assert b'Notes This Week' in response.data
     assert b'Customers This Week' in response.data
-    assert b'Total Calls' in response.data
+    assert b'Total Notes' in response.data
     assert b'Total Customers' in response.data
 
 
@@ -118,7 +118,7 @@ def test_analytics_with_no_data(client):
     # Should still load without errors
     assert b'Analytics & Insights' in response.data
     # Should show zero metrics
-    assert b'Calls This Week' in response.data
+    assert b'Notes This Week' in response.data
 
 
 def test_analytics_calculates_weekly_trends_correctly(client):

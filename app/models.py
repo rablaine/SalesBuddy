@@ -753,6 +753,11 @@ class UserPreference(db.Model):
     ai_enabled = db.Column(db.Boolean, default=False, nullable=False)  # True once user explicitly grants AI gateway consent
     default_template_customer_id = db.Column(db.Integer, db.ForeignKey('note_templates.id', ondelete='SET NULL'), nullable=True)  # Default template for customer notes
     default_template_noncustomer_id = db.Column(db.Integer, db.ForeignKey('note_templates.id', ondelete='SET NULL'), nullable=True)  # Default template for non-customer notes
+    fy_transition_active = db.Column(db.Boolean, default=False, nullable=False)  # True during FY changeover period
+    fy_transition_label = db.Column(db.String(10), nullable=True)  # e.g. "FY27"
+    fy_transition_started = db.Column(db.DateTime, nullable=True)  # When FY transition was started
+    fy_sync_complete = db.Column(db.Boolean, default=False, nullable=False)  # True after FY account sync finishes
+    fy_last_completed = db.Column(db.String(10), nullable=True)  # e.g. "FY27" — set when finalization completes
     created_at = db.Column(db.DateTime, default=utc_now, nullable=False)
     updated_at = db.Column(db.DateTime, default=utc_now, onupdate=utc_now, nullable=False)
     

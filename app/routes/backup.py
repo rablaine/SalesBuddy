@@ -92,6 +92,16 @@ def backup_all():
     return jsonify({"success": True, **result})
 
 
+@backup_bp.route("/api/backup/clear-notes", methods=["POST"])
+def clear_notes():
+    """Delete all JSON files from the OneDrive notes backup folder."""
+    from app.services.backup import clear_backup_notes
+    result = clear_backup_notes()
+    if result.get("skipped"):
+        return jsonify({"success": True, "message": "No backup location configured; skipped."})
+    return jsonify({"success": True, **result})
+
+
 # -------------------------------------------------------------------------
 # DR restore
 # -------------------------------------------------------------------------

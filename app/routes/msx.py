@@ -14,6 +14,7 @@ import math
 import queue
 import time
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from urllib.parse import urlparse
 from flask import Blueprint, jsonify, request, Response, g, current_app, stream_with_context
 import logging
@@ -1818,6 +1819,15 @@ def import_stream():
                 items_synced=customers_created,
                 details=f'{customers_created} created, {customers_updated} updated, {customers_unchanged} unchanged, {customers_skipped} skipped',
             )
+
+            # Persist the list of TPIDs seen during this sync for FY finalization
+            try:
+                import json as _json
+                tpid_file = Path(current_app.instance_path).parent / 'data' / 'last_sync_tpids.json'
+                tpid_file.write_text(_json.dumps(sorted(seen_tpids)))
+                logger.info("Saved %d synced TPIDs to %s", len(seen_tpids), tpid_file)
+            except Exception as e:
+                logger.warning("Failed to save synced TPIDs: %s", e)
 
             duration = round(time.time() - import_start_time, 1)
             yield _sse({

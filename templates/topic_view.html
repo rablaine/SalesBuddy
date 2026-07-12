@@ -27,7 +27,7 @@
             <div class="modal-body">
                 <p>Are you sure you want to delete the topic <strong>{{ topic.name }}</strong>?</p>
                 {% if notes|length > 0 %}
-                    <p class="text-warning"><i class="bi bi-exclamation-triangle"></i> This topic is currently associated with {{ notes|length }} note(s). The topic will be removed from all associated calls.</p>
+                    <p class="text-warning"><i class="bi bi-exclamation-triangle"></i> This topic is currently associated with {{ notes|length }} note(s). The topic will be removed from all associated notes.</p>
                 {% endif %}
             </div>
             <div class="modal-footer">
@@ -53,7 +53,7 @@
                 {% else %}
                     <p class="text-muted">No description provided</p>
                 {% endif %}
-                <p><strong>Total Calls:</strong> {{ notes|length }}</p>
+                <p><strong>Total Notes:</strong> {{ notes|length }}</p>
             </div>
         </div>
     </div>

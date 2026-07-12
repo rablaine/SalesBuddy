@@ -59,9 +59,9 @@ def test_topics_toggle_shows_current_state(client):
     sort_label = soup.find('span', id='sortLabel')
     assert sort_label is not None, "Sort label should exist"
     
-    # Label text should be either "Alphabetical" or "By Calls" (current state)
+    # Label text should be either "Alphabetical" or "By Notes" (current state)
     label_text = sort_label.text.strip()
-    assert label_text in ['Alphabetical', 'By Calls'], f"Label should show current state, got: {label_text}"
+    assert label_text in ['Alphabetical', 'By Notes'], f"Label should show current state, got: {label_text}"
 
 
 def test_call_content_truncation_word_boundaries(client):

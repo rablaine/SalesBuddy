@@ -6,6 +6,7 @@ from flask import Blueprint, render_template, request, redirect, url_for, flash,
 from app.models import db, Partner, PartnerContact, Specialty, Note
 from app.routes.admin import fetch_favicon_for_domain
 from app.routes.msx import _extract_domain
+from app.services.backup import backup_partner, delete_partner_backup
 
 partners_bp = Blueprint('partners', __name__)
 
@@ -61,6 +62,8 @@ def partner_new():
         
         db.session.add(partner)
         db.session.commit()
+        
+        backup_partner(partner.id)
         
         flash(f'Partner "{name}" created successfully', 'success')
         return redirect(url_for('partners.partner_view', id=partner.id))
@@ -119,6 +122,8 @@ def partner_edit(id):
         
         db.session.commit()
         
+        backup_partner(partner.id)
+        
         flash(f'Partner "{name}" updated successfully', 'success')
         return redirect(url_for('partners.partner_view', id=partner.id))
     
@@ -137,6 +142,8 @@ def partner_delete(id):
     
     db.session.delete(partner)
     db.session.commit()
+    
+    delete_partner_backup(id)
     
     flash(f'Partner "{name}" deleted successfully', 'success')
     return redirect(url_for('partners.partners_list'))
@@ -174,6 +181,8 @@ def contact_new(partner_id):
     db.session.add(contact)
     db.session.commit()
     
+    backup_partner(partner_id)
+    
     flash(f'Contact "{name}" added successfully', 'success')
     return redirect(url_for('partners.partner_view', id=partner_id))
 
@@ -195,6 +204,8 @@ def contact_set_primary(partner_id, contact_id):
     contact.is_primary = True
     db.session.commit()
     
+    backup_partner(partner_id)
+    
     flash(f'"{contact.name}" set as primary contact', 'success')
     return redirect(url_for('partners.partner_view', id=partner_id))
 
@@ -211,6 +222,8 @@ def contact_delete(partner_id, contact_id):
     name = contact.name
     db.session.delete(contact)
     db.session.commit()
+    
+    backup_partner(partner_id)
     
     flash(f'Contact "{name}" deleted', 'success')
     return redirect(url_for('partners.partner_view', id=partner_id))
