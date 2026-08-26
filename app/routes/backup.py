@@ -12,11 +12,12 @@ import logging
 import os
 from datetime import datetime, timezone
 
-from flask import Blueprint, g, jsonify, request
+from flask import Blueprint, Response, g, jsonify, request, stream_with_context
 
 from app.services.backup import (
     _get_backup_root,
     backup_all_customers,
+    backup_all_customers_stream,
     detect_onedrive_paths,
     find_backup_folder,
     get_auto_detected_backup_path,
@@ -85,6 +86,21 @@ def backup_all():
     """Write backup files for all customers with notes."""
     if not _get_backup_root():
         return jsonify({"success": False, "error": "No backup location available"}), 400
+
+    if "text/event-stream" in request.headers.get("Accept", ""):
+        def generate():
+            try:
+                for event in backup_all_customers_stream():
+                    yield f"data: {json.dumps(event)}\n\n"
+            except Exception as exc:
+                logger.exception("Streaming backup-all failed")
+                yield f"data: {json.dumps({'error': str(exc)})}\n\n"
+
+        return Response(
+            stream_with_context(generate()),
+            mimetype="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
 
     result = backup_all_customers()
     return jsonify({"success": True, **result})
