@@ -670,14 +670,14 @@ def backup_customer(customer_id: int) -> bool:
         .options(
             db.joinedload(Customer.seller),
             db.joinedload(Customer.territory),
-            db.joinedload(Customer.verticals),
-            db.joinedload(Customer.notes).joinedload(Note.topics),
-            db.joinedload(Customer.notes).joinedload(Note.partners).joinedload(Partner.contacts),
-            db.joinedload(Customer.notes).joinedload(Note.partners).joinedload(Partner.specialties),
-            db.joinedload(Customer.notes).joinedload(Note.milestones),
-            db.joinedload(Customer.engagements).joinedload(Engagement.notes),
-            db.joinedload(Customer.engagements).joinedload(Engagement.opportunities),
-            db.joinedload(Customer.engagements).joinedload(Engagement.milestones),
+            db.selectinload(Customer.verticals),
+            db.selectinload(Customer.notes).selectinload(Note.topics),
+            db.selectinload(Customer.notes).selectinload(Note.partners).selectinload(Partner.contacts),
+            db.selectinload(Customer.notes).selectinload(Note.partners).selectinload(Partner.specialties),
+            db.selectinload(Customer.notes).selectinload(Note.milestones),
+            db.selectinload(Customer.engagements).selectinload(Engagement.notes),
+            db.selectinload(Customer.engagements).selectinload(Engagement.opportunities),
+            db.selectinload(Customer.engagements).selectinload(Engagement.milestones),
         )
         .filter_by(id=customer_id)
         .first()
@@ -811,15 +811,15 @@ def flush_pending_backups() -> int:
     return flushed
 
 
-def backup_all_customers() -> Dict[str, int]:
-    """Back up all customers that have at least one note.
-
-    Returns:
-        Dict with ``backed_up`` and ``failed`` counts.
-    """
+def backup_all_customers_stream():
+    """Back up all customer and global data while yielding progress events."""
     backup_root = _get_backup_root()
     if not backup_root:
-        return {"backed_up": 0, "failed": 0, "error": "Backup not configured"}
+        yield {
+            "complete": True,
+            "summary": {"backed_up": 0, "failed": 0, "error": "Backup not configured"},
+        }
+        return
 
     customers = (
         Customer.query
@@ -827,21 +827,23 @@ def backup_all_customers() -> Dict[str, int]:
         .options(
             db.joinedload(Customer.seller),
             db.joinedload(Customer.territory),
-            db.joinedload(Customer.verticals),
-            db.joinedload(Customer.notes).joinedload(Note.topics),
-            db.joinedload(Customer.notes).joinedload(Note.partners).joinedload(Partner.contacts),
-            db.joinedload(Customer.notes).joinedload(Note.partners).joinedload(Partner.specialties),
-            db.joinedload(Customer.notes).joinedload(Note.milestones),
-            db.joinedload(Customer.engagements).joinedload(Engagement.notes),
-            db.joinedload(Customer.engagements).joinedload(Engagement.opportunities),
-            db.joinedload(Customer.engagements).joinedload(Engagement.milestones),
+            db.selectinload(Customer.verticals),
+            db.selectinload(Customer.notes).selectinload(Note.topics),
+            db.selectinload(Customer.notes).selectinload(Note.partners).selectinload(Partner.contacts),
+            db.selectinload(Customer.notes).selectinload(Note.partners).selectinload(Partner.specialties),
+            db.selectinload(Customer.notes).selectinload(Note.milestones),
+            db.selectinload(Customer.engagements).selectinload(Engagement.notes),
+            db.selectinload(Customer.engagements).selectinload(Engagement.opportunities),
+            db.selectinload(Customer.engagements).selectinload(Engagement.milestones),
         )
         .all()
     )
 
     backed_up = 0
     failed = 0
-    for customer in customers:
+    total = len(customers)
+    yield {"phase": "customers", "current": 0, "total": total}
+    for current, customer in enumerate(customers, start=1):
         seller_name = customer.seller.name if customer.seller else "Unassigned"
         folder = os.path.join(backup_root, _NOTES_DIR, _sanitize_folder_name(seller_name))
         filename = f"{customer.tpid}.json" if customer.tpid else f"id_{customer.id}.json"
@@ -855,22 +857,48 @@ def backup_all_customers() -> Dict[str, int]:
         except Exception:
             logger.exception("Failed to back up customer %d", customer.id)
             failed += 1
+        yield {
+            "phase": "customers",
+            "current": current,
+            "total": total,
+            "backed_up": backed_up,
+            "failed": failed,
+        }
 
     # Also back up global (non-customer-specific) data
+    yield {"phase": "global", "message": "Backing up shared data..."}
     if not backup_global_data():
         logger.warning("Global data backup failed during backup_all_customers")
 
     # Back up all partners individually
-    for partner in Partner.query.all():
+    partners = Partner.query.all()
+    for current, partner in enumerate(partners, start=1):
         if not backup_partner(partner.id):
             logger.warning("Partner backup failed for %d", partner.id)
+        yield {"phase": "partners", "current": current, "total": len(partners)}
 
     # Back up all templates individually
-    for template in NoteTemplate.query.all():
+    templates = NoteTemplate.query.all()
+    for current, template in enumerate(templates, start=1):
         if not backup_template(template.id):
             logger.warning("Template backup failed for %d", template.id)
+        yield {"phase": "templates", "current": current, "total": len(templates)}
 
-    return {"backed_up": backed_up, "failed": failed}
+    yield {"complete": True, "summary": {"backed_up": backed_up, "failed": failed}}
+
+
+def backup_all_customers() -> Dict[str, int]:
+    """Back up all customers that have at least one note.
+
+    Returns:
+        Dict with ``backed_up`` and ``failed`` counts.
+    """
+    summary = {"backed_up": 0, "failed": 0}
+    for event in backup_all_customers_stream():
+        if event.get("complete"):
+            summary = event["summary"]
+
+    return summary
 
 
 def clear_backup_notes() -> dict:

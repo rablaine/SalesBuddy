@@ -3725,27 +3725,63 @@ function runAdminMarketingSync() {
 // Note Backup
 // =============================================================================
 
-function backupAllNotes() {
+async function backupAllNotes() {
     const btn = event.target.closest('button');
     btn.disabled = true;
-    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Backing up...';
-    fetch('/api/backup/backup-all', { method: 'POST' })
-        .then(r => r.json())
-        .then(data => {
-            btn.disabled = false;
-            btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> Backup All Now';
-            if (data.success) {
-                alert('Backed up ' + data.backed_up + ' customers' + (data.failed ? ' (' + data.failed + ' failed)' : '') + '.');
-                loadBackupStatus();
-            } else {
-                alert('Failed: ' + (data.error || 'Unknown error'));
-            }
-        })
-        .catch(err => {
-            btn.disabled = false;
-            btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> Backup All Now';
-            alert('Error: ' + err.message);
+    const defaultLabel = '<i class="bi bi-arrow-repeat"></i> Backup All Now';
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Starting backup...';
+    try {
+        const response = await fetch('/api/backup/backup-all', {
+            method: 'POST',
+            headers: { 'Accept': 'text/event-stream' },
         });
+        if (!response.ok) {
+            const contentType = response.headers.get('content-type') || '';
+            let detail = '';
+            if (contentType.includes('application/json')) {
+                const body = await response.json();
+                detail = body.error || body.message || '';
+            } else {
+                detail = (await response.text()).trim();
+            }
+            throw new Error(detail || `Backup failed: HTTP ${response.status}`);
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let summary = null;
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop();
+            for (const line of lines) {
+                if (!line.startsWith('data: ')) continue;
+                const data = JSON.parse(line.slice(6));
+                if (data.error) throw new Error(data.error);
+                if (data.complete) {
+                    summary = data.summary;
+                } else if (data.phase === 'customers') {
+                    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Backed up '
+                        + data.current + ' / ' + data.total;
+                } else if (data.message) {
+                    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> ' + data.message;
+                }
+            }
+        }
+        if (!summary) throw new Error('Backup did not complete');
+
+        alert('Backed up ' + summary.backed_up + ' customers'
+            + (summary.failed ? ' (' + summary.failed + ' failed)' : '') + '.');
+        loadBackupStatus();
+    } catch (error) {
+        alert('Error: ' + error.message);
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = defaultLabel;
+    }
 }
 
 function restoreAllFromBackup() {
@@ -4190,14 +4226,43 @@ async function finalizeFY() {
 
         // ── Step 4: Fresh Backup ──
         setStep(4, SPINNER, 'backing up...');
-        const backupResp = await fetch('/api/backup/backup-all', { method: 'POST' });
-        const backupData = await backupResp.json();
-        if (backupData.success) {
-            setStep(4, CHECK, backupData.backed_up + ' customers backed up');
-        } else {
-            // Non-fatal — backup config might not exist
-            setStep(4, CHECK, 'skipped (no backup location)');
+        const backupResp = await fetch('/api/backup/backup-all', {
+            method: 'POST',
+            headers: { 'Accept': 'text/event-stream' },
+        });
+        if (!backupResp.ok) {
+            let detail = '';
+            try { const body = await backupResp.json(); detail = body.error || ''; } catch (_) {}
+            throw new Error(detail || `Fresh backup failed: HTTP ${backupResp.status}`);
         }
+        const backupReader = backupResp.body.getReader();
+        const backupDecoder = new TextDecoder();
+        let backupBuffer = '';
+        let backupSummary = null;
+        while (true) {
+            const { done, value } = await backupReader.read();
+            if (done) break;
+            backupBuffer += backupDecoder.decode(value, { stream: true });
+            const lines = backupBuffer.split('\n');
+            backupBuffer = lines.pop();
+            for (const line of lines) {
+                if (!line.startsWith('data: ')) continue;
+                const data = JSON.parse(line.slice(6));
+                if (data.error) throw new Error(data.error);
+                if (data.complete) {
+                    backupSummary = data.summary;
+                } else if (data.phase === 'customers') {
+                    setStep(4, SPINNER, `backed up ${data.current} / ${data.total}`);
+                } else if (data.message) {
+                    setStep(4, SPINNER, data.message);
+                }
+            }
+        }
+        if (!backupSummary) throw new Error('Fresh backup did not complete');
+        const backupDetail = backupSummary.failed
+            ? `${backupSummary.backed_up} backed up, ${backupSummary.failed} failed`
+            : `${backupSummary.backed_up} customers backed up`;
+        setStep(4, backupSummary.failed ? FAIL : CHECK, backupDetail);
 
         // ── Done ── refresh backup card so file count is current
         if (typeof loadBackupStatus === 'function') loadBackupStatus();
@@ -4225,12 +4290,14 @@ async function finalizeFY() {
             if (icon.includes('spin-icon')) { setStep(i, FAIL, 'failed'); break; }
         }
         resultEl.style.display = '';
+        const transitionCompleted = purgeSummary !== null;
         resultEl.innerHTML =
             `<div class="alert alert-danger mt-3">
-                <i class="bi bi-exclamation-triangle"></i> ${error.message}
+                <i class="bi bi-exclamation-triangle"></i>
+                ${transitionCompleted ? 'FY transition completed, but final backup did not finish: ' : ''}${error.message}
                 <hr class="my-2">
                 <button class="btn btn-sm btn-warning" onclick="location.reload()">
-                    <i class="bi bi-arrow-clockwise"></i> Reload &amp; Retry
+                    <i class="bi bi-arrow-clockwise"></i> Reload
                 </button>
             </div>`;
     } finally {

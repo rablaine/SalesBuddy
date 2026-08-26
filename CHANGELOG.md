@@ -8,6 +8,10 @@ brought the change into `main`, so the admin Updates card can show
 Format: `## M/D/YYYY - <merge-short-sha>`. See
 `scripts/tag-changelog.ps1` for the helper that fills this in.
 
+## 8/26/2026
+
+- Fix fiscal-year transitions stalling while backing up high-activity customers, show live customer backup progress, and report recoverable backup failures without suggesting the completed transition be rerun.
+
 ## 8/25/2026 - 0eeabf9
 
 - Make fiscal-year calendar imports durable across restarts and run WorkIQ meeting queries in reliable five-day parallel batches, reducing week import time while preserving fast Outlook imports and per-day checkpoints.

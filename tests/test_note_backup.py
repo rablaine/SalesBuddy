@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
+from sqlalchemy import event
 
 from app.models import (
     Note,
@@ -365,6 +366,32 @@ class TestBackupAllCustomers:
             assert result["backed_up"] == 0
             assert "error" in result
 
+    def test_bulk_customer_query_does_not_join_collections(
+        self, app, backup_config, sample_data
+    ):
+        """Bulk loading must not create a Cartesian product across collections."""
+        statements = []
+
+        with app.app_context():
+            def capture_sql(_conn, _cursor, statement, _params, _context, _many):
+                statements.append(statement.lower())
+
+            event.listen(db.engine, "before_cursor_execute", capture_sql)
+            try:
+                backup_all_customers()
+            finally:
+                event.remove(db.engine, "before_cursor_execute", capture_sql)
+
+        customer_queries = [
+            statement for statement in statements
+            if " from customers " in statement.replace("\n", " ")
+        ]
+        assert customer_queries
+        primary_query = customer_queries[0].replace("\n", " ")
+        assert " join notes " not in primary_query
+        assert " join engagements " not in primary_query
+        assert " join verticals " not in primary_query
+
 
 # =========================================================================
 # restore_from_backup
@@ -537,6 +564,27 @@ class TestBackupRoutes:
         data = resp.get_json()
         assert data["success"] is True
         assert data["backed_up"] >= 1
+
+    def test_backup_all_streams_progress(self, client, monkeypatch):
+        monkeypatch.setattr("app.routes.backup._get_backup_root", lambda: "configured")
+        monkeypatch.setattr(
+            "app.routes.backup.backup_all_customers_stream",
+            lambda: iter([
+                {"phase": "customers", "current": 1, "total": 2},
+                {"complete": True, "summary": {"backed_up": 2, "failed": 0}},
+            ]),
+        )
+
+        resp = client.post(
+            "/api/backup/backup-all",
+            headers={"Accept": "text/event-stream"},
+        )
+
+        assert resp.status_code == 200
+        assert resp.mimetype == "text/event-stream"
+        body = resp.get_data(as_text=True)
+        assert '"current": 1' in body
+        assert '"complete": true' in body
 
     def test_restore_endpoint(self, client, app):
         with app.app_context():
