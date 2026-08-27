@@ -191,6 +191,11 @@ def _candidate_tasks(meeting: PrefetchedMeeting) -> list[dict[str, Any]]:
             'category': task.task_category_name,
             'milestone': task.milestone.display_text,
             'url': task.msx_task_url,
+            'activity_date': _task_activity_date(task).isoformat(),
+            'created_on': (
+                task.msx_created_on.date().isoformat()
+                if task.msx_created_on else None
+            ),
         }
         for task in tasks
     ]
@@ -705,6 +710,7 @@ def create_milestone_hok_activity(milestone_id: int) -> MsxTask:
             duration_minutes=draft.duration_minutes,
             is_hok=True,
             due_date=scheduled_end.replace(tzinfo=None),
+            msx_created_on=datetime.now(timezone.utc),
             milestone_id=milestone.id,
         )
         db.session.add(task)
@@ -819,6 +825,7 @@ def create_meeting_activity(meeting_id: int) -> MsxTask:
             duration_minutes=duration,
             is_hok=category in HOK_TASK_CATEGORIES,
             due_date=scheduled_end,
+            msx_created_on=datetime.now(timezone.utc),
             note_id=meeting.note_id,
             meeting_id=meeting.id,
             milestone_id=meeting.milestone_id,

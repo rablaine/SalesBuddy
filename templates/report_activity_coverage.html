@@ -16,15 +16,8 @@
     .coverage-value { color: var(--bs-body-color); font-weight: 700; }
     .coverage-toolbar { border-block: 1px solid var(--bs-border-color); }
     .coverage-view-toggle .btn { min-width: 5.25rem; }
+    #coverageFilter { width: auto; min-width: 9rem; }
     .meeting-list { border-top: 1px solid var(--bs-border-color); }
-    .meeting-month-heading {
-        padding: 0.65rem 0.6rem 0.35rem;
-        border-bottom: 1px solid var(--bs-border-color);
-        color: var(--bs-secondary-color);
-        font-size: 0.78rem;
-        font-weight: 700;
-        text-transform: uppercase;
-    }
     .meeting-row { border-bottom: 1px solid var(--bs-border-color); }
     .meeting-row:last-child { border-bottom: 0; }
     .meeting-columns {
@@ -81,13 +74,14 @@
     .coverage-picker-results.is-open { display: block; }
     .coverage-picker-results .list-group-item { font-size: 0.82rem; }
     .coverage-picker-results .picker-primary { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+    .expand-all-chevron { line-height: 1; }
+    .expand-all-chevron i { display: inline-block; transition: transform 160ms ease-out; }
+    .expand-all-chevron[aria-expanded="true"] i { transform: rotate(90deg); }
     .status-dot { width: 0.55rem; height: 0.55rem; border-radius: 50%; display: inline-block; }
     .status-logged { background: var(--bs-success); }
     .status-ready { background: var(--bs-primary); }
     .status-attention { background: var(--bs-warning); }
-    .filter-button.active { box-shadow: inset 0 -2px 0 currentColor; }
     #populationButton { min-width: 9.5rem; }
-    #reconcileButton { min-width: 8.5rem; }
     #matchMilestonesButton { min-width: 10.5rem; }
     .enrichment-summary { white-space: pre-wrap; max-height: 12rem; overflow-y: auto; }
     @media (max-width: 991.98px) {
@@ -138,9 +132,73 @@
 </div>
 
 <div class="btn-group btn-group-sm mb-2" aria-label="Activity coverage lens">
-    <a class="btn btn-outline-primary{% if lens == 'meetings' %} active{% endif %}" href="{{ url_for('reports.report_activity_coverage') }}"><i class="bi bi-calendar-event"></i> Meetings</a>
-    <a class="btn btn-outline-primary{% if lens == 'milestones' %} active{% endif %}" href="{{ url_for('reports.report_activity_coverage', lens='milestones') }}"><i class="bi bi-flag"></i> Milestones</a>
+    <a class="btn btn-outline-primary coverage-lens-link{% if lens == 'meetings' %} active{% endif %}" data-lens="meetings" href="{{ url_for('reports.report_activity_coverage') }}"><i class="bi bi-calendar-event"></i> Meetings</a>
+    <a class="btn btn-outline-primary coverage-lens-link{% if lens == 'milestones' %} active{% endif %}" data-lens="milestones" href="{{ url_for('reports.report_activity_coverage', lens='milestones') }}"><i class="bi bi-flag"></i> Milestones</a>
 </div>
+
+<script>
+(function() {
+    'use strict';
+    var storageKey = 'salesbuddy_activity_coverage_view';
+    var defaults = { lens: 'meetings', meetingView: 'weekly', filter: 'all' };
+
+    function loadPreferences() {
+        try {
+            return Object.assign({}, defaults, JSON.parse(localStorage.getItem(storageKey) || '{}'));
+        } catch (_) {
+            return Object.assign({}, defaults);
+        }
+    }
+
+    function savePreferences(changes) {
+        var preferences = Object.assign(loadPreferences(), changes);
+        try { localStorage.setItem(storageKey, JSON.stringify(preferences)); } catch (_) {}
+        return preferences;
+    }
+
+    var params = new URLSearchParams(window.location.search);
+    var preferences = loadPreferences();
+    var explicitLens = params.has('lens');
+    var explicitMeetingView = params.has('view') || params.has('week') || params.has('milestone');
+    var currentLens = '{{ lens }}';
+    var currentMeetingView = '{{ "full" if view_all|default(false) else "weekly" }}';
+
+    if (!explicitLens && !explicitMeetingView && (
+        preferences.lens !== currentLens
+        || (preferences.lens === 'meetings' && preferences.meetingView !== currentMeetingView)
+    )) {
+        var target = new URL(window.location.href);
+        target.search = '';
+        if (preferences.lens === 'milestones') {
+            target.searchParams.set('lens', 'milestones');
+        } else if (preferences.meetingView === 'full') {
+            target.searchParams.set('view', 'all');
+        }
+        window.location.replace(target.toString());
+        return;
+    }
+
+    if (explicitLens || explicitMeetingView) {
+        savePreferences({
+            lens: currentLens,
+            meetingView: currentLens === 'meetings'
+                ? currentMeetingView
+                : preferences.meetingView,
+        });
+    }
+
+    document.querySelectorAll('.coverage-lens-link').forEach(function(link) {
+        link.addEventListener('click', function() {
+            savePreferences({ lens: link.dataset.lens });
+        });
+    });
+
+    window.activityCoveragePreferences = {
+        load: loadPreferences,
+        save: savePreferences,
+    };
+})();
+</script>
 
 {% if lens == 'milestones' %}
 {% include 'partials/activity_coverage_milestones.html' %}
@@ -149,8 +207,8 @@
     <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
         <div class="d-flex align-items-center gap-2">
         <div class="btn-group btn-group-sm coverage-view-toggle" aria-label="Activity coverage view">
-            <a class="btn btn-outline-secondary{% if not view_all %} active{% endif %}" href="{{ url_for('reports.report_activity_coverage', week=week_start.isoformat()) }}">Weekly</a>
-            <a class="btn btn-outline-secondary{% if view_all %} active{% endif %}" href="{{ url_for('reports.report_activity_coverage', view='all', week=week_start.isoformat()) }}">Full FY</a>
+            <a class="btn btn-outline-secondary coverage-view-link{% if not view_all %} active{% endif %}" data-view="weekly" href="{{ url_for('reports.report_activity_coverage', week=week_start.isoformat()) }}">Weekly</a>
+            <a class="btn btn-outline-secondary coverage-view-link{% if view_all %} active{% endif %}" data-view="full" href="{{ url_for('reports.report_activity_coverage', view='all', week=week_start.isoformat()) }}">Full FY</a>
         </div>
         {% if not view_all %}
         <div class="btn-group btn-group-sm" aria-label="Week navigation">
@@ -173,25 +231,17 @@
         {% endif %}
         </div>
         <div class="d-flex flex-wrap align-items-center gap-2">
-            <div class="btn-group btn-group-sm" id="coverageFilters" aria-label="Meeting filters">
-                <button class="btn btn-outline-secondary filter-button active" data-filter="all">All</button>
-                <button class="btn btn-outline-secondary filter-button" data-filter="open">Open</button>
-                <button class="btn btn-outline-secondary filter-button" data-filter="prepared">Prepared</button>
-                <button class="btn btn-outline-secondary filter-button" data-filter="failed">Failed</button>
-                <button class="btn btn-outline-secondary filter-button" data-filter="logged">Logged</button>
-            </div>
-            <button class="btn btn-sm btn-outline-secondary" id="expandAllButton" title="Expand or collapse all visible meetings">
-                <i class="bi bi-arrows-expand"></i> Expand All
-            </button>
+            <select class="form-select form-select-sm" id="coverageFilter" aria-label="Filter meetings">
+                <option value="all">All meetings</option>
+                <option value="open">Open</option>
+                <option value="prepared">Prepared</option>
+                <option value="failed">Failed</option>
+                <option value="logged">Logged</option>
+            </select>
             <button class="btn btn-sm btn-outline-primary" id="matchMilestonesButton" data-rerun="{{ 'true' if enrichment.total and enrichment.remaining == 0 else 'false' }}" {% if enrichment.running_job or enrichment.total == 0 %}disabled{% endif %} title="Use WorkIQ to prepare activity drafts and suggest milestones. Re-running replaces prior preparation for unlogged meetings.">
                 <span class="spinner-border spinner-border-sm {% if not enrichment.running_job %}d-none{% endif %}" id="matchMilestonesSpinner" aria-hidden="true"></span>
                 <i class="bi bi-stars{% if enrichment.running_job %} d-none{% endif %}" id="matchMilestonesIcon"></i>
                 <span id="matchMilestonesLabel">{% if enrichment.phase == 'syncing_accounts' %}Syncing Accounts...{% elif enrichment.phase == 'refreshing_msx' %}Refreshing MSX...{% elif enrichment.phase == 'queued' %}Queued...{% elif enrichment.running_job %}Preparing {{ enrichment.prepared }}/{{ enrichment.total }}{% elif enrichment.failed %}Retry {{ enrichment.failed }} Failed{% elif enrichment.total and enrichment.remaining == 0 %}Re-run Matching{% else %}Match Milestones{% endif %}</span>
-            </button>
-            <button class="btn btn-sm btn-outline-secondary" id="reconcileButton" {% if reconciliation.running %}disabled{% endif %} title="Import existing MSX activities and link them to calendar meetings. Does not create activities.">
-                <span class="spinner-border spinner-border-sm {% if not reconciliation.running %}d-none{% endif %}" id="reconcileSpinner" aria-hidden="true"></span>
-                <i class="bi bi-link-45deg{% if reconciliation.running %} d-none{% endif %}" id="reconcileIcon"></i>
-                <span id="reconcileButtonLabel">{% if reconciliation.running %}Syncing MSX{% else %}Find Existing Activities{% endif %}</span>
             </button>
             <button class="btn btn-sm btn-primary" id="populationButton" {% if not population.can_start %}disabled{% endif %} title="Import calendar meetings from the last completed day through today. {{ population.detail }}">
                 <span class="spinner-border spinner-border-sm {% if not population.running %}d-none{% endif %}" id="populationSpinner" aria-hidden="true"></span>
@@ -199,9 +249,6 @@
                 <span id="populationButtonLabel">{{ population.label }}{% if population.running %} {{ population.completed_count }}/{{ population.total_dates }}{% endif %}</span>
             </button>
         </div>
-    </div>
-    <div id="reconcileResult" class="small mt-1 {% if reconciliation.error %}text-danger{% else %}text-muted{% endif %}{% if not reconciliation.error and not reconciliation.linked and not reconciliation.ambiguous %} d-none{% endif %}">
-        {% if reconciliation.error %}{{ reconciliation.error }}{% elif reconciliation.linked or reconciliation.ambiguous %}{{ reconciliation.linked }} linked{% if reconciliation.ambiguous %} · {{ reconciliation.ambiguous }} need review{% endif %}{% endif %}
     </div>
     <div id="matchMilestonesProgress" class="small mt-1 {% if enrichment.failed %}text-danger{% else %}text-muted{% endif %}{% if not enrichment.running_job and not enrichment.prepared and not enrichment.failed %} d-none{% endif %}">
         {% if enrichment.phase == 'syncing_accounts' %}Running improved account sync to prime milestone matching...{% elif enrichment.phase == 'refreshing_msx' %}Refreshing local opportunities and milestones before matching...{% elif enrichment.phase == 'queued' %}Waiting for background worker...{% elif enrichment.running_job %}Preparing {{ enrichment.prepared }} of {{ enrichment.total }} meetings · {{ enrichment.running }} running · {{ enrichment.queued }} queued{% elif enrichment.failed %}{{ enrichment.prepared }} prepared · {{ enrichment.failed }} failed{% elif enrichment.prepared %}{{ enrichment.prepared }} meetings prepared for audit{% endif %}
@@ -215,8 +262,10 @@
 </div>
 
 <div class="meeting-list" id="meetingList">
-    <div class="meeting-table-heading meeting-columns" aria-hidden="true">
-        <span></span>
+    <div class="meeting-table-heading meeting-columns">
+        <button class="btn btn-sm btn-link text-secondary border-0 p-0 expand-all-chevron" id="expandAllButton" type="button" aria-label="Expand all visible meetings" aria-expanded="false" title="Expand all visible meetings">
+            <i class="bi bi-chevron-right" aria-hidden="true"></i>
+        </button>
         <span>Date</span>
         <span>Meeting</span>
         <span>Customer</span>
@@ -226,9 +275,6 @@
         <span></span>
     </div>
     {% for meeting in meetings %}
-    {% if view_all and (loop.first or meeting.meeting_date.month != loop.previtem.meeting_date.month) %}
-    <div class="meeting-month-heading">{{ meeting.meeting_date.strftime('%B %Y') }}</div>
-    {% endif %}
     <section class="meeting-row" data-status="{{ meeting.status }}" data-enrichment="{{ meeting.enrichment_status or '' }}">
         <div class="meeting-summary meeting-columns" role="button" tabindex="0" aria-expanded="false" aria-controls="meeting-detail-{{ meeting.id }}">
             <i class="bi bi-chevron-right meeting-chevron text-muted small"></i>
@@ -366,12 +412,17 @@
                     {% if meeting.candidate_tasks %}
                     <div class="d-flex flex-wrap align-items-end gap-2 mb-3">
                         <div class="flex-grow-1">
-                            <label class="form-label small" for="candidate-{{ meeting.id }}">Possible existing activity</label>
-                            <select class="form-select candidate-select" id="candidate-{{ meeting.id }}">
+                            <label class="form-label small" for="candidate-search-{{ meeting.id }}">Possible existing activity</label>
+                            <div class="coverage-picker">
+                            <select class="d-none candidate-select" id="candidate-{{ meeting.id }}">
                                 {% for candidate in meeting.candidate_tasks %}
-                                <option value="{{ candidate.id }}">{{ candidate.subject }} · {{ candidate.milestone }}</option>
+                                <option value="{{ candidate.id }}" data-label="{{ candidate.subject }} · Activity date {{ candidate.activity_date }}" data-subject="{{ candidate.subject }}" data-category="{{ candidate.category or '' }}" data-activity-date="{{ candidate.activity_date }}" data-milestone="{{ candidate.milestone }}" data-created-on="{{ candidate.created_on or '' }}">{{ candidate.subject }}</option>
                                 {% endfor %}
                             </select>
+                            <input class="form-control coverage-picker-input candidate-picker-input" id="candidate-search-{{ meeting.id }}" type="search" autocomplete="off" placeholder="Search existing activities..." value="{{ meeting.candidate_tasks[0].subject }} · Activity date {{ meeting.candidate_tasks[0].activity_date }}">
+                            <div class="list-group coverage-picker-results candidate-picker-results"></div>
+                            </div>
+                            <div class="form-text">Same customer and activity date as this meeting. Linking uses the activity's milestone.</div>
                         </div>
                         <button class="btn btn-outline-success link-activity" type="button"><i class="bi bi-link-45deg"></i> Link Existing</button>
                     </div>
@@ -582,6 +633,52 @@
                 },
             }
         );
+        var candidateSelect = form.querySelector('.candidate-select');
+        if (candidateSelect) {
+            initializePicker(
+                candidateSelect,
+                form.querySelector('.candidate-picker-input'),
+                form.querySelector('.candidate-picker-results'),
+                {
+                    emptyText: 'No existing activities found',
+                    searchText: function(option) {
+                        return [option.dataset.label, option.dataset.subject,
+                            option.dataset.activityDate, option.dataset.category,
+                            option.dataset.milestone, option.dataset.createdOn].join(' ');
+                    },
+                    renderOption: function(option) {
+                        var button = pickerButton();
+                        var top = document.createElement('div');
+                        top.className = 'd-flex align-items-center gap-2';
+                        var primary = document.createElement('span');
+                        primary.className = 'picker-primary fw-semibold flex-grow-1';
+                        primary.textContent = option.dataset.subject;
+                        top.appendChild(primary);
+                        var activityDate = document.createElement('span');
+                        activityDate.className = 'badge bg-secondary';
+                        activityDate.textContent = 'Activity date ' + option.dataset.activityDate;
+                        top.appendChild(activityDate);
+                        button.appendChild(top);
+
+                        var milestone = document.createElement('small');
+                        milestone.className = 'text-muted d-block text-truncate';
+                        milestone.textContent = 'Milestone: ' + option.dataset.milestone;
+                        button.appendChild(milestone);
+
+                        var created = document.createElement('small');
+                        created.className = 'text-muted d-block';
+                        created.textContent = option.dataset.createdOn
+                            ? 'Created in MSX: ' + option.dataset.createdOn
+                            : 'Created in MSX: date unavailable';
+                        if (option.dataset.category) {
+                            created.textContent += ' · ' + option.dataset.category;
+                        }
+                        button.appendChild(created);
+                        return button;
+                    },
+                }
+            );
+        }
     });
 
     function toggleMeeting(summary) {
@@ -733,17 +830,35 @@
         });
     });
 
-    document.querySelectorAll('.filter-button').forEach(function(button) {
-        button.addEventListener('click', function() {
-            document.querySelectorAll('.filter-button').forEach(function(item) { item.classList.remove('active'); });
-            button.classList.add('active');
-            document.querySelectorAll('.meeting-row').forEach(function(row) {
-                var show = button.dataset.filter === 'all'
-                    || (button.dataset.filter === 'logged' && row.dataset.status === 'logged')
-                    || (button.dataset.filter === 'open' && row.dataset.status !== 'logged')
-                    || (button.dataset.filter === 'prepared' && row.dataset.enrichment === 'complete')
-                    || (button.dataset.filter === 'failed' && row.dataset.enrichment === 'failed');
-                row.classList.toggle('d-none', !show);
+    var coverageFilter = document.getElementById('coverageFilter');
+    var savedFilter = window.activityCoveragePreferences.load().filter;
+    if (Array.from(coverageFilter.options).some(function(option) { return option.value === savedFilter; })) {
+        coverageFilter.value = savedFilter;
+    }
+
+    function applyCoverageFilter() {
+        var filter = coverageFilter.value;
+        window.activityCoveragePreferences.save({ filter: filter });
+        document.querySelectorAll('.meeting-row').forEach(function(row) {
+            var show = filter === 'all'
+                || (filter === 'logged' && row.dataset.status === 'logged')
+                || (filter === 'open' && row.dataset.status !== 'logged')
+                || (filter === 'prepared' && row.dataset.enrichment === 'complete')
+                || (filter === 'failed' && row.dataset.enrichment === 'failed');
+            row.classList.toggle('d-none', !show);
+        });
+    }
+
+    coverageFilter.addEventListener('change', function() {
+        applyCoverageFilter();
+    });
+    applyCoverageFilter();
+
+    document.querySelectorAll('.coverage-view-link').forEach(function(link) {
+        link.addEventListener('click', function() {
+            window.activityCoveragePreferences.save({
+                lens: 'meetings',
+                meetingView: link.dataset.view,
             });
         });
     });
@@ -755,9 +870,10 @@
             row.classList.toggle('is-expanded', allExpanded);
             row.querySelector('.meeting-summary').setAttribute('aria-expanded', String(allExpanded));
         });
-        this.innerHTML = allExpanded
-            ? '<i class="bi bi-arrows-collapse"></i> Collapse All'
-            : '<i class="bi bi-arrows-expand"></i> Expand All';
+        var label = allExpanded ? 'Collapse all visible meetings' : 'Expand all visible meetings';
+        this.setAttribute('aria-expanded', String(allExpanded));
+        this.setAttribute('aria-label', label);
+        this.title = label;
     });
 
     var importButton = document.getElementById('populationButton');
@@ -766,11 +882,6 @@
     var matchMilestonesIcon = document.getElementById('matchMilestonesIcon');
     var matchMilestonesLabel = document.getElementById('matchMilestonesLabel');
     var matchMilestonesProgress = document.getElementById('matchMilestonesProgress');
-    var reconcileButton = document.getElementById('reconcileButton');
-    var reconcileSpinner = document.getElementById('reconcileSpinner');
-    var reconcileIcon = document.getElementById('reconcileIcon');
-    var reconcileButtonLabel = document.getElementById('reconcileButtonLabel');
-    var reconcileResult = document.getElementById('reconcileResult');
     var progress = document.getElementById('importProgress');
     var progressBar = document.getElementById('populationProgressBar');
     var progressText = document.getElementById('importProgressText');
@@ -779,7 +890,6 @@
     var populationButtonLabel = document.getElementById('populationButtonLabel');
     var pollTimer = null;
     var pollFailures = 0;
-    var reconcileTimer = null;
     var matchMilestonesTimer = null;
 
     function showMatchMilestonesRunning(label) {
@@ -841,45 +951,6 @@
         });
     });
 
-    function showReconciliationRunning(label) {
-        reconcileButton.disabled = true;
-        reconcileSpinner.classList.remove('d-none');
-        reconcileIcon.classList.add('d-none');
-        reconcileButtonLabel.textContent = label;
-        reconcileResult.classList.remove('d-none', 'text-danger');
-        reconcileResult.classList.add('text-muted');
-    }
-
-    function pollReconciliation() {
-        requestJson('/api/reports/activity-coverage/reconcile-status').then(function(state) {
-            showReconciliationRunning(state.phase === 'matching' ? 'Matching' : 'Syncing MSX');
-            reconcileResult.textContent = state.phase === 'matching'
-                ? 'Matching refreshed activities to meetings...'
-                : 'Refreshing activities from MSX...';
-            if (!state.running) {
-                clearTimeout(reconcileTimer);
-                window.location.reload();
-            } else {
-                reconcileTimer = setTimeout(pollReconciliation, 1500);
-            }
-        }).catch(function() {
-            showReconciliationRunning('Reconnecting...');
-            reconcileResult.textContent = 'Connection interrupted. Reconciliation continues; reconnecting...';
-            reconcileTimer = setTimeout(pollReconciliation, 3000);
-        });
-    }
-
-    reconcileButton.addEventListener('click', function() {
-        showReconciliationRunning('Starting...');
-        reconcileResult.textContent = 'Starting MSX activity refresh...';
-        requestJson('/api/reports/activity-coverage/reconcile', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-        }).then(pollReconciliation).catch(function() {
-            reconcileTimer = setTimeout(pollReconciliation, 1000);
-        });
-    });
-
     function showPopulationRunning(label) {
         importButton.disabled = true;
         populationSpinner.classList.remove('d-none');
@@ -936,9 +1007,6 @@
     {% if population.running %}
     importButton.disabled = true;
     pollImport();
-    {% endif %}
-    {% if reconciliation.running %}
-    pollReconciliation();
     {% endif %}
     {% if enrichment.running_job %}
     pollMatchMilestones();

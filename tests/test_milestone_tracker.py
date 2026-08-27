@@ -690,6 +690,7 @@ class TestMilestoneSyncService:
                     "is_hok": True,
                     "duration_minutes": 120,
                     "due_date": "2026-03-20T00:00:00Z",
+                    "created_on": "2026-03-18T16:45:00Z",
                     "milestone_msx_id": "ms-guid-task-test",
                     "task_url": "https://example.com/task-001",
                 },
@@ -719,6 +720,7 @@ class TestMilestoneSyncService:
             assert task.duration_minutes == 120
             assert task.msx_task_url == "https://example.com/task-001"
             assert task.note_id is None  # Synced tasks aren't linked to notes
+            assert task.msx_created_on == datetime(2026, 3, 18, 16, 45)
 
             # Verify task is linked to the correct milestone
             ms = Milestone.query.filter_by(msx_milestone_id="ms-guid-task-test").first()
@@ -796,6 +798,7 @@ class TestMilestoneSyncService:
                     "is_hok": True,
                     "duration_minutes": 90,
                     "due_date": "2026-04-15T00:00:00Z",
+                    "created_on": "2026-04-12T19:30:00Z",
                     "milestone_msx_id": "ms-guid-update-task",
                     "task_url": "https://example.com/task-updated",
                 },
@@ -821,6 +824,7 @@ class TestMilestoneSyncService:
             assert task.task_category_name == "Architecture Design Session"
             assert task.duration_minutes == 90
             assert task.msx_task_url == "https://example.com/task-updated"
+            assert task.msx_created_on == datetime(2026, 4, 12, 19, 30)
 
             # Cleanup
             db.session.delete(task)
