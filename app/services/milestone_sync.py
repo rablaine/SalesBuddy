@@ -1291,6 +1291,7 @@ def _sync_all_tasks() -> Generator[
                 category_code = t.get("task_category")
                 cat_info = cat_lookup.get(category_code, {})
                 due_date = _parse_msx_date(t.get("due_date"))
+                created_on = _parse_msx_date(t.get("created_on"))
 
                 existing = existing_tasks_map.get(task_id)
                 if existing:
@@ -1307,6 +1308,7 @@ def _sync_all_tasks() -> Generator[
                         t.get("duration_minutes") or existing.duration_minutes
                     )
                     existing.due_date = due_date
+                    existing.msx_created_on = created_on
                     existing.msx_task_url = (
                         t.get("task_url") or existing.msx_task_url
                     )
@@ -1324,6 +1326,7 @@ def _sync_all_tasks() -> Generator[
                         is_hok=cat_info.get("is_hok", False),
                         duration_minutes=t.get("duration_minutes") or 60,
                         due_date=due_date,
+                        msx_created_on=created_on,
                         milestone_id=local_milestone_id,
                     )
                     db.session.add(new_task)
@@ -1422,6 +1425,7 @@ def _sync_customer_tasks(
         category_code = t.get("task_category")
         cat_info = cat_lookup.get(category_code, {})
         due_date = _parse_msx_date(t.get("due_date"))
+        created_on = _parse_msx_date(t.get("created_on"))
 
         existing = existing_tasks_map.get(task_id)
         if existing:
@@ -1433,6 +1437,7 @@ def _sync_customer_tasks(
             existing.is_hok = cat_info.get("is_hok", existing.is_hok)
             existing.duration_minutes = t.get("duration_minutes") or existing.duration_minutes
             existing.due_date = due_date
+            existing.msx_created_on = created_on
             existing.msx_task_url = t.get("task_url") or existing.msx_task_url
             existing.milestone_id = local_milestone_id
             result["tasks_updated"] += 1
@@ -1447,6 +1452,7 @@ def _sync_customer_tasks(
                 is_hok=cat_info.get("is_hok", False),
                 duration_minutes=t.get("duration_minutes") or 60,
                 due_date=due_date,
+                msx_created_on=created_on,
                 milestone_id=local_milestone_id,
                 # note_id left NULL — synced tasks aren't linked to a note
             )

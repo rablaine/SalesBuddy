@@ -243,21 +243,19 @@ const PageHelp = (function () {
       <h6>Recommended workflow</h6>
       <ol>
         <li><strong>Catch Up Calendar</strong> imports calendar days after the last successful import through today. It adds meetings; it does not create MSX activities.</li>
-        <li><strong>Find Existing Activities</strong> refreshes tasks from MSX and links high-confidence matches to calendar meetings. Run this before creating activities so work already logged in MSX is not duplicated.</li>
-        <li><strong>Match Milestones</strong> first runs the improved account sync once when needed, refreshes milestones, then uses WorkIQ meeting context to prepare a subject, description, activity type, and suggested milestone for each unlogged customer meeting.</li>
-        <li>Use <strong>Prepared</strong> and <strong>Expand All</strong> to audit suggestions. Correct the customer, milestone, activity type, duration, or draft text when needed.</li>
+        <li><strong>Match Milestones</strong> first runs the improved account sync once when needed, refreshes milestones and existing activities, then uses WorkIQ meeting context to prepare a subject, description, activity type, and suggested milestone for each unlogged customer meeting.</li>
+        <li>Use <strong>Prepared</strong> and the chevron above the Date column to audit suggestions. Correct the customer, milestone, activity type, duration, or draft text when needed.</li>
         <li><strong>Create Activity</strong> creates one open MSX task for that meeting. Nothing is created until you click it.</li>
       </ol>
 
       <h6>Weekly and Full FY views</h6>
-      <p><strong>Weekly</strong> keeps review batches small and provides week-by-week navigation. <strong>Full FY</strong> shows every fiscal-year meeting on one page, grouped by month. Matching, calendar import, and existing-activity reconciliation operate across the fiscal year in either view; the toggle only changes what is displayed.</p>
+      <p><strong>Weekly</strong> keeps review batches small and provides week-by-week navigation. <strong>Full FY</strong> shows every fiscal-year meeting in one continuous list. Matching and calendar import operate across the fiscal year in either view; the toggle only changes what is displayed.</p>
 
       <h6>Toolbar actions</h6>
       <table class="table table-sm mb-3">
         <tbody>
           <tr><td><strong>Match Milestones</strong></td><td>Prepares unlogged meetings with WorkIQ and suggests milestones. Does not create MSX tasks.</td></tr>
           <tr><td><strong>Re-run Matching</strong></td><td>Replaces prior AI summaries, drafts, activity types, and milestone suggestions for all unlogged meetings. Customer matches, dismissals, notes, and linked MSX activities stay unchanged.</td></tr>
-          <tr><td><strong>Find Existing Activities</strong></td><td>Imports activities that already exist in MSX and links them to meetings. Does not create activities.</td></tr>
           <tr><td><strong>Catch Up Calendar</strong></td><td>Imports calendar meetings since the last completed day. Use it after time away or when recent days are missing.</td></tr>
         </tbody>
       </table>

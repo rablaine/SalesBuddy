@@ -88,6 +88,9 @@ def run_migrations(db):
 
     # Migration: Make note_id nullable on msx_tasks (tasks can be created from milestone view)
     _migrate_msx_tasks_nullable_note(db, inspector)
+
+    # Migration: Store the task's actual MSX creation timestamp
+    _migrate_msx_tasks_created_on(db, inspector)
     
     # Migration: Create sync_status table for tracking sync completion
     _migrate_sync_status_table(db, inspector)
@@ -747,6 +750,16 @@ def _migrate_msx_tasks_due_date(db, inspector):
         return
     
     _add_column_if_not_exists(db, inspector, 'msx_tasks', 'due_date', 'DATETIME')
+
+
+def _migrate_msx_tasks_created_on(db, inspector):
+    """Add the actual MSX task creation timestamp."""
+    if not _table_exists(inspector, 'msx_tasks'):
+        return
+
+    _add_column_if_not_exists(
+        db, inspector, 'msx_tasks', 'msx_created_on', 'DATETIME'
+    )
 
 
 def _migrate_opportunities_table(db, inspector):

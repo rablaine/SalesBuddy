@@ -399,9 +399,11 @@ def test_create_activity_is_idempotent(app, coverage_data):
         ) + timedelta(hours=15)
 
 
-def test_link_existing_activity(app, coverage_data):
+def test_link_existing_activity(app, client, coverage_data):
     """Imported MSX task can be confirmed as meeting coverage."""
     with app.app_context():
+        created_at = datetime(2026, 8, 20, 14, 30, tzinfo=timezone.utc)
+        msx_created_on = datetime(2026, 6, 30, 18, 15, tzinfo=timezone.utc)
         task = MsxTask(
             msx_task_id='existing-coverage-task',
             subject='Existing customer activity',
@@ -411,9 +413,31 @@ def test_link_existing_activity(app, coverage_data):
             is_hok=False,
             due_date=datetime.combine(date.today(), datetime.min.time()),
             milestone_id=coverage_data['milestone_id'],
+            created_at=created_at,
+            msx_created_on=msx_created_on,
         )
         db.session.add(task)
         db.session.commit()
+
+        report = activity_coverage.get_report_data()
+        row = next(
+            item for item in report['meetings']
+            if item['id'] == coverage_data['meeting_id']
+        )
+        candidate = next(
+            item for item in row['candidate_tasks'] if item['id'] == task.id
+        )
+        assert candidate['activity_date'] == date.today().isoformat()
+        assert candidate['created_on'] == '2026-06-30'
+
+        response = client.get('/reports/activity-coverage')
+        html = response.get_data(as_text=True)
+        assert 'candidate-picker-input' in html
+        assert f'data-activity-date="{date.today().isoformat()}"' in html
+        assert f'data-milestone="{candidate["milestone"]}"' in html
+        assert 'data-created-on="2026-06-30"' in html
+        assert 'Created in MSX:' in html
+        assert 'Same customer and activity date as this meeting.' in html
 
         linked = activity_coverage.link_existing_activity(
             coverage_data['meeting_id'], task.id,
@@ -1296,10 +1320,15 @@ def test_report_page_and_hub_registration(client, coverage_data):
     assert b'\xe2\x98\x85 Architecture Design Session' in response.data
     assert b'Fabric architecture workshop' in response.data
     assert b'Create Activity' in response.data
-    assert b'Find Existing Activities' in response.data
     assert b'Match Milestones' in response.data
     assert b'Import calendar meetings from the last completed day through today' in response.data
-    assert b'Expand All' in response.data
+    assert b'id="coverageFilter"' in response.data
+    assert b'All meetings' in response.data
+    assert b'salesbuddy_activity_coverage_view' in response.data
+    assert b'activityCoveragePreferences' in response.data
+    assert b'data-lens="meetings"' in response.data
+    assert b'data-view="weekly"' in response.data
+    assert b'aria-label="Expand all visible meetings"' in response.data
     assert b'Weekly' in response.data
     assert b'Full FY' in response.data
     assert b'event.persisted' in response.data
@@ -1307,7 +1336,6 @@ def test_report_page_and_hub_registration(client, coverage_data):
     full_year = client.get('/reports/activity-coverage?view=all')
     assert full_year.status_code == 200
     assert b'coverage-view-toggle' in full_year.data
-    assert b'meeting-month-heading' in full_year.data
 
     hub = client.get('/reports')
     assert hub.status_code == 200
@@ -1315,12 +1343,11 @@ def test_report_page_and_hub_registration(client, coverage_data):
 
 
 def test_f1_help_explains_activity_coverage_workflow():
-    """Contextual help distinguishes imports, matching, reconciliation, and creation."""
+    """Contextual help distinguishes imports, matching, and creation."""
     help_script = Path('static/js/page-help.js').read_text(encoding='utf-8')
 
     assert "title: 'Activity Coverage'" in help_script
     assert '<strong>Re-run Matching</strong>' in help_script
-    assert '<strong>Find Existing Activities</strong>' in help_script
     assert '<strong>Catch Up Calendar</strong>' in help_script
     assert '<strong>Full FY</strong>' in help_script
     assert 'qualifies for HoK credit' in help_script
