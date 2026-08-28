@@ -13,6 +13,7 @@ from difflib import SequenceMatcher
 from typing import Any
 
 from flask import Flask
+from sqlalchemy import case
 
 from app.models import (
     ActivityCoveragePopulation,
@@ -33,6 +34,20 @@ CUSTOMER_ENGAGEMENT = 861980000
 INTERNAL = 861980012
 _CATEGORY_VALUES = {item['value'] for item in TASK_CATEGORIES}
 _CATEGORY_NAMES = {item['value']: item['label'] for item in TASK_CATEGORIES}
+
+
+def milestone_picker_order() -> tuple[Any, ...]:
+    """Return milestone picker order used by meeting preparation."""
+    active_status = case(
+        (Milestone.msx_status.in_({'On Track', 'At Risk', 'Blocked'}), 0),
+        else_=1,
+    )
+    return (
+        Milestone.on_my_team.desc(),
+        active_status.asc(),
+        Milestone.due_date.desc(),
+        Milestone.title.asc(),
+    )
 _DATE_SYNC_ATTEMPTS = 3
 _DATE_RETRY_DELAYS = (2, 5)
 _POPULATION_JOB_TYPE = 'activity_coverage_population'
@@ -348,11 +363,7 @@ def _serialize_meeting(meeting: PrefetchedMeeting) -> dict[str, Any]:
         milestones = (
             Milestone.query.filter_by(customer_id=meeting.customer_id)
             .filter(Milestone.msx_milestone_id.isnot(None))
-            .order_by(
-                Milestone.on_my_team.desc(),
-                Milestone.due_date.desc(),
-                Milestone.title.asc(),
-            )
+            .order_by(*milestone_picker_order())
             .all()
         )
     return {

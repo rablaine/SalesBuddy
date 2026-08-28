@@ -61,6 +61,35 @@
     .meeting-detail .form-control, .meeting-detail .form-select { font-size: 0.85rem; }
     .meeting-description { min-height: 4.5rem; resize: vertical; }
     .coverage-picker { position: relative; }
+    .coverage-picker-selected {
+        width: 100%;
+        min-height: 2.25rem;
+        margin-bottom: 0.35rem;
+        padding: 0.4rem 2.3rem 0.4rem 0.55rem;
+        border: 1px solid var(--bs-success-border-subtle);
+        border-radius: var(--bs-border-radius);
+        background: var(--bs-success-bg-subtle);
+        color: var(--bs-body-color);
+        text-align: left;
+    }
+    .coverage-picker-selected:hover { border-color: var(--bs-success); }
+    .coverage-picker-selected[hidden] { display: none; }
+    .coverage-picker-clear {
+        position: absolute;
+        top: 0.3rem;
+        right: 0.35rem;
+        z-index: 1;
+        width: 1.65rem;
+        height: 1.65rem;
+        padding: 0;
+        border: 0;
+        border-radius: var(--bs-border-radius-sm);
+        background: transparent;
+        color: var(--bs-secondary-color);
+    }
+    .coverage-picker-clear:hover { background: var(--bs-danger-bg-subtle); color: var(--bs-danger); }
+    .coverage-picker-selected[hidden] + .coverage-picker-clear { display: none; }
+    .coverage-picker-selected-primary { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .coverage-picker-results {
         display: none;
         position: absolute;
@@ -356,7 +385,9 @@
                                 <option value="{{ customer.id }}" data-label="{{ customer.name }}" data-nickname="{{ customer.nickname or '' }}" data-tpid="{{ customer.tpid or '' }}" {% if customer.id == meeting.customer_id %}selected{% endif %}>{{ customer.name }}</option>
                                 {% endfor %}
                             </select>
-                            <input class="form-control coverage-picker-input customer-picker-input" id="customer-search-{{ meeting.id }}" type="search" autocomplete="off" placeholder="Search customers..." value="{{ meeting.customer.nickname or meeting.customer.name if meeting.customer else '' }}">
+                            <button class="coverage-picker-selected customer-picker-selected" type="button" hidden></button>
+                            <button class="coverage-picker-clear" type="button" aria-label="Clear selected customer" title="Clear selected customer"><i class="bi bi-x-lg" aria-hidden="true"></i></button>
+                            <input class="form-control coverage-picker-input customer-picker-input" id="customer-search-{{ meeting.id }}" type="search" autocomplete="off" placeholder="Search customers..." value="">
                             <div class="list-group coverage-picker-results customer-picker-results"></div>
                             </div>
                         </div>
@@ -369,7 +400,9 @@
                                 <option value="{{ milestone.id }}" data-label="{{ milestone.display_text }}" data-number="{{ milestone.milestone_number or '' }}" data-opportunity="{{ milestone.opportunity.name if milestone.opportunity else (milestone.opportunity_name or '') }}" data-workload="{{ milestone.workload or '' }}" data-status="{{ milestone.msx_status or '' }}" data-on-team="{{ 'true' if milestone.on_my_team else 'false' }}" {% if milestone.id == meeting.milestone_id %}selected{% endif %}>{{ milestone.display_text }}</option>
                                 {% endfor %}
                             </select>
-                            <input class="form-control coverage-picker-input milestone-picker-input" id="milestone-search-{{ meeting.id }}" type="search" autocomplete="off" placeholder="Search milestones..." value="{{ meeting.selected_milestone.display_text if meeting.selected_milestone else '' }}" {% if not meeting.customer_id %}disabled{% endif %}>
+                            <button class="coverage-picker-selected milestone-picker-selected" type="button" hidden></button>
+                            <button class="coverage-picker-clear" type="button" aria-label="Clear selected milestone" title="Clear selected milestone"><i class="bi bi-x-lg" aria-hidden="true"></i></button>
+                            <input class="form-control coverage-picker-input milestone-picker-input" id="milestone-search-{{ meeting.id }}" type="search" autocomplete="off" placeholder="Search milestones..." value="" {% if not meeting.customer_id %}disabled{% endif %}>
                             <div class="list-group coverage-picker-results milestone-picker-results"></div>
                             </div>
                         </div>
@@ -427,9 +460,10 @@
                         <button class="btn btn-outline-success link-activity" type="button"><i class="bi bi-link-45deg"></i> Link Existing</button>
                     </div>
                     {% endif %}
-                    <div class="d-flex flex-wrap justify-content-end gap-2">
-                        <button class="btn btn-outline-primary enrich-draft" type="button" data-title="{{ meeting.subject }}" data-date="{{ meeting.meeting_date.isoformat() }}"><i class="bi bi-stars"></i> Enrich</button>
-                        <button class="btn btn-outline-secondary save-draft" type="button"><i class="bi bi-floppy"></i> Save</button>
+                    <div class="d-flex flex-wrap align-items-center justify-content-end gap-2">
+                        <span class="draft-save-status small text-muted" role="status" aria-live="polite">
+                            <i class="bi bi-check-circle me-1"></i><span>Saved</span>
+                        </span>
                         <button class="btn btn-success create-activity" type="button" {% if not meeting.milestone_id %}disabled{% endif %}><i class="bi bi-plus-circle"></i> Create Activity</button>
                     </div>
                 </form>
@@ -460,6 +494,10 @@
     function initializePicker(select, input, results, config) {
         var matches = [];
         var activeIndex = -1;
+        var closeTimer = null;
+        var selection = config.separateSelection
+            ? input.parentElement.querySelector('.coverage-picker-selected')
+            : null;
 
         function close() {
             results.classList.remove('is-open');
@@ -470,12 +508,32 @@
 
         function choose(option) {
             select.value = option.value;
-            input.value = option.dataset.label || option.textContent.trim();
+            input.value = config.separateSelection
+                ? ''
+                : (option.dataset.label || option.textContent.trim());
+            updateSelection();
             close();
             select.dispatchEvent(new Event('change', { bubbles: true }));
         }
 
+        function updateSelection() {
+            if (!selection) return;
+            var option = select.options[select.selectedIndex];
+            var hasSelection = Boolean(option && option.value);
+            selection.hidden = !hasSelection;
+            selection.innerHTML = '';
+            if (!hasSelection) {
+                input.placeholder = config.emptyPlaceholder;
+                return;
+            }
+            selection.appendChild(config.renderSelection(option));
+            selection.setAttribute('aria-label', 'Change ' + config.selectionName);
+            selection.title = 'Click to browse ' + config.selectionName + ' options';
+            input.placeholder = config.changePlaceholder;
+        }
+
         function render() {
+            window.clearTimeout(closeTimer);
             var query = input.value.trim().toLowerCase();
             matches = Array.from(select.options).filter(function(option) {
                 return option.value && config.searchText(option).toLowerCase().includes(query);
@@ -515,7 +573,7 @@
             var selectedLabel = selected && selected.value
                 ? (selected.dataset.label || selected.textContent.trim())
                 : '';
-            if (selectedLabel && input.value !== selectedLabel) {
+            if (!config.separateSelection && selectedLabel && input.value !== selectedLabel) {
                 select.value = '';
                 select.dispatchEvent(new Event('change', { bubbles: true }));
             }
@@ -538,12 +596,31 @@
                 choose(matches[activeIndex >= 0 ? activeIndex : 0]);
             }
         });
-        input.addEventListener('blur', function() { window.setTimeout(close, 100); });
+        input.addEventListener('blur', function() {
+            closeTimer = window.setTimeout(close, 100);
+        });
+        if (selection) {
+            selection.addEventListener('click', function() {
+                input.focus();
+                render();
+            });
+            var clearButton = selection.nextElementSibling;
+            clearButton.addEventListener('click', function(event) {
+                event.stopPropagation();
+                select.value = '';
+                input.value = '';
+                updateSelection();
+                close();
+                select.dispatchEvent(new Event('change', { bubbles: true }));
+            });
+        }
+        updateSelection();
         return {
             clear: function(placeholder) {
                 select.value = '';
                 input.value = '';
-                input.placeholder = placeholder;
+                config.emptyPlaceholder = placeholder;
+                updateSelection();
                 close();
             },
         };
@@ -567,6 +644,10 @@
             form.querySelector('.milestone-picker-results'),
             {
                 emptyText: 'No milestones found',
+                separateSelection: true,
+                selectionName: 'milestone',
+                emptyPlaceholder: 'Search milestones...',
+                changePlaceholder: 'Search to change milestone...',
                 searchText: function(option) {
                     return [option.dataset.label, option.dataset.number,
                         option.dataset.opportunity, option.dataset.workload].join(' ');
@@ -602,6 +683,29 @@
                     }
                     return button;
                 },
+                renderSelection: function(option) {
+                    var content = document.createElement('span');
+                    content.className = 'd-flex align-items-center gap-1';
+                    content.innerHTML = '<i class="bi bi-check-circle-fill text-success"></i>';
+                    var label = document.createElement('strong');
+                    label.className = 'coverage-picker-selected-primary flex-grow-1';
+                    label.textContent = option.dataset.label;
+                    content.appendChild(label);
+                    if (option.dataset.onTeam === 'true') {
+                        var team = document.createElement('span');
+                        team.className = 'badge bg-primary';
+                        team.textContent = 'On Team';
+                        content.appendChild(team);
+                    }
+                    if (option.dataset.status) {
+                        var status = document.createElement('span');
+                        status.className = option.dataset.status === 'On Track'
+                            ? 'badge bg-success' : 'badge bg-secondary';
+                        status.textContent = option.dataset.status;
+                        content.appendChild(status);
+                    }
+                    return content;
+                },
             }
         );
         initializePicker(
@@ -610,6 +714,10 @@
             form.querySelector('.customer-picker-results'),
             {
                 emptyText: 'No customers found',
+                separateSelection: true,
+                selectionName: 'customer',
+                emptyPlaceholder: 'Search customers...',
+                changePlaceholder: 'Search to change customer...',
                 searchText: function(option) {
                     return [option.dataset.label, option.dataset.nickname,
                         option.dataset.tpid].join(' ');
@@ -630,6 +738,22 @@
                         button.appendChild(badge);
                     }
                     return button;
+                },
+                renderSelection: function(option) {
+                    var content = document.createElement('span');
+                    content.className = 'd-flex align-items-center gap-2';
+                    content.innerHTML = '<i class="bi bi-check-circle-fill text-success"></i>';
+                    var label = document.createElement('strong');
+                    label.className = 'coverage-picker-selected-primary flex-grow-1';
+                    label.textContent = option.dataset.nickname
+                        ? option.dataset.label + ' (' + option.dataset.nickname + ')'
+                        : option.dataset.label;
+                    content.appendChild(label);
+                    var badge = document.createElement('span');
+                    badge.className = 'badge bg-success';
+                    badge.textContent = 'Selected';
+                    content.appendChild(badge);
+                    return content;
                 },
             }
         );
@@ -716,16 +840,137 @@
         };
     }
 
-    function saveForm(form, createAfter) {
+    function saveState(form) {
+        if (!form._draftSaveState) {
+            form._draftSaveState = {
+                timer: null,
+                chain: Promise.resolve(),
+                version: 0,
+                savedVersion: 0,
+            };
+        }
+        return form._draftSaveState;
+    }
+
+    function showSaveState(form, state, message) {
+        var status = form.querySelector('.draft-save-status');
+        var icon = status.querySelector('i');
+        status.className = 'draft-save-status small ' + (
+            state === 'error' ? 'text-danger' : 'text-muted'
+        );
+        icon.className = state === 'saving'
+            ? 'spinner-border spinner-border-sm me-1'
+            : state === 'error'
+                ? 'bi bi-exclamation-circle me-1'
+                : 'bi bi-check-circle me-1';
+        status.querySelector('span').textContent = message;
+    }
+
+    function updateSummaryValue(element, value, iconClass, emptyText) {
+        element.innerHTML = '';
+        element.title = value || emptyText;
+        if (!value) {
+            var empty = document.createElement('span');
+            empty.className = 'text-warning';
+            empty.textContent = emptyText;
+            element.appendChild(empty);
+            return;
+        }
+        if (iconClass) {
+            var icon = document.createElement('i');
+            icon.className = iconClass + ' me-1';
+            element.appendChild(icon);
+        }
+        element.appendChild(document.createTextNode(value));
+    }
+
+    function updateMeetingSummary(form, payload) {
+        var row = form.closest('.meeting-row');
+        var customerSelect = form.querySelector('.customer-select');
+        var milestoneSelect = form.querySelector('.milestone-select');
+        var customerOption = Array.from(customerSelect.options).find(function(option) {
+            return option.value === String(payload.customer_id || '');
+        });
+        var milestoneOption = Array.from(milestoneSelect.options).find(function(option) {
+            return option.value === String(payload.milestone_id || '');
+        });
+        updateSummaryValue(
+            row.querySelector('.meeting-customer'),
+            customerOption && customerOption.value ? customerOption.dataset.label : '',
+            'bi bi-building',
+            'No customer'
+        );
+        updateSummaryValue(
+            row.querySelector('.meeting-milestone'),
+            milestoneOption && milestoneOption.value ? milestoneOption.dataset.label : '',
+            '',
+            'No milestone'
+        );
+        if (row.dataset.status === 'logged') return;
+        var status = payload.customer_id
+            ? (payload.milestone_id ? 'ready' : 'needs_milestone')
+            : 'needs_customer';
+        var statusPrimary = row.querySelector('.meeting-status-primary');
+        statusPrimary.innerHTML = '';
+        var dot = document.createElement('span');
+        dot.className = 'status-dot ' + (status === 'ready' ? 'status-ready' : 'status-attention');
+        statusPrimary.appendChild(dot);
+        statusPrimary.appendChild(document.createTextNode(
+            status === 'ready' ? ' Ready' : status === 'needs_customer' ? ' Customer' : ' Milestone'
+        ));
+        row.dataset.status = status;
+    }
+
+    function enqueueSave(form, version) {
+        var state = saveState(form);
+        var payload = formPayload(form);
+        state.chain = state.chain.catch(function() { return null; }).then(function() {
+            return requestJson('/api/reports/activity-coverage/meetings/' + form.dataset.id, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            });
+        }).then(function() {
+            updateMeetingSummary(form, payload);
+            state.savedVersion = Math.max(state.savedVersion, version);
+            if (state.savedVersion === state.version) {
+                showSaveState(form, 'saved', 'Saved');
+            }
+        }).catch(function(error) {
+            if (version === state.version) {
+                showSaveState(form, 'error', 'Could not save');
+            }
+            throw error;
+        });
+        return state.chain;
+    }
+
+    function queueAutosave(form, delay) {
+        var state = saveState(form);
+        state.version += 1;
+        var version = state.version;
+        window.clearTimeout(state.timer);
+        showSaveState(form, 'saving', 'Saving...');
+        state.timer = window.setTimeout(function() {
+            state.timer = null;
+            enqueueSave(form, version).catch(function() {});
+        }, delay || 0);
+    }
+
+    function flushAutosave(form) {
+        var state = saveState(form);
+        window.clearTimeout(state.timer);
+        state.timer = null;
+        state.version += 1;
+        showSaveState(form, 'saving', 'Saving...');
+        return enqueueSave(form, state.version);
+    }
+
+    function createActivity(form) {
         var meetingId = form.dataset.id;
         var buttons = form.querySelectorAll('button');
         buttons.forEach(function(button) { button.disabled = true; });
-        return requestJson('/api/reports/activity-coverage/meetings/' + meetingId, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(formPayload(form)),
-        }).then(function() {
-            if (!createAfter) return null;
+        return flushAutosave(form).then(function() {
             return requestJson('/api/reports/activity-coverage/meetings/' + meetingId + '/create', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -738,31 +983,18 @@
         });
     }
 
-    document.querySelectorAll('.save-draft').forEach(function(button) {
-        button.addEventListener('click', function() { saveForm(button.closest('form'), false); });
-    });
     document.querySelectorAll('.create-activity').forEach(function(button) {
-        button.addEventListener('click', function() { saveForm(button.closest('form'), true); });
+        button.addEventListener('click', function() { createActivity(button.closest('form')); });
     });
-    document.querySelectorAll('.enrich-draft').forEach(function(button) {
-        button.addEventListener('click', function() {
-            var form = button.closest('form');
-            var original = button.innerHTML;
-            button.disabled = true;
-            button.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Enriching';
-            var params = new URLSearchParams({ title: button.dataset.title, date: button.dataset.date });
-            fetch('/api/meetings/summary?' + params.toString())
-                .then(function(response) { return response.json(); })
-                .then(function(data) {
-                    if (!data.success) throw new Error(data.error || 'WorkIQ enrichment failed');
-                    if (data.task_subject) form.querySelector('[name="subject"]').value = data.task_subject;
-                    form.querySelector('[name="description"]').value = data.task_description || data.summary || '';
-                }).catch(function(error) { alert(error.message); })
-                .finally(function() {
-                    button.disabled = false;
-                    button.innerHTML = original;
-                });
-        });
+
+    document.querySelectorAll('.activity-form [name="task_category"]').forEach(function(field) {
+        field.addEventListener('change', function() { queueAutosave(field.closest('form'), 0); });
+    });
+    document.querySelectorAll('.activity-form [name="duration_minutes"]').forEach(function(field) {
+        field.addEventListener('change', function() { queueAutosave(field.closest('form'), 0); });
+    });
+    document.querySelectorAll('.activity-form [name="subject"], .activity-form [name="description"]').forEach(function(field) {
+        field.addEventListener('input', function() { queueAutosave(field.closest('form'), 700); });
     });
 
     document.querySelectorAll('.customer-select').forEach(function(select) {
@@ -775,6 +1007,7 @@
             form._milestonePicker.clear('Search milestones...');
             milestoneInput.disabled = !select.value;
             createButton.disabled = true;
+            queueAutosave(form, 0);
             if (!select.value) return;
             milestoneInput.placeholder = 'Loading milestones...';
             requestJson('/api/reports/activity-coverage/customers/' + select.value + '/milestones')
@@ -802,7 +1035,9 @@
     });
     document.querySelectorAll('.milestone-select').forEach(function(select) {
         select.addEventListener('change', function() {
-            select.closest('form').querySelector('.create-activity').disabled = !select.value;
+            var form = select.closest('form');
+            form.querySelector('.create-activity').disabled = !select.value;
+            queueAutosave(form, 0);
         });
     });
 
