@@ -8,7 +8,7 @@ brought the change into `main`, so the admin Updates card can show
 Format: `## M/D/YYYY - <merge-short-sha>`. See
 `scripts/tag-changelog.ps1` for the helper that fills this in.
 
-## 8/28/2026
+## 8/28/2026 - b74f4b2
 
 - Improve Activity Coverage editing with automatic draft saves, clearer customer and milestone selections, one-click clearing, live collapsed-row updates, and milestone results ranked by relevance.
 
