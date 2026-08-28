@@ -13,7 +13,7 @@ Covers:
 from __future__ import annotations
 
 import json
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 
@@ -401,6 +401,38 @@ class TestResyncPreservesFlags:
 # ---------------------------------------------------------------------------
 
 class TestNoteCreationBackLink:
+    def test_from_meeting_prefills_local_meeting_time(
+        self, app, client, clean_meeting_tables,
+    ):
+        with app.app_context():
+            meeting_date = date(2026, 8, 28)
+            local_start = datetime(2026, 8, 28, 9, 0)
+            stored_utc = (
+                local_start.astimezone(timezone.utc).replace(tzinfo=None)
+            )
+            customer = Customer(name='COPT Time Test', tpid=910302)
+            db.session.add(customer)
+            db.session.flush()
+            ghost = _seed_ghost(
+                meeting_date=meeting_date,
+                start_time=stored_utc,
+                workiq_id='ghost-time-prefill',
+                customer_id=customer.id,
+            )
+            ghost_id = ghost.id
+            customer_id = customer.id
+
+        response = client.get(
+            f'/note/new?customer_id={customer_id}&date=2026-08-28'
+            f'&from_meeting={ghost_id}'
+        )
+
+        assert response.status_code == 200
+        assert b'id="call_date" name="call_date"' in response.data
+        assert b'value="2026-08-28"' in response.data
+        assert b'id="call_time" name="call_time"' in response.data
+        assert b'value="09:00"' in response.data
+
     def test_from_meeting_links_ghost(
         self, app, client, clean_meeting_tables,
     ):
