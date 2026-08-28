@@ -8,7 +8,7 @@ brought the change into `main`, so the admin Updates card can show
 Format: `## M/D/YYYY - <merge-short-sha>`. See
 `scripts/tag-changelog.ps1` for the helper that fills this in.
 
-## 8/28/2026
+## 8/28/2026 - 0c7e0d7
 
 - Fix Ghost Aura meeting times, prefill new notes with the meeting time, and reliably cache up to 15 prioritized attendees plus the organizer for immediate import.
 
