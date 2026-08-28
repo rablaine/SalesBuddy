@@ -1314,6 +1314,34 @@ def test_report_page_and_hub_registration(client, coverage_data):
     """Report renders meeting workbench and is discoverable from reports hub."""
     response = client.get('/reports/activity-coverage')
     assert response.status_code == 200
+    assert b'Activity Coverage' in response.data
+    assert b'customer-picker-input' in response.data
+    assert b'milestone-picker-input' in response.data
+    assert b'\xe2\x98\x85 Architecture Design Session' in response.data
+    assert b'Fabric architecture workshop' in response.data
+    assert b'Create Activity' in response.data
+    assert b'Match Milestones' in response.data
+    assert b'Import calendar meetings from the last completed day through today' in response.data
+    assert b'id="coverageFilter"' in response.data
+    assert b'All meetings' in response.data
+    assert b'salesbuddy_activity_coverage_view' in response.data
+    assert b'activityCoveragePreferences' in response.data
+    assert b'data-lens="meetings"' in response.data
+    assert b'data-view="weekly"' in response.data
+    assert b'aria-label="Expand all visible meetings"' in response.data
+    assert b'Weekly' in response.data
+    assert b'Full FY' in response.data
+    assert b'event.persisted' in response.data
+
+    full_year = client.get('/reports/activity-coverage?view=all')
+    assert full_year.status_code == 200
+    assert b'coverage-view-toggle' in full_year.data
+
+    hub = client.get('/reports')
+    assert hub.status_code == 200
+    assert b'/reports/activity-coverage' in hub.data
+
+
 def test_report_separates_selected_values_from_picker_search(
     app, client, coverage_data,
 ):
@@ -1412,34 +1440,6 @@ def test_customer_milestones_rank_team_then_active(app, client, coverage_data):
             })
         ).delete(synchronize_session=False)
         db.session.commit()
-
-
-    assert b'Activity Coverage' in response.data
-    assert b'customer-picker-input' in response.data
-    assert b'milestone-picker-input' in response.data
-    assert b'\xe2\x98\x85 Architecture Design Session' in response.data
-    assert b'Fabric architecture workshop' in response.data
-    assert b'Create Activity' in response.data
-    assert b'Match Milestones' in response.data
-    assert b'Import calendar meetings from the last completed day through today' in response.data
-    assert b'id="coverageFilter"' in response.data
-    assert b'All meetings' in response.data
-    assert b'salesbuddy_activity_coverage_view' in response.data
-    assert b'activityCoveragePreferences' in response.data
-    assert b'data-lens="meetings"' in response.data
-    assert b'data-view="weekly"' in response.data
-    assert b'aria-label="Expand all visible meetings"' in response.data
-    assert b'Weekly' in response.data
-    assert b'Full FY' in response.data
-    assert b'event.persisted' in response.data
-
-    full_year = client.get('/reports/activity-coverage?view=all')
-    assert full_year.status_code == 200
-    assert b'coverage-view-toggle' in full_year.data
-
-    hub = client.get('/reports')
-    assert hub.status_code == 200
-    assert b'/reports/activity-coverage' in hub.data
 
 
 def test_f1_help_explains_activity_coverage_workflow():
