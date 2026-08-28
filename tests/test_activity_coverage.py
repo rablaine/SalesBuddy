@@ -1314,6 +1314,106 @@ def test_report_page_and_hub_registration(client, coverage_data):
     """Report renders meeting workbench and is discoverable from reports hub."""
     response = client.get('/reports/activity-coverage')
     assert response.status_code == 200
+def test_report_separates_selected_values_from_picker_search(
+    app, client, coverage_data,
+):
+    """Selected customer and milestone render apart from empty search fields."""
+    with app.app_context():
+        meeting = db.session.get(PrefetchedMeeting, coverage_data['meeting_id'])
+        meeting.milestone_id = coverage_data['milestone_id']
+        db.session.commit()
+
+    response = client.get('/reports/activity-coverage')
+    html = response.get_data(as_text=True)
+
+    assert 'customer-picker-selected' in html
+    assert 'milestone-picker-selected' in html
+    assert 'separateSelection: true' in html
+    assert 'Search to change customer...' in html
+    assert 'Search to change milestone...' in html
+    assert 'value="Deploy Fabric"' not in html
+
+
+def test_meeting_drafts_autosave_without_manual_enrich_or_save(
+    client, coverage_data,
+):
+    """Meeting drafts autosave and refresh values shown in collapsed summaries."""
+    response = client.get('/reports/activity-coverage')
+    html = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert 'draft-save-status' in html
+    assert 'queueAutosave' in html
+    assert 'flushAutosave' in html
+    assert 'createActivity' in html
+    assert 'updateMeetingSummary(form, payload)' in html
+    assert "row.querySelector('.meeting-customer')" in html
+    assert "row.querySelector('.meeting-milestone')" in html
+    assert 'aria-label="Clear selected customer"' in html
+    assert 'aria-label="Clear selected milestone"' in html
+    assert "select.dispatchEvent(new Event('change', { bubbles: true }))" in html
+    assert 'save-draft' not in html
+    assert 'enrich-draft' not in html
+
+
+def test_customer_milestones_rank_team_then_active(app, client, coverage_data):
+    """Picker ranks on-team milestones first, then active milestones."""
+    with app.app_context():
+        milestones = [
+            Milestone(
+                title='Off Team Completed',
+                url='https://example.test/completed',
+                msx_milestone_id='picker-completed',
+                msx_status='Completed',
+                on_my_team=False,
+                due_date=datetime(2026, 12, 1),
+                customer_id=coverage_data['customer_id'],
+            ),
+            Milestone(
+                title='Off Team Active',
+                url='https://example.test/active',
+                msx_milestone_id='picker-active',
+                msx_status='On Track',
+                on_my_team=False,
+                due_date=datetime(2026, 10, 1),
+                customer_id=coverage_data['customer_id'],
+            ),
+            Milestone(
+                title='On Team Completed',
+                url='https://example.test/team',
+                msx_milestone_id='picker-team',
+                msx_status='Completed',
+                on_my_team=True,
+                due_date=datetime(2026, 8, 1),
+                customer_id=coverage_data['customer_id'],
+            ),
+        ]
+        db.session.add_all(milestones)
+        db.session.commit()
+
+    response = client.get(
+        '/api/reports/activity-coverage/customers/'
+        f'{coverage_data["customer_id"]}/milestones'
+    )
+    labels = [item['label'] for item in response.get_json()['milestones']]
+
+    assert response.status_code == 200
+    assert labels == [
+        'Deploy Fabric',
+        'On Team Completed',
+        'Off Team Active',
+        'Off Team Completed',
+    ]
+
+    with app.app_context():
+        Milestone.query.filter(
+            Milestone.msx_milestone_id.in_({
+                'picker-completed', 'picker-active', 'picker-team',
+            })
+        ).delete(synchronize_session=False)
+        db.session.commit()
+
+
     assert b'Activity Coverage' in response.data
     assert b'customer-picker-input' in response.data
     assert b'milestone-picker-input' in response.data

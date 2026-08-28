@@ -343,14 +343,12 @@ def api_activity_coverage_match_status():
 @bp.route('/api/reports/activity-coverage/customers/<int:customer_id>/milestones')
 def api_activity_coverage_milestones(customer_id):
     """Return locally cached milestones for one customer."""
+    from app.services.activity_coverage import milestone_picker_order
+
     milestones = (
         Milestone.query.filter_by(customer_id=customer_id)
         .filter(Milestone.msx_milestone_id.isnot(None))
-        .order_by(
-            Milestone.on_my_team.desc(),
-            Milestone.due_date.desc(),
-            Milestone.title.asc(),
-        )
+        .order_by(*milestone_picker_order())
         .all()
     )
     return jsonify({
