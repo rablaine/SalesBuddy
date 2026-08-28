@@ -8,6 +8,10 @@ brought the change into `main`, so the admin Updates card can show
 Format: `## M/D/YYYY - <merge-short-sha>`. See
 `scripts/tag-changelog.ps1` for the helper that fills this in.
 
+## 8/28/2026
+
+- Fix Ghost Aura meeting times, prefill new notes with the meeting time, and reliably cache up to 15 prioritized attendees plus the organizer for immediate import.
+
 ## 8/27/2026 - bce5ecb
 
 - Make existing-activity matching easier to verify with a searchable picker showing activity date, milestone, activity type, and actual MSX creation date.

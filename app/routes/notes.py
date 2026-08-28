@@ -541,6 +541,7 @@ def note_create():
     from_meeting_title = None
     from_meeting_date = None
     from_meeting_data = None
+    ghost_start_local = None
     if from_meeting:
         from app.models import PrefetchedMeeting
         from app.services.meeting_prefetch import _utc_to_naive_local
@@ -588,8 +589,12 @@ def note_create():
     else:
         today = date.today().strftime('%Y-%m-%d')
     
-    # Current time for new notes (default to now)
-    now_time = datetime.now().strftime('%H:%M')
+    # Ghost-created notes use the meeting's local wall-clock time immediately.
+    # Ordinary new notes continue to default to the current time.
+    now_time = (
+        ghost_start_local.strftime('%H:%M')
+        if ghost_start_local else datetime.now().strftime('%H:%M')
+    )
     
     # Get user's custom WorkIQ prompt (for meeting import modal)
     from app.services.workiq_service import DEFAULT_SUMMARY_PROMPT

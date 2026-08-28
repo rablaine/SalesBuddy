@@ -42,6 +42,7 @@ from app.models import (
 logger = logging.getLogger(__name__)
 
 INTERNAL_DOMAIN = 'microsoft.com'
+MAX_MEETING_ATTENDEES = 15
 
 
 def _is_internal_domain(domain: Optional[str]) -> bool:
@@ -105,12 +106,19 @@ def _is_blacklisted_subject(subject: Optional[str]) -> bool:
 
 def _build_prompt(date_str: str) -> str:
     return (
-        f"List every meeting on my calendar for {date_str}. For each "
-        f"meeting return a JSON object inside a ```json code block with "
-        f"these fields: subject, start_time (ISO 8601 with timezone), "
-        f"end_time, organizer_email, is_recurring, and attendees (an array "
-        f"of objects with name and email). Wrap the whole list in a single "
-        f"JSON array. Do not omit any meeting, even internal ones."
+        f"List every meeting on my calendar for {date_str}. Return one JSON "
+        f"array inside a single ```json code block. Each meeting object must "
+        f"contain: subject, "
+        f"start_time (ISO 8601 with timezone), end_time, organizer_email, "
+        f"is_recurring, and attendees. Return no more than "
+        f"{MAX_MEETING_ATTENDEES} attendees per meeting. For meetings over "
+        f"{MAX_MEETING_ATTENDEES} attendees, choose external attendees first, "
+        f"then the organizer, then other attendees. The attendees array must "
+        f"include the organizer when the organizer is an attendee. Every "
+        f"attendee object must contain name and a non-null email address; do "
+        f"not return attendee entries without an email address. Include "
+        f"meetings with no qualifying attendees using an empty array. Do not "
+        f"omit any meeting. Do not include prose outside the code block."
     )
 
 
@@ -141,7 +149,62 @@ def _extract_json_array(response: str) -> List[Dict[str, Any]]:
         raise ValueError(f"JSON parse failed: {exc}") from exc
     if not isinstance(data, list):
         raise ValueError("parsed JSON is not a list")
+    aliases = {
+        'starttime': 'start_time',
+        'endtime': 'end_time',
+        'organizeremail': 'organizer_email',
+        'isrecurring': 'is_recurring',
+        'externalcompany': 'external_company',
+    }
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+        for key in list(item):
+            canonical_key = aliases.get(key.replace('_', '').lower())
+            if canonical_key and canonical_key not in item:
+                item[canonical_key] = item[key]
     return data
+
+
+def _known_internal_name(email: str) -> Optional[str]:
+    """Resolve a Microsoft organizer email through known internal records."""
+    if '@' not in email:
+        return None
+    alias, domain = email.lower().split('@', 1)
+    if not _is_internal_domain(domain):
+        return None
+
+    from app.models import InternalContact, Seller, SolutionEngineer
+
+    for model in (Seller, SolutionEngineer, InternalContact):
+        record = model.query.filter(db.func.lower(model.alias) == alias).first()
+        if record is not None:
+            return record.name
+    return None
+
+
+def _include_missing_organizer(
+    attendees: List[Dict[str, Any]],
+    organizer_email: Optional[str],
+) -> List[Dict[str, Any]]:
+    """Include a missing organizer while preserving the attendee limit."""
+    if not organizer_email:
+        return attendees[:MAX_MEETING_ATTENDEES]
+
+    normalized_email = organizer_email.strip().lower()
+    attendee_emails = {
+        (attendee.get('email') or '').strip().lower()
+        for attendee in attendees
+        if isinstance(attendee, dict)
+    }
+    if normalized_email in attendee_emails:
+        return attendees[:MAX_MEETING_ATTENDEES]
+
+    organizer = {
+        'name': _known_internal_name(normalized_email) or organizer_email,
+        'email': normalized_email,
+    }
+    return attendees[:MAX_MEETING_ATTENDEES - 1] + [organizer]
 
 
 def _legacy_meetings_to_raw(
@@ -182,7 +245,10 @@ def _parse_dt(value: Optional[str]) -> Optional[datetime]:
     except ValueError:
         return None
     if dt.tzinfo is None:
-        return dt
+        # WorkIQ sometimes omits the requested timezone offset and returns
+        # the user's local wall-clock time. Treating that value as UTC shifts
+        # Eastern meetings four or five hours earlier in the calendar.
+        dt = dt.astimezone()
     return dt.astimezone(timezone.utc).replace(tzinfo=None)
 
 
@@ -586,6 +652,7 @@ def _upsert_meeting(
     raw_attendees = raw.get('attendees') or []
     if not isinstance(raw_attendees, list):
         raw_attendees = []
+    raw_attendees = _include_missing_organizer(raw_attendees, organizer)
 
     matching_subject = ' '.join(filter(None, [
         subject,

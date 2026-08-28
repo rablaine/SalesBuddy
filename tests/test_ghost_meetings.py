@@ -111,6 +111,7 @@ class TestGetGhostMeetingsForRange:
             assert 22 in result
             assert len(result[22]) == 1
             assert result[22][0]['subject'] == 'Acme Sync'
+            assert result[22][0]['start_time_utc'] == '2026-04-22T14:00:00Z'
 
     def test_excludes_pure_internal_meeting(self, app, clean_ghost_tables):
         with app.app_context():

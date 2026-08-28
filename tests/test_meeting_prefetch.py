@@ -10,7 +10,7 @@ Covers:
 """
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from unittest.mock import patch
 
 import pytest
@@ -21,6 +21,7 @@ from app.models import (
     DismissedRecurringMeeting,
     PrefetchedMeeting,
     PrefetchedMeetingAttendee,
+    Seller,
     db,
 )
 from app.services import meeting_prefetch
@@ -122,6 +123,71 @@ class TestExtractJsonArray:
     def test_raises_on_empty_input(self):
         with pytest.raises(ValueError):
             meeting_prefetch._extract_json_array("")
+
+    def test_normalizes_collapsed_workiq_field_names(self):
+        items = meeting_prefetch._extract_json_array(
+            '[{"subject":"Customer sync","starttime":"2026-08-28T09:00:00-05:00",'
+            '"endTime":"2026-08-28T09:30:00-05:00",'
+            '"organizeremail":"seller@microsoft.com","isrecurring":false}]'
+        )
+
+        assert items[0]['start_time'] == '2026-08-28T09:00:00-05:00'
+        assert items[0]['end_time'] == '2026-08-28T09:30:00-05:00'
+        assert items[0]['organizer_email'] == 'seller@microsoft.com'
+        assert items[0]['is_recurring'] is False
+
+
+def test_meeting_prompt_caps_attendees_and_requires_email():
+    prompt = meeting_prefetch._build_prompt('2026-08-28')
+
+    assert 'inside a single ```json code block' in prompt
+    assert 'no more than 15 attendees per meeting' in prompt
+    assert 'choose external attendees first' in prompt
+    assert 'non-null email address' in prompt
+
+
+class TestIncludeMissingOrganizer:
+    def test_adds_known_organizer_name(self, app):
+        with app.app_context():
+            seller = Seller(name='Jarred O\'Connor', alias='jaoconnor')
+            db.session.add(seller)
+            db.session.commit()
+
+            attendees = meeting_prefetch._include_missing_organizer(
+                [{'name': 'Customer', 'email': 'customer@example.com'}],
+                'jaoconnor@microsoft.com',
+            )
+
+            assert attendees[-1] == {
+                'name': "Jarred O'Connor",
+                'email': 'jaoconnor@microsoft.com',
+            }
+
+    def test_does_not_duplicate_existing_organizer(self, app):
+        with app.app_context():
+            attendees = [
+                {'name': 'Organizer', 'email': 'organizer@microsoft.com'},
+            ]
+
+            result = meeting_prefetch._include_missing_organizer(
+                attendees, 'Organizer@Microsoft.com',
+            )
+
+            assert result == attendees
+
+    def test_preserves_fifteen_person_limit(self, app):
+        with app.app_context():
+            attendees = [
+                {'name': f'Person {index}', 'email': f'p{index}@example.com'}
+                for index in range(15)
+            ]
+
+            result = meeting_prefetch._include_missing_organizer(
+                attendees, 'organizer@microsoft.com',
+            )
+
+            assert len(result) == 15
+            assert result[-1]['email'] == 'organizer@microsoft.com'
 
 
 # ---------------------------------------------------------------------------
@@ -266,6 +332,14 @@ class TestParseDt:
         dt = meeting_prefetch._parse_dt("2026-04-22T13:00:00-05:00")
         assert dt == datetime(2026, 4, 22, 18, 0, 0)
         assert dt.tzinfo is None
+
+    def test_parses_timezone_less_value_as_local_wall_clock(self):
+        local_value = datetime(2026, 8, 28, 9, 0, 0)
+        expected_utc = (
+            local_value.astimezone(timezone.utc).replace(tzinfo=None)
+        )
+
+        assert meeting_prefetch._parse_dt('2026-08-28T09:00:00') == expected_utc
 
     def test_returns_none_on_garbage(self):
         assert meeting_prefetch._parse_dt("not-a-date") is None
@@ -449,7 +523,11 @@ class TestPrefetchForDate:
             assert redsail.matched_via == 'website'
             assert redsail.is_recurring is True
             assert redsail.recurring_key is not None
-            assert len(redsail.attendees) == 3
+            assert len(redsail.attendees) == 4
+            assert any(
+                attendee.email == 'martinez.reynaldo@microsoft.com'
+                for attendee in redsail.attendees
+            )
             externals = [a for a in redsail.attendees if a.is_external]
             assert {a.email for a in externals} == {
                 'tammy.kroetch@redsailtechnologies.com',
@@ -471,7 +549,7 @@ class TestPrefetchForDate:
                 meeting_prefetch.prefetch_for_date('2026-04-22')
 
             assert PrefetchedMeeting.query.count() == 2
-            assert PrefetchedMeetingAttendee.query.count() == 4  # 3 + 1
+            assert PrefetchedMeetingAttendee.query.count() == 6  # 4 + 2
 
     def test_future_occurrence_of_dismissed_series_stays_dismissed(
         self, app, redsail_customer,
