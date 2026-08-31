@@ -97,7 +97,7 @@
     </div>
     {% for row in milestone_rows %}
     {% set milestone = row.milestone %}
-    <section class="milestone-coverage-row" id="milestone-coverage-{{ milestone.id }}">
+    <section class="milestone-coverage-row" id="milestone-coverage-{{ milestone.id }}" data-milestone-id="{{ milestone.id }}">
         <div class="milestone-coverage-summary milestone-coverage-columns" role="button" tabindex="0" aria-expanded="false" aria-controls="milestone-coverage-detail-{{ milestone.id }}">
             <i class="bi bi-chevron-right milestone-coverage-chevron text-muted small"></i>
             <div class="milestone-coverage-cell" title="{{ milestone.customer.name if milestone.customer else 'No customer' }}">
@@ -113,7 +113,7 @@
             <div class="milestone-coverage-cell text-muted">
                 {% if milestone.due_date %}{{ milestone.due_date.strftime('%b %d, %Y') }}{% else %}No date{% endif %}
             </div>
-            <div class="milestone-coverage-cell">
+            <div class="milestone-coverage-cell milestone-hok-coverage">
                 {% if row.meeting_draft_count %}
                 <a href="{{ url_for('reports.report_activity_coverage', view='all', milestone=milestone.id) }}" class="text-decoration-none" onclick="event.stopPropagation();" title="Open unlogged meeting drafts targeting this milestone">
                     {% if row.prepared_meeting_count == row.meeting_draft_count %}
@@ -135,7 +135,7 @@
                 <span class="text-warning"><i class="bi bi-exclamation-circle"></i> No HoK activity</span>
                 {% endif %}
             </div>
-            <div class="d-flex justify-content-end" onclick="event.stopPropagation();">
+            <div class="d-flex justify-content-end milestone-hok-actions" onclick="event.stopPropagation();">
                 {% if row.current_task and row.current_task.msx_task_url %}
                 <a class="btn btn-sm btn-outline-success" href="{{ row.current_task.msx_task_url }}" target="_blank" rel="noopener" title="Open HoK activity in MSX"><i class="bi bi-box-arrow-up-right"></i></a>
                 {% endif %}
@@ -316,6 +316,56 @@
         };
     }
 
+    function setMilestoneCoverageSummary(summary) {
+        document.getElementById('milestoneCoveragePercent').textContent = summary.coverage_percent + '%';
+        document.getElementById('milestoneCoverageCount').textContent = summary.covered + '/' + summary.active_total;
+        document.getElementById('milestoneCoverageUncovered').textContent = summary.uncovered;
+    }
+
+    function renderStandaloneHok(form, task) {
+        var row = form.closest('.milestone-coverage-row');
+        setMilestoneCoverageSummary(task.summary);
+        if (!document.getElementById('showCoveredMilestones').checked) {
+            row.remove();
+            return;
+        }
+
+        row.querySelector('.milestone-hok-coverage').innerHTML = '<span class="badge bg-success">Covered {{ fiscal_year_label }}</span>';
+        var actions = row.querySelector('.milestone-hok-actions');
+        actions.replaceChildren();
+        if (task.task_url) {
+            var link = document.createElement('a');
+            link.className = 'btn btn-sm btn-outline-success';
+            link.href = task.task_url;
+            link.target = '_blank';
+            link.rel = 'noopener';
+            link.title = 'Open HoK activity in MSX';
+            link.setAttribute('aria-label', 'Open HoK activity in MSX');
+            link.innerHTML = '<i class="bi bi-box-arrow-up-right"></i>';
+            actions.appendChild(link);
+        }
+        var detail = row.querySelector('.milestone-coverage-detail');
+        detail.innerHTML = '<div class="d-flex flex-wrap align-items-center gap-2 py-1"><i class="bi bi-check-circle-fill text-success"></i></div>';
+        var activity = detail.firstElementChild;
+        var subject = document.createElement('strong');
+        subject.textContent = task.subject;
+        activity.appendChild(subject);
+        if (task.category) {
+            var category = document.createElement('span');
+            category.className = 'badge bg-secondary';
+            category.textContent = task.category;
+            activity.appendChild(category);
+        }
+        if (task.due_date) {
+            var dueDate = document.createElement('span');
+            dueDate.className = 'text-muted small';
+            dueDate.textContent = new Date(task.due_date + 'T00:00:00').toLocaleDateString(
+                undefined, { month: 'short', day: '2-digit', year: 'numeric' }
+            );
+            activity.appendChild(dueDate);
+        }
+    }
+
     function saveMilestoneForm(form, createAfter) {
         var buttons = form.querySelectorAll('button');
         buttons.forEach(function(button) { button.disabled = true; });
@@ -330,7 +380,11 @@
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
             });
-        }).then(function() {
+        }).then(function(task) {
+            if (createAfter) {
+                renderStandaloneHok(form, task);
+                return;
+            }
             window.location.reload();
         }).catch(function(error) {
             alert(error.message);

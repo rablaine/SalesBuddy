@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone, date
 from flask import Blueprint, current_app, render_template, url_for, jsonify, request
 from app.models import (
     db, Customer, Engagement, Note, Milestone, MilestoneAudit, Opportunity, Seller,
-    SolutionEngineer, SyncStatus, MsxTask,
+    SolutionEngineer, SyncStatus, MsxTask, PrefetchedMeeting,
     Topic, RevenueAnalysis, HygieneNote, CustomerRevenueData, ProductRevenueData,
     notes_engagements, notes_milestones, notes_topics,
     MarketingSummary, MarketingInteraction, MarketingContact,
@@ -260,7 +260,10 @@ def api_activity_coverage_update_milestone_draft(milestone_id):
 )
 def api_activity_coverage_create_milestone_hok(milestone_id):
     """Create one standalone current-FY HoK activity."""
-    from app.services.activity_coverage import create_milestone_hok_activity
+    from app.services.activity_coverage import (
+        create_milestone_hok_activity,
+        get_milestone_coverage_data,
+    )
 
     try:
         task = create_milestone_hok_activity(milestone_id)
@@ -272,6 +275,10 @@ def api_activity_coverage_create_milestone_hok(milestone_id):
         'success': True,
         'task_id': task.id,
         'task_url': task.msx_task_url,
+        'subject': task.subject,
+        'category': task.task_category_name or '',
+        'due_date': task.due_date.date().isoformat() if task.due_date else None,
+        'summary': get_milestone_coverage_data()['milestone_summary'],
     })
 
 
@@ -434,13 +441,28 @@ def api_activity_coverage_link(meeting_id):
 )
 def api_activity_coverage_dismiss(meeting_id):
     """Dismiss one occurrence or all known occurrences in a recurring series."""
+    from app.services.activity_coverage import get_report_data
     from app.services.ghost_meetings import dismiss_ghost
 
     dismiss_series = bool((request.get_json(silent=True) or {}).get('series'))
+    meeting = db.session.get(
+        PrefetchedMeeting, meeting_id, populate_existing=True,
+    )
+    dismissed_ids = [meeting_id]
+    if dismiss_series and meeting and meeting.is_recurring and meeting.recurring_key:
+        dismissed_ids = [
+            row.id for row in PrefetchedMeeting.query.filter_by(
+                recurring_key=meeting.recurring_key,
+            ).all()
+        ]
     success, error = dismiss_ghost(meeting_id, dismiss_series=dismiss_series)
     if not success:
         return jsonify({'success': False, 'error': error}), 404
-    return jsonify({'success': True})
+    return jsonify({
+        'success': True,
+        'dismissed_ids': dismissed_ids,
+        'summary': get_report_data(view_all=True)['summary'],
+    })
 
 
 @bp.route('/reports/one-on-one')

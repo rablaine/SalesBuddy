@@ -142,9 +142,9 @@
         </div>
         <div class="coverage-summary mt-1"{% if lens == 'meetings' %} data-total="{{ summary.total }}"{% endif %}>
             {% if lens == 'milestones' %}
-            <span class="coverage-metric"><span class="coverage-value">{{ milestone_summary.coverage_percent }}%</span> milestone HoK coverage</span>
-            <span class="coverage-metric"><span class="coverage-value">{{ milestone_summary.covered }}/{{ milestone_summary.active_total }}</span> covered this FY</span>
-            <span class="coverage-metric"><span class="coverage-value">{{ milestone_summary.uncovered }}</span> need HoK</span>
+            <span class="coverage-metric"><span class="coverage-value" id="milestoneCoveragePercent">{{ milestone_summary.coverage_percent }}%</span> milestone HoK coverage</span>
+            <span class="coverage-metric"><span class="coverage-value" id="milestoneCoverageCount">{{ milestone_summary.covered }}/{{ milestone_summary.active_total }}</span> covered this FY</span>
+            <span class="coverage-metric"><span class="coverage-value" id="milestoneCoverageUncovered">{{ milestone_summary.uncovered }}</span> need HoK</span>
             {% else %}
             <span class="coverage-metric"><span class="coverage-value" id="coveragePercent">{{ summary.coverage_percent }}%</span> covered</span>
             <span class="coverage-metric"><span class="coverage-value" id="coverageLogged">{{ summary.logged }}</span> logged</span>
@@ -304,7 +304,7 @@
         <span></span>
     </div>
     {% for meeting in meetings %}
-    <section class="meeting-row" data-status="{{ meeting.status }}" data-enrichment="{{ meeting.enrichment_status or '' }}">
+    <section class="meeting-row" data-meeting-id="{{ meeting.id }}" data-status="{{ meeting.status }}" data-enrichment="{{ meeting.enrichment_status or '' }}">
         <div class="meeting-summary meeting-columns" role="button" tabindex="0" aria-expanded="false" aria-controls="meeting-detail-{{ meeting.id }}">
             <i class="bi bi-chevron-right meeting-chevron text-muted small"></i>
             <div class="meeting-date">
@@ -1010,6 +1010,15 @@
         percent.textContent = (total ? Math.round((loggedCount / total) * 100) : 0) + '%';
     }
 
+    function setMeetingCoverageSummary(summary) {
+        var container = document.querySelector('.coverage-summary');
+        container.dataset.total = summary.total;
+        document.getElementById('coveragePercent').textContent = summary.coverage_percent + '%';
+        document.getElementById('coverageLogged').textContent = summary.logged;
+        document.getElementById('coverageReady').textContent = summary.ready;
+        document.getElementById('coverageNeedsAttention').textContent = summary.needs_attention;
+    }
+
     function renderLoggedActivity(form, activity) {
         var row = form.closest('.meeting-row');
         var previousStatus = row.dataset.status;
@@ -1153,12 +1162,22 @@
 
     document.querySelectorAll('.dismiss-meeting').forEach(function(button) {
         button.addEventListener('click', function() {
+            button.disabled = true;
             requestJson('/api/reports/activity-coverage/meetings/' + button.dataset.id + '/dismiss', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ series: button.dataset.series === 'true' }),
-            }).then(function() { window.location.reload(); })
-              .catch(function(error) { alert(error.message); });
+            }).then(function(data) {
+                data.dismissed_ids.forEach(function(meetingId) {
+                    var row = document.querySelector('[data-meeting-id="' + meetingId + '"]');
+                    if (row) row.remove();
+                });
+                setMeetingCoverageSummary(data.summary);
+                syncExpandAllControl();
+            }).catch(function(error) {
+                button.disabled = false;
+                alert(error.message);
+            });
         });
     });
 
