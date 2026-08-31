@@ -3,6 +3,7 @@ import json
 import threading
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -399,6 +400,36 @@ def test_create_activity_is_idempotent(app, coverage_data):
         ) + timedelta(hours=15)
 
 
+def test_create_activity_endpoint_returns_inline_render_fields(
+    client, coverage_data,
+):
+    """Create endpoint returns complete activity data for row-local rendering."""
+    task = SimpleNamespace(
+        id=321,
+        msx_task_url='https://example.test/inline-created-task',
+        subject='Created inline activity',
+        task_category_name='Architecture Design Session',
+        milestone=SimpleNamespace(display_text='Deploy Fabric'),
+    )
+    with patch(
+        'app.services.activity_coverage.create_meeting_activity',
+        return_value=task,
+    ):
+        response = client.post(
+            f'/api/reports/activity-coverage/meetings/'
+            f'{coverage_data["meeting_id"]}/create',
+        )
+
+    payload = response.get_json()
+    assert response.status_code == 200, payload
+    assert payload['success'] is True
+    assert payload['task_id'] == 321
+    assert payload['task_url'] == 'https://example.test/inline-created-task'
+    assert payload['subject'] == 'Created inline activity'
+    assert payload['category'] == 'Architecture Design Session'
+    assert payload['milestone'] == 'Deploy Fabric'
+
+
 def test_link_existing_activity(app, client, coverage_data):
     """Imported MSX task can be confirmed as meeting coverage."""
     with app.app_context():
@@ -446,6 +477,46 @@ def test_link_existing_activity(app, client, coverage_data):
         meeting = db.session.get(PrefetchedMeeting, coverage_data['meeting_id'])
         assert meeting.milestone_id == coverage_data['milestone_id']
         db.session.delete(task)
+        db.session.commit()
+
+
+def test_link_activity_endpoint_returns_inline_render_fields(
+    app, client, coverage_data,
+):
+    """Link endpoint returns complete activity data for row-local rendering."""
+    with app.app_context():
+        task = MsxTask(
+            msx_task_id='inline-linked-task',
+            msx_task_url='https://example.test/inline-linked-task',
+            subject='Linked inline activity',
+            task_category=861980004,
+            task_category_name='Architecture Design Session',
+            duration_minutes=60,
+            is_hok=True,
+            due_date=datetime.combine(date.today(), datetime.min.time()),
+            milestone_id=coverage_data['milestone_id'],
+        )
+        db.session.add(task)
+        db.session.commit()
+        task_id = task.id
+
+    response = client.post(
+        f'/api/reports/activity-coverage/meetings/{coverage_data["meeting_id"]}/link',
+        json={'task_id': task_id},
+    )
+
+    assert response.status_code == 200
+    assert response.get_json() == {
+        'success': True,
+        'task_id': task_id,
+        'task_url': 'https://example.test/inline-linked-task',
+        'subject': 'Linked inline activity',
+        'category': 'Architecture Design Session',
+        'milestone': 'Deploy Fabric',
+    }
+
+    with app.app_context():
+        db.session.delete(db.session.get(MsxTask, task_id))
         db.session.commit()
 
 
@@ -1382,6 +1453,28 @@ def test_meeting_drafts_autosave_without_manual_enrich_or_save(
     assert "select.dispatchEvent(new Event('change', { bubbles: true }))" in html
     assert 'save-draft' not in html
     assert 'enrich-draft' not in html
+
+
+def test_create_and_link_update_meeting_inline_without_page_reload(
+    client, coverage_data,
+):
+    """Create and link actions render logged state without losing page context."""
+    response = client.get('/reports/activity-coverage')
+    html = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert 'renderLoggedActivity(form, activity)' in html
+    assert 'updateCoverageSummary(previousStatus)' in html
+    assert "form.replaceWith(loggedDetail)" in html
+    assert "applyCoverageFilter();" in html
+    assert ".then(function(activity) {\n            renderLoggedActivity(form, activity);" in html
+    assert ".then(function(activity) { renderLoggedActivity(form, activity); })" in html
+    create_handler = html[html.index('function createActivity(form)'):
+                          html.index("document.querySelectorAll('.create-activity')")]
+    link_handler = html[html.index("document.querySelectorAll('.link-activity')"):
+                        html.index("document.querySelectorAll('.dismiss-meeting')")]
+    assert 'window.location.reload()' not in create_handler
+    assert 'window.location.reload()' not in link_handler
 
 
 def test_customer_milestones_rank_team_then_active(app, client, coverage_data):

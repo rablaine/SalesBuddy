@@ -384,6 +384,17 @@ def api_activity_coverage_update_meeting(meeting_id):
     return jsonify({'success': True, 'meeting_id': meeting.id})
 
 
+def _activity_coverage_task_payload(task: MsxTask) -> dict:
+    """Return activity fields needed for an inline logged-state update."""
+    return {
+        'task_id': task.id,
+        'task_url': task.msx_task_url,
+        'subject': task.subject,
+        'category': task.task_category_name or '',
+        'milestone': task.milestone.display_text if task.milestone else '',
+    }
+
+
 @bp.route(
     '/api/reports/activity-coverage/meetings/<int:meeting_id>/create',
     methods=['POST'],
@@ -398,11 +409,7 @@ def api_activity_coverage_create(meeting_id):
         return jsonify({'success': False, 'error': str(exc)}), 400
     except RuntimeError as exc:
         return jsonify({'success': False, 'error': str(exc)}), 502
-    return jsonify({
-        'success': True,
-        'task_id': task.id,
-        'task_url': task.msx_task_url,
-    })
+    return jsonify({'success': True, **_activity_coverage_task_payload(task)})
 
 
 @bp.route(
@@ -418,7 +425,7 @@ def api_activity_coverage_link(meeting_id):
         task = link_existing_activity(meeting_id, int(data.get('task_id') or 0))
     except (TypeError, ValueError) as exc:
         return jsonify({'success': False, 'error': str(exc)}), 400
-    return jsonify({'success': True, 'task_id': task.id})
+    return jsonify({'success': True, **_activity_coverage_task_payload(task)})
 
 
 @bp.route(
