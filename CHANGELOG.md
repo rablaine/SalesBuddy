@@ -8,7 +8,7 @@ brought the change into `main`, so the admin Updates card can show
 Format: `## M/D/YYYY - <merge-short-sha>`. See
 `scripts/tag-changelog.ps1` for the helper that fills this in.
 
-## 8/31/2026
+## 8/31/2026 - 670e407
 
 - Add manual database compaction in Admin Tools to reclaim disk space left by deleted data, with before-and-after size reporting.
 - Automatically compact the database after fiscal-year customer cleanup when at least 50 MB and 10% can be reclaimed, without failing a completed transition if maintenance is temporarily blocked.
