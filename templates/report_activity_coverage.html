@@ -805,17 +805,43 @@
         }
     });
 
+    var bulkExpansionActive = false;
+    var expandAllButton = document.getElementById('expandAllButton');
+
+    function visibleMeetingRows() {
+        return Array.from(document.querySelectorAll('.meeting-row:not(.d-none)'));
+    }
+
+    function syncExpandAllControl() {
+        var rows = visibleMeetingRows();
+        var allVisibleExpanded = rows.length > 0 && rows.every(function(row) {
+            return row.classList.contains('is-expanded');
+        });
+        var label = allVisibleExpanded
+            ? 'Collapse all visible meetings'
+            : 'Expand all visible meetings';
+        expandAllButton.setAttribute('aria-expanded', String(allVisibleExpanded));
+        expandAllButton.setAttribute('aria-label', label);
+        expandAllButton.title = label;
+    }
+
     function toggleMeeting(summary) {
         var row = summary.closest('.meeting-row');
         var willExpand = !row.classList.contains('is-expanded');
-        document.querySelectorAll('.meeting-row.is-expanded').forEach(function(openRow) {
-            openRow.classList.remove('is-expanded');
-            openRow.querySelector('.meeting-summary').setAttribute('aria-expanded', 'false');
-        });
+        if (!bulkExpansionActive) {
+            document.querySelectorAll('.meeting-row.is-expanded').forEach(function(openRow) {
+                openRow.classList.remove('is-expanded');
+                openRow.querySelector('.meeting-summary').setAttribute('aria-expanded', 'false');
+            });
+        }
         if (willExpand) {
             row.classList.add('is-expanded');
             summary.setAttribute('aria-expanded', 'true');
+        } else {
+            row.classList.remove('is-expanded');
+            summary.setAttribute('aria-expanded', 'false');
         }
+        syncExpandAllControl();
     }
 
     document.querySelectorAll('.meeting-summary').forEach(function(summary) {
@@ -1153,6 +1179,7 @@
                 || (filter === 'failed' && row.dataset.enrichment === 'failed');
             row.classList.toggle('d-none', !show);
         });
+        syncExpandAllControl();
     }
 
     coverageFilter.addEventListener('change', function() {
@@ -1169,17 +1196,17 @@
         });
     });
 
-    var allExpanded = false;
-    document.getElementById('expandAllButton').addEventListener('click', function() {
-        allExpanded = !allExpanded;
-        document.querySelectorAll('.meeting-row:not(.d-none)').forEach(function(row) {
-            row.classList.toggle('is-expanded', allExpanded);
-            row.querySelector('.meeting-summary').setAttribute('aria-expanded', String(allExpanded));
+    expandAllButton.addEventListener('click', function() {
+        var rows = visibleMeetingRows();
+        var shouldExpand = !rows.every(function(row) {
+            return row.classList.contains('is-expanded');
         });
-        var label = allExpanded ? 'Collapse all visible meetings' : 'Expand all visible meetings';
-        this.setAttribute('aria-expanded', String(allExpanded));
-        this.setAttribute('aria-label', label);
-        this.title = label;
+        bulkExpansionActive = shouldExpand;
+        rows.forEach(function(row) {
+            row.classList.toggle('is-expanded', shouldExpand);
+            row.querySelector('.meeting-summary').setAttribute('aria-expanded', String(shouldExpand));
+        });
+        syncExpandAllControl();
     });
 
     var importButton = document.getElementById('populationButton');
