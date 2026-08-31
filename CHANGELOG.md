@@ -8,7 +8,7 @@ brought the change into `main`, so the admin Updates card can show
 Format: `## M/D/YYYY - <merge-short-sha>`. See
 `scripts/tag-changelog.ps1` for the helper that fills this in.
 
-## 8/31/2026
+## 8/31/2026 - d59b8e6
 
 - Fix Activity Coverage so collapsing one meeting after Expand All leaves the other meetings expanded and keeps bulk controls synchronized.
 
