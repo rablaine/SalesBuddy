@@ -945,6 +945,14 @@
                                 <i class="bi bi-power"></i> Shut Down Server
                             </button>
                         </div>
+                        <div class="col-md-6">
+                            <h6><i class="bi bi-database-gear"></i> Compact Database</h6>
+                            <p class="small text-muted mb-2">Reclaim disk space left by deleted data. This does not delete active records, but saves and syncs pause while compaction runs.</p>
+                            <button class="btn btn-sm btn-outline-danger" id="vacuumDatabaseBtn">
+                                <i class="bi bi-database-gear"></i> Compact Database
+                            </button>
+                            <div class="small mt-2 d-none" id="vacuumDatabaseResult" role="status" aria-live="polite"></div>
+                        </div>
                         {% if is_electron %}
                         <div class="col-md-6">
                             <h6><i class="bi bi-arrow-repeat"></i> Rebuild Desktop App</h6>
@@ -1553,6 +1561,43 @@ if (rebuildShellBtn) {
         .catch(() => {
             // The shell is likely tearing down to rebuild - show the same splash.
             showRebuildSplash();
+        });
+    });
+}
+
+// Compact SQLite Database
+const vacuumDatabaseBtn = document.getElementById('vacuumDatabaseBtn');
+if (vacuumDatabaseBtn) {
+    const vacuumDatabaseResult = document.getElementById('vacuumDatabaseResult');
+    const formatBytes = bytes => {
+        if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+        return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+    };
+
+    vacuumDatabaseBtn.addEventListener('click', function() {
+        if (!confirm('Compact the database now?\n\nSaves and syncs pause while this runs. Large databases may take several minutes.')) return;
+        this.disabled = true;
+        this.innerHTML = '<span class="spinner-border spinner-border-sm" role="status"></span> Compacting...';
+        vacuumDatabaseResult.className = 'small mt-2 text-muted';
+        vacuumDatabaseResult.textContent = 'Compacting database. Keep Sales Buddy running...';
+
+        fetch('/api/admin/vacuum-database', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        })
+        .then(async response => ({ ok: response.ok, data: await response.json() }))
+        .then(({ ok, data }) => {
+            if (!ok || !data.success) throw new Error(data.error || 'Compaction failed');
+            vacuumDatabaseResult.className = 'small mt-2 text-success';
+            vacuumDatabaseResult.textContent = `Complete. Reclaimed ${formatBytes(data.reclaimed_bytes)} (${formatBytes(data.before_bytes)} to ${formatBytes(data.after_bytes)}).`;
+        })
+        .catch(error => {
+            vacuumDatabaseResult.className = 'small mt-2 text-danger';
+            vacuumDatabaseResult.textContent = `Could not compact database: ${error.message}`;
+        })
+        .finally(() => {
+            this.disabled = false;
+            this.innerHTML = '<i class="bi bi-database-gear"></i> Compact Database';
         });
     });
 }
@@ -4210,12 +4255,19 @@ async function finalizeFY() {
                         setStep(2, SPINNER, 'cleaning org data...');
                     } else if (data.phase === 'commit') {
                         setStep(2, SPINNER, 'committing...');
+                    } else if (data.phase === 'compaction') {
+                        setStep(2, SPINNER, 'compacting database...');
                     }
                 }
             }
         }
         if (!purgeSummary) throw new Error('Purge did not complete');
-        setStep(2, CHECK, purgeSummary.purged_customers + ' purged, ' + purgeSummary.kept_customers + ' kept');
+        const compaction = purgeSummary.database_compaction || {};
+        const compactionDetail = compaction.status === 'completed'
+            ? `, reclaimed ${(compaction.reclaimed_bytes / (1024 * 1024)).toFixed(1)} MB`
+            : compaction.status === 'failed' ? ', compaction skipped' : '';
+        setStep(2, CHECK, purgeSummary.purged_customers + ' purged, '
+            + purgeSummary.kept_customers + ' kept' + compactionDetail);
 
         // ── Step 3: Clean OneDrive Backups ──
         setStep(3, SPINNER, 'cleaning...');
@@ -4278,6 +4330,11 @@ async function finalizeFY() {
                         ${purgeSummary.purged_revenue} revenue records,
                         ${purgeSummary.purged_sellers} sellers, ${purgeSummary.purged_territories} territories,
                         ${purgeSummary.purged_pods} PODs</li>
+                    ${compaction.status === 'completed'
+                        ? `<li>Database compacted: ${(compaction.reclaimed_bytes / (1024 * 1024)).toFixed(1)} MB reclaimed</li>`
+                        : compaction.status === 'failed'
+                            ? '<li>Database compaction was skipped; use Compact Database in Admin Tools to retry</li>'
+                            : '<li>Database compaction was not needed</li>'}
                 </ul>
                 <button class="btn btn-success" onclick="location.reload()">
                     <i class="bi bi-arrow-right"></i> Done

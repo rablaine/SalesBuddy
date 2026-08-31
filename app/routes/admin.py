@@ -526,6 +526,33 @@ def api_rebuild_status():
     return jsonify({'pending': False, 'stale': True})
 
 
+@admin_bp.route('/api/admin/vacuum-database', methods=['POST'])
+def api_vacuum_database():
+    """Compact the live SQLite database and report reclaimed disk space."""
+    from app.db_paths import resolve_db_path
+    from app.services.database_maintenance import (
+        VacuumInProgressError,
+        vacuum_database,
+    )
+
+    try:
+        db.session.remove()
+        db.engine.dispose()
+        result = vacuum_database(resolve_db_path())
+        return jsonify({'success': True, **result})
+    except VacuumInProgressError as error:
+        return jsonify({'success': False, 'error': str(error)}), 409
+    except Exception as error:
+        current_app.logger.exception('Manual database compaction failed')
+        message = str(error)
+        if 'locked' in message.lower() or 'busy' in message.lower():
+            message = (
+                'Database is busy. Wait for current syncs or saves to finish, '
+                'then try again.'
+            )
+        return jsonify({'success': False, 'error': message}), 500
+
+
 @admin_bp.route('/api/admin/migrate-to-electron', methods=['POST'])
 def api_migrate_to_electron():
     """Launch the Flask -> Electron desktop migration in a visible console.
