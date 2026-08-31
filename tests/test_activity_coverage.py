@@ -312,10 +312,58 @@ def test_milestone_coverage_create_api_creates_unlinked_hok(
         )
 
     assert response.status_code == 200
+    payload = response.get_json()
+    assert payload['subject'] == 'Technical workshop delivery'
+    assert payload['category'] == 'Technical Workshop'
+    assert payload['summary']['covered'] == 1
+    assert payload['summary']['uncovered'] == 0
     with app.app_context():
         task = MsxTask.query.filter_by(msx_task_id='route-standalone-hok-guid').one()
         assert task.is_hok is True
         assert task.meeting_id is None
+
+
+def test_dismiss_series_api_returns_affected_ids_and_summary(
+    app, client, coverage_data,
+):
+    """Dismiss endpoint identifies every series row removed from the report."""
+    with app.app_context():
+        meeting = db.session.get(PrefetchedMeeting, coverage_data['meeting_id'])
+        meeting.is_recurring = True
+        meeting.recurring_key = 'coverage-series'
+        sibling = PrefetchedMeeting(
+            workiq_id='coverage-series-sibling',
+            subject='Fabric architecture workshop follow-up',
+            start_time=meeting.start_time - timedelta(days=1),
+            meeting_date=meeting.meeting_date - timedelta(days=1),
+            customer_id=coverage_data['customer_id'],
+            is_recurring=True,
+            recurring_key='coverage-series',
+            expires_at=datetime.now() + timedelta(days=5),
+        )
+        db.session.add(sibling)
+        db.session.commit()
+        sibling_id = sibling.id
+
+    response = client.post(
+        f'/api/reports/activity-coverage/meetings/{coverage_data["meeting_id"]}/dismiss',
+        json={'series': True},
+    )
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert set(payload['dismissed_ids']) == {
+        coverage_data['meeting_id'], sibling_id,
+    }
+    assert payload['summary']['total'] == 0
+
+    with app.app_context():
+        db.session.delete(db.session.get(PrefetchedMeeting, sibling_id))
+        meeting = db.session.get(PrefetchedMeeting, coverage_data['meeting_id'])
+        meeting.dismissed = False
+        meeting.is_recurring = False
+        meeting.recurring_key = None
+        db.session.commit()
 
 
 def test_meeting_lens_can_filter_by_milestone(app, client, coverage_data):
@@ -1475,6 +1523,36 @@ def test_create_and_link_update_meeting_inline_without_page_reload(
                         html.index("document.querySelectorAll('.dismiss-meeting')")]
     assert 'window.location.reload()' not in create_handler
     assert 'window.location.reload()' not in link_handler
+
+
+def test_dismiss_updates_meeting_rows_inline_without_page_reload(
+    client, coverage_data,
+):
+    """Dismiss removes returned meeting IDs and refreshes summary in place."""
+    response = client.get('/reports/activity-coverage')
+    html = response.get_data(as_text=True)
+    handler = html[html.index("document.querySelectorAll('.dismiss-meeting')"):
+                   html.index('var coverageFilter')]
+
+    assert 'data.dismissed_ids.forEach' in handler
+    assert 'setMeetingCoverageSummary(data.summary)' in handler
+    assert 'row.remove()' in handler
+    assert 'window.location.reload()' not in handler
+
+
+def test_standalone_hok_updates_milestone_row_without_page_reload(
+    client, coverage_data,
+):
+    """Standalone HoK creation renders covered state without navigation."""
+    response = client.get('/reports/activity-coverage?lens=milestones')
+    html = response.get_data(as_text=True)
+    create_path = html[html.index('function renderStandaloneHok'):
+                       html.index("document.querySelectorAll('.save-milestone-hok')")]
+
+    assert 'setMilestoneCoverageSummary(task.summary)' in create_path
+    assert 'renderStandaloneHok(form, task)' in create_path
+    assert 'row.remove()' in create_path
+    assert 'if (createAfter)' in create_path
 
 
 def test_expand_all_keeps_individual_row_toggles_independent(
