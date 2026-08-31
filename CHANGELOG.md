@@ -8,7 +8,7 @@ brought the change into `main`, so the admin Updates card can show
 Format: `## M/D/YYYY - <merge-short-sha>`. See
 `scripts/tag-changelog.ps1` for the helper that fills this in.
 
-## 8/31/2026
+## 8/31/2026 - c7a2857
 
 - Keep your place in Activity Coverage when dismissing meetings or creating standalone HoK tasks by updating affected rows without reloading the page.
 
