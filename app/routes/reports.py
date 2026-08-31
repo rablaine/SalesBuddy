@@ -1607,7 +1607,11 @@ def api_msx_workspace_tasks():
     milestone_id = request.args.get('milestone_id', type=int)
     search = request.args.get('search', '').strip()
 
-    query = MsxTask.query.join(Milestone, MsxTask.milestone_id == Milestone.id)
+    query = (
+        MsxTask.query
+        .join(Milestone, MsxTask.milestone_id == Milestone.id)
+        .filter(or_(MsxTask.statecode.is_(None), MsxTask.statecode == 0))
+    )
 
     if customer_id:
         query = query.filter(Milestone.customer_id == customer_id)

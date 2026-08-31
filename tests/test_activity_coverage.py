@@ -174,7 +174,13 @@ def test_create_standalone_milestone_hok_is_idempotent(app, coverage_data):
             'task_id': 'standalone-hok-guid',
             'task_url': 'https://example.test/standalone-task',
         }
-        with patch('app.services.msx_api.create_task', return_value=result) as create:
+        with (
+            patch('app.services.msx_api.create_task', return_value=result) as create,
+            patch(
+                'app.services.msx_api.close_task',
+                return_value={'success': True},
+            ) as close,
+        ):
             first = activity_coverage.create_milestone_hok_activity(
                 coverage_data['milestone_id'],
             )
@@ -184,12 +190,16 @@ def test_create_standalone_milestone_hok_is_idempotent(app, coverage_data):
 
         assert first.id == second.id
         assert first.is_hok is True
+        assert first.statecode == 1
+        assert first.statuscode == 5
         assert first.meeting_id is None
         assert first.note_id is None
         assert MilestoneCoverageDraft.query.filter_by(
             milestone_id=coverage_data['milestone_id'],
         ).first() is None
         create.assert_called_once()
+        assert close.call_count == 2
+        close.assert_called_with('standalone-hok-guid')
 
 
 def test_milestone_draft_rejects_non_hok_category(app, coverage_data):
@@ -306,7 +316,13 @@ def test_milestone_coverage_create_api_creates_unlinked_hok(
         'task_id': 'route-standalone-hok-guid',
         'task_url': 'https://example.test/route-hok',
     }
-    with patch('app.services.msx_api.create_task', return_value=result):
+    with (
+        patch('app.services.msx_api.create_task', return_value=result),
+        patch(
+            'app.services.msx_api.close_task',
+            return_value={'success': True},
+        ) as close,
+    ):
         response = client.post(
             f"/api/reports/activity-coverage/milestones/{coverage_data['milestone_id']}/create"
         )
@@ -317,6 +333,7 @@ def test_milestone_coverage_create_api_creates_unlinked_hok(
     assert payload['category'] == 'Technical Workshop'
     assert payload['summary']['covered'] == 1
     assert payload['summary']['uncovered'] == 0
+    close.assert_called_once_with('route-standalone-hok-guid')
     with app.app_context():
         task = MsxTask.query.filter_by(msx_task_id='route-standalone-hok-guid').one()
         assert task.is_hok is True
@@ -425,7 +442,13 @@ def test_create_activity_is_idempotent(app, coverage_data):
             'task_id': 'coverage-task-guid',
             'task_url': 'https://example.test/task',
         }
-        with patch('app.services.msx_api.create_task', return_value=result) as create:
+        with (
+            patch('app.services.msx_api.create_task', return_value=result) as create,
+            patch(
+                'app.services.msx_api.close_task',
+                return_value={'success': True},
+            ) as close,
+        ):
             first = activity_coverage.create_meeting_activity(
                 coverage_data['meeting_id'],
             )
@@ -434,6 +457,10 @@ def test_create_activity_is_idempotent(app, coverage_data):
             )
 
         assert first.id == second.id
+        assert first.statecode == 1
+        assert first.statuscode == 5
+        assert close.call_count == 2
+        close.assert_called_with('coverage-task-guid')
         create.assert_called_once_with(
             milestone_id='coverage-milestone-guid',
             subject='Coverage activity',

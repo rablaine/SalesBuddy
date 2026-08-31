@@ -5,6 +5,7 @@ Tests the MSX API client, milestone picker, and task creation features.
 Note: These tests mock the actual MSX API calls to avoid external dependencies.
 """
 import pytest
+from pathlib import Path
 from unittest.mock import patch, MagicMock
 from app.models import db, Milestone, MsxTask, Note, Customer
 from app.services.msx_api import (
@@ -339,14 +340,26 @@ class TestMsxRoutes:
         data = response.get_json()
         assert 'milestone_id' in data['error'] or 'required' in data['error']
     
+    @patch('app.routes.msx.close_msx_task')
     @patch('app.routes.msx.create_task')
-    def test_create_task_success(self, mock_create_task, client, app):
+    def test_create_task_success(
+        self, mock_create_task, mock_close_task, client, app,
+    ):
         """Test successful task creation."""
         mock_create_task.return_value = {
             'success': True,
             'task_id': 'new-task-123',
             'task_url': 'https://example.com/task/new-task-123'
         }
+        mock_close_task.return_value = {'success': True}
+
+        with app.app_context():
+            db.session.add(Milestone(
+                msx_milestone_id='milestone-abc',
+                title='Completion Test Milestone',
+                url='https://example.com/milestone-abc',
+            ))
+            db.session.commit()
         
         response = client.post('/api/msx/tasks',
             json={
@@ -354,7 +367,8 @@ class TestMsxRoutes:
                 'subject': 'Test Task',
                 'task_category': 861980004,
                 'duration_minutes': 60,
-                'description': 'Test description'
+                'description': 'Test description',
+                'complete_on_create': True,
             },
             content_type='application/json'
         )
@@ -363,7 +377,43 @@ class TestMsxRoutes:
         data = response.get_json()
         assert data['success'] is True
         assert data['task_id'] == 'new-task-123'
+        assert data['completed'] is True
         assert 'task_url' in data
+        mock_close_task.assert_called_once_with('new-task-123')
+        with app.app_context():
+            task = MsxTask.query.filter_by(msx_task_id='new-task-123').one()
+            assert task.statecode == 1
+            assert task.statuscode == 5
+
+    @patch('app.routes.msx.close_msx_task')
+    @patch('app.routes.msx.create_task')
+    def test_create_task_stays_open_without_completion_flag(
+        self, mock_create_task, mock_close_task, client, app,
+    ):
+        """Shared task endpoint leaves non-note tasks open by default."""
+        mock_create_task.return_value = {
+            'success': True,
+            'task_id': 'open-task-123',
+            'task_url': 'https://example.com/task/open-task-123',
+        }
+
+        response = client.post('/api/msx/tasks', json={
+            'milestone_id': 'milestone-abc',
+            'subject': 'Open Task',
+            'task_category': 861980004,
+        })
+
+        assert response.status_code == 200
+        assert 'completed' not in response.get_json()
+        mock_close_task.assert_not_called()
+
+    def test_note_task_callers_request_completion(self):
+        """Note form and Fill My Day complete created MSX activities."""
+        note_form = Path('templates/note_form.html').read_text(encoding='utf-8')
+        fill_my_day = Path('templates/fill_my_day.html').read_text(encoding='utf-8')
+
+        assert note_form.count('complete_on_create: true') == 2
+        assert fill_my_day.count('complete_on_create: true') == 1
 
 
 class TestMilestoneStatusSorting:

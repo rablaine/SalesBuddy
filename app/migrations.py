@@ -370,6 +370,10 @@ def run_migrations(db):
     _add_column_if_not_exists(db, inspector, 'msx_tasks',
                               'meeting_id',
                               'INTEGER REFERENCES prefetched_meetings(id)')
+    _add_column_if_not_exists(db, inspector, 'msx_tasks',
+                              'statecode', 'INTEGER')
+    _add_column_if_not_exists(db, inspector, 'msx_tasks',
+                              'statuscode', 'INTEGER')
     if 'msx_tasks' in existing_tables:
         with db.engine.connect() as conn:
             conn.execute(text(

@@ -270,6 +270,27 @@ def test_tasks_api_returns_data(client, msx_data):
     assert 'Architecture review' in subjects
 
 
+def test_tasks_api_excludes_completed_tasks(app, client, msx_data):
+    """Workspace lists active tasks while preserving completed records locally."""
+    with app.app_context():
+        from app.models import db, MsxTask
+
+        task = db.session.get(MsxTask, msx_data['task1_id'])
+        task.statecode = 1
+        task.statuscode = 5
+        db.session.commit()
+
+    response = client.get('/api/reports/msx-workspace/tasks')
+    data = response.get_json()
+
+    assert data['count'] == 1
+    assert data['tasks'][0]['task_id'] == 'task-guid-002'
+    with app.app_context():
+        from app.models import db, MsxTask
+
+        assert db.session.get(MsxTask, msx_data['task1_id']) is not None
+
+
 def test_tasks_api_filter_by_customer(client, msx_data):
     """Tasks API filters by customer_id."""
     response = client.get(

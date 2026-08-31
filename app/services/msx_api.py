@@ -2915,7 +2915,8 @@ def get_tasks_for_milestones(
             f"?$filter={filter_str}"
             f"&$select=activityid,subject,description,"
             f"msp_taskcategory,scheduleddurationminutes,"
-            f"scheduledend,createdon,_regardingobjectid_value"
+            f"scheduledend,createdon,statecode,statuscode,"
+            f"_regardingobjectid_value"
             f"&$top=5000"
         )
 
@@ -2944,6 +2945,8 @@ def get_tasks_for_milestones(
                         "duration_minutes": raw.get("scheduleddurationminutes") or 60,
                         "due_date": due_date_str,
                         "created_on": raw.get("createdon"),
+                        "statecode": raw.get("statecode"),
+                        "statuscode": raw.get("statuscode"),
                         "milestone_msx_id": (
                             raw.get("_regardingobjectid_value") or ""
                         ).lower(),
@@ -2972,6 +2975,8 @@ def get_tasks_for_milestones(
                                 "duration_minutes": raw.get("scheduleddurationminutes") or 60,
                                 "due_date": raw.get("scheduledend"),
                                 "created_on": raw.get("createdon"),
+                                "statecode": raw.get("statecode"),
+                                "statuscode": raw.get("statuscode"),
                                 "milestone_msx_id": (
                                     raw.get("_regardingobjectid_value") or ""
                                 ).lower(),

@@ -691,6 +691,8 @@ class TestMilestoneSyncService:
                     "duration_minutes": 120,
                     "due_date": "2026-03-20T00:00:00Z",
                     "created_on": "2026-03-18T16:45:00Z",
+                    "statecode": 1,
+                    "statuscode": 5,
                     "milestone_msx_id": "ms-guid-task-test",
                     "task_url": "https://example.com/task-001",
                 },
@@ -721,6 +723,8 @@ class TestMilestoneSyncService:
             assert task.msx_task_url == "https://example.com/task-001"
             assert task.note_id is None  # Synced tasks aren't linked to notes
             assert task.msx_created_on == datetime(2026, 3, 18, 16, 45)
+            assert task.statecode == 1
+            assert task.statuscode == 5
 
             # Verify task is linked to the correct milestone
             ms = Milestone.query.filter_by(msx_milestone_id="ms-guid-task-test").first()
