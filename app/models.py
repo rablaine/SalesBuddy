@@ -1262,6 +1262,8 @@ class MsxTask(db.Model):
     is_hok = db.Column(db.Boolean, default=False, nullable=False)  # Is this a HOK task?
     due_date = db.Column(db.DateTime, nullable=True)  # scheduledend from MSX
     msx_created_on = db.Column(db.DateTime, nullable=True)
+    statecode = db.Column(db.Integer, nullable=True)  # 0=Open, 1=Completed
+    statuscode = db.Column(db.Integer, nullable=True)  # 5=Completed
     
     # Relationships
     note_id = db.Column(db.Integer, db.ForeignKey('notes.id'), nullable=True)

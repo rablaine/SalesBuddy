@@ -47,6 +47,7 @@ from app.services.msx_api import (
     get_my_milestone_team_ids,
     extract_account_id_from_url,
     create_task,
+    close_task as close_msx_task,
     add_user_to_milestone_team,
     remove_user_from_milestone_team,
     TASK_CATEGORIES,
@@ -546,6 +547,7 @@ def create_msx_task():
     duration_minutes = data.get("duration_minutes", 60)
     description = data.get("description")
     due_date = data.get("due_date")
+    complete_on_create = data.get("complete_on_create") is True
     
     if not milestone_id:
         return jsonify({"success": False, "error": "milestone_id required"}), 400
@@ -566,6 +568,7 @@ def create_msx_task():
     # Auto-join the milestone team if task creation succeeded
     if result.get('success'):
         # Save the task locally so it shows in the workspace immediately
+        local_task = None
         try:
             from app.services.msx_api import TASK_CATEGORIES, HOK_TASK_CATEGORIES
             local_ms = Milestone.query.filter_by(msx_milestone_id=milestone_id).first()
@@ -596,6 +599,23 @@ def create_msx_task():
                 db.session.commit()
         except Exception as e:
             logger.warning(f'Could not save task locally: {e}')
+
+        if complete_on_create and result.get('task_id'):
+            close_result = close_msx_task(result['task_id'])
+            result['completed'] = close_result.get('success', False)
+            if result['completed'] and local_task:
+                local_task.statecode = 1
+                local_task.statuscode = 5
+                db.session.commit()
+            if not result['completed']:
+                result['completion_warning'] = (
+                    close_result.get('error') or 'MSX task completion failed'
+                )
+                logger.warning(
+                    'Created MSX task %s but could not complete it: %s',
+                    result['task_id'],
+                    result['completion_warning'],
+                )
 
         try:
             join_result = add_user_to_milestone_team(milestone_id)

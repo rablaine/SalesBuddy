@@ -1309,6 +1309,8 @@ def _sync_all_tasks() -> Generator[
                     )
                     existing.due_date = due_date
                     existing.msx_created_on = created_on
+                    existing.statecode = t.get("statecode")
+                    existing.statuscode = t.get("statuscode")
                     existing.msx_task_url = (
                         t.get("task_url") or existing.msx_task_url
                     )
@@ -1327,6 +1329,8 @@ def _sync_all_tasks() -> Generator[
                         duration_minutes=t.get("duration_minutes") or 60,
                         due_date=due_date,
                         msx_created_on=created_on,
+                        statecode=t.get("statecode"),
+                        statuscode=t.get("statuscode"),
                         milestone_id=local_milestone_id,
                     )
                     db.session.add(new_task)
@@ -1438,6 +1442,8 @@ def _sync_customer_tasks(
             existing.duration_minutes = t.get("duration_minutes") or existing.duration_minutes
             existing.due_date = due_date
             existing.msx_created_on = created_on
+            existing.statecode = t.get("statecode")
+            existing.statuscode = t.get("statuscode")
             existing.msx_task_url = t.get("task_url") or existing.msx_task_url
             existing.milestone_id = local_milestone_id
             result["tasks_updated"] += 1
@@ -1453,6 +1459,8 @@ def _sync_customer_tasks(
                 duration_minutes=t.get("duration_minutes") or 60,
                 due_date=due_date,
                 msx_created_on=created_on,
+                statecode=t.get("statecode"),
+                statuscode=t.get("statuscode"),
                 milestone_id=local_milestone_id,
                 # note_id left NULL — synced tasks aren't linked to a note
             )

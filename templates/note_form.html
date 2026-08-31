@@ -5166,7 +5166,8 @@ function createTaskInMSX() {
             subject: subject,
             task_category: parseInt(category),
             description: description || null,
-            due_date: dueDate ? dueDate + 'T23:59:59Z' : null
+            due_date: dueDate ? dueDate + 'T23:59:59Z' : null,
+            complete_on_create: true
         })
     })
     .then(response => response.json())
@@ -6306,7 +6307,8 @@ document.getElementById('noteForm').addEventListener('submit', async function(e)
                     subject: taskSubject,
                     task_category: parseInt(taskCategory),
                     description: taskDescription || null,
-                    due_date: taskDueDate ? taskDueDate + 'T23:59:59Z' : null
+                    due_date: taskDueDate ? taskDueDate + 'T23:59:59Z' : null,
+                    complete_on_create: true
                 })
             });
             const taskResult = await taskResponse.json();

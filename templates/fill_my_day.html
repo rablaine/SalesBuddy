@@ -706,7 +706,8 @@ async function createCardTask(idx) {
                 category: category,
                 duration: duration,
                 description: description,
-                due_date: dueDate ? dueDate + 'T23:59:59Z' : null
+                due_date: dueDate ? dueDate + 'T23:59:59Z' : null,
+                complete_on_create: true
             })
         });
 

@@ -678,8 +678,23 @@ def update_milestone_coverage_draft(
     return draft
 
 
+def _complete_activity(task: MsxTask) -> MsxTask:
+    """Complete a created activity in MSX and return its local record."""
+    from app.services.msx_api import close_task
+
+    close_result = close_task(task.msx_task_id)
+    if not close_result.get('success'):
+        raise RuntimeError(
+            close_result.get('error') or 'MSX activity completion failed'
+        )
+    task.statecode = 1
+    task.statuscode = 5
+    db.session.commit()
+    return task
+
+
 def create_milestone_hok_activity(milestone_id: int) -> MsxTask:
-    """Create one standalone current-FY HoK activity for a milestone."""
+    """Create and complete one standalone current-FY HoK activity."""
     from app.services.msx_api import create_task
 
     with _milestone_create_lock:
@@ -693,7 +708,7 @@ def create_milestone_hok_activity(milestone_id: int) -> MsxTask:
             and fiscal_start <= _task_coverage_date(task) <= fiscal_end
         ), None)
         if existing:
-            return existing
+            return _complete_activity(existing)
         draft = milestone.coverage_draft
         if draft is None:
             raise ValueError('Save the HoK activity draft before creating it')
@@ -727,7 +742,7 @@ def create_milestone_hok_activity(milestone_id: int) -> MsxTask:
         db.session.add(task)
         db.session.delete(draft)
         db.session.commit()
-        return task
+        return _complete_activity(task)
 
 
 def update_meeting_draft(meeting_id: int, data: dict[str, Any]) -> PrefetchedMeeting:
@@ -787,7 +802,7 @@ def link_existing_activity(meeting_id: int, task_id: int) -> MsxTask:
 
 
 def create_meeting_activity(meeting_id: int) -> MsxTask:
-    """Create one MSX activity from a saved meeting draft."""
+    """Create and complete one MSX activity from a saved meeting draft."""
     from app.services.msx_api import create_task
 
     with _create_lock:
@@ -796,7 +811,7 @@ def create_meeting_activity(meeting_id: int) -> MsxTask:
             raise ValueError('Meeting not found')
         existing = _linked_task(meeting)
         if existing:
-            return existing
+            return _complete_activity(existing)
         if not meeting.milestone_id or not meeting.selected_milestone:
             raise ValueError('Select a milestone before creating activity')
         if not meeting.selected_milestone.msx_milestone_id:
@@ -843,7 +858,7 @@ def create_meeting_activity(meeting_id: int) -> MsxTask:
         )
         db.session.add(task)
         db.session.commit()
-        return task
+        return _complete_activity(task)
 
 
 def _population_dates(
