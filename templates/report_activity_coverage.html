@@ -140,16 +140,16 @@
             <h3 class="mb-0"><i class="bi bi-calendar2-check"></i> Activity Coverage</h3>
             <span class="text-muted small">{{ fiscal_year_label }}</span>
         </div>
-        <div class="coverage-summary mt-1">
+        <div class="coverage-summary mt-1"{% if lens == 'meetings' %} data-total="{{ summary.total }}"{% endif %}>
             {% if lens == 'milestones' %}
             <span class="coverage-metric"><span class="coverage-value">{{ milestone_summary.coverage_percent }}%</span> milestone HoK coverage</span>
             <span class="coverage-metric"><span class="coverage-value">{{ milestone_summary.covered }}/{{ milestone_summary.active_total }}</span> covered this FY</span>
             <span class="coverage-metric"><span class="coverage-value">{{ milestone_summary.uncovered }}</span> need HoK</span>
             {% else %}
-            <span class="coverage-metric"><span class="coverage-value">{{ summary.coverage_percent }}%</span> covered</span>
-            <span class="coverage-metric"><span class="coverage-value">{{ summary.logged }}</span> logged</span>
-            <span class="coverage-metric"><span class="coverage-value">{{ summary.ready }}</span> ready</span>
-            <span class="coverage-metric"><span class="coverage-value">{{ summary.needs_attention }}</span> need matching</span>
+            <span class="coverage-metric"><span class="coverage-value" id="coveragePercent">{{ summary.coverage_percent }}%</span> covered</span>
+            <span class="coverage-metric"><span class="coverage-value" id="coverageLogged">{{ summary.logged }}</span> logged</span>
+            <span class="coverage-metric"><span class="coverage-value" id="coverageReady">{{ summary.ready }}</span> ready</span>
+            <span class="coverage-metric"><span class="coverage-value" id="coverageNeedsAttention">{{ summary.needs_attention }}</span> need matching</span>
             {% endif %}
         </div>
     </div>
@@ -966,6 +966,73 @@
         return enqueueSave(form, state.version);
     }
 
+    function updateCoverageSummary(previousStatus) {
+        var summary = document.querySelector('.coverage-summary');
+        var logged = document.getElementById('coverageLogged');
+        var ready = document.getElementById('coverageReady');
+        var needsAttention = document.getElementById('coverageNeedsAttention');
+        var percent = document.getElementById('coveragePercent');
+        if (!summary || !logged || !ready || !needsAttention || !percent) return;
+        var loggedCount = Number(logged.textContent) + 1;
+        logged.textContent = loggedCount;
+        if (previousStatus === 'ready') {
+            ready.textContent = Math.max(0, Number(ready.textContent) - 1);
+        } else {
+            needsAttention.textContent = Math.max(0, Number(needsAttention.textContent) - 1);
+        }
+        var total = Number(summary.dataset.total);
+        percent.textContent = (total ? Math.round((loggedCount / total) * 100) : 0) + '%';
+    }
+
+    function renderLoggedActivity(form, activity) {
+        var row = form.closest('.meeting-row');
+        var previousStatus = row.dataset.status;
+        row.dataset.status = 'logged';
+
+        var statusPrimary = row.querySelector('.meeting-status-primary');
+        statusPrimary.innerHTML = '<span class="status-dot status-logged"></span> Logged';
+        updateSummaryValue(
+            row.querySelector('.meeting-milestone'),
+            activity.milestone,
+            '',
+            'No milestone'
+        );
+
+        if (activity.task_url && !row.querySelector('.meeting-actions a')) {
+            var activityLink = document.createElement('a');
+            activityLink.className = 'btn btn-sm btn-outline-success';
+            activityLink.href = activity.task_url;
+            activityLink.target = '_blank';
+            activityLink.rel = 'noopener';
+            activityLink.title = 'Open activity in MSX';
+            activityLink.setAttribute('aria-label', 'Open activity in MSX');
+            activityLink.innerHTML = '<i class="bi bi-box-arrow-up-right"></i>';
+            row.querySelector('.meeting-actions').prepend(activityLink);
+        }
+
+        var loggedDetail = document.createElement('div');
+        loggedDetail.className = 'd-flex flex-wrap align-items-center gap-2 py-2';
+        loggedDetail.innerHTML = '<i class="bi bi-check-circle-fill text-success"></i>';
+        var subject = document.createElement('strong');
+        subject.textContent = activity.subject;
+        loggedDetail.appendChild(subject);
+        if (activity.category) {
+            var category = document.createElement('span');
+            category.className = 'badge bg-secondary';
+            category.textContent = activity.category;
+            loggedDetail.appendChild(category);
+        }
+        if (activity.milestone) {
+            var milestone = document.createElement('span');
+            milestone.className = 'text-muted small';
+            milestone.textContent = activity.milestone;
+            loggedDetail.appendChild(milestone);
+        }
+        form.replaceWith(loggedDetail);
+        updateCoverageSummary(previousStatus);
+        applyCoverageFilter();
+    }
+
     function createActivity(form) {
         var meetingId = form.dataset.id;
         var buttons = form.querySelectorAll('button');
@@ -975,8 +1042,8 @@
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
             });
-        }).then(function() {
-            window.location.reload();
+        }).then(function(activity) {
+            renderLoggedActivity(form, activity);
         }).catch(function(error) {
             alert(error.message);
             buttons.forEach(function(button) { button.disabled = false; });
@@ -1045,12 +1112,16 @@
         button.addEventListener('click', function() {
             var form = button.closest('form');
             var taskId = form.querySelector('.candidate-select').value;
+            button.disabled = true;
             requestJson('/api/reports/activity-coverage/meetings/' + form.dataset.id + '/link', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ task_id: taskId }),
-            }).then(function() { window.location.reload(); })
-              .catch(function(error) { alert(error.message); });
+                        }).then(function(activity) { renderLoggedActivity(form, activity); })
+                            .catch(function(error) {
+                                    button.disabled = false;
+                                    alert(error.message);
+                            });
         });
     });
 
