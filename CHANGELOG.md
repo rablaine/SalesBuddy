@@ -8,6 +8,10 @@ brought the change into `main`, so the admin Updates card can show
 Format: `## M/D/YYYY - <merge-short-sha>`. See
 `scripts/tag-changelog.ps1` for the helper that fills this in.
 
+## 8/31/2026
+
+- Show open project tasks in the home-page Action Items card.
+
 ## 8/31/2026 - 670e407
 
 - Add manual database compaction in Admin Tools to reclaim disk space left by deleted data, with before-and-after size reporting.
