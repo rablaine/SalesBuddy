@@ -160,6 +160,7 @@ class TestFYCutoverService:
             summary = events[-1]['summary']
             assert summary['purged_customers'] >= 2
             assert summary['kept_customers'] >= 1
+            assert summary['database_compaction']['status'] == 'skipped'
 
             progress = [e for e in events[:-1] if e.get('phase') == 'purge']
             assert progress, "expected at least one purge progress event"
@@ -169,6 +170,81 @@ class TestFYCutoverService:
             # Same side effects as the non-streaming path.
             assert get_transition_state()['in_transition'] is False
             assert Customer.query.filter_by(tpid=1001).first() is not None
+
+    def test_finalize_compacts_database_when_free_space_is_meaningful(
+        self, app, sample_data,
+    ):
+        """Finalization compacts meaningful free space after committing purge."""
+        metrics = {
+            'page_size': 4096,
+            'page_count': 50_000,
+            'free_pages': 20_000,
+            'reclaimable_bytes': 80 * 1024 * 1024,
+            'free_percent': 40.0,
+        }
+        vacuum_result = {
+            'before_bytes': 200 * 1024 * 1024,
+            'after_bytes': 120 * 1024 * 1024,
+            'reclaimed_bytes': 80 * 1024 * 1024,
+            'free_pages_before': 20_000,
+            'free_percent_before': 40.0,
+            'page_size': 4096,
+        }
+        with app.app_context(), \
+                patch(
+                    'app.services.database_maintenance.database_free_space',
+                    return_value=metrics,
+                ), \
+                patch(
+                    'app.services.database_maintenance.should_vacuum_database',
+                    return_value=True,
+                ), \
+                patch(
+                    'app.services.database_maintenance.vacuum_database',
+                    return_value=vacuum_result,
+                ) as vacuum:
+            from app.services.fy_cutover import finalize_alignments_stream
+
+            events = list(finalize_alignments_stream([1001]))
+
+        assert any(event.get('phase') == 'compaction' for event in events)
+        assert events[-1]['summary']['database_compaction'] == {
+            'status': 'completed',
+            **vacuum_result,
+        }
+        vacuum.assert_called_once()
+
+    def test_finalize_compaction_failure_does_not_fail_purge(self, app, sample_data):
+        """Maintenance failure remains a warning after successful finalization."""
+        metrics = {
+            'reclaimable_bytes': 80 * 1024 * 1024,
+            'free_percent': 40.0,
+        }
+        with app.app_context(), \
+                patch(
+                    'app.services.database_maintenance.database_free_space',
+                    return_value=metrics,
+                ), \
+                patch(
+                    'app.services.database_maintenance.should_vacuum_database',
+                    return_value=True,
+                ), \
+                patch(
+                    'app.services.database_maintenance.vacuum_database',
+                    side_effect=RuntimeError('database is locked'),
+                ):
+            from app.services.fy_cutover import (
+                finalize_alignments_stream,
+                get_transition_state,
+            )
+
+            events = list(finalize_alignments_stream([1001]))
+            state = get_transition_state()
+
+        compaction = events[-1]['summary']['database_compaction']
+        assert compaction['status'] == 'failed'
+        assert compaction['error'] == 'database is locked'
+        assert state['in_transition'] is False
 
     def test_finalize_keeps_customers_in_synced_list(self, app, sample_data):
         """Customers whose TPID is in synced_tpids should be kept."""
@@ -281,6 +357,42 @@ class TestFYAdminRoutes:
             assert not tpid_file.exists()
         finally:
             tpid_file.unlink(missing_ok=True)
+
+    def test_fy_finalize_stream_runs_compaction_after_purge(
+        self, client, app, sample_data, tmp_path, monkeypatch,
+    ):
+        """SSE finalization purges, compacts, exits transition, and completes."""
+        isolated_instance = tmp_path / 'instance'
+        isolated_instance.mkdir()
+        monkeypatch.setattr(app, 'instance_path', str(isolated_instance))
+        tpid_file = tmp_path / 'data' / 'last_sync_tpids.json'
+        tpid_file.parent.mkdir()
+        tpid_file.write_text(json.dumps([1001]), encoding='utf-8')
+        with app.app_context():
+            from app.services.fy_cutover import enter_transition_mode
+            enter_transition_mode('FY27')
+
+        with patch(
+            'app.services.database_maintenance.should_vacuum_database',
+            return_value=True,
+        ):
+            response = client.post('/api/admin/fy/finalize-stream')
+            body = response.get_data(as_text=True)
+
+        assert response.status_code == 200
+        assert '"phase": "compaction"' in body
+        assert '"complete": true' in body
+        assert body.index('"phase": "compaction"') < body.index('"complete": true')
+        assert '"status": "completed"' in body
+        assert not tpid_file.exists()
+
+        with app.app_context():
+            from app.models import Customer
+            from app.services.fy_cutover import get_transition_state
+
+            assert get_transition_state()['in_transition'] is False
+            assert Customer.query.filter_by(tpid=1001).first() is not None
+            assert Customer.query.filter_by(tpid=1002).first() is None
 
     def test_clear_backup_notes(self, client):
         """POST /api/backup/clear-notes should succeed even without backup configured."""

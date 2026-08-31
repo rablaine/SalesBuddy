@@ -365,6 +365,35 @@ def _finalize_alignments_gen(synced_tpids: list[int]):
     # Exit transition mode
     exit_transition_mode()
 
+    compaction = {'status': 'skipped', 'reclaimed_bytes': 0}
+    try:
+        from app.db_paths import resolve_db_path
+        from app.services.database_maintenance import (
+            database_free_space,
+            should_vacuum_database,
+            vacuum_database,
+        )
+
+        db_path = resolve_db_path()
+        db.session.remove()
+        db.engine.dispose()
+        free_space = database_free_space(db_path)
+        compaction['reclaimable_bytes'] = free_space['reclaimable_bytes']
+        compaction['free_percent'] = free_space['free_percent']
+        if should_vacuum_database(free_space):
+            yield {
+                'phase': 'compaction',
+                'message': 'Compacting database...',
+            }
+            compaction = {'status': 'completed', **vacuum_database(db_path)}
+    except Exception as error:
+        logger.warning('FY database compaction skipped: %s', error)
+        compaction = {
+            'status': 'failed',
+            'reclaimed_bytes': 0,
+            'error': str(error),
+        }
+
     summary = {
         "kept_customers": len(keep_ids),
         "purged_customers": purge_count,
@@ -377,6 +406,7 @@ def _finalize_alignments_gen(synced_tpids: list[int]):
         "purged_sellers": purge_sellers,
         "purged_territories": purge_territories,
         "purged_pods": purge_pods,
+        "database_compaction": compaction,
     }
     logger.info(f"FY finalization complete: {summary}")
     yield {"summary": summary}
