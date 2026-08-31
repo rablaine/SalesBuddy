@@ -93,8 +93,35 @@
                     {% endfor %}
                 </div>
                 {% endif %}
-                {% if stale_milestones %}
+                {% if _project_tasks %}
                 {% if engagement_tasks or copilot_tasks or _saved %}<hr class="my-0">{% endif %}
+                <div class="list-group list-group-flush">
+                    <div class="list-group-item bg-info bg-opacity-10 py-1 px-3">
+                        <small class="fw-semibold text-muted"><i class="bi bi-folder"></i> Project Tasks</small>
+                    </div>
+                    {% for task in _project_tasks %}
+                    <div class="list-group-item list-group-item-action py-2 px-3" onclick="viewActionItem({{ task.id }}, {showEngagementLink: false})" style="cursor: pointer;">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <div class="me-2" style="min-width: 0;">
+                                <div class="fw-semibold text-truncate{% if task.priority == 'high' %} text-danger{% endif %}">
+                                    {% if task.priority == 'high' %}<i class="bi bi-exclamation-triangle-fill me-1"></i>{% endif %}{{ task.title }}
+                                </div>
+                                <div class="text-muted small text-truncate">
+                                    {% if task.project %}<i class="bi bi-folder text-info me-1"></i>{{ task.project.title }}{% endif %}
+                                </div>
+                            </div>
+                            {% if task.due_date %}
+                            <span class="badge flex-shrink-0 {% if task.is_overdue %}bg-danger{% else %}bg-secondary{% endif %}">
+                                {{ task.due_date.strftime('%b %d') }}
+                            </span>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% endif %}
+                {% if stale_milestones %}
+                {% if engagement_tasks or copilot_tasks or _saved or _project_tasks %}<hr class="my-0">{% endif %}
                 <div class="list-group list-group-flush">
                     <div class="list-group-item bg-warning bg-opacity-10 py-1 px-3" title="Milestones where you're on the team but haven't updated comments in 2 weeks or more">
                         <small class="fw-semibold text-muted"><i class="bi bi-clock-history"></i> Stale Milestones</small>
@@ -153,7 +180,7 @@
                     {% endfor %}
                 </div>
                 {% endif %}
-                {% if not engagement_tasks and not copilot_tasks and not _saved and not stale_milestones and not hygiene_tasks %}
+                {% if not engagement_tasks and not copilot_tasks and not _saved and not _project_tasks and not stale_milestones and not hygiene_tasks %}
                 <div class="text-center text-muted py-4">
                     <i class="bi bi-check-circle" style="font-size: 2rem;"></i>
                     <p class="mb-0 mt-2">No open action items yet.</p>

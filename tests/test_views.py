@@ -88,6 +88,32 @@ def test_action_items_hub_partial_loads(client):
     assert b'Hygiene' in response.data
 
 
+def test_home_page_displays_open_project_tasks(client, app):
+    """Test that regular project tasks appear in dashboard action items."""
+    from app.models import ActionItem, Project, db
+
+    with app.app_context():
+        project = Project(title='Dashboard Project', project_type='general')
+        task = ActionItem(
+            project=project,
+            title='Visible Project Task',
+            source='project',
+            status='open',
+        )
+        db.session.add_all([project, task])
+        db.session.commit()
+
+        response = client.get('/')
+
+        assert response.status_code == 200
+        assert b'Project Tasks' in response.data
+        assert b'Visible Project Task' in response.data
+        assert b'Dashboard Project' in response.data
+
+        db.session.delete(project)
+        db.session.commit()
+
+
 # ===== Action Items Calendar API =====
 
 def test_action_items_calendar_returns_json(client, sample_data):
