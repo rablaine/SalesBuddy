@@ -8,7 +8,7 @@ brought the change into `main`, so the admin Updates card can show
 Format: `## M/D/YYYY - <merge-short-sha>`. See
 `scripts/tag-changelog.ps1` for the helper that fills this in.
 
-## 8/31/2026
+## 8/31/2026 - 16ca58f
 
 - Automatically complete activities created from Activity Coverage, notes, and Fill My Day while retaining completed activity evidence and keeping the MSX Workspace focused on open tasks.
 
