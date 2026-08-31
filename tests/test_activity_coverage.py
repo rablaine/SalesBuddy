@@ -1477,6 +1477,21 @@ def test_create_and_link_update_meeting_inline_without_page_reload(
     assert 'window.location.reload()' not in link_handler
 
 
+def test_expand_all_keeps_individual_row_toggles_independent(
+    client, coverage_data,
+):
+    """Rows stop enforcing accordion behavior after bulk expansion."""
+    response = client.get('/reports/activity-coverage')
+    html = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert 'var bulkExpansionActive = false;' in html
+    assert 'if (!bulkExpansionActive)' in html
+    assert 'function syncExpandAllControl()' in html
+    assert 'bulkExpansionActive = shouldExpand;' in html
+    assert 'syncExpandAllControl();' in html
+
+
 def test_customer_milestones_rank_team_then_active(app, client, coverage_data):
     """Picker ranks on-team milestones first, then active milestones."""
     with app.app_context():
