@@ -584,6 +584,7 @@ def get_milestone_coverage_data(
         Milestone.query
         .filter(Milestone.on_my_team.is_(True))
         .filter(Milestone.msx_milestone_id.isnot(None))
+        .filter(Milestone.customer_id.isnot(None))
         .order_by(
             Milestone.due_date.is_(None),
             Milestone.due_date.asc(),

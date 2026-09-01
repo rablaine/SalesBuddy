@@ -8,6 +8,10 @@ brought the change into `main`, so the admin Updates card can show
 Format: `## M/D/YYYY - <merge-short-sha>`. See
 `scripts/tag-changelog.ps1` for the helper that fills this in.
 
+## 9/1/2026
+
+- Keep FY HoK Coverage focused on your current book by excluding milestones without an attached customer.
+
 ## 9/1/2026 - 6fb1b11
 
 - Add CAIP Coverage to Activity Coverage with milestone-team Activities Logged and HoK metrics, automatic MSX evidence sync, and collapsible newest-first fiscal-year groups.

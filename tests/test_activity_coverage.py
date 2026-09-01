@@ -151,6 +151,36 @@ def test_current_fy_hok_controls_covered_filter(app, coverage_data):
         assert row['current_task'].id == task.id
 
 
+def test_fy_hok_excludes_customerless_team_milestones(app):
+    """FY HoK stays scoped to milestones attached to the current book."""
+    with app.app_context():
+        milestone = Milestone(
+            msx_milestone_id='fy-customerless',
+            url='https://example.test/fy-customerless',
+            title='Outside current book',
+            milestone_category='Production',
+            msx_status='On Track',
+            on_my_team=True,
+        )
+        db.session.add(milestone)
+        db.session.commit()
+
+        fy_report = activity_coverage.get_milestone_coverage_data(
+            include_covered=True,
+            include_inactive=True,
+        )
+        caip_report = activity_coverage.get_caip_coverage_data()
+
+        assert milestone.id not in {
+            row['id'] for row in fy_report['milestone_rows']
+        }
+        assert milestone.id in {
+            row['id']
+            for group in caip_report['caip_groups']
+            for row in group['rows']
+        }
+
+
 def test_caip_coverage_uses_category_denominator_and_strict_hok(app):
     """CAIP includes all team CAIP milestones and applies strict HoK evidence."""
     with app.app_context():
