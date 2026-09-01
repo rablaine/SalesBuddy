@@ -8,7 +8,7 @@ brought the change into `main`, so the admin Updates card can show
 Format: `## M/D/YYYY - <merge-short-sha>`. See
 `scripts/tag-changelog.ps1` for the helper that fills this in.
 
-## 9/1/2026
+## 9/1/2026 - 0bfd2a0
 
 - Keep customerless CAIP milestones out of current-book milestone lists, dashboards, reports, calendars, and SalesIQ results.
 
