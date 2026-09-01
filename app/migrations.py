@@ -374,6 +374,10 @@ def run_migrations(db):
                               'statecode', 'INTEGER')
     _add_column_if_not_exists(db, inspector, 'msx_tasks',
                               'statuscode', 'INTEGER')
+    _add_column_if_not_exists(db, inspector, 'msx_tasks',
+                              'actual_end', 'DATETIME')
+    _add_column_if_not_exists(db, inspector, 'milestones',
+                              'milestone_category', 'VARCHAR(100)')
     if 'msx_tasks' in existing_tables:
         with db.engine.connect() as conn:
             conn.execute(text(

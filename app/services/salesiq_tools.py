@@ -929,6 +929,45 @@ def report_activity_coverage(week: str | None = None) -> dict:
         ],
     }
 
+
+@tool(
+    'report_caip_coverage',
+    'Get Activities Logged and current-FY HoK coverage for CAIP team milestones.',
+    {'type': 'object', 'properties': {}},
+)
+def report_caip_coverage() -> dict:
+    """Return CAIP coverage metrics and milestone evidence states."""
+    from app.services.activity_coverage import get_caip_coverage_data
+
+    data = get_caip_coverage_data()
+    return {
+        'url': f'{_BASE}/reports/activity-coverage?lens=milestones&coverage=caip',
+        'fiscal_year': data['fiscal_year_label'],
+        'summary': data['caip_summary'],
+        'milestones': [
+            {
+                'id': row['id'],
+                'milestone': row['milestone'].display_text,
+                'target_fy': row['target_fy'],
+                'category': row['milestone'].milestone_category,
+                'status': row['milestone'].msx_status,
+                'customer': (
+                    row['milestone'].customer.name
+                    if row['milestone'].customer else None
+                ),
+                'opportunity': (
+                    row['milestone'].opportunity.name
+                    if row['milestone'].opportunity
+                    else row['milestone'].opportunity_name
+                ),
+                'activity_logged': row['activity_logged'],
+                'hok_covered': row['hok_covered'],
+            }
+            for group in data['caip_groups']
+            for row in group['rows']
+        ],
+    }
+
 @tool(
     'report_hygiene',
     'Get data hygiene gaps: engagements missing milestones and milestones missing engagements.',

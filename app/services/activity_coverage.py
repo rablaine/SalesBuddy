@@ -17,6 +17,7 @@ from sqlalchemy import case
 
 from app.models import (
     ActivityCoveragePopulation,
+    CaipActivity,
     Customer,
     Job,
     Milestone,
@@ -290,10 +291,19 @@ def get_reconciliation_status() -> dict[str, Any]:
 
 def _sync_and_reconcile() -> None:
     """Refresh MSX tasks for known milestones, then reconcile local meetings."""
-    from app.services.milestone_sync import _sync_all_tasks
+    from app.services.milestone_sync import (
+        _sync_all_tasks,
+        _sync_caip_activities,
+        _sync_team_milestones,
+    )
 
     with _reconcile_state_lock:
         _reconcile_state['phase'] = 'syncing'
+    team_result = _sync_team_milestones()
+    if not team_result.get('success'):
+        raise RuntimeError(
+            team_result.get('error') or 'MSX team milestone sync failed'
+        )
     task_sync = _sync_all_tasks()
     try:
         while True:
@@ -302,6 +312,11 @@ def _sync_and_reconcile() -> None:
         sync_result = stop.value
     if not sync_result.get('success'):
         raise RuntimeError(sync_result.get('error') or 'MSX activity sync failed')
+    activity_result = _sync_caip_activities()
+    if not activity_result.get('success'):
+        raise RuntimeError(
+            activity_result.get('error') or 'MSX CAIP activity sync failed'
+        )
 
     with _reconcile_state_lock:
         _reconcile_state.update({
@@ -637,6 +652,97 @@ def get_milestone_coverage_data(
     }
 
 
+def _target_fiscal_year(due_date: datetime | None) -> str:
+    """Return Microsoft fiscal-year label for a milestone target date."""
+    if not due_date:
+        return 'No target FY'
+    _, fiscal_end = fiscal_year_bounds(due_date.date())
+    return f'FY{fiscal_end.year % 100:02d}'
+
+
+def get_caip_coverage_data() -> dict[str, Any]:
+    """Return CAIP activity and HoK coverage for all qualifying team milestones."""
+    today = date.today()
+    fiscal_start, fiscal_end = fiscal_year_bounds(today)
+    milestones = (
+        Milestone.query
+        .filter(Milestone.on_my_team.is_(True))
+        .filter(Milestone.msx_milestone_id.isnot(None))
+        .filter(db.func.lower(Milestone.milestone_category).in_({
+            'poc/pilot',
+            'production',
+        }))
+        .order_by(
+            Milestone.due_date.is_(None),
+            Milestone.due_date.desc(),
+            Milestone.title.asc(),
+        )
+        .all()
+    )
+    milestone_ids = [milestone.id for milestone in milestones]
+    activity_ids = {
+        activity.milestone_id
+        for activity in CaipActivity.query.filter(
+            CaipActivity.milestone_id.in_(milestone_ids)
+        ).all()
+    }
+    tasks_by_milestone: dict[int, list[MsxTask]] = defaultdict(list)
+    for task in MsxTask.query.filter(
+        MsxTask.milestone_id.in_(milestone_ids),
+        MsxTask.is_hok.is_(True),
+        MsxTask.statecode == 1,
+        MsxTask.due_date.isnot(None),
+        MsxTask.actual_end.isnot(None),
+    ).all():
+        if fiscal_start <= task.actual_end.date() <= min(fiscal_end, today):
+            tasks_by_milestone[task.milestone_id].append(task)
+
+    groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    rows = []
+    for milestone in milestones:
+        hok_tasks = sorted(
+            tasks_by_milestone[milestone.id],
+            key=lambda task: task.actual_end,
+            reverse=True,
+        )
+        row = {
+            'id': milestone.id,
+            'milestone': milestone,
+            'target_fy': _target_fiscal_year(milestone.due_date),
+            'activity_logged': milestone.id in activity_ids,
+            'hok_covered': bool(hok_tasks),
+            'hok_task': hok_tasks[0] if hok_tasks else None,
+        }
+        rows.append(row)
+        groups[row['target_fy']].append(row)
+
+    ordered_labels = sorted(
+        (label for label in groups if label != 'No target FY'),
+        reverse=True,
+    )
+    if 'No target FY' in groups:
+        ordered_labels.append('No target FY')
+    activity_count = sum(row['activity_logged'] for row in rows)
+    hok_count = sum(row['hok_covered'] for row in rows)
+    total = len(rows)
+    return {
+        'caip_groups': [
+            {'label': label, 'rows': groups[label]} for label in ordered_labels
+        ],
+        'caip_summary': {
+            'total': total,
+            'activities_logged': activity_count,
+            'activities_percent': round(activity_count / total * 100) if total else 0,
+            'hok_covered': hok_count,
+            'hok_percent': round(hok_count / total * 100) if total else 0,
+        },
+        'fiscal_start': fiscal_start,
+        'fiscal_end': fiscal_end,
+        'fiscal_year_label': f'FY{fiscal_end.year % 100:02d}',
+        'today': today,
+    }
+
+
 def update_milestone_coverage_draft(
     milestone_id: int,
     data: dict[str, Any],
@@ -689,6 +795,7 @@ def _complete_activity(task: MsxTask) -> MsxTask:
         )
     task.statecode = 1
     task.statuscode = 5
+    task.actual_end = datetime.now(timezone.utc)
     db.session.commit()
     return task
 

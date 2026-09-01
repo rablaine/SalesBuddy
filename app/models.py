@@ -1153,6 +1153,7 @@ class Milestone(db.Model):
     msx_status = db.Column(db.String(50), nullable=True)  # "On Track", "Cancelled", etc.
     msx_status_code = db.Column(db.Integer, nullable=True)  # Numeric status code
     customer_commitment = db.Column(db.String(50), nullable=True)  # "Committed", "Uncommitted", etc.
+    milestone_category = db.Column(db.String(100), nullable=True)
     opportunity_name = db.Column(db.String(500), nullable=True)  # Parent opportunity name (legacy, kept for compat)
     
     # Milestone tracker fields (populated from MSX sync)
@@ -1262,6 +1263,7 @@ class MsxTask(db.Model):
     is_hok = db.Column(db.Boolean, default=False, nullable=False)  # Is this a HOK task?
     due_date = db.Column(db.DateTime, nullable=True)  # scheduledend from MSX
     msx_created_on = db.Column(db.DateTime, nullable=True)
+    actual_end = db.Column(db.DateTime, nullable=True)
     statecode = db.Column(db.Integer, nullable=True)  # 0=Open, 1=Completed
     statuscode = db.Column(db.Integer, nullable=True)  # 5=Completed
     
@@ -1283,6 +1285,30 @@ class MsxTask(db.Model):
     
     def __repr__(self) -> str:
         return f'<MsxTask {self.id}: {self.subject[:50]}>'
+
+
+class CaipActivity(db.Model):
+    """Owned MSX activity evidence linked to one CAIP milestone."""
+    __tablename__ = 'caip_activities'
+
+    id = db.Column(db.Integer, primary_key=True)
+    msx_activity_id = db.Column(db.String(50), nullable=False, unique=True)
+    activity_type = db.Column(db.String(100), nullable=True)
+    subject = db.Column(db.String(500), nullable=True)
+    created_on = db.Column(db.DateTime, nullable=True)
+    actual_end = db.Column(db.DateTime, nullable=True)
+    milestone_id = db.Column(
+        db.Integer,
+        db.ForeignKey('milestones.id'),
+        nullable=False,
+    )
+    milestone = db.relationship(
+        'Milestone',
+        backref=db.backref('caip_activities', lazy='dynamic'),
+    )
+
+    def __repr__(self) -> str:
+        return f'<CaipActivity {self.msx_activity_id}>'
 
 
 class MilestoneCoverageDraft(db.Model):
