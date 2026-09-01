@@ -23,7 +23,12 @@ bp = Blueprint('milestones', __name__)
 @bp.route('/milestones')
 def milestones_list():
     """List all milestones."""
-    milestones = Milestone.query.order_by(Milestone.created_at.desc()).all()
+    milestones = (
+        Milestone.query
+        .filter(Milestone.customer_id.isnot(None))
+        .order_by(Milestone.created_at.desc())
+        .all()
+    )
     return render_template('milestones_list.html', milestones=milestones)
 
 
@@ -636,6 +641,7 @@ def milestones_calendar_api():
     milestones_q = (
         Milestone.query
         .filter(
+            Milestone.customer_id.isnot(None),
             Milestone.due_date >= first_day,
             Milestone.due_date <= last_day,
         )

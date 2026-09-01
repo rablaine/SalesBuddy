@@ -1,6 +1,7 @@
 """Tests for stale milestones feature on the dashboard."""
 
 import json
+import zlib
 from datetime import datetime, date, timedelta, timezone
 
 import pytest
@@ -123,7 +124,16 @@ class TestFindStaleMilestones:
 
     def _create_milestone(self, db, **kwargs):
         """Helper to create a milestone with defaults."""
-        from app.models import Milestone
+        from app.models import Customer, Milestone
+        if 'customer_id' not in kwargs:
+            milestone_key = kwargs.get('msx_milestone_id', 'local')
+            customer = Customer(
+                name=f"Stale Customer {milestone_key}",
+                tpid=zlib.crc32(milestone_key.encode()),
+            )
+            db.session.add(customer)
+            db.session.flush()
+            kwargs['customer_id'] = customer.id
         defaults = dict(
             url='https://example.com/ms',
             msx_status='On Track',
@@ -351,7 +361,7 @@ class TestStaleMilestonesOnDashboard:
         q_start_month = ((fq_start + 7 - 1) % 12) + 1
         return datetime(today.year, q_start_month, 15)
 
-    def test_stale_milestones_visible_on_index(self, client, app):
+    def test_stale_milestones_visible_on_index(self, client, app, sample_customer):
         """Stale milestones section should appear on dashboard."""
         with app.app_context():
             from app.models import db, Milestone
@@ -361,6 +371,7 @@ class TestStaleMilestonesOnDashboard:
                 title='Dashboard Stale MS',
                 msx_status='On Track',
                 on_my_team=True,
+                customer_id=sample_customer.id,
                 due_date=self._quarter_due_date(),
                 cached_comments_json='[]',
             )
@@ -372,7 +383,7 @@ class TestStaleMilestonesOnDashboard:
         assert b'Stale Milestones' in resp.data
         assert b'Dashboard Stale MS' in resp.data
 
-    def test_no_stale_section_when_none_stale(self, client, app):
+    def test_no_stale_section_when_none_stale(self, client, app, sample_customer):
         """Stale milestones section should not appear if none are stale."""
         fresh = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
         with app.app_context():
@@ -383,6 +394,7 @@ class TestStaleMilestonesOnDashboard:
                 title='Fresh MS',
                 msx_status='On Track',
                 on_my_team=True,
+                customer_id=sample_customer.id,
                 due_date=self._quarter_due_date(),
                 cached_comments_json=json.dumps([
                     {'modifiedOn': fresh, 'comment': 'Just updated'},

@@ -141,6 +141,7 @@ def _find_stale_milestones(
     q_end_dt = datetime.combine(quarter_end, _time(23, 59, 59))
 
     q = Milestone.query.filter(
+        Milestone.customer_id.isnot(None),
         Milestone.on_my_team.is_(True),
         Milestone.msx_status.in_(['On Track', 'At Risk']),
         db.or_(Milestone.customer_commitment != 'Committed', Milestone.customer_commitment.is_(None)),
@@ -249,6 +250,7 @@ def index():
 
     # Milestones due in the next 30 days (active, on my team only)
     milestones_q = Milestone.query.filter(
+        Milestone.customer_id.isnot(None),
         Milestone.on_my_team == True,
         Milestone.msx_status.in_(['On Track', 'At Risk', 'Blocked']),
         Milestone.due_date.isnot(None),
@@ -325,6 +327,7 @@ def index():
             date(_end_year, _end_month, 1) - timedelta(days=1), _time(23, 59, 59)
         )
         ms_no_acr_q = Milestone.query.filter(
+            Milestone.customer_id.isnot(None),
             Milestone.on_my_team == True,
             Milestone.msx_status.in_(['On Track', 'At Risk']),
             Milestone.due_date >= _q_start_dt,
@@ -471,6 +474,7 @@ def _build_action_items_hub_context() -> dict:
             date(_end_year, _end_month, 1) - timedelta(days=1), _time(23, 59, 59)
         )
         ms_no_acr_q = Milestone.query.filter(
+            Milestone.customer_id.isnot(None),
             Milestone.on_my_team == True,
             Milestone.msx_status.in_(['On Track', 'At Risk']),
             Milestone.due_date >= _q_start_dt,
