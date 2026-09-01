@@ -283,6 +283,7 @@ def get_portfolio_overview() -> dict:
         'partners': Partner.query.count(),
         'active_engagements': Engagement.query.filter_by(status='Active').count(),
         'open_milestones': Milestone.query.filter(
+            Milestone.customer_id.isnot(None),
             Milestone.on_my_team.is_(True),
             Milestone.msx_status.in_(['On Track', 'At Risk', 'Blocked']),
         ).count(),
@@ -612,7 +613,7 @@ def get_milestone_status(
             'msx_url': ms.url,
         }
 
-    q = Milestone.query
+    q = Milestone.query.filter(Milestone.customer_id.isnot(None))
     if customer_id:
         q = q.filter(Milestone.customer_id == customer_id)
     if commitment:
@@ -992,6 +993,7 @@ def report_hygiene(seller_id: int | None = None) -> dict:
     )
     ms_q = (
         Milestone.query
+        .filter(Milestone.customer_id.isnot(None))
         .filter(Milestone.on_my_team == True)
         .filter(~Milestone.engagements.any())
     )
@@ -1093,6 +1095,7 @@ def report_whats_new(days: int = 14) -> dict:
     created = (
         Milestone.query
         .filter(
+            Milestone.customer_id.isnot(None),
             db.or_(
                 Milestone.msx_created_on >= cutoff,
                 db.and_(
@@ -1108,6 +1111,7 @@ def report_whats_new(days: int = 14) -> dict:
     updated = (
         Milestone.query
         .filter(
+            Milestone.customer_id.isnot(None),
             Milestone.msx_modified_on >= cutoff,
             db.or_(
                 Milestone.msx_created_on < cutoff,
@@ -1291,6 +1295,7 @@ def get_milestones_due_soon(
     cutoff = today + timedelta(days=due_within_days)
 
     q = Milestone.query.filter(
+        Milestone.customer_id.isnot(None),
         Milestone.due_date >= today,
         Milestone.due_date <= cutoff,
     )
@@ -1587,6 +1592,7 @@ def report_one_on_one(days: int = 14, seller_id: int | None = None) -> dict:
 
     # Recently committed milestones
     ms_q = Milestone.query.filter(
+        Milestone.customer_id.isnot(None),
         Milestone.on_my_team == True,
         Milestone.committed_at >= cutoff,
     )

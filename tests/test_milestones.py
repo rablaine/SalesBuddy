@@ -64,11 +64,14 @@ class TestMilestoneCRUD:
         assert response.status_code == 200
         assert b'No milestones yet' in response.data
     
-    def test_milestones_list_with_data(self, client, app, db_session, sample_user):
+    def test_milestones_list_with_data(
+        self, client, app, db_session, sample_user, sample_customer,
+    ):
         """Test milestones list page with milestones."""
         milestone = Milestone(
             url='https://example.com/milestone/1',
             title='Test Milestone',
+            customer_id=sample_customer.id,
         )
         db_session.add(milestone)
         db_session.commit()

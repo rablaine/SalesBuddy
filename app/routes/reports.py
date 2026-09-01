@@ -570,6 +570,7 @@ def report_one_on_one():
     milestone_commitments = (
         Milestone.query
         .filter(
+            Milestone.customer_id.isnot(None),
             Milestone.on_my_team == True,  # noqa: E712
             Milestone.committed_at >= two_weeks_ago,
         )
@@ -602,6 +603,7 @@ def report_one_on_one():
     quarter_milestones = (
         Milestone.query
         .filter(
+            Milestone.customer_id.isnot(None),
             Milestone.on_my_team == True,  # noqa: E712
             Milestone.msx_status.in_(['On Track', 'At Risk', 'Blocked']),
             Milestone.due_date.isnot(None),
@@ -916,6 +918,7 @@ def report_hygiene():
     ms_q = (
         Milestone.query
         .filter(
+            Milestone.customer_id.isnot(None),
             Milestone.msx_status.in_(['On Track', 'At Risk', 'Blocked']),
             ~Milestone.engagements.any(),
         )
@@ -1019,6 +1022,7 @@ def report_whats_new():
     created_q = (
         Milestone.query
         .filter(
+            Milestone.customer_id.isnot(None),
             db.or_(
                 Milestone.msx_created_on >= cutoff,
                 db.and_(Milestone.msx_created_on.is_(None), Milestone.created_at >= cutoff),
@@ -1036,6 +1040,7 @@ def report_whats_new():
     updated_q = (
         Milestone.query
         .filter(
+            Milestone.customer_id.isnot(None),
             db.or_(
                 db.and_(
                     Milestone.msx_modified_on >= cutoff,

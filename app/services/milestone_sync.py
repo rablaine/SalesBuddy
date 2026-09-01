@@ -2357,6 +2357,7 @@ def get_milestone_tracker_data() -> Dict[str, Any]:
     # Query all milestones with eager-loaded relationships
     milestones = (
         Milestone.query
+        .filter(Milestone.customer_id.isnot(None))
         .options(
             db.joinedload(Milestone.customer).joinedload(Customer.seller),
             db.joinedload(Milestone.customer).joinedload(Customer.territory),
