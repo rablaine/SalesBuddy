@@ -8,7 +8,7 @@ brought the change into `main`, so the admin Updates card can show
 Format: `## M/D/YYYY - <merge-short-sha>`. See
 `scripts/tag-changelog.ps1` for the helper that fills this in.
 
-## 9/1/2026
+## 9/1/2026 - 8160d1e
 
 - Keep FY HoK Coverage focused on your current book by excluding milestones without an attached customer.
 
