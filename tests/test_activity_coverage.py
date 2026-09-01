@@ -11,6 +11,7 @@ from bs4 import BeautifulSoup
 
 from app.models import (
     ActivityCoveragePopulation,
+    CaipActivity,
     Customer,
     DailyMeetingCache,
     Job,
@@ -148,6 +149,147 @@ def test_current_fy_hok_controls_covered_filter(app, coverage_data):
         )
         assert row['covered'] is True
         assert row['current_task'].id == task.id
+
+
+def test_caip_coverage_uses_category_denominator_and_strict_hok(app):
+    """CAIP includes all team CAIP milestones and applies strict HoK evidence."""
+    with app.app_context():
+        included = Milestone(
+            msx_milestone_id='caip-included',
+            url='https://example.test/caip-included',
+            title='Customerless production milestone',
+            milestone_category='Production',
+            msx_status='Completed',
+            on_my_team=True,
+            due_date=datetime(2025, 8, 1),
+        )
+        excluded = Milestone(
+            msx_milestone_id='caip-excluded',
+            url='https://example.test/caip-excluded',
+            title='Non-CAIP milestone',
+            milestone_category='Other',
+            on_my_team=True,
+        )
+        db.session.add_all([included, excluded])
+        db.session.flush()
+        db.session.add(CaipActivity(
+            msx_activity_id='caip-general-activity',
+            activity_type='appointment',
+            subject='Old activity still counts',
+            created_on=datetime(2020, 1, 1),
+            milestone_id=included.id,
+        ))
+        db.session.add(MsxTask(
+            msx_task_id='caip-hok',
+            subject='Completed workshop',
+            task_category=861980001,
+            task_category_name='Workshop',
+            duration_minutes=60,
+            is_hok=True,
+            due_date=datetime.combine(date.today(), datetime.min.time()),
+            actual_end=datetime.combine(date.today(), datetime.min.time()),
+            statecode=1,
+            statuscode=5,
+            milestone_id=included.id,
+        ))
+        db.session.commit()
+
+        report = activity_coverage.get_caip_coverage_data()
+
+        assert report['caip_summary'] == {
+            'total': 1,
+            'activities_logged': 1,
+            'activities_percent': 100,
+            'hok_covered': 1,
+            'hok_percent': 100,
+        }
+        row = report['caip_groups'][0]['rows'][0]
+        assert row['milestone'].customer is None
+        assert row['activity_logged'] is True
+        assert row['hok_covered'] is True
+
+
+def test_caip_lens_renders_separate_methodology(app, client):
+    """CAIP subview renders dedicated metrics without replacing FY controls."""
+    with app.app_context():
+        db.session.add(Milestone(
+            msx_milestone_id='caip-render',
+            url='https://example.test/caip-render',
+            title='Render CAIP milestone',
+            milestone_category='POC/Pilot',
+            msx_status='Cancelled',
+            on_my_team=True,
+        ))
+        db.session.commit()
+
+    response = client.get(
+        '/reports/activity-coverage?lens=milestones&coverage=caip'
+    )
+    html = response.data.decode('utf-8')
+    assert response.status_code == 200
+    assert 'FY HoK Coverage' in html
+    assert 'CAIP Coverage' in html
+    assert 'Render CAIP milestone' in html
+    assert 'activities logged' in html
+    assert 'HoK coverage' in html
+    assert 'Show covered' not in html
+    soup = BeautifulSoup(response.data, 'html.parser')
+    fiscal_year_toggle = soup.select_one('[data-caip-group-toggle]')
+    assert fiscal_year_toggle is not None
+    assert fiscal_year_toggle['aria-expanded'] == 'true'
+    assert fiscal_year_toggle['aria-controls'].startswith('caip-group-')
+    assert 'salesbuddy_caip_collapsed_fiscal_years' in html
+
+
+def test_caip_coverage_sorts_most_recent_targets_first(app):
+    """CAIP groups and milestones sort newest first with undated rows last."""
+    with app.app_context():
+        milestones = [
+            Milestone(
+                msx_milestone_id='caip-oldest',
+                url='https://example.test/caip-oldest',
+                title='Oldest',
+                milestone_category='Production',
+                on_my_team=True,
+                due_date=datetime(2024, 8, 1),
+            ),
+            Milestone(
+                msx_milestone_id='caip-newest',
+                url='https://example.test/caip-newest',
+                title='Newest',
+                milestone_category='Production',
+                on_my_team=True,
+                due_date=datetime(2026, 8, 1),
+            ),
+            Milestone(
+                msx_milestone_id='caip-same-fy-older',
+                url='https://example.test/caip-same-fy-older',
+                title='Same FY Older',
+                milestone_category='Production',
+                on_my_team=True,
+                due_date=datetime(2026, 7, 1),
+            ),
+            Milestone(
+                msx_milestone_id='caip-undated',
+                url='https://example.test/caip-undated',
+                title='Undated',
+                milestone_category='Production',
+                on_my_team=True,
+            ),
+        ]
+        db.session.add_all(milestones)
+        db.session.commit()
+
+        report = activity_coverage.get_caip_coverage_data()
+
+        assert [group['label'] for group in report['caip_groups']] == [
+            'FY27',
+            'FY25',
+            'No target FY',
+        ]
+        assert [
+            row['milestone'].title for row in report['caip_groups'][0]['rows']
+        ] == ['Newest', 'Same FY Older']
 
 
 def test_create_standalone_milestone_hok_is_idempotent(app, coverage_data):
@@ -686,8 +828,14 @@ def test_sync_and_reconcile_refreshes_tasks_before_matching(app):
         }
 
     with app.app_context(), patch(
+            'app.services.milestone_sync._sync_team_milestones',
+            return_value={'success': True},
+        ), patch(
         'app.services.milestone_sync._sync_all_tasks',
         side_effect=task_sync,
+        ), patch(
+            'app.services.milestone_sync._sync_caip_activities',
+            return_value={'success': True, 'activities_synced': 4},
     ), patch(
         'app.services.activity_coverage.reconcile_existing_activities',
         return_value={'scanned': 5, 'linked': 4, 'ambiguous': 1},

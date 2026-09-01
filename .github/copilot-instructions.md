@@ -281,6 +281,12 @@ pytest --cov=app tests/  # with coverage
 
 ## UI/UX Conventions
 
+### Platform Scope
+- **Sales Buddy is a desktop-only Electron application.** Mobile and tablet layouts are out of scope unless the user explicitly requests them.
+- **Never implement, test, screenshot, inspect, or discuss mobile/responsive behavior by default.** Validate UI only at the current desktop Electron viewport.
+- **Never resize a user-shared browser page for viewport testing.** In particular, do not call `setViewportSize()` on a shared page. Preserve the user's browser size and state.
+- Do not add mobile breakpoints or responsive adaptations unless required for an existing desktop layout or explicitly requested by the user.
+
 **Visual Styling:**
 - **Sellers:** Always display as badge tags with `bg-primary` styling and person icon (`<i class="bi bi-person"></i>`), unless used in page headers/titles
   - Example: `<a href="{{ url_for('seller_view', id=seller.id) }}" class="badge bg-primary text-decoration-none"><i class="bi bi-person"></i> {{ seller.name }}</a>`

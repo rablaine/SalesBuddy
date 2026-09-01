@@ -196,6 +196,7 @@ def reports_hub():
 def report_activity_coverage():
     """Review meeting and milestone HoK activity coverage."""
     from app.services.activity_coverage import (
+        get_caip_coverage_data,
         get_milestone_coverage_data,
         get_population_status,
         get_reconciliation_status,
@@ -212,10 +213,16 @@ def report_activity_coverage():
         week_start = None
     lens = request.args.get('lens', 'meetings')
     if lens == 'milestones':
-        data = get_milestone_coverage_data(
-            include_covered=request.args.get('covered') == '1',
-            include_inactive=request.args.get('inactive') == '1',
-        )
+        coverage_view = request.args.get('coverage', 'fy')
+        if coverage_view == 'caip':
+            data = get_caip_coverage_data()
+        else:
+            coverage_view = 'fy'
+            data = get_milestone_coverage_data(
+                include_covered=request.args.get('covered') == '1',
+                include_inactive=request.args.get('inactive') == '1',
+            )
+        data['coverage_view'] = coverage_view
     else:
         lens = 'meetings'
         view_all = request.args.get('view') == 'all'

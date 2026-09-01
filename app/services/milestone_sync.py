@@ -14,7 +14,10 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, List, Optional, Generator, Tuple
 
-from app.models import db, Customer, Milestone, MilestoneAudit, MsxTask, Opportunity, User, SyncStatus
+from app.models import (
+    db, CaipActivity, Customer, Milestone, MilestoneAudit, MsxTask,
+    Opportunity, User, SyncStatus,
+)
 from app.services.msx_api import (
     batch_get_milestones,
     batch_get_milestones_by_id,
@@ -25,6 +28,7 @@ from app.services.msx_api import (
     get_milestone_comments,
     get_my_deal_team_ids,
     get_my_milestone_team_ids,
+    get_activities_for_milestones,
     get_opportunities_by_account,
     get_tasks_for_milestones,
     build_milestone_url,
@@ -83,11 +87,6 @@ def sync_all_customer_milestones() -> Dict[str, Any]:
         Customer.tpid_url.isnot(None),
         Customer.tpid_url != '',
     ).all()
-    
-    if not customers:
-        results["success"] = True
-        results["errors"].append("No customers with MSX account links found.")
-        return results
     
     # Mark sync as started so interrupted syncs are detectable
     SyncStatus.mark_started('milestones')
@@ -157,8 +156,20 @@ def sync_all_customer_milestones() -> Dict[str, Any]:
     if results["customers_synced"] == 0 and results["customers_failed"] > 0:
         results["success"] = False
     
-    # Update team membership flags
-    _update_team_memberships()
+    # Hydrate all team milestones before syncing their evidence.
+    team_result = _sync_team_milestones()
+    if not team_result.get("success"):
+        results["errors"].append(team_result.get("error"))
+    task_gen = _sync_all_tasks()
+    try:
+        while True:
+            next(task_gen)
+    except StopIteration as stop:
+        task_result = stop.value
+        results["tasks_created"] += task_result.get("tasks_created", 0)
+        results["tasks_updated"] += task_result.get("tasks_updated", 0)
+    activity_result = _sync_caip_activities()
+    results["activities_synced"] = activity_result.get("activities_synced", 0)
     _update_deal_team_memberships()
     
     # Sync comments for milestones I'm on the team for
@@ -693,6 +704,11 @@ def sync_all_customer_milestones_stream(
         'milestones_updated': total_stale_ms_updated,
     })
 
+    # Hydrate all team milestones before syncing task/activity evidence.
+    team_result = _sync_team_milestones()
+    if not team_result.get('success'):
+        errors.append(team_result.get('error'))
+
     # -----------------------------------------------------------------
     # Phase 4: Batched task sync (per-batch progress)
     # -----------------------------------------------------------------
@@ -723,6 +739,11 @@ def sync_all_customer_milestones_stream(
         'tasks_updated': total_tasks_updated,
     })
 
+    activity_result = _sync_caip_activities()
+    total_activities_synced = activity_result.get('activities_synced', 0)
+    if not activity_result.get('success'):
+        errors.append(activity_result.get('error'))
+
     # -----------------------------------------------------------------
     # Phase 5: Team membership update (one API call)
     # -----------------------------------------------------------------
@@ -733,7 +754,6 @@ def sync_all_customer_milestones_stream(
         'status': 'ok',
         'progress': 93,
     })
-    _update_team_memberships()
     _update_deal_team_memberships()
 
     # -----------------------------------------------------------------
@@ -810,6 +830,7 @@ def sync_all_customer_milestones_stream(
             'opportunities_synced': total_opps_synced,
             'tasks_created': total_tasks_created,
             'tasks_updated': total_tasks_updated,
+            'activities_synced': total_activities_synced,
             'comments_synced': total_comments_synced,
             'stale_milestones_updated': total_stale_ms_updated,
         }),
@@ -827,6 +848,7 @@ def sync_all_customer_milestones_stream(
         'opportunities_synced': total_opps_synced,
         'tasks_created': total_tasks_created,
         'tasks_updated': total_tasks_updated,
+        'activities_synced': total_activities_synced,
         'comments_synced': total_comments_synced,
         'stale_milestones_updated': total_stale_ms_updated,
         'duration': duration,
@@ -1292,6 +1314,7 @@ def _sync_all_tasks() -> Generator[
                 cat_info = cat_lookup.get(category_code, {})
                 due_date = _parse_msx_date(t.get("due_date"))
                 created_on = _parse_msx_date(t.get("created_on"))
+                actual_end = _parse_msx_date(t.get("actual_end"))
 
                 existing = existing_tasks_map.get(task_id)
                 if existing:
@@ -1309,6 +1332,7 @@ def _sync_all_tasks() -> Generator[
                     )
                     existing.due_date = due_date
                     existing.msx_created_on = created_on
+                    existing.actual_end = actual_end
                     existing.statecode = t.get("statecode")
                     existing.statuscode = t.get("statuscode")
                     existing.msx_task_url = (
@@ -1329,6 +1353,7 @@ def _sync_all_tasks() -> Generator[
                         duration_minutes=t.get("duration_minutes") or 60,
                         due_date=due_date,
                         msx_created_on=created_on,
+                        actual_end=actual_end,
                         statecode=t.get("statecode"),
                         statuscode=t.get("statuscode"),
                         milestone_id=local_milestone_id,
@@ -1430,6 +1455,7 @@ def _sync_customer_tasks(
         cat_info = cat_lookup.get(category_code, {})
         due_date = _parse_msx_date(t.get("due_date"))
         created_on = _parse_msx_date(t.get("created_on"))
+        actual_end = _parse_msx_date(t.get("actual_end"))
 
         existing = existing_tasks_map.get(task_id)
         if existing:
@@ -1442,6 +1468,7 @@ def _sync_customer_tasks(
             existing.duration_minutes = t.get("duration_minutes") or existing.duration_minutes
             existing.due_date = due_date
             existing.msx_created_on = created_on
+            existing.actual_end = actual_end
             existing.statecode = t.get("statecode")
             existing.statuscode = t.get("statuscode")
             existing.msx_task_url = t.get("task_url") or existing.msx_task_url
@@ -1459,6 +1486,7 @@ def _sync_customer_tasks(
                 duration_minutes=t.get("duration_minutes") or 60,
                 due_date=due_date,
                 msx_created_on=created_on,
+                actual_end=actual_end,
                 statecode=t.get("statecode"),
                 statuscode=t.get("statuscode"),
                 milestone_id=local_milestone_id,
@@ -1783,6 +1811,9 @@ def _update_milestone_from_msx(
     milestone.msx_status = msx_data.get("status") or milestone.msx_status
     milestone.msx_status_code = msx_data.get("status_code")
     milestone.customer_commitment = msx_data.get("customer_commitment") or milestone.customer_commitment
+    milestone.milestone_category = (
+        msx_data.get("milestone_category") or milestone.milestone_category
+    )
     milestone.opportunity_name = msx_data.get("opportunity_name") or milestone.opportunity_name
     milestone.workload = msx_data.get("workload") or milestone.workload
     milestone.monthly_usage = msx_data.get("monthly_usage")
@@ -1817,6 +1848,7 @@ def _create_milestone_from_msx(
         msx_status=msx_data.get("status", "Unknown"),
         msx_status_code=msx_data.get("status_code"),
         customer_commitment=msx_data.get("customer_commitment", ""),
+        milestone_category=msx_data.get("milestone_category", ""),
         opportunity_name=msx_data.get("opportunity_name", ""),
         workload=msx_data.get("workload", ""),
         monthly_usage=msx_data.get("monthly_usage"),
@@ -2095,6 +2127,140 @@ def _sync_milestone_audits() -> Generator:
         logger.info("No new audit records to save")
 
     return stats
+
+
+def _sync_team_milestones() -> Dict[str, Any]:
+    """Hydrate every MSX milestone where the current user is a team member."""
+    result = {
+        "success": False,
+        "milestones_created": 0,
+        "milestones_updated": 0,
+        "error": "",
+    }
+    try:
+        membership_result = get_my_milestone_team_ids()
+        if not membership_result.get("success"):
+            result["error"] = membership_result.get(
+                "error", "Could not fetch team memberships."
+            )
+            return result
+
+        team_ids = [mid.lower() for mid in membership_result["milestone_ids"]]
+        if membership_result.get("pagination_complete", True):
+            Milestone.query.filter(
+                Milestone.msx_milestone_id.isnot(None)
+            ).update({Milestone.on_my_team: False})
+        if team_ids:
+            Milestone.query.filter(
+                db.func.lower(Milestone.msx_milestone_id).in_(team_ids)
+            ).update({Milestone.on_my_team: True}, synchronize_session='fetch')
+
+        fetch_result = batch_get_milestones_by_id(team_ids)
+        if not fetch_result.get("success"):
+            db.session.rollback()
+            result["error"] = fetch_result.get(
+                "error", "Could not fetch team milestones."
+            )
+            return result
+
+        existing = {
+            milestone.msx_milestone_id.lower(): milestone
+            for milestone in Milestone.query.filter(
+                Milestone.msx_milestone_id.isnot(None)
+            ).all()
+        }
+        opportunities = {
+            opportunity.msx_opportunity_id.lower(): opportunity
+            for opportunity in Opportunity.query.filter(
+                Opportunity.msx_opportunity_id.isnot(None)
+            ).all()
+        }
+        now = datetime.now(timezone.utc)
+        for milestone_msx_id, msx_data in fetch_result["by_id"].items():
+            normalized_id = milestone_msx_id.lower()
+            milestone = existing.get(normalized_id)
+            opportunity = opportunities.get(
+                (msx_data.get("msx_opportunity_id") or "").lower()
+            )
+            customer_id = milestone.customer_id if milestone else None
+            if customer_id is None and opportunity:
+                customer_id = opportunity.customer_id
+            due_date = _parse_msx_date(msx_data.get("due_date"))
+            if milestone:
+                _update_milestone_from_msx(
+                    milestone, msx_data, customer_id, due_date, now
+                )
+                result["milestones_updated"] += 1
+            else:
+                milestone = _create_milestone_from_msx(
+                    msx_data, customer_id, due_date, now
+                )
+                db.session.add(milestone)
+                existing[normalized_id] = milestone
+                result["milestones_created"] += 1
+            milestone.opportunity = opportunity
+            milestone.on_my_team = True
+
+        db.session.commit()
+        result["success"] = True
+    except Exception as exc:
+        db.session.rollback()
+        logger.exception("Error syncing team milestones")
+        result["error"] = str(exc)
+    return result
+
+
+def _sync_caip_activities() -> Dict[str, Any]:
+    """Sync owned MSX activity evidence for all local team milestones."""
+    milestones = Milestone.query.filter(
+        Milestone.on_my_team.is_(True),
+        Milestone.msx_milestone_id.isnot(None),
+    ).all()
+    if not milestones:
+        return {"success": True, "activities_synced": 0}
+
+    milestone_by_msx_id = {
+        milestone.msx_milestone_id.lower(): milestone for milestone in milestones
+    }
+    fetch_result = get_activities_for_milestones(list(milestone_by_msx_id))
+    if not fetch_result.get("success"):
+        return {
+            "success": False,
+            "activities_synced": 0,
+            "error": fetch_result.get("error", "Activity fetch failed"),
+        }
+
+    existing = {
+        activity.msx_activity_id: activity
+        for activity in CaipActivity.query.all()
+    }
+    seen_ids = set()
+    for data in fetch_result.get("activities", []):
+        milestone = milestone_by_msx_id.get(data["milestone_msx_id"])
+        if not milestone:
+            continue
+        activity_id = data["activity_id"]
+        seen_ids.add(activity_id)
+        activity = existing.get(activity_id)
+        if not activity:
+            activity = CaipActivity(msx_activity_id=activity_id)
+            db.session.add(activity)
+        activity.activity_type = data.get("activity_type")
+        activity.subject = data.get("subject")
+        activity.created_on = _parse_msx_date(data.get("created_on"))
+        activity.actual_end = _parse_msx_date(data.get("actual_end"))
+        activity.milestone = milestone
+
+    stale_query = CaipActivity.query.filter(
+        CaipActivity.milestone_id.in_([milestone.id for milestone in milestones])
+    )
+    if seen_ids:
+        stale_query = stale_query.filter(
+            CaipActivity.msx_activity_id.notin_(seen_ids)
+        )
+    stale_query.delete(synchronize_session=False)
+    db.session.commit()
+    return {"success": True, "activities_synced": len(seen_ids)}
 
 
 def _update_team_memberships() -> None:

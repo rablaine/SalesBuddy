@@ -1,0 +1,194 @@
+<style>
+    .caip-note { border-block: 1px solid var(--bs-border-color); }
+    .caip-group-heading {
+        width: 100%;
+        padding: 0.7rem 0.6rem 0.35rem;
+        border: 0;
+        background: transparent;
+        color: var(--bs-secondary-color);
+        font-size: 0.75rem;
+        font-weight: 700;
+        text-align: left;
+        text-transform: uppercase;
+    }
+    .caip-group-heading:hover { color: var(--bs-body-color); }
+    .caip-group-chevron { display: inline-block; transition: transform 160ms ease-out; }
+    .caip-group-heading[aria-expanded="false"] .caip-group-chevron { transform: rotate(-90deg); }
+    .caip-columns {
+        display: grid;
+        grid-template-columns: minmax(12rem, 1.6fr) minmax(11rem, 1.3fr) 7.5rem 7rem 8.5rem 8.5rem 2.5rem;
+        align-items: center;
+        gap: 0.75rem;
+        min-height: 3.25rem;
+        padding-inline: 0.6rem;
+    }
+    .caip-table-heading {
+        min-height: 2.1rem;
+        border-block: 1px solid var(--bs-border-color);
+        color: var(--bs-secondary-color);
+        font-size: 0.72rem;
+        font-weight: 700;
+        text-transform: uppercase;
+    }
+    .caip-row { border-bottom: 1px solid var(--bs-border-color); }
+    .caip-cell { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.82rem; }
+    .caip-title { font-size: 0.88rem; font-weight: 600; }
+    @media (max-width: 991.98px) {
+        .caip-columns { grid-template-columns: minmax(11rem, 1.7fr) minmax(9rem, 1.2fr) 7rem 8rem 8rem 2.5rem; }
+        .caip-category { display: none; }
+    }
+    @media (max-width: 575.98px) {
+        .caip-table-heading { display: none; }
+        .caip-columns { grid-template-columns: minmax(0, 1fr) auto auto; gap: 0.5rem; padding-block: 0.6rem; }
+        .caip-opportunity, .caip-category, .caip-status { display: none; }
+    }
+</style>
+
+<div class="caip-note py-2 mb-2 d-flex flex-wrap justify-content-between align-items-center gap-2">
+    <span class="small text-muted">CAIP denominator includes every POC/Pilot and Production milestone where you are on the Milestone Team. HoK uses completed, due-dated tasks completed in {{ fiscal_year_label }}.</span>
+    <button class="btn btn-sm btn-outline-secondary" id="caipRefreshButton" {% if reconciliation.running %}disabled{% endif %}>
+        <span class="spinner-border spinner-border-sm{% if not reconciliation.running %} d-none{% endif %}" id="caipRefreshSpinner" aria-hidden="true"></span>
+        <i class="bi bi-arrow-repeat{% if reconciliation.running %} d-none{% endif %}" id="caipRefreshIcon"></i>
+        <span id="caipRefreshLabel">{% if reconciliation.running %}Refreshing MSX{% else %}Refresh MSX{% endif %}</span>
+    </button>
+</div>
+<div class="small mb-2 {% if reconciliation.error %}text-danger{% else %}text-muted{% endif %}{% if not reconciliation.running and not reconciliation.error %} d-none{% endif %}" id="caipRefreshStatus">
+    {% if reconciliation.error %}{{ reconciliation.error }}{% elif reconciliation.running %}Syncing CAIP evidence from MSX...{% endif %}
+</div>
+
+<div class="caip-table-heading caip-columns" aria-hidden="true">
+    <span>Milestone</span>
+    <span>Opportunity</span>
+    <span>Category</span>
+    <span>Status</span>
+    <span>Activities logged</span>
+    <span>HoK coverage</span>
+    <span></span>
+</div>
+
+{% for group in caip_groups %}
+<section class="caip-group" data-fiscal-year="{{ group.label }}">
+    <button class="caip-group-heading" type="button" aria-expanded="true" aria-controls="caip-group-{{ loop.index }}" data-caip-group-toggle>
+        <i class="bi bi-chevron-down caip-group-chevron me-1" aria-hidden="true"></i>
+        {{ group.label }} <span class="fw-normal">{{ group.rows|length }}</span>
+    </button>
+    <div class="caip-group-body" id="caip-group-{{ loop.index }}">
+    {% for row in group.rows %}
+    {% set milestone = row.milestone %}
+    <div class="caip-row caip-columns">
+        <div class="caip-cell caip-title" title="{{ milestone.display_text }}">{{ milestone.display_text }}</div>
+        <div class="caip-cell caip-opportunity text-muted" title="{{ milestone.opportunity.name if milestone.opportunity else (milestone.opportunity_name or '') }}">
+            {{ milestone.opportunity.name if milestone.opportunity else (milestone.opportunity_name or 'No opportunity') }}
+        </div>
+        <div class="caip-cell caip-category">{{ milestone.milestone_category }}</div>
+        <div class="caip-cell caip-status"><span class="badge bg-secondary">{{ milestone.msx_status or 'Unknown' }}</span></div>
+        <div class="caip-cell">
+            {% if row.activity_logged %}<span class="text-success"><i class="bi bi-check-circle-fill"></i> Logged</span>{% else %}<span class="text-warning"><i class="bi bi-exclamation-circle"></i> Missing</span>{% endif %}
+        </div>
+        <div class="caip-cell"{% if row.hok_task %} title="{{ row.hok_task.subject }} · {{ row.hok_task.actual_end.strftime('%b %d, %Y') }}"{% endif %}>
+            {% if row.hok_covered %}<span class="text-success"><i class="bi bi-check-circle-fill"></i> Covered</span>{% else %}<span class="text-warning"><i class="bi bi-exclamation-circle"></i> Missing</span>{% endif %}
+        </div>
+        <div class="text-end">
+            {% if milestone.url %}<a class="btn btn-sm btn-link text-secondary" href="{{ milestone.url }}" target="_blank" rel="noopener" title="Open milestone in MSX" aria-label="Open milestone in MSX"><i class="bi bi-box-arrow-up-right"></i></a>{% endif %}
+        </div>
+    </div>
+    {% endfor %}
+    </div>
+</section>
+{% else %}
+<div class="text-center py-5">
+    <i class="bi bi-flag fs-2 text-muted"></i>
+    <div class="mt-2 text-muted">No team milestones match CAIP categories.</div>
+</div>
+{% endfor %}
+
+<script>
+(function() {
+    'use strict';
+    var button = document.getElementById('caipRefreshButton');
+    var spinner = document.getElementById('caipRefreshSpinner');
+    var icon = document.getElementById('caipRefreshIcon');
+    var label = document.getElementById('caipRefreshLabel');
+    var status = document.getElementById('caipRefreshStatus');
+    var timer = null;
+    var collapseStorageKey = 'salesbuddy_caip_collapsed_fiscal_years';
+
+    function loadCollapsedYears() {
+        try { return JSON.parse(localStorage.getItem(collapseStorageKey) || '[]'); }
+        catch (_) { return []; }
+    }
+
+    function setGroupCollapsed(group, collapsed) {
+        var toggle = group.querySelector('[data-caip-group-toggle]');
+        var body = group.querySelector('.caip-group-body');
+        toggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+        body.hidden = collapsed;
+    }
+
+    var collapsedYears = loadCollapsedYears();
+    document.querySelectorAll('.caip-group').forEach(function(group) {
+        var fiscalYear = group.dataset.fiscalYear;
+        setGroupCollapsed(group, collapsedYears.includes(fiscalYear));
+        group.querySelector('[data-caip-group-toggle]').addEventListener('click', function() {
+            var collapsed = this.getAttribute('aria-expanded') === 'true';
+            setGroupCollapsed(group, collapsed);
+            collapsedYears = collapsed
+                ? Array.from(new Set(collapsedYears.concat(fiscalYear)))
+                : collapsedYears.filter(function(item) { return item !== fiscalYear; });
+            try { localStorage.setItem(collapseStorageKey, JSON.stringify(collapsedYears)); }
+            catch (_) {}
+        });
+    });
+
+    function showError(message) {
+        button.disabled = false;
+        spinner.classList.add('d-none');
+        icon.classList.remove('d-none');
+        label.textContent = 'Retry MSX Refresh';
+        status.classList.remove('d-none', 'text-muted');
+        status.classList.add('text-danger');
+        status.textContent = message;
+    }
+
+    function poll() {
+        fetch('/api/reports/activity-coverage/reconcile-status')
+            .then(function(response) { return response.json(); })
+            .then(function(data) {
+                if (data.running) {
+                    status.classList.remove('d-none');
+                    status.textContent = 'Syncing CAIP evidence from MSX...';
+                    return;
+                }
+                window.clearInterval(timer);
+                if (data.error) {
+                    showError(data.error);
+                } else {
+                    window.location.reload();
+                }
+            })
+            .catch(function(error) { window.clearInterval(timer); showError(error.message); });
+    }
+
+    button.addEventListener('click', function() {
+        button.disabled = true;
+        spinner.classList.remove('d-none');
+        icon.classList.add('d-none');
+        label.textContent = 'Refreshing MSX';
+        status.classList.remove('d-none');
+        status.textContent = 'Syncing CAIP evidence from MSX...';
+        fetch('/api/reports/activity-coverage/reconcile', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+        }).then(function(response) {
+            if (!response.ok) { throw new Error('Could not start MSX refresh'); }
+            timer = window.setInterval(poll, 1200);
+            poll();
+        }).catch(function(error) { showError(error.message); });
+    });
+
+    {% if reconciliation.running %}
+    timer = window.setInterval(poll, 1200);
+    poll();
+    {% endif %}
+})();
+</script>

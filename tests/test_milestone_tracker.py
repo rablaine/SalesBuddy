@@ -2072,6 +2072,54 @@ class TestUpdateTeamMemberships:
             assert ms_local.on_my_team is True
 
 
+@patch('app.services.milestone_sync.batch_get_milestones_by_id')
+@patch('app.services.milestone_sync.get_my_milestone_team_ids')
+def test_sync_team_milestones_creates_customerless_caip(
+    mock_memberships,
+    mock_milestones,
+    app,
+):
+    """Team hydration persists CAIP milestones without local customer backing."""
+    mock_memberships.return_value = {
+        'success': True,
+        'milestone_ids': {'customerless-caip-guid'},
+        'pagination_complete': True,
+    }
+    mock_milestones.return_value = {
+        'success': True,
+        'by_id': {
+            'customerless-caip-guid': {
+                'id': 'customerless-caip-guid',
+                'name': 'Customerless CAIP',
+                'number': '7-CAIP',
+                'status': 'Completed',
+                'status_code': 1,
+                'milestone_category': 'Production',
+                'msx_opportunity_id': 'unknown-closed-opp',
+                'opportunity_name': 'Closed opportunity',
+                'due_date': '2025-08-01T00:00:00Z',
+                'url': 'https://example.test/customerless-caip',
+            },
+        },
+    }
+
+    with app.app_context():
+        from app.models import Milestone
+        from app.services.milestone_sync import _sync_team_milestones
+
+        result = _sync_team_milestones()
+        milestone = Milestone.query.filter_by(
+            msx_milestone_id='customerless-caip-guid'
+        ).one()
+        assert result['success'] is True
+        assert result['milestones_created'] == 1
+        assert milestone.customer_id is None
+        assert milestone.opportunity_id is None
+        assert milestone.opportunity_name == 'Closed opportunity'
+        assert milestone.milestone_category == 'Production'
+        assert milestone.on_my_team is True
+
+
 class TestOnMyTeamInTracker:
     """Test on_my_team display in the tracker page."""
 

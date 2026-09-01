@@ -135,6 +135,11 @@ class TestToolCoverage:
         names = self._tool_names()
         assert 'report_activity_coverage' in names
 
+    def test_caip_coverage_report_tool_exists(self):
+        """CAIP analytical view should be available to SalesIQ."""
+        names = {item['name'] for item in get_mcp_tools()}
+        assert 'report_caip_coverage' in names
+
     def test_hygiene_report_tool_exists(self):
         """Hygiene report should have a tool."""
         names = self._tool_names()

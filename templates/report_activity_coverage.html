@@ -141,7 +141,12 @@
             <span class="text-muted small">{{ fiscal_year_label }}</span>
         </div>
         <div class="coverage-summary mt-1"{% if lens == 'meetings' %} data-total="{{ summary.total }}"{% endif %}>
-            {% if lens == 'milestones' %}
+            {% if lens == 'milestones' and coverage_view == 'caip' %}
+            <span class="coverage-metric"><span class="coverage-value">{{ caip_summary.activities_percent }}%</span> activities logged</span>
+            <span class="coverage-metric"><span class="coverage-value">{{ caip_summary.activities_logged }}/{{ caip_summary.total }}</span> milestones with activity</span>
+            <span class="coverage-metric"><span class="coverage-value">{{ caip_summary.hok_percent }}%</span> HoK coverage</span>
+            <span class="coverage-metric"><span class="coverage-value">{{ caip_summary.hok_covered }}/{{ caip_summary.total }}</span> milestones with HoK</span>
+            {% elif lens == 'milestones' %}
             <span class="coverage-metric"><span class="coverage-value" id="milestoneCoveragePercent">{{ milestone_summary.coverage_percent }}%</span> milestone HoK coverage</span>
             <span class="coverage-metric"><span class="coverage-value" id="milestoneCoverageCount">{{ milestone_summary.covered }}/{{ milestone_summary.active_total }}</span> covered this FY</span>
             <span class="coverage-metric"><span class="coverage-value" id="milestoneCoverageUncovered">{{ milestone_summary.uncovered }}</span> need HoK</span>
@@ -164,6 +169,13 @@
     <a class="btn btn-outline-primary coverage-lens-link{% if lens == 'meetings' %} active{% endif %}" data-lens="meetings" href="{{ url_for('reports.report_activity_coverage') }}"><i class="bi bi-calendar-event"></i> Meetings</a>
     <a class="btn btn-outline-primary coverage-lens-link{% if lens == 'milestones' %} active{% endif %}" data-lens="milestones" href="{{ url_for('reports.report_activity_coverage', lens='milestones') }}"><i class="bi bi-flag"></i> Milestones</a>
 </div>
+
+{% if lens == 'milestones' %}
+<div class="btn-group btn-group-sm mb-2" aria-label="Milestone coverage methodology">
+    <a class="btn btn-outline-secondary{% if coverage_view == 'fy' %} active{% endif %}" href="{{ url_for('reports.report_activity_coverage', lens='milestones', coverage='fy') }}">FY HoK Coverage</a>
+    <a class="btn btn-outline-secondary{% if coverage_view == 'caip' %} active{% endif %}" href="{{ url_for('reports.report_activity_coverage', lens='milestones', coverage='caip') }}">CAIP Coverage</a>
+</div>
+{% endif %}
 
 <script>
 (function() {
@@ -230,7 +242,11 @@
 </script>
 
 {% if lens == 'milestones' %}
+{% if coverage_view == 'caip' %}
+{% include 'partials/activity_coverage_caip.html' %}
+{% else %}
 {% include 'partials/activity_coverage_milestones.html' %}
+{% endif %}
 {% else %}
 <div class="coverage-toolbar py-2 mb-2">
     <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">

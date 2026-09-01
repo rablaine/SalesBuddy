@@ -1242,7 +1242,8 @@ def batch_get_opportunities(
 # batch_get_milestones_by_id (filter on milestone id).
 _MILESTONE_SELECT_FIELDS = [
     "msp_engagementmilestoneid", "msp_name", "msp_milestonestatus",
-    "msp_milestonenumber", "_msp_opportunityid_value", "msp_monthlyuse",
+    "msp_milestonenumber", "msp_milestonecategory",
+    "_msp_opportunityid_value", "msp_monthlyuse",
     "_msp_workloadlkid_value", "msp_milestonedate", "msp_bacvrate",
     "msp_commitmentrecommendation", "msp_committedon", "msp_completedon",
     "msp_forecastcommentsjsonfield", "createdon", "modifiedon",
@@ -1272,6 +1273,10 @@ def _parse_milestone_record(raw: dict) -> Optional[dict]:
         "@OData.Community.Display.V1.FormattedValue",
         "",
     ) or raw.get("msp_commitmentrecommendation", "")
+    category = raw.get(
+        "msp_milestonecategory@OData.Community.Display.V1.FormattedValue",
+        "",
+    ) or raw.get("msp_milestonecategory", "")
 
     return {
         "id": ms_id,
@@ -1283,7 +1288,14 @@ def _parse_milestone_record(raw: dict) -> Optional[dict]:
         "customer_commitment": (
             commitment if isinstance(commitment, str) else str(commitment)
         ),
+        "milestone_category": (
+            category if isinstance(category, str) else str(category)
+        ),
         "msx_opportunity_id": opp_id,
+        "opportunity_name": raw.get(
+            "_msp_opportunityid_value@OData.Community.Display.V1.FormattedValue",
+            "",
+        ),
         "workload": workload,
         "monthly_usage": raw.get("msp_monthlyuse"),
         "due_date": raw.get("msp_milestonedate"),
@@ -2915,7 +2927,7 @@ def get_tasks_for_milestones(
             f"?$filter={filter_str}"
             f"&$select=activityid,subject,description,"
             f"msp_taskcategory,scheduleddurationminutes,"
-            f"scheduledend,createdon,statecode,statuscode,"
+            f"scheduledend,createdon,actualend,statecode,statuscode,"
             f"_regardingobjectid_value"
             f"&$top=5000"
         )
@@ -2945,6 +2957,7 @@ def get_tasks_for_milestones(
                         "duration_minutes": raw.get("scheduleddurationminutes") or 60,
                         "due_date": due_date_str,
                         "created_on": raw.get("createdon"),
+                        "actual_end": raw.get("actualend"),
                         "statecode": raw.get("statecode"),
                         "statuscode": raw.get("statuscode"),
                         "milestone_msx_id": (
@@ -2975,6 +2988,7 @@ def get_tasks_for_milestones(
                                 "duration_minutes": raw.get("scheduleddurationminutes") or 60,
                                 "due_date": raw.get("scheduledend"),
                                 "created_on": raw.get("createdon"),
+                                "actual_end": raw.get("actualend"),
                                 "statecode": raw.get("statecode"),
                                 "statuscode": raw.get("statuscode"),
                                 "milestone_msx_id": (
@@ -3008,6 +3022,86 @@ def get_tasks_for_milestones(
 
     logger.info(f"Fetched {len(all_tasks)} user tasks across {len(milestone_msx_ids)} milestones")
     return {"success": True, "tasks": all_tasks}
+
+
+def get_activities_for_milestones(
+    milestone_msx_ids: List[str],
+) -> Dict[str, Any]:
+    """Fetch all activities owned by the current user for CAIP milestones."""
+    if not milestone_msx_ids:
+        return {"success": True, "activities": []}
+
+    user_id = get_current_user_id()
+    if not user_id:
+        return {
+            "success": False,
+            "activities": [],
+            "error": "Could not determine current user.",
+        }
+
+    activities: List[Dict[str, Any]] = []
+    batch_size = 75
+    for index in range(0, len(milestone_msx_ids), batch_size):
+        batch = milestone_msx_ids[index:index + batch_size]
+        regarding_filter = " or ".join(
+            f"_regardingobjectid_value eq '{milestone_id}'"
+            for milestone_id in batch
+        )
+        url = (
+            f"{CRM_BASE_URL}/activitypointers"
+            f"?$filter=_ownerid_value eq '{user_id}' and ({regarding_filter})"
+            f"&$select=activityid,activitytypecode,subject,createdon,actualend,"
+            f"_regardingobjectid_value&$top=5000"
+        )
+
+        try:
+            while url:
+                response = _msx_request('GET', url)
+                if response.status_code != 200:
+                    return {
+                        "success": False,
+                        "activities": [],
+                        "error": (
+                            f"HTTP {response.status_code}: "
+                            f"{response.text[:200]}"
+                        ),
+                    }
+                page = response.json()
+                for raw in page.get("value", []):
+                    activity_id = raw.get("activityid")
+                    milestone_id = raw.get("_regardingobjectid_value")
+                    if not activity_id or not milestone_id:
+                        continue
+                    activities.append({
+                        "activity_id": activity_id,
+                        "activity_type": raw.get(
+                            "activitytypecode"
+                            "@OData.Community.Display.V1.FormattedValue",
+                            raw.get("activitytypecode"),
+                        ),
+                        "subject": raw.get("subject", ""),
+                        "created_on": raw.get("createdon"),
+                        "actual_end": raw.get("actualend"),
+                        "milestone_msx_id": milestone_id.lower(),
+                    })
+                url = page.get("@odata.nextLink")
+        except requests.exceptions.Timeout:
+            return {
+                "success": False,
+                "activities": [],
+                "error": "Request timed out. Check VPN connection.",
+            }
+        except requests.exceptions.ConnectionError as exc:
+            return {
+                "success": False,
+                "activities": [],
+                "error": f"Connection error (VPN?): {str(exc)[:100]}",
+            }
+        except Exception as exc:
+            logger.exception("Error fetching CAIP activities")
+            return {"success": False, "activities": [], "error": str(exc)}
+
+    return {"success": True, "activities": activities}
 
 
 def update_task(
