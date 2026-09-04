@@ -906,7 +906,7 @@ def report_hygiene():
             ~Engagement.milestones.any(),
         )
         .options(db.joinedload(Engagement.customer))
-        .order_by(Engagement.title)
+        .order_by(Engagement.estimated_acr.desc(), Engagement.title)
     )
     if seller_mode_sid:
         eng_q = eng_q.join(
@@ -922,8 +922,10 @@ def report_hygiene():
             Milestone.msx_status.in_(['On Track', 'At Risk', 'Blocked']),
             ~Milestone.engagements.any(),
         )
-        .options(db.joinedload(Milestone.customer))
-        .order_by(Milestone.title)
+        .options(
+            db.joinedload(Milestone.customer).joinedload(Customer.seller),
+        )
+        .order_by(Milestone.monthly_usage.desc(), Milestone.title)
     )
     if seller_mode_sid:
         ms_q = ms_q.join(
@@ -931,9 +933,8 @@ def report_hygiene():
         ).filter(Customer.seller_id == seller_mode_sid)
     milestones_no_eng = ms_q.all()
 
-    # Load hygiene notes for all displayed items
+    # Load reason notes for displayed engagements.
     eng_ids = [e.id for e in engagements_no_ms]
-    ms_ids = [m.id for m in milestones_no_eng]
 
     eng_notes = {}
     if eng_ids:
@@ -943,26 +944,17 @@ def report_hygiene():
         ).all():
             eng_notes[hn.entity_id] = hn.note
 
-    ms_notes = {}
-    if ms_ids:
-        for hn in HygieneNote.query.filter(
-            HygieneNote.entity_type == 'milestone',
-            HygieneNote.entity_id.in_(ms_ids),
-        ).all():
-            ms_notes[hn.entity_id] = hn.note
-
     return render_template(
         'report_hygiene.html',
         engagements_no_ms=engagements_no_ms,
         milestones_no_eng=milestones_no_eng,
         eng_notes=eng_notes,
-        ms_notes=ms_notes,
     )
 
 
 @bp.route('/api/hygiene-note', methods=['POST'])
 def save_hygiene_note():
-    """Save or update a hygiene note for an engagement or milestone."""
+    """Save or update a reason note for an engagement without milestones."""
     data = request.get_json(silent=True) or {}
     entity_type = (data.get('entity_type') or '').strip()
     entity_id = data.get('entity_id')

@@ -8,6 +8,11 @@ brought the change into `main`, so the admin Updates card can show
 Format: `## M/D/YYYY - <merge-short-sha>`. See
 `scripts/tag-changelog.ps1` for the helper that fills this in.
 
+## 9/4/2026
+
+- Make Engagement / Milestone Hygiene actionable with customer-scoped milestone linking, existing-or-new engagement remediation, and live summary counts.
+- Add seller grouping, customer-aware ordering, highest-ACR default sorting, and clearer milestone details to Engagement / Milestone Hygiene.
+
 ## 9/1/2026 - 0bfd2a0
 
 - Keep customerless CAIP milestones out of current-book milestone lists, dashboards, reports, calendars, and SalesIQ results.

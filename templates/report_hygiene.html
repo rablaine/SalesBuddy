@@ -23,12 +23,29 @@
     .save-indicator.show {
         opacity: 1;
     }
+    .ms-seller-group {
+        --bs-table-bg: var(--bs-tertiary-bg);
+        --bs-table-color: var(--bs-body-color);
+    }
+    .ms-group-columns {
+        --bs-table-bg: var(--bs-secondary-bg);
+        --bs-table-color: var(--bs-secondary-color);
+        font-size: 0.75rem;
+    }
+    .hygiene-picker-overflow-dialog,
+    .hygiene-picker-overflow-dialog .modal-content,
+    .hygiene-picker-overflow-dialog .modal-body {
+        overflow: visible;
+    }
+    .hygiene-picker-overflow-dialog [data-milestone-picker-results] {
+        z-index: 1090 !important;
+    }
 </style>
 
 <div class="d-flex justify-content-between align-items-start mb-3">
     <div>
         <h2><i class="bi bi-clipboard-check"></i> Engagement / Milestone Hygiene</h2>
-        <p class="text-muted mb-0">Identify and annotate gaps between engagements and milestones.</p>
+        <p class="text-muted mb-0">Identify and resolve gaps between engagements and milestones.</p>
     </div>
     <div class="d-flex gap-2">
         {% set export_table_id = 'table.table' %}
@@ -39,35 +56,27 @@
 
 <!-- Stats summary -->
 <div class="row mb-4">
-    <div class="col-md-3">
+    <div class="col-md-4">
         <div class="card text-center">
             <div class="card-body py-2">
-                <h3 class="mb-0">{{ engagements_no_ms|length }}</h3>
+                <h3 class="mb-0" id="engagementGapCount">{{ engagements_no_ms|length }}</h3>
                 <small class="text-muted">Engagements w/o Milestones</small>
             </div>
         </div>
     </div>
-    <div class="col-md-3">
+    <div class="col-md-4">
         <div class="card text-center">
             <div class="card-body py-2">
-                <h3 class="mb-0">{{ milestones_no_eng|length }}</h3>
+                <h3 class="mb-0" id="milestoneGapCount">{{ milestones_no_eng|length }}</h3>
                 <small class="text-muted">Milestones w/o Engagements</small>
             </div>
         </div>
     </div>
-    <div class="col-md-3">
+    <div class="col-md-4">
         <div class="card text-center">
             <div class="card-body py-2">
-                <h3 class="mb-0">{{ eng_notes|length }}</h3>
+                <h3 class="mb-0" id="engagementAnnotatedCount">{{ eng_notes|length }}</h3>
                 <small class="text-muted">Engagements Annotated</small>
-            </div>
-        </div>
-    </div>
-    <div class="col-md-3">
-        <div class="card text-center">
-            <div class="card-body py-2">
-                <h3 class="mb-0">{{ ms_notes|length }}</h3>
-                <small class="text-muted">Milestones Annotated</small>
             </div>
         </div>
     </div>
@@ -77,7 +86,7 @@
 <div class="card mb-4">
     <div class="card-header d-flex justify-content-between align-items-center">
         <h5 class="mb-0"><i class="bi bi-diagram-3 me-1"></i> Active Engagements without Milestones</h5>
-        <span class="badge bg-warning text-dark">{{ engagements_no_ms|length }}</span>
+        <span class="badge bg-warning text-dark" id="engagementCount">{{ engagements_no_ms|length }}</span>
     </div>
     {% if engagements_no_ms %}
     <div class="table-responsive">
@@ -88,12 +97,13 @@
                     <th style="width: 20%;">Customer</th>
                     <th style="width: 10%;">ACR</th>
                     <th style="width: 10%;">Story</th>
-                    <th style="width: 35%;">Reason / Notes</th>
+                    <th style="width: 25%;">Reason / Notes</th>
+                    <th style="width: 10%;">Fix</th>
                 </tr>
             </thead>
             <tbody>
                 {% for eng in engagements_no_ms %}
-                <tr>
+                <tr class="engagement-gap-row" data-engagement-id="{{ eng.id }}">
                     <td>
                         <a href="{{ url_for('engagements.engagement_view', id=eng.id) }}">{{ eng.title }}</a>
                     </td>
@@ -125,6 +135,14 @@
                             <span class="save-indicator text-success"><i class="bi bi-check"></i></span>
                         </div>
                     </td>
+                    <td>
+                        <button type="button" class="btn btn-sm btn-outline-primary text-nowrap"
+                                data-link-engagement-id="{{ eng.id }}"
+                                data-link-customer-id="{{ eng.customer_id }}"
+                                data-link-engagement-title="{{ eng.title }}">
+                            <i class="bi bi-flag"></i> Add Milestones
+                        </button>
+                    </td>
                 </tr>
                 {% endfor %}
             </tbody>
@@ -147,30 +165,38 @@
                 <input class="form-check-input" type="checkbox" id="onTeamToggle" checked>
                 <label class="form-check-label small" for="onTeamToggle">On Team</label>
             </div>
+            <div class="form-check form-switch mb-0">
+                <input class="form-check-input" type="checkbox" id="groupBySellerToggle">
+                <label class="form-check-label small" for="groupBySellerToggle">Group by Seller</label>
+            </div>
         </div>
         <span class="badge bg-warning text-dark" id="msCount">{{ milestones_no_eng|selectattr('on_my_team')|list|length }}</span>
     </div>
     {% if milestones_no_eng %}
     <div class="table-responsive">
         <table class="table table-hover mb-0 align-middle">
-            <thead>
+            <thead id="milestoneGlobalHeader">
                 <tr>
-                    <th style="width: 25%;">Milestone</th>
-                    <th style="width: 15%;">Customer</th>
-                    <th style="width: 10%;">Status</th>
-                    <th style="width: 10%;">ACR</th>
-                    <th style="width: 5%;">Due</th>
-                    <th style="width: 35%;">Reason / Notes</th>
+                    <th style="width: 30%;">Milestone</th>
+                    <th style="width: 20%;">Customer</th>
+                    <th style="width: 8%;">Status</th>
+                    <th style="width: 8%;">ACR</th>
+                    <th style="width: 7%;">Due</th>
+                    <th style="width: 27%;">Fix</th>
                 </tr>
             </thead>
-            <tbody>
+            <tbody id="milestoneRows">
                 {% for ms in milestones_no_eng %}
                 <tr class="ms-row" data-on-team="{{ 'true' if ms.on_my_team else 'false' }}"
+                    data-milestone-id="{{ ms.id }}" data-customer-id="{{ ms.customer_id }}"
+                    data-customer-name="{{ (ms.customer.nickname or ms.customer.name) if ms.customer else '' }}"
+                    data-acr="{{ ms.monthly_usage or 0 }}" data-title="{{ ms.title or '' }}"
+                    data-seller-name="{{ ms.customer.seller.name if ms.customer and ms.customer.seller else 'Unassigned' }}"
                     {% if not ms.on_my_team %}style="display: none;"{% endif %}>
                     <td data-export-url="{{ ms.url }}">
                         <a href="{{ url_for('milestones.milestone_view', id=ms.id) }}">{{ ms.title }}</a>
                         {% if ms.workload %}
-                        <br><small class="text-muted">{{ ms.workload }}</small>
+                        <br><small class="text-muted text-nowrap d-inline-block">{{ ms.workload }}</small>
                         {% endif %}
                     </td>
                     <td{% if ms.customer and ms.customer.tpid_url %} data-export-url="{{ ms.customer.tpid_url }}"{% endif %}>
@@ -196,13 +222,24 @@
                         {% endif %}
                     </td>
                     <td>
-                        <div class="d-flex align-items-center gap-1">
-                            <input type="text" class="form-control form-control-sm hygiene-note-input"
-                                   data-entity-type="milestone" data-entity-id="{{ ms.id }}"
-                                   value="{{ ms_notes.get(ms.id, '') }}"
-                                   placeholder="Why no engagement?"
-                                   maxlength="500">
-                            <span class="save-indicator text-success"><i class="bi bi-check"></i></span>
+                        <div class="d-flex flex-nowrap gap-1">
+                            <button type="button" class="btn btn-sm btn-outline-primary text-nowrap"
+                                    data-add-existing-milestone-id="{{ ms.id }}"
+                                    data-add-existing-customer-id="{{ ms.customer_id }}"
+                                    data-add-existing-milestone-title="{{ ms.title }}">
+                                <i class="bi bi-diagram-3"></i> Add to Engagement
+                            </button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary text-nowrap"
+                                    data-create-engagement-milestone-id="{{ ms.id }}"
+                                    data-create-engagement-customer-id="{{ ms.customer_id }}"
+                                    data-create-engagement-milestone-title="{{ ms.title }}"
+                                    data-create-engagement-milestone-msx-id="{{ ms.msx_milestone_id or '' }}"
+                                    data-create-engagement-milestone-number="{{ ms.milestone_number or '' }}"
+                                    data-create-engagement-milestone-status="{{ ms.msx_status or '' }}"
+                                    data-create-engagement-milestone-opportunity="{{ ms.opportunity_name or '' }}"
+                                    data-create-engagement-milestone-workload="{{ ms.workload or '' }}">
+                                <i class="bi bi-plus-circle"></i> Create Engagement
+                            </button>
                         </div>
                     </td>
                 </tr>
@@ -218,7 +255,156 @@
     {% endif %}
 </div>
 
+<div class="modal" id="addExistingEngagementModal" tabindex="-1"
+     aria-labelledby="addExistingEngagementModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="addExistingEngagementModalLabel">Add to Engagement</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted small" id="addExistingEngagementContext"></p>
+                <label for="existingEngagementSelect" class="form-label">Existing engagement</label>
+                <select class="form-select" id="existingEngagementSelect"></select>
+                <div class="alert alert-info d-none mt-3 mb-0" id="noExistingEngagements">
+                    <div>No engagements exist for this customer.</div>
+                    <button type="button" class="btn btn-sm btn-primary mt-2"
+                            id="createEngagementFromEmptyState">
+                        <i class="bi bi-plus-circle"></i> Create Engagement
+                    </button>
+                </div>
+                <div class="alert alert-danger d-none mt-3 mb-0" id="addExistingEngagementError"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="saveExistingEngagement">
+                    <i class="bi bi-diagram-3"></i> Add to Engagement
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="linkMilestonesModal" tabindex="-1" aria-labelledby="linkMilestonesModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg hygiene-picker-overflow-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="linkMilestonesModalLabel">Add Milestones</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted small" id="linkMilestonesContext"></p>
+                <div data-milestone-picker="link">
+                    <div class="position-relative">
+                        <input type="search" class="form-control" data-milestone-picker-search
+                               placeholder="Search milestones..." autocomplete="off">
+                        <div class="list-group position-absolute w-100 shadow" data-milestone-picker-results
+                             style="display: none; z-index: 1080; max-height: 300px; overflow-y: auto;"></div>
+                    </div>
+                    <div class="form-text mb-3" data-milestone-picker-help></div>
+                    <div data-milestone-picker-selected></div>
+                </div>
+                <div class="alert alert-danger d-none mb-0" id="linkMilestonesError"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="saveEngagementMilestones">
+                    <i class="bi bi-check-circle"></i> Save Milestones
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="createEngagementModal" tabindex="-1" aria-labelledby="createEngagementModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl hygiene-picker-overflow-dialog">
+        <div class="modal-content">
+            <form id="createEngagementForm">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="createEngagementModalLabel">Create Engagement</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="row g-3">
+                        <div class="col-md-8">
+                            <label for="hygieneEngagementTitle" class="form-label">Title *</label>
+                            <input type="text" class="form-control" id="hygieneEngagementTitle" name="title" required>
+                        </div>
+                        <div class="col-md-4">
+                            <label for="hygieneEngagementStatus" class="form-label">Status</label>
+                            <select class="form-select" id="hygieneEngagementStatus" name="status">
+                                <option value="Active">Active</option>
+                                <option value="On Hold">On Hold</option>
+                                <option value="Won">Won</option>
+                                <option value="Lost">Lost</option>
+                            </select>
+                        </div>
+                        <div class="col-12">
+                            <label for="hygieneTechnicalProblem" class="form-label">Technical/Business Problem</label>
+                            <textarea class="form-control" id="hygieneTechnicalProblem" name="technical_problem" rows="2"></textarea>
+                        </div>
+                        <div class="col-12">
+                            <label for="hygieneBusinessImpact" class="form-label">Business Process/Strategy Impact</label>
+                            <textarea class="form-control" id="hygieneBusinessImpact" name="business_impact" rows="2"></textarea>
+                        </div>
+                        <div class="col-12">
+                            <label for="hygieneSolutionResources" class="form-label">Solution Resources</label>
+                            <textarea class="form-control" id="hygieneSolutionResources" name="solution_resources" rows="2"></textarea>
+                        </div>
+                        <div class="col-md-6">
+                            <label for="hygieneEstimatedAcr" class="form-label">Estimated $ACR (monthly)</label>
+                            <input type="number" class="form-control" id="hygieneEstimatedAcr" name="estimated_acr" min="0" step="1">
+                        </div>
+                        <div class="col-md-6">
+                            <label for="hygieneTargetDate" class="form-label">Target Date/Timeline</label>
+                            <input type="date" class="form-control" id="hygieneTargetDate" name="target_date">
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label"><i class="bi bi-flag"></i> Milestones</label>
+                            <div data-milestone-picker="create">
+                                <div class="position-relative">
+                                    <input type="search" class="form-control" data-milestone-picker-search
+                                           placeholder="Search milestones..." autocomplete="off">
+                                    <div class="list-group position-absolute w-100 shadow" data-milestone-picker-results
+                                         style="display: none; z-index: 1080; max-height: 300px; overflow-y: auto;"></div>
+                                </div>
+                                <div class="form-text mb-3" data-milestone-picker-help></div>
+                                <div data-milestone-picker-selected></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="alert alert-danger d-none mt-3 mb-0" id="createEngagementError"></div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary" id="createEngagementSubmit">
+                        <i class="bi bi-check-circle"></i> Create Engagement
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script src="{{ url_for('static', filename='js/milestone-multi-picker.js') }}"></script>
 <script>
+function updateHygieneSummaryCounts() {
+    var engagementRows = Array.from(document.querySelectorAll('.engagement-gap-row'));
+    var milestoneRows = document.querySelectorAll('.ms-row');
+    var annotatedEngagements = engagementRows.filter(function(row) {
+        var input = row.querySelector(
+            '.hygiene-note-input[data-entity-type="engagement"]'
+        );
+        return input && input.value.trim();
+    }).length;
+
+    document.getElementById('engagementGapCount').textContent = engagementRows.length;
+    document.getElementById('engagementCount').textContent = engagementRows.length;
+    document.getElementById('milestoneGapCount').textContent = milestoneRows.length;
+    document.getElementById('engagementAnnotatedCount').textContent = annotatedEngagements;
+}
+
 // Auto-save hygiene notes on blur (debounced)
 (function() {
     var saveTimers = {};
@@ -263,6 +449,7 @@
             .then(function(data) {
                 if (data.success) {
                     lastSaved = el.value.trim();
+                    updateHygieneSummaryCounts();
                     el.classList.add('saved');
                     indicator.classList.add('show');
                     setTimeout(function() {
@@ -278,29 +465,384 @@
     });
 })();
 
-// On-team toggle for milestones
-(function() {
-    var toggle = document.getElementById('onTeamToggle');
-    if (!toggle) return;
-    var rows = document.querySelectorAll('.ms-row');
-    var badge = document.getElementById('msCount');
+// Resolve hygiene gaps without leaving the report.
+function initializeHygieneRemediation() {
+    var linkRoot = document.querySelector('[data-milestone-picker="link"]');
+    var createRoot = document.querySelector('[data-milestone-picker="create"]');
+    if (!linkRoot || !createRoot || !window.SalesBuddyMilestoneMultiPicker) return;
 
-    function applyFilter() {
-        var onlyOnTeam = toggle.checked;
-        var visible = 0;
-        rows.forEach(function(row) {
-            var isOnTeam = row.dataset.onTeam === 'true';
-            if (onlyOnTeam && !isOnTeam) {
-                row.style.display = 'none';
-            } else {
-                row.style.display = '';
-                visible++;
-            }
-        });
-        badge.textContent = visible;
+    var linkPicker = new window.SalesBuddyMilestoneMultiPicker(linkRoot);
+    var createPicker = new window.SalesBuddyMilestoneMultiPicker(createRoot);
+    var linkModalElement = document.getElementById('linkMilestonesModal');
+    var existingModalElement = document.getElementById('addExistingEngagementModal');
+    var createModalElement = document.getElementById('createEngagementModal');
+    var linkModal = bootstrap.Modal.getOrCreateInstance(linkModalElement);
+    var existingModal = bootstrap.Modal.getOrCreateInstance(existingModalElement);
+    var createModal = bootstrap.Modal.getOrCreateInstance(createModalElement);
+    var linkError = document.getElementById('linkMilestonesError');
+    var existingError = document.getElementById('addExistingEngagementError');
+    var createError = document.getElementById('createEngagementError');
+    var activeEngagementId = null;
+    var activeCustomerId = null;
+    var activeMilestoneId = null;
+    var activeExistingSourceButton = null;
+
+    function showError(element, message) {
+        element.textContent = message;
+        element.classList.remove('d-none');
     }
 
-    toggle.addEventListener('change', applyFilter);
+    function clearError(element) {
+        element.textContent = '';
+        element.classList.add('d-none');
+    }
+
+    function selectedPayload(picker) {
+        return {
+            milestone_ids: picker.getSelectedIds(),
+            milestones: picker.getSelectedMilestones(),
+        };
+    }
+
+    function removeResolvedMilestones(milestoneIds) {
+        milestoneIds.forEach(function(milestoneId) {
+            var row = document.querySelector(
+                '.ms-row[data-milestone-id="' + milestoneId + '"]'
+            );
+            if (row) row.remove();
+        });
+        updateHygieneSummaryCounts();
+        if (window.redrawHygieneMilestones) window.redrawHygieneMilestones();
+    }
+
+    function removeResolvedEngagement(engagementId) {
+        var row = document.querySelector(
+            '.engagement-gap-row[data-engagement-id="' + engagementId + '"]'
+        );
+        if (row) row.remove();
+        updateHygieneSummaryCounts();
+    }
+
+    document.querySelectorAll('[data-link-engagement-id]').forEach(function(button) {
+        button.addEventListener('click', function() {
+            activeEngagementId = Number(button.dataset.linkEngagementId);
+            activeCustomerId = Number(button.dataset.linkCustomerId);
+            clearError(linkError);
+            document.getElementById('linkMilestonesContext').textContent =
+                'Choose milestones for ' + button.dataset.linkEngagementTitle + '.';
+            linkModal.show();
+            linkPicker.load(activeCustomerId, []).catch(function(error) {
+                showError(linkError, error.message);
+            });
+        });
+    });
+
+    document.getElementById('saveEngagementMilestones').addEventListener('click', function() {
+        var button = this;
+        var payload = selectedPayload(linkPicker);
+        if (!payload.milestones.length) {
+            showError(linkError, 'Select at least one milestone.');
+            return;
+        }
+        clearError(linkError);
+        button.disabled = true;
+        fetch('/api/engagement/' + activeEngagementId + '/milestones', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(payload),
+        })
+        .then(function(response) {
+            return response.json().then(function(data) {
+                if (!response.ok || !data.success) throw new Error(data.error || 'Save failed');
+                return data;
+            });
+        })
+        .then(function(data) {
+            removeResolvedEngagement(activeEngagementId);
+            removeResolvedMilestones(data.milestone_ids || []);
+            linkModal.hide();
+        })
+        .catch(function(error) { showError(linkError, error.message); })
+        .finally(function() { button.disabled = false; });
+    });
+
+    document.querySelectorAll('[data-add-existing-milestone-id]').forEach(function(button) {
+        button.addEventListener('click', function() {
+            activeExistingSourceButton = button;
+            activeCustomerId = Number(button.dataset.addExistingCustomerId);
+            activeMilestoneId = Number(button.dataset.addExistingMilestoneId);
+            var select = document.getElementById('existingEngagementSelect');
+            var saveButton = document.getElementById('saveExistingEngagement');
+            var emptyMessage = document.getElementById('noExistingEngagements');
+            select.replaceChildren(new Option('Loading engagements...', ''));
+            select.disabled = true;
+            saveButton.disabled = true;
+            emptyMessage.classList.add('d-none');
+            clearError(existingError);
+            document.getElementById('addExistingEngagementContext').textContent =
+                'Choose an engagement for ' + button.dataset.addExistingMilestoneTitle + '.';
+            existingModal.show();
+
+            fetch('/api/customer/' + activeCustomerId + '/engagements')
+                .then(function(response) {
+                    if (!response.ok) throw new Error('Could not load engagements');
+                    return response.json();
+                })
+                .then(function(engagements) {
+                    select.replaceChildren();
+                    engagements.forEach(function(engagement) {
+                        select.appendChild(new Option(
+                            engagement.title + ' (' + engagement.status + ')',
+                            String(engagement.id)
+                        ));
+                    });
+                    var hasEngagements = engagements.length > 0;
+                    select.disabled = !hasEngagements;
+                    saveButton.disabled = !hasEngagements;
+                    emptyMessage.classList.toggle('d-none', hasEngagements);
+                })
+                .catch(function(error) {
+                    select.replaceChildren();
+                    showError(existingError, error.message);
+                });
+        });
+    });
+
+    document.getElementById('saveExistingEngagement').addEventListener('click', function() {
+        var button = this;
+        var engagementId = Number(document.getElementById('existingEngagementSelect').value);
+        if (!engagementId) {
+            showError(existingError, 'Select an engagement.');
+            return;
+        }
+        clearError(existingError);
+        button.disabled = true;
+        fetch(
+            '/api/engagement/' + engagementId + '/milestones/' + activeMilestoneId + '/add',
+            {method: 'POST'}
+        )
+        .then(function(response) {
+            return response.json().then(function(data) {
+                if (!response.ok || !data.success) throw new Error(data.error || 'Save failed');
+                return data;
+            });
+        })
+        .then(function() {
+            removeResolvedMilestones([activeMilestoneId]);
+            existingModal.hide();
+        })
+        .catch(function(error) { showError(existingError, error.message); })
+        .finally(function() { button.disabled = false; });
+    });
+
+    function openCreateEngagement(button) {
+        activeCustomerId = Number(button.dataset.createEngagementCustomerId);
+        var milestoneId = Number(button.dataset.createEngagementMilestoneId);
+        var form = document.getElementById('createEngagementForm');
+        form.reset();
+        clearError(createError);
+        document.getElementById('createEngagementModalLabel').textContent =
+            'Create Engagement for ' + button.dataset.createEngagementMilestoneTitle;
+        createModal.show();
+        var sourceMilestone = {
+            id: button.dataset.createEngagementMilestoneMsxId || String(milestoneId),
+            local_milestone_id: milestoneId,
+            name: button.dataset.createEngagementMilestoneTitle,
+            number: button.dataset.createEngagementMilestoneNumber,
+            status: button.dataset.createEngagementMilestoneStatus,
+            opportunity_name: button.dataset.createEngagementMilestoneOpportunity,
+            workload: button.dataset.createEngagementMilestoneWorkload,
+        };
+        createPicker.load(activeCustomerId, [milestoneId], [sourceMilestone]).catch(function(error) {
+            showError(createError, error.message);
+        });
+    }
+
+    document.getElementById('createEngagementFromEmptyState').addEventListener('click', function() {
+        if (!activeExistingSourceButton) return;
+        var createButton = activeExistingSourceButton.parentElement.querySelector(
+            '[data-create-engagement-milestone-id]'
+        );
+        existingModalElement.addEventListener('hidden.bs.modal', function openAfterClose() {
+            openCreateEngagement(createButton);
+        }, {once: true});
+        existingModal.hide();
+    });
+
+    document.querySelectorAll('[data-create-engagement-milestone-id]').forEach(function(button) {
+        button.addEventListener('click', function() {
+            openCreateEngagement(button);
+        });
+    });
+
+    document.getElementById('createEngagementForm').addEventListener('submit', function(event) {
+        event.preventDefault();
+        var form = this;
+        if (!form.reportValidity()) return;
+        var button = document.getElementById('createEngagementSubmit');
+        var formData = new FormData(form);
+        var payload = Object.fromEntries(formData.entries());
+        Object.assign(payload, selectedPayload(createPicker));
+        clearError(createError);
+        button.disabled = true;
+        fetch('/customer/' + activeCustomerId + '/engagement/create-inline', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(payload),
+        })
+        .then(function(response) {
+            return response.json().then(function(data) {
+                if (!response.ok || !data.success) throw new Error(data.error || 'Create failed');
+                return data;
+            });
+        })
+        .then(function(data) {
+            removeResolvedMilestones(data.milestone_ids || []);
+            createModal.hide();
+        })
+        .catch(function(error) { showError(createError, error.message); })
+        .finally(function() { button.disabled = false; });
+    });
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initializeHygieneRemediation);
+} else {
+    initializeHygieneRemediation();
+}
+
+// Milestone filtering and grouping
+(function() {
+    var onTeamToggle = document.getElementById('onTeamToggle');
+    var groupToggle = document.getElementById('groupBySellerToggle');
+    var tbody = document.getElementById('milestoneRows');
+    var globalHeader = document.getElementById('milestoneGlobalHeader');
+    if (!onTeamToggle || !groupToggle || !tbody || !globalHeader) return;
+
+    var storageKey = 'salesbuddy_hygiene_milestone_view';
+    var rows = Array.from(tbody.querySelectorAll('.ms-row'));
+    var badge = document.getElementById('msCount');
+
+    try {
+        var saved = JSON.parse(localStorage.getItem(storageKey) || '{}');
+        if (typeof saved.onlyOnTeam === 'boolean') onTeamToggle.checked = saved.onlyOnTeam;
+        if (typeof saved.groupBySeller === 'boolean') groupToggle.checked = saved.groupBySeller;
+    } catch (error) {
+        console.warn('Failed to restore hygiene milestone view:', error);
+    }
+
+    function createSellerHeader(sellerName, count) {
+        var row = document.createElement('tr');
+        row.className = 'ms-seller-group';
+        var cell = document.createElement('td');
+        cell.colSpan = 6;
+        cell.className = 'py-2';
+
+        var seller = document.createElement('span');
+        seller.className = sellerName === 'Unassigned'
+            ? 'badge bg-secondary'
+            : 'badge bg-primary';
+        var icon = document.createElement('i');
+        icon.className = 'bi bi-person me-1';
+        seller.appendChild(icon);
+        seller.appendChild(document.createTextNode(sellerName));
+
+        var total = document.createElement('span');
+        total.className = 'text-muted small ms-2';
+        total.textContent = count + (count === 1 ? ' milestone' : ' milestones');
+        cell.appendChild(seller);
+        cell.appendChild(total);
+        row.appendChild(cell);
+        return row;
+    }
+
+    function createColumnHeader() {
+        var row = document.createElement('tr');
+        row.className = 'ms-group-columns';
+        [
+            ['Milestone', '30%'],
+            ['Customer', '20%'],
+            ['Status', '8%'],
+            ['ACR', '8%'],
+            ['Due', '7%'],
+            ['Fix', '27%'],
+        ].forEach(function(column) {
+            var header = document.createElement('th');
+            header.scope = 'col';
+            header.style.width = column[1];
+            header.textContent = column[0];
+            row.appendChild(header);
+        });
+        return row;
+    }
+
+    function redraw() {
+        rows = rows.filter(function(row) { return row.isConnected; });
+        var onlyOnTeam = onTeamToggle.checked;
+        var visibleRows = rows.filter(function(row) {
+            return !onlyOnTeam || row.dataset.onTeam === 'true';
+        });
+        visibleRows.sort(function(left, right) {
+            if (groupToggle.checked) {
+                var customerOrder = (left.dataset.customerName || '').localeCompare(
+                    right.dataset.customerName || ''
+                );
+                if (customerOrder !== 0) return customerOrder;
+            }
+            var acrOrder = Number(right.dataset.acr || 0) - Number(left.dataset.acr || 0);
+            if (acrOrder !== 0) return acrOrder;
+            return (left.dataset.title || '').localeCompare(right.dataset.title || '');
+        });
+
+        tbody.querySelectorAll('.ms-seller-group, .ms-group-columns').forEach(function(row) {
+            row.remove();
+        });
+        rows.forEach(function(row) {
+            row.style.display = visibleRows.includes(row) ? '' : 'none';
+        });
+
+        if (groupToggle.checked) {
+            globalHeader.style.display = 'none';
+            var groupedRows = new Map();
+            visibleRows.forEach(function(row) {
+                var sellerName = row.dataset.sellerName || 'Unassigned';
+                if (!groupedRows.has(sellerName)) groupedRows.set(sellerName, []);
+                groupedRows.get(sellerName).push(row);
+            });
+            Array.from(groupedRows.keys()).sort(function(left, right) {
+                if (left === 'Unassigned') return 1;
+                if (right === 'Unassigned') return -1;
+                return left.localeCompare(right);
+            }).forEach(function(sellerName) {
+                var sellerRows = groupedRows.get(sellerName);
+                tbody.appendChild(createSellerHeader(sellerName, sellerRows.length));
+                tbody.appendChild(createColumnHeader());
+                sellerRows.forEach(function(row) { tbody.appendChild(row); });
+            });
+        } else {
+            globalHeader.style.display = '';
+            visibleRows.forEach(function(row) { tbody.appendChild(row); });
+            rows.filter(function(row) {
+                return !visibleRows.includes(row);
+            }).forEach(function(row) { tbody.appendChild(row); });
+        }
+
+        badge.textContent = visibleRows.length;
+
+        try {
+            localStorage.setItem(storageKey, JSON.stringify({
+                onlyOnTeam: onlyOnTeam,
+                groupBySeller: groupToggle.checked,
+            }));
+        } catch (error) {
+            console.warn('Failed to save hygiene milestone view:', error);
+        }
+    }
+
+    onTeamToggle.addEventListener('change', redraw);
+    groupToggle.addEventListener('change', redraw);
+    window.redrawHygieneMilestones = redraw;
+    redraw();
 })();
 </script>
 {% endblock %}
