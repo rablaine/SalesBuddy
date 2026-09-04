@@ -128,6 +128,10 @@ class TestToolCoverage:
             'No tool covers action items. Add one to salesiq_tools.py.'
         )
 
+    def test_one_on_one_workspace_tool_exists(self):
+        """Persistent 1:1 workspaces should have a read tool."""
+        assert 'get_one_on_one_workspaces' in self._tool_names()
+
     # -- Reports -------------------------------------------------------------
 
     def test_activity_coverage_report_tool_exists(self):
@@ -427,6 +431,27 @@ class TestToolExecution:
             result = execute_tool('report_one_on_one', {'days': 14})
             assert 'customer_activity' in result
             assert 'open_engagements' in result
+
+    def test_get_one_on_one_workspaces(self, app):
+        """Persistent 1:1 notes should be readable through SalesIQ."""
+        with app.app_context():
+            from app.models import OneOnOneWorkspace, db
+
+            workspace = OneOnOneWorkspace(
+                person_name='SalesIQ Manager',
+                person_type='Manager',
+                notes='Discuss team priorities.',
+            )
+            db.session.add(workspace)
+            db.session.commit()
+
+            result = execute_tool('get_one_on_one_workspaces', {})
+            match = next(
+                item for item in result['workspaces']
+                if item['id'] == workspace.id
+            )
+            assert match['notes'] == 'Discuss team priorities.'
+            assert match['url'].endswith(f'/one-on-one/{workspace.id}')
 
     def test_search_contacts_empty(self, app):
         """search_contacts with no data returns empty list."""

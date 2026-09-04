@@ -7,6 +7,10 @@
 <div class="d-flex justify-content-between align-items-center mb-4">
     <h1><i class="bi bi-person"></i> {{ seller.name }}</h1>
     <div>
+        <a href="{{ url_for('one_on_one.seller_workspace', seller_id=seller.id) }}"
+           class="btn btn-outline-primary me-2">
+            <i class="bi bi-journal-text"></i> 1:1 Notes
+        </a>
         {% if not seller_mode %}
         <button class="btn btn-outline-secondary me-2" onclick="activateSellerMode({{ seller.id }})">
             <i class="bi bi-eye"></i> View as Seller

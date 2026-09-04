@@ -8,6 +8,11 @@ brought the change into `main`, so the admin Updates card can show
 Format: `## M/D/YYYY - <merge-short-sha>`. See
 `scripts/tag-changelog.ps1` for the helper that fills this in.
 
+## 9/4/2026
+
+- Add persistent seller and manager 1:1 workspaces with standing notes, discussion agendas, talking points, history, and contextual launch points.
+- Prioritize on-team milestones in seller agenda pickers and automatically hide active agenda items until they are discussed or removed.
+
 ## 9/4/2026 - 2bd170a
 
 - Make Engagement / Milestone Hygiene actionable with customer-scoped milestone linking, existing-or-new engagement remediation, and live summary counts.

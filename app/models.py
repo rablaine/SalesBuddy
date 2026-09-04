@@ -345,6 +345,12 @@ class Seller(db.Model):
         lazy='select'
     )
     customers = db.relationship('Customer', back_populates='seller', lazy='select')
+    one_on_one_workspace = db.relationship(
+        'OneOnOneWorkspace',
+        back_populates='seller',
+        uselist=False,
+        passive_deletes=True,
+    )
     # Notes can be accessed via Customer relationship
     
     def __repr__(self) -> str:
@@ -355,6 +361,101 @@ class Seller(db.Model):
         if self.alias:
             return f"{self.alias}@microsoft.com"
         return None
+
+
+class OneOnOneWorkspace(db.Model):
+    """Persistent notes and agenda for one person's recurring 1:1 meetings."""
+    __tablename__ = 'one_on_one_workspaces'
+
+    id = db.Column(db.Integer, primary_key=True)
+    person_name = db.Column(db.String(200), nullable=False)
+    person_type = db.Column(db.String(20), nullable=False, default='Other')
+    seller_id = db.Column(
+        db.Integer,
+        db.ForeignKey('sellers.id', ondelete='SET NULL'),
+        nullable=True,
+        unique=True,
+    )
+    notes = db.Column(db.Text, nullable=False, default='')
+    created_at = db.Column(db.DateTime, default=utc_now, nullable=False)
+    updated_at = db.Column(
+        db.DateTime,
+        default=utc_now,
+        onupdate=utc_now,
+        nullable=False,
+    )
+
+    seller = db.relationship('Seller', back_populates='one_on_one_workspace')
+    agenda_items = db.relationship(
+        'OneOnOneAgendaItem',
+        back_populates='workspace',
+        cascade='all, delete-orphan',
+        order_by='OneOnOneAgendaItem.sort_order, OneOnOneAgendaItem.created_at',
+    )
+
+    def __repr__(self) -> str:
+        return f'<OneOnOneWorkspace {self.person_name}>'
+
+
+class OneOnOneAgendaItem(db.Model):
+    """Milestone or engagement queued for discussion in a 1:1 workspace."""
+    __tablename__ = 'one_on_one_agenda_items'
+
+    id = db.Column(db.Integer, primary_key=True)
+    workspace_id = db.Column(
+        db.Integer,
+        db.ForeignKey('one_on_one_workspaces.id', ondelete='CASCADE'),
+        nullable=False,
+        index=True,
+    )
+    item_type = db.Column(db.String(20), nullable=False)
+    milestone_id = db.Column(
+        db.Integer,
+        db.ForeignKey('milestones.id', ondelete='SET NULL'),
+        nullable=True,
+    )
+    engagement_id = db.Column(
+        db.Integer,
+        db.ForeignKey('engagements.id', ondelete='SET NULL'),
+        nullable=True,
+    )
+    title_snapshot = db.Column(db.String(500), nullable=False)
+    customer_snapshot = db.Column(db.String(300), nullable=True)
+    talking_points = db.Column(db.Text, nullable=False, default='')
+    status = db.Column(db.String(20), nullable=False, default='active', index=True)
+    sort_order = db.Column(db.Integer, nullable=False, default=0)
+    created_at = db.Column(db.DateTime, default=utc_now, nullable=False)
+    updated_at = db.Column(
+        db.DateTime,
+        default=utc_now,
+        onupdate=utc_now,
+        nullable=False,
+    )
+    discussed_at = db.Column(db.DateTime, nullable=True)
+
+    workspace = db.relationship('OneOnOneWorkspace', back_populates='agenda_items')
+    milestone = db.relationship('Milestone')
+    engagement = db.relationship('Engagement')
+
+    @property
+    def title(self) -> str:
+        """Return current linked title, falling back to the saved snapshot."""
+        if self.item_type == 'milestone' and self.milestone:
+            return self.milestone.display_text
+        if self.item_type == 'engagement' and self.engagement:
+            return self.engagement.title
+        return self.title_snapshot
+
+    @property
+    def customer_name(self) -> str:
+        """Return current customer name, falling back to the saved snapshot."""
+        linked = self.milestone if self.item_type == 'milestone' else self.engagement
+        if linked and linked.customer:
+            return linked.customer.get_display_name()
+        return self.customer_snapshot or ''
+
+    def __repr__(self) -> str:
+        return f'<OneOnOneAgendaItem {self.item_type}:{self.id}>'
 
 
 # =============================================================================
