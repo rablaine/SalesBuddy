@@ -9,11 +9,14 @@ from app.models import (
     Customer,
     Engagement,
     Milestone,
+    Note,
     OneOnOneAgendaItem,
     OneOnOneWorkspace,
     Seller,
     db,
 )
+from app.services.backup import schedule_customer_backup
+from app.services.milestone_tracking import track_note_on_milestones
 
 one_on_one_bp = Blueprint('one_on_one', __name__)
 
@@ -356,6 +359,95 @@ def agenda_update(item_id: int):
     item.workspace.updated_at = item.updated_at
     db.session.commit()
     return jsonify({'success': True, 'item': _agenda_item_payload(item)})
+
+
+@one_on_one_bp.route(
+    '/api/one-on-one/agenda/<int:item_id>/engagement',
+    methods=['POST'],
+)
+def agenda_create_engagement(item_id: int):
+    """Turn a milestone agenda item into a linked active engagement."""
+    item = db.session.get(OneOnOneAgendaItem, item_id)
+    if not item:
+        return jsonify({'success': False, 'error': 'Agenda item not found'}), 404
+    if item.status != 'active' or item.item_type != 'milestone' or not item.milestone:
+        return jsonify({
+            'success': False,
+            'error': 'Only active milestone agenda items can create engagements',
+        }), 400
+
+    data = request.get_json(silent=True) or {}
+    title = str(data.get('title') or '').strip()
+    if not title:
+        return jsonify({'success': False, 'error': 'Engagement title is required'}), 400
+    if not _entity_allowed(item.workspace, item.milestone):
+        return jsonify({'success': False, 'error': 'Item is outside this workspace scope'}), 400
+
+    engagement = Engagement(
+        customer_id=item.milestone.customer_id,
+        title=title,
+        status='Active',
+    )
+    engagement.milestones.append(item.milestone)
+    db.session.add(engagement)
+    db.session.flush()
+
+    item.item_type = 'engagement'
+    item.engagement_id = engagement.id
+    item.milestone_id = None
+    item.title_snapshot = engagement.title
+    item.updated_at = datetime.now(timezone.utc)
+    item.workspace.updated_at = item.updated_at
+    db.session.commit()
+    return jsonify({
+        'success': True,
+        'item': _agenda_item_payload(item),
+        'engagement_id': engagement.id,
+    })
+
+
+@one_on_one_bp.route(
+    '/api/one-on-one/agenda/<int:item_id>/notes',
+    methods=['POST'],
+)
+def agenda_create_note(item_id: int):
+    """Save a 1:1 discussion note on an engagement agenda item."""
+    item = db.session.get(OneOnOneAgendaItem, item_id)
+    if not item:
+        return jsonify({'success': False, 'error': 'Agenda item not found'}), 404
+    if item.item_type != 'engagement' or not item.engagement:
+        return jsonify({
+            'success': False,
+            'error': 'Discussion notes require an engagement agenda item',
+        }), 400
+    if not _entity_allowed(item.workspace, item.engagement):
+        return jsonify({'success': False, 'error': 'Item is outside this workspace scope'}), 400
+
+    data = request.get_json(silent=True) or {}
+    content = str(data.get('content') or '').strip()
+    if not content:
+        return jsonify({'success': False, 'error': 'Note content is required'}), 400
+
+    note = Note(
+        customer_id=item.engagement.customer_id,
+        call_date=datetime.now(),
+        content=content,
+    )
+    db.session.add(note)
+    note.engagements.append(item.engagement)
+    note.milestones.extend(item.engagement.milestones)
+    db.session.flush()
+    track_note_on_milestones(note)
+    db.session.commit()
+    schedule_customer_backup(note.customer_id)
+    return jsonify({
+        'success': True,
+        'note': {
+            'id': note.id,
+            'content': note.content,
+            'call_date': note.call_date.isoformat(),
+        },
+    })
 
 
 @one_on_one_bp.route('/api/one-on-one/agenda/<int:item_id>', methods=['DELETE'])

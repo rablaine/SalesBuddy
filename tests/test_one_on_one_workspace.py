@@ -5,6 +5,7 @@ from app.models import (
     Customer,
     Engagement,
     Milestone,
+    Note,
     OneOnOneAgendaItem,
     OneOnOneWorkspace,
     Seller,
@@ -192,6 +193,25 @@ class TestOneOnOneWorkspaceAPI:
             workspace = db.session.get(OneOnOneWorkspace, workspace_id)
             assert workspace.notes == 'Ask about career goals and blockers.'
 
+    def test_engagement_item_exposes_inline_editor(
+        self, client, app, one_on_one_data
+    ):
+        """Engagement agenda items should offer the details editor."""
+        workspace_id = self._workspace(client, app, one_on_one_data['seller_id'])
+        client.post(f'/api/one-on-one/{workspace_id}/agenda', json={
+            'item_type': 'engagement',
+            'entity_id': one_on_one_data['engagement_id'],
+        })
+
+        response = client.get(f'/one-on-one/{workspace_id}')
+        html = response.data.decode()
+
+        assert response.status_code == 200
+        assert 'id="editEngagementModal"' in html
+        assert f'data-edit-engagement="{one_on_one_data["engagement_id"]}"' in html
+        assert 'Technical/Business Problem' in html
+        assert 'Save changes' in html
+
     def test_seller_candidates_are_scoped(self, client, app, one_on_one_data):
         """Seller workspaces should only search that seller's customer book."""
         workspace_id = self._workspace(client, app, one_on_one_data['seller_id'])
@@ -277,3 +297,98 @@ class TestOneOnOneWorkspaceAPI:
         })
         assert response.status_code == 400
         assert 'outside this workspace scope' in response.get_json()['error']
+
+    def test_milestone_becomes_linked_engagement(
+        self, client, app, one_on_one_data
+    ):
+        """Milestone workflow should create a linked engagement in place."""
+        workspace_id = self._workspace(client, app, one_on_one_data['seller_id'])
+        added = client.post(f'/api/one-on-one/{workspace_id}/agenda', json={
+            'item_type': 'milestone',
+            'entity_id': one_on_one_data['milestone_id'],
+        })
+        item_id = added.get_json()['item']['id']
+
+        response = client.post(
+            f'/api/one-on-one/agenda/{item_id}/engagement',
+            json={'title': 'Migration execution engagement'},
+        )
+
+        assert response.status_code == 200
+        engagement_id = response.get_json()['engagement_id']
+        with app.app_context():
+            item = db.session.get(OneOnOneAgendaItem, item_id)
+            engagement = db.session.get(Engagement, engagement_id)
+            assert item.item_type == 'engagement'
+            assert item.milestone_id is None
+            assert item.engagement_id == engagement.id
+            assert engagement.title == 'Migration execution engagement'
+            assert [milestone.id for milestone in engagement.milestones] == [
+                one_on_one_data['milestone_id']
+            ]
+
+    def test_engagement_discussion_note_links_milestone(
+        self, client, app, one_on_one_data, monkeypatch
+    ):
+        """1:1 notes should attach to engagement and its milestone."""
+        tracked_note_ids = []
+        backed_up_customer_ids = []
+        monkeypatch.setattr(
+            'app.routes.one_on_one.track_note_on_milestones',
+            lambda note: tracked_note_ids.append(note.id),
+        )
+        monkeypatch.setattr(
+            'app.routes.one_on_one.schedule_customer_backup',
+            lambda customer_id: backed_up_customer_ids.append(customer_id),
+        )
+        workspace_id = self._workspace(client, app, one_on_one_data['seller_id'])
+        added = client.post(f'/api/one-on-one/{workspace_id}/agenda', json={
+            'item_type': 'milestone',
+            'entity_id': one_on_one_data['milestone_id'],
+        })
+        item_id = added.get_json()['item']['id']
+        converted = client.post(
+            f'/api/one-on-one/agenda/{item_id}/engagement',
+            json={'title': 'Migration execution engagement'},
+        )
+        engagement_id = converted.get_json()['engagement_id']
+
+        response = client.post(
+            f'/api/one-on-one/agenda/{item_id}/notes',
+            json={'content': 'Seller confirmed architecture review next Tuesday.'},
+        )
+
+        assert response.status_code == 200
+        note_id = response.get_json()['note']['id']
+        with app.app_context():
+            note = db.session.get(Note, note_id)
+            assert note.content == 'Seller confirmed architecture review next Tuesday.'
+            assert [engagement.id for engagement in note.engagements] == [engagement_id]
+            assert [milestone.id for milestone in note.milestones] == [
+                one_on_one_data['milestone_id']
+            ]
+        assert tracked_note_ids == [note_id]
+        assert backed_up_customer_ids == [note.customer_id]
+
+    def test_engagement_flow_validates_item_type_and_content(
+        self, client, app, one_on_one_data
+    ):
+        """Workflow endpoints should reject invalid transitions and empty notes."""
+        workspace_id = self._workspace(client, app, one_on_one_data['seller_id'])
+        added = client.post(f'/api/one-on-one/{workspace_id}/agenda', json={
+            'item_type': 'engagement',
+            'entity_id': one_on_one_data['engagement_id'],
+        })
+        item_id = added.get_json()['item']['id']
+
+        conversion = client.post(
+            f'/api/one-on-one/agenda/{item_id}/engagement',
+            json={'title': 'Should not be created'},
+        )
+        empty_note = client.post(
+            f'/api/one-on-one/agenda/{item_id}/notes',
+            json={'content': '   '},
+        )
+
+        assert conversion.status_code == 400
+        assert empty_note.status_code == 400

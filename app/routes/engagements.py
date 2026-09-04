@@ -731,6 +731,8 @@ def engagement_update_inline(id: int):
         eng.target_date = None
 
     db.session.commit()
+    if eng.milestones:
+        track_engagement_on_milestones(eng)
     return jsonify(success=True, id=eng.id, title=eng.title, status=eng.status)
 
 
