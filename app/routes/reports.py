@@ -9,6 +9,7 @@ from app.models import (
     notes_engagements, notes_milestones, notes_topics,
     MarketingSummary, MarketingInteraction, MarketingContact,
     U2CSnapshot, U2CSnapshotItem,
+    OneOnOneWorkspace,
 )
 from sqlalchemy import func, desc, or_
 
@@ -705,6 +706,18 @@ def report_one_on_one():
         'commitments_acr': commitments_acr,
     }
 
+    one_on_one_workspaces = OneOnOneWorkspace.query.options(
+        db.joinedload(OneOnOneWorkspace.seller),
+    ).order_by(OneOnOneWorkspace.updated_at.desc()).all()
+    linked_seller_ids = {
+        workspace.seller_id
+        for workspace in one_on_one_workspaces
+        if workspace.seller_id
+    }
+    available_workspace_sellers = Seller.query.filter(
+        ~Seller.id.in_(linked_seller_ids)
+    ).order_by(Seller.name).all()
+
     return render_template(
         'report_one_on_one.html',
         recent_customers=recent_sorted,
@@ -719,6 +732,8 @@ def report_one_on_one():
         reviewed_alerts=reviewed_alerts,
         top_topics=top_topics,
         fy_month_labels=fy_month_labels,
+        one_on_one_workspaces=one_on_one_workspaces,
+        available_workspace_sellers=available_workspace_sellers,
     )
 
 

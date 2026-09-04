@@ -210,6 +210,7 @@ def create_app():
     from app.routes.backup import backup_bp
     from app.routes.reports import bp as reports_bp
     from app.routes.metrics import metrics_bp
+    from app.routes.one_on_one import one_on_one_bp
     
     app.register_blueprint(admin_bp)
     app.register_blueprint(ai_bp)
@@ -234,6 +235,7 @@ def create_app():
     app.register_blueprint(backup_bp)
     app.register_blueprint(reports_bp)
     app.register_blueprint(metrics_bp)
+    app.register_blueprint(one_on_one_bp)
     from app.routes.alignment import alignment_bp
     app.register_blueprint(alignment_bp)
     

@@ -21,6 +21,7 @@ _ENTITY_PATHS = {
     'partner': '/partners/',
     'territory': '/territory/',
     'pod': '/pod/',
+    'one_on_one': '/one-on-one/',
 }
 
 
@@ -111,6 +112,30 @@ def execute_tool(name: str, params: dict) -> Any:
 # ============================================================================
 # Entity tools
 # ============================================================================
+
+# -- 1:1 workspaces ----------------------------------------------------------
+
+@tool(
+    'get_one_on_one_workspaces',
+    'Get persistent 1:1 notes and agenda items for sellers, managers, and other people.',
+    {
+        'type': 'object',
+        'properties': {
+            'include_discussed': {
+                'type': 'boolean',
+                'description': 'Include completed discussion-history items.',
+            },
+        },
+    },
+)
+def get_one_on_one_workspaces(include_discussed: bool = False) -> dict:
+    """Return persistent one-on-one workspace summaries."""
+    from app.services.one_on_one import get_one_on_one_workspace_summaries
+
+    workspaces = get_one_on_one_workspace_summaries(include_discussed)
+    for workspace in workspaces:
+        workspace['url'] = _url('one_on_one', workspace['id'])
+    return {'count': len(workspaces), 'workspaces': workspaces}
 
 # -- Customers ---------------------------------------------------------------
 

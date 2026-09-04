@@ -1,0 +1,761 @@
+{% extends "base.html" %}
+{% block title %}1:1 Notes - {{ workspace.person_name }} - Sales Buddy{% endblock %}
+
+{% block content %}
+<style>
+    .one-on-one-shell { max-width: 1500px; margin: 0 auto; }
+    .workspace-kicker { letter-spacing: 0.09em; text-transform: uppercase; font-size: 0.72rem; }
+    .workspace-notes {
+        min-height: 560px;
+        resize: vertical;
+        line-height: 1.65;
+        border: 0;
+        background: transparent;
+        box-shadow: none !important;
+        padding: 1.25rem;
+    }
+    .notes-surface {
+        background: var(--bs-tertiary-bg);
+        border: 1px solid var(--bs-border-color);
+        border-radius: var(--bs-border-radius-lg);
+    }
+    .agenda-item {
+        border-bottom: 1px solid var(--bs-border-color);
+        padding: 1rem 0;
+    }
+    .agenda-item:last-child { border-bottom: 0; }
+    .min-width-0 { min-width: 0; }
+    .agenda-notes {
+        resize: vertical;
+        min-height: 72px;
+        background: var(--bs-tertiary-bg);
+    }
+    .save-state { min-width: 5.5rem; text-align: right; }
+    .candidate-list { max-height: 440px; overflow-y: auto; }
+    .candidate-row { cursor: pointer; }
+    .candidate-row:hover { background: var(--bs-tertiary-bg); }
+    .agenda-type-marker {
+        width: 2rem;
+        height: 2rem;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 50%;
+        background: var(--bs-secondary-bg);
+        flex: 0 0 auto;
+    }
+    .engagement-flow {
+        background: color-mix(in srgb, var(--bs-primary-bg-subtle) 58%, transparent);
+        border: 1px solid var(--bs-primary-border-subtle);
+        border-radius: var(--bs-border-radius);
+    }
+    .engagement-flow-step {
+        width: 1.7rem;
+        height: 1.7rem;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 50%;
+        background: var(--bs-primary);
+        color: var(--bs-white);
+        font-size: 0.75rem;
+        font-weight: 700;
+        flex: 0 0 auto;
+    }
+    .discussion-note-composer { background: var(--bs-tertiary-bg); }
+    .engagement-note-history { border-left: 2px solid var(--bs-border-color); }
+</style>
+
+<div class="one-on-one-shell">
+    <div class="d-flex justify-content-between align-items-start mb-4">
+        <div>
+            <div class="workspace-kicker text-muted mb-1">{{ workspace.person_type }} 1:1 workspace</div>
+            <h1 class="mb-1">{{ workspace.person_name }}</h1>
+            <div class="text-muted">Keep standing notes and shape the next conversation.</div>
+        </div>
+        <div class="d-flex gap-2">
+            {% if workspace.seller %}
+            <a href="{{ url_for('sellers.seller_view', id=workspace.seller.id) }}" class="btn btn-outline-secondary">
+                <i class="bi bi-person"></i> Seller
+            </a>
+            {% endif %}
+            <a href="{{ url_for('reports.report_one_on_one') }}" class="btn btn-outline-secondary">
+                <i class="bi bi-arrow-left"></i> 1:1 Report
+            </a>
+            <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addAgendaModal">
+                <i class="bi bi-plus-lg"></i> Add to Agenda
+            </button>
+        </div>
+    </div>
+
+    <div class="row g-4">
+        <div class="col-5">
+            <div class="d-flex justify-content-between align-items-end mb-2">
+                <div>
+                    <h5 class="mb-0">Standing notes</h5>
+                    <small class="text-muted">Anything worth remembering between conversations.</small>
+                </div>
+                <small class="save-state text-muted" id="workspaceSaveState">Saved</small>
+            </div>
+            <div class="notes-surface">
+                <textarea class="form-control workspace-notes" id="workspaceNotes"
+                          placeholder="Context, coaching notes, recurring themes, things to follow up on...">{{ workspace.notes }}</textarea>
+            </div>
+        </div>
+
+        <div class="col-7">
+            <div class="d-flex justify-content-between align-items-end mb-2">
+                <div>
+                    <h5 class="mb-0">Next conversation</h5>
+                    <small class="text-muted">Milestones and engagements you want to discuss.</small>
+                </div>
+                <span class="badge bg-primary" id="agendaCount">{{ active_items|length }}</span>
+            </div>
+
+            <div class="card">
+                <div class="card-body py-1" id="activeAgenda">
+                    {% for item in active_items %}
+                    <div class="agenda-item" data-agenda-item-id="{{ item.id }}">
+                        <div class="d-flex gap-3">
+                            <span class="agenda-type-marker">
+                                <i class="bi {{ 'bi-flag' if item.item_type == 'milestone' else 'bi-diagram-3' }}"></i>
+                            </span>
+                            <div class="flex-grow-1 min-width-0">
+                                <div class="d-flex justify-content-between gap-3">
+                                    <div class="min-width-0">
+                                        <div class="d-flex align-items-center gap-2">
+                                            <span class="badge {{ 'bg-info text-dark' if item.item_type == 'milestone' else 'bg-secondary' }}">
+                                                {{ item.item_type|capitalize }}
+                                            </span>
+                                            {% if item.item_type == 'milestone' and item.milestone %}
+                                            <a href="{{ url_for('milestones.milestone_view', id=item.milestone.id) }}" class="fw-semibold text-decoration-none text-truncate">{{ item.title }}</a>
+                                            {% elif item.item_type == 'engagement' and item.engagement %}
+                                            <a href="{{ url_for('engagements.engagement_view', id=item.engagement.id) }}" class="fw-semibold text-decoration-none text-truncate">{{ item.title }}</a>
+                                            <button type="button" class="btn btn-sm btn-link text-muted p-0" data-edit-engagement="{{ item.engagement.id }}"
+                                                    aria-label="Edit {{ item.title }}" title="Edit engagement details">
+                                                <i class="bi bi-pencil"></i>
+                                            </button>
+                                            {% else %}
+                                            <span class="fw-semibold text-truncate">{{ item.title }}</span>
+                                            {% endif %}
+                                        </div>
+                                        <small class="text-muted">{{ item.customer_name }}</small>
+                                    </div>
+                                    <div class="dropdown flex-shrink-0">
+                                        <button class="btn btn-sm btn-link text-muted" type="button" data-bs-toggle="dropdown" aria-label="Agenda item actions">
+                                            <i class="bi bi-three-dots"></i>
+                                        </button>
+                                        <ul class="dropdown-menu dropdown-menu-end">
+                                            <li><button class="dropdown-item" data-agenda-action="discuss"><i class="bi bi-check2 me-2"></i>Mark discussed</button></li>
+                                            <li><button class="dropdown-item text-danger" data-agenda-action="delete"><i class="bi bi-trash me-2"></i>Remove</button></li>
+                                        </ul>
+                                    </div>
+                                </div>
+                                <textarea class="form-control form-control-sm agenda-notes mt-2" data-talking-points
+                                          placeholder="What do you want to ask or say?">{{ item.talking_points }}</textarea>
+                                <div class="text-end"><small class="text-muted opacity-0" data-item-save-state>Saved</small></div>
+
+                                {% if item.item_type == 'milestone' and item.milestone %}
+                                <div class="engagement-flow p-3 mt-2" data-engagement-flow>
+                                    <div class="d-flex gap-2 align-items-start">
+                                        <span class="engagement-flow-step">1</span>
+                                        <div class="flex-grow-1 min-width-0">
+                                            <div class="fw-semibold small">Turn this milestone into trackable work</div>
+                                            <div class="small text-body-secondary mb-2">Create an engagement linked to this milestone. This agenda item will become the engagement, keeping your talking points intact.</div>
+                                            <div class="input-group input-group-sm">
+                                                <input type="text" class="form-control" data-engagement-title
+                                                       value="{{ item.title }}" maxlength="300" aria-label="Engagement title">
+                                                <button type="button" class="btn btn-primary" data-create-engagement>
+                                                    <i class="bi bi-diagram-3 me-1"></i>Create engagement
+                                                </button>
+                                            </div>
+                                            <div class="small text-danger d-none mt-2" data-engagement-error></div>
+                                        </div>
+                                    </div>
+                                </div>
+                                {% elif item.item_type == 'engagement' and item.engagement %}
+                                <div class="d-flex justify-content-between align-items-center mt-2">
+                                    <div class="small text-muted">
+                                        <i class="bi bi-journal-text me-1"></i>
+                                        {{ item.engagement.linked_note_count }} discussion note{{ 's' if item.engagement.linked_note_count != 1 else '' }}
+                                        {% if item.engagement.milestones %}
+                                        · Linked to {{ item.engagement.milestones|length }} milestone{{ 's' if item.engagement.milestones|length != 1 else '' }}
+                                        {% endif %}
+                                    </div>
+                                    <button type="button" class="btn btn-sm btn-outline-primary" data-note-toggle>
+                                        <i class="bi bi-plus-lg me-1"></i>Add discussion note
+                                    </button>
+                                </div>
+                                <div class="discussion-note-composer border rounded p-3 mt-2 d-none" data-note-composer>
+                                    <div class="d-flex gap-2 align-items-start mb-2">
+                                        <span class="engagement-flow-step">2</span>
+                                        <div>
+                                            <div class="fw-semibold small">Capture what you discussed</div>
+                                            <div class="small text-body-secondary">Saved on this engagement{% if item.engagement.milestones %} and linked milestone{% endif %}.</div>
+                                        </div>
+                                    </div>
+                                    <textarea class="form-control form-control-sm" rows="4" data-discussion-note
+                                              placeholder="Decisions, updates, seller feedback, and next steps..."></textarea>
+                                    <div class="d-flex justify-content-between align-items-center mt-2">
+                                        <div class="small text-danger d-none" data-note-error></div>
+                                        <div class="d-flex gap-2 ms-auto">
+                                            <button type="button" class="btn btn-sm btn-link text-muted" data-note-cancel>Cancel</button>
+                                            <button type="button" class="btn btn-sm btn-primary" data-note-save>
+                                                <i class="bi bi-check2 me-1"></i>Save to engagement
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                                {% if item.engagement.notes %}
+                                <div class="engagement-note-history ps-3 mt-3">
+                                    {% for note in item.engagement.notes|sort(attribute='call_date', reverse=true) %}
+                                    {% if loop.index <= 3 %}
+                                    <div class="small{% if not loop.last %} mb-2{% endif %}">
+                                        <a href="{{ url_for('notes.note_view', id=note.id) }}" class="text-decoration-none fw-semibold">{{ note.call_date.strftime('%b %d, %Y') }}</a>
+                                        <span class="text-body-secondary ms-1">{{ note.content|striptags|truncate(140) }}</span>
+                                    </div>
+                                    {% endif %}
+                                    {% endfor %}
+                                </div>
+                                {% endif %}
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                    {% else %}
+                    <div class="text-center py-5" id="agendaEmptyState">
+                        <i class="bi bi-chat-square-text fs-2 text-muted"></i>
+                        <h6 class="mt-3">Nothing queued yet</h6>
+                        <p class="text-muted small mb-3">Add work you want to cover in the next conversation.</p>
+                        <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#addAgendaModal">
+                            Add first item
+                        </button>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+
+            {% if discussed_items %}
+            <div class="mt-4">
+                <button class="btn btn-link text-muted text-decoration-none px-0" type="button"
+                        data-bs-toggle="collapse" data-bs-target="#discussionHistory" aria-expanded="false">
+                    <i class="bi bi-clock-history me-1"></i> Discussion history
+                    <span class="badge bg-secondary ms-1">{{ discussed_items|length }}</span>
+                </button>
+                <div class="collapse" id="discussionHistory">
+                    <div class="list-group">
+                        {% for item in discussed_items %}
+                        <div class="list-group-item" data-agenda-item-id="{{ item.id }}">
+                            <div class="d-flex justify-content-between gap-3">
+                                <div>
+                                    <div class="fw-semibold">{{ item.title }}</div>
+                                    <small class="text-muted">
+                                        {{ item.customer_name }}
+                                        {% if item.discussed_at %} · Discussed {{ item.discussed_at.strftime('%b %d, %Y') }}{% endif %}
+                                    </small>
+                                    {% if item.talking_points %}<div class="small mt-2 text-body-secondary">{{ item.talking_points }}</div>{% endif %}
+                                </div>
+                                <div class="d-flex gap-1 align-items-start">
+                                    <button class="btn btn-sm btn-outline-secondary" data-agenda-action="restore">Restore</button>
+                                    <button class="btn btn-sm btn-link text-danger" data-agenda-action="delete" aria-label="Delete"><i class="bi bi-trash"></i></button>
+                                </div>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="editEngagementModal" tabindex="-1" aria-labelledby="editEngagementModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div>
+                    <h5 class="modal-title" id="editEngagementModalLabel"><i class="bi bi-pencil-square me-2"></i>Edit engagement</h5>
+                    <div class="small text-muted" id="editEngagementCustomer"></div>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row g-3">
+                    <div class="col-8">
+                        <label for="editEngagementTitle" class="form-label">Title</label>
+                        <input type="text" class="form-control" id="editEngagementTitle" maxlength="300" required>
+                    </div>
+                    <div class="col-4">
+                        <label for="editEngagementStatus" class="form-label">Status</label>
+                        <select class="form-select" id="editEngagementStatus">
+                            <option value="Active">Active</option>
+                            <option value="On Hold">On Hold</option>
+                            <option value="Won">Won</option>
+                            <option value="Lost">Lost</option>
+                        </select>
+                    </div>
+                    <div class="col-12">
+                        <div class="small text-uppercase text-muted fw-semibold">Engagement story</div>
+                    </div>
+                    <div class="col-12">
+                        <label for="editEngagementProblem" class="form-label mb-1">Technical/Business Problem</label>
+                        <div class="small text-muted mb-2">What challenge has the customer run into?</div>
+                        <textarea class="form-control" id="editEngagementProblem" rows="3"></textarea>
+                    </div>
+                    <div class="col-12">
+                        <label for="editEngagementImpact" class="form-label mb-1">Business Process/Strategy Impact</label>
+                        <div class="small text-muted mb-2">How is the problem affecting the business?</div>
+                        <textarea class="form-control" id="editEngagementImpact" rows="3"></textarea>
+                    </div>
+                    <div class="col-12">
+                        <label for="editEngagementResources" class="form-label mb-1">Solution Resources</label>
+                        <div class="small text-muted mb-2">What services, people, or solutions are addressing it?</div>
+                        <textarea class="form-control" id="editEngagementResources" rows="3"></textarea>
+                    </div>
+                    <div class="col-6">
+                        <label for="editEngagementAcr" class="form-label">Estimated monthly ACR</label>
+                        <div class="input-group">
+                            <span class="input-group-text">$</span>
+                            <input type="number" class="form-control" id="editEngagementAcr" min="0" step="1">
+                            <span class="input-group-text">/mo</span>
+                        </div>
+                    </div>
+                    <div class="col-6">
+                        <label for="editEngagementTarget" class="form-label">Target date</label>
+                        <input type="date" class="form-control" id="editEngagementTarget">
+                    </div>
+                </div>
+                <div class="alert alert-danger d-none mt-3 mb-0" id="editEngagementError"></div>
+            </div>
+            <div class="modal-footer justify-content-between">
+                <a href="#" class="btn btn-link text-muted px-0" id="editEngagementFullLink">
+                    Open full engagement <i class="bi bi-arrow-up-right ms-1"></i>
+                </a>
+                <div>
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" id="saveEngagementDetails">
+                        <i class="bi bi-check2 me-1"></i>Save changes
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="addAgendaModal" tabindex="-1" aria-labelledby="addAgendaModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div>
+                    <h5 class="modal-title" id="addAgendaModalLabel">Add to {{ workspace.person_name }}'s agenda</h5>
+                    <div class="small text-muted">
+                        {% if workspace.seller %}Showing work from {{ workspace.seller.name }}'s customers.{% else %}Showing your full customer book.{% endif %}
+                    </div>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="d-flex gap-2 mb-3">
+                    <div class="btn-group" role="group" aria-label="Agenda item type">
+                        <button type="button" class="btn btn-primary agenda-type-button" data-item-type="milestone"><i class="bi bi-flag"></i> Milestones</button>
+                        <button type="button" class="btn btn-outline-primary agenda-type-button" data-item-type="engagement"><i class="bi bi-diagram-3"></i> Engagements</button>
+                    </div>
+                    <input type="search" class="form-control" id="agendaCandidateSearch" placeholder="Search customer or title..." autocomplete="off">
+                </div>
+                <div class="candidate-list list-group list-group-flush" id="agendaCandidates">
+                    <div class="text-center text-muted py-5"><span class="spinner-border spinner-border-sm me-2"></span>Loading...</div>
+                </div>
+                <div class="alert alert-danger d-none mt-3 mb-0" id="candidateError"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+(function() {
+    const workspaceId = {{ workspace.id }};
+    const workspaceNotes = document.getElementById('workspaceNotes');
+    const workspaceSaveState = document.getElementById('workspaceSaveState');
+    let workspaceTimer;
+    let activeType = 'milestone';
+    let searchTimer;
+    let editingEngagementId = null;
+
+    function setSaveState(element, text, className) {
+        element.textContent = text;
+        element.className = className;
+    }
+
+    function saveWorkspaceNotes() {
+        clearTimeout(workspaceTimer);
+        setSaveState(workspaceSaveState, 'Saving...', 'save-state text-muted');
+        fetch('/api/one-on-one/' + workspaceId, {
+            method: 'PATCH',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({notes: workspaceNotes.value}),
+        })
+        .then(function(response) {
+            if (!response.ok) throw new Error('Save failed');
+            setSaveState(workspaceSaveState, 'Saved', 'save-state text-success');
+        })
+        .catch(function() {
+            setSaveState(workspaceSaveState, 'Not saved', 'save-state text-danger');
+        });
+    }
+
+    workspaceNotes.addEventListener('input', function() {
+        setSaveState(workspaceSaveState, 'Unsaved', 'save-state text-muted');
+        clearTimeout(workspaceTimer);
+        workspaceTimer = setTimeout(saveWorkspaceNotes, 700);
+    });
+    workspaceNotes.addEventListener('blur', saveWorkspaceNotes);
+
+    document.querySelectorAll('[data-talking-points]').forEach(function(input) {
+        let timer;
+        const row = input.closest('[data-agenda-item-id]');
+        const state = row.querySelector('[data-item-save-state]');
+        function save() {
+            clearTimeout(timer);
+            state.classList.remove('opacity-0');
+            state.textContent = 'Saving...';
+            fetch('/api/one-on-one/agenda/' + row.dataset.agendaItemId, {
+                method: 'PATCH',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({talking_points: input.value}),
+            })
+            .then(function(response) {
+                if (!response.ok) throw new Error('Save failed');
+                state.textContent = 'Saved';
+                state.className = 'text-success';
+                setTimeout(function() { state.classList.add('opacity-0'); }, 1200);
+            })
+            .catch(function() {
+                state.textContent = 'Not saved';
+                state.className = 'text-danger';
+            });
+        }
+        input.addEventListener('input', function() {
+            clearTimeout(timer);
+            timer = setTimeout(save, 700);
+        });
+        input.addEventListener('blur', save);
+    });
+
+    document.querySelectorAll('[data-agenda-action]').forEach(function(button) {
+        button.addEventListener('click', function() {
+            const row = button.closest('[data-agenda-item-id]');
+            const action = button.dataset.agendaAction;
+            if (action === 'delete' && !confirm('Remove this item from the 1:1 workspace?')) return;
+            const options = action === 'delete'
+                ? {method: 'DELETE'}
+                : {
+                    method: 'PATCH',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({status: action === 'discuss' ? 'discussed' : 'active'}),
+                };
+            button.disabled = true;
+            fetch('/api/one-on-one/agenda/' + row.dataset.agendaItemId, options)
+                .then(function(response) {
+                    if (!response.ok) throw new Error('Update failed');
+                    window.location.reload();
+                })
+                .catch(function() {
+                    button.disabled = false;
+                    alert('Could not update this agenda item.');
+                });
+        });
+    });
+
+    document.querySelectorAll('[data-create-engagement]').forEach(function(button) {
+        button.addEventListener('click', function() {
+            const row = button.closest('[data-agenda-item-id]');
+            const flow = button.closest('[data-engagement-flow]');
+            const title = flow.querySelector('[data-engagement-title]');
+            const error = flow.querySelector('[data-engagement-error]');
+            error.classList.add('d-none');
+            if (!title.value.trim()) {
+                error.textContent = 'Enter an engagement title.';
+                error.classList.remove('d-none');
+                title.focus();
+                return;
+            }
+            button.disabled = true;
+            button.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Creating...';
+            fetch('/api/one-on-one/agenda/' + row.dataset.agendaItemId + '/engagement', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({title: title.value.trim()}),
+            })
+            .then(function(response) {
+                return response.json().then(function(data) {
+                    if (!response.ok) throw new Error(data.error || 'Could not create engagement');
+                    sessionStorage.setItem(
+                        'oneOnOneOpenNoteItem',
+                        row.dataset.agendaItemId
+                    );
+                    window.location.reload();
+                });
+            })
+            .catch(function(errorValue) {
+                button.disabled = false;
+                button.innerHTML = '<i class="bi bi-diagram-3 me-1"></i>Create engagement';
+                error.textContent = errorValue.message;
+                error.classList.remove('d-none');
+            });
+        });
+    });
+
+    document.querySelectorAll('[data-note-toggle]').forEach(function(button) {
+        button.addEventListener('click', function() {
+            const row = button.closest('[data-agenda-item-id]');
+            const composer = row.querySelector('[data-note-composer]');
+            composer.classList.remove('d-none');
+            button.classList.add('d-none');
+            composer.querySelector('[data-discussion-note]').focus();
+        });
+    });
+
+    document.querySelectorAll('[data-note-cancel]').forEach(function(button) {
+        button.addEventListener('click', function() {
+            const row = button.closest('[data-agenda-item-id]');
+            row.querySelector('[data-note-composer]').classList.add('d-none');
+            row.querySelector('[data-note-toggle]').classList.remove('d-none');
+        });
+    });
+
+    document.querySelectorAll('[data-note-save]').forEach(function(button) {
+        button.addEventListener('click', function() {
+            const row = button.closest('[data-agenda-item-id]');
+            const composer = button.closest('[data-note-composer]');
+            const content = composer.querySelector('[data-discussion-note]');
+            const error = composer.querySelector('[data-note-error]');
+            error.classList.add('d-none');
+            if (!content.value.trim()) {
+                error.textContent = 'Add discussion notes before saving.';
+                error.classList.remove('d-none');
+                content.focus();
+                return;
+            }
+            button.disabled = true;
+            button.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Saving...';
+            fetch('/api/one-on-one/agenda/' + row.dataset.agendaItemId + '/notes', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({content: content.value.trim()}),
+            })
+            .then(function(response) {
+                return response.json().then(function(data) {
+                    if (!response.ok) throw new Error(data.error || 'Could not save note');
+                    window.location.reload();
+                });
+            })
+            .catch(function(errorValue) {
+                button.disabled = false;
+                button.innerHTML = '<i class="bi bi-check2 me-1"></i>Save to engagement';
+                error.textContent = errorValue.message;
+                error.classList.remove('d-none');
+            });
+        });
+    });
+
+    document.querySelectorAll('[data-edit-engagement]').forEach(function(button) {
+        button.addEventListener('click', function() {
+            editingEngagementId = button.dataset.editEngagement;
+            const error = document.getElementById('editEngagementError');
+            const saveButton = document.getElementById('saveEngagementDetails');
+            error.classList.add('d-none');
+            saveButton.disabled = true;
+            document.getElementById('editEngagementCustomer').textContent =
+                button.closest('[data-agenda-item-id]').querySelector('small.text-muted').textContent.trim();
+            document.getElementById('editEngagementFullLink').href =
+                '/engagement/' + editingEngagementId;
+            bootstrap.Modal.getOrCreateInstance(
+                document.getElementById('editEngagementModal')
+            ).show();
+            fetch('/api/engagement/' + editingEngagementId)
+                .then(function(response) {
+                    if (!response.ok) throw new Error('Could not load engagement details');
+                    return response.json();
+                })
+                .then(function(data) {
+                    document.getElementById('editEngagementTitle').value = data.title || '';
+                    document.getElementById('editEngagementStatus').value = data.status || 'Active';
+                    document.getElementById('editEngagementProblem').value = data.technical_problem || '';
+                    document.getElementById('editEngagementImpact').value = data.business_impact || '';
+                    document.getElementById('editEngagementResources').value = data.solution_resources || '';
+                    document.getElementById('editEngagementAcr').value = data.estimated_acr || '';
+                    document.getElementById('editEngagementTarget').value = data.target_date || '';
+                    saveButton.disabled = false;
+                    document.getElementById('editEngagementTitle').focus();
+                })
+                .catch(function(errorValue) {
+                    error.textContent = errorValue.message;
+                    error.classList.remove('d-none');
+                });
+        });
+    });
+
+    document.getElementById('saveEngagementDetails').addEventListener('click', function() {
+        const button = this;
+        const error = document.getElementById('editEngagementError');
+        const title = document.getElementById('editEngagementTitle').value.trim();
+        error.classList.add('d-none');
+        if (!title) {
+            error.textContent = 'Engagement title is required.';
+            error.classList.remove('d-none');
+            document.getElementById('editEngagementTitle').focus();
+            return;
+        }
+        button.disabled = true;
+        button.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Saving...';
+        fetch('/api/engagement/' + editingEngagementId, {
+            method: 'PUT',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                title: title,
+                status: document.getElementById('editEngagementStatus').value,
+                technical_problem: document.getElementById('editEngagementProblem').value.trim(),
+                business_impact: document.getElementById('editEngagementImpact').value.trim(),
+                solution_resources: document.getElementById('editEngagementResources').value.trim(),
+                estimated_acr: document.getElementById('editEngagementAcr').value,
+                target_date: document.getElementById('editEngagementTarget').value,
+            }),
+        })
+        .then(function(response) {
+            return response.json().then(function(data) {
+                if (!response.ok) throw new Error(data.error || 'Could not save engagement');
+                window.location.reload();
+            });
+        })
+        .catch(function(errorValue) {
+            button.disabled = false;
+            button.innerHTML = '<i class="bi bi-check2 me-1"></i>Save changes';
+            error.textContent = errorValue.message;
+            error.classList.remove('d-none');
+        });
+    });
+
+    const noteItemToOpen = sessionStorage.getItem('oneOnOneOpenNoteItem');
+    if (noteItemToOpen) {
+        sessionStorage.removeItem('oneOnOneOpenNoteItem');
+        const convertedRow = document.querySelector(
+            '[data-agenda-item-id="' + noteItemToOpen + '"]'
+        );
+        const noteToggle = convertedRow && convertedRow.querySelector('[data-note-toggle]');
+        if (noteToggle) noteToggle.click();
+    }
+
+    function statusBadgeClass(status) {
+        if (status === 'On Track' || status === 'Active') return 'bg-success';
+        if (status === 'At Risk' || status === 'On Hold') return 'bg-warning text-dark';
+        if (status === 'Blocked') return 'bg-danger';
+        return 'bg-secondary';
+    }
+
+    function renderCandidates(results) {
+        const container = document.getElementById('agendaCandidates');
+        container.replaceChildren();
+        if (!results.length) {
+            const empty = document.createElement('div');
+            empty.className = 'text-center text-muted py-5';
+            empty.textContent = 'No matching ' + activeType + 's found.';
+            container.appendChild(empty);
+            return;
+        }
+        results.forEach(function(item) {
+            const row = document.createElement('button');
+            row.type = 'button';
+            row.className = 'list-group-item list-group-item-action candidate-row py-3';
+
+            const layout = document.createElement('div');
+            layout.className = 'd-flex justify-content-between align-items-start gap-3';
+            const copy = document.createElement('div');
+            copy.className = 'min-width-0';
+            const title = document.createElement('div');
+            title.className = 'fw-semibold';
+            title.textContent = item.title;
+            const detail = document.createElement('div');
+            detail.className = 'small text-muted';
+            detail.textContent = item.customer_name + (item.detail ? ' · ' + item.detail : '');
+            copy.append(title, detail);
+
+            const meta = document.createElement('div');
+            meta.className = 'text-end flex-shrink-0';
+            if (item.on_my_team === true) {
+                const team = document.createElement('span');
+                team.className = 'badge bg-primary me-1';
+                team.innerHTML = '<i class="bi bi-people-fill me-1"></i>On your team';
+                meta.appendChild(team);
+            }
+            const badge = document.createElement('span');
+            badge.className = 'badge ' + statusBadgeClass(item.status);
+            badge.textContent = item.status;
+            meta.appendChild(badge);
+            if (item.acr) {
+                const acr = document.createElement('div');
+                acr.className = 'small text-success mt-1';
+                acr.textContent = '$' + Number(item.acr).toLocaleString() + '/mo';
+                meta.appendChild(acr);
+            }
+            layout.append(copy, meta);
+            row.appendChild(layout);
+            row.addEventListener('click', function() { addCandidate(item.id, row); });
+            container.appendChild(row);
+        });
+    }
+
+    function loadCandidates() {
+        const container = document.getElementById('agendaCandidates');
+        const error = document.getElementById('candidateError');
+        error.classList.add('d-none');
+        container.innerHTML = '<div class="text-center text-muted py-5"><span class="spinner-border spinner-border-sm me-2"></span>Loading...</div>';
+        const query = encodeURIComponent(document.getElementById('agendaCandidateSearch').value.trim());
+        fetch('/api/one-on-one/' + workspaceId + '/candidates?type=' + activeType + '&q=' + query)
+            .then(function(response) {
+                if (!response.ok) throw new Error('Could not load agenda choices');
+                return response.json();
+            })
+            .then(function(data) { renderCandidates(data.results); })
+            .catch(function(errorValue) {
+                container.replaceChildren();
+                error.textContent = errorValue.message;
+                error.classList.remove('d-none');
+            });
+    }
+
+    function addCandidate(entityId, button) {
+        button.disabled = true;
+        fetch('/api/one-on-one/' + workspaceId + '/agenda', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({item_type: activeType, entity_id: entityId}),
+        })
+        .then(function(response) {
+            if (!response.ok) throw new Error('Could not add item');
+            window.location.reload();
+        })
+        .catch(function() {
+            button.disabled = false;
+            alert('Could not add this item to the agenda.');
+        });
+    }
+
+    document.querySelectorAll('.agenda-type-button').forEach(function(button) {
+        button.addEventListener('click', function() {
+            activeType = button.dataset.itemType;
+            document.querySelectorAll('.agenda-type-button').forEach(function(other) {
+                other.classList.toggle('btn-primary', other === button);
+                other.classList.toggle('btn-outline-primary', other !== button);
+            });
+            loadCandidates();
+        });
+    });
+    document.getElementById('agendaCandidateSearch').addEventListener('input', function() {
+        clearTimeout(searchTimer);
+        searchTimer = setTimeout(loadCandidates, 250);
+    });
+    document.getElementById('addAgendaModal').addEventListener('show.bs.modal', loadCandidates);
+})();
+</script>
+{% endblock %}
