@@ -349,6 +349,109 @@ class TestInlineEngagementCreation:
         data = resp.get_json()
         assert data['success'] is False
 
+    def test_inline_create_links_multiple_customer_milestones(
+        self, client, app, engagement_data
+    ):
+        """Inline creation should atomically link selected customer milestones."""
+        cid = engagement_data['customer_id']
+        with app.app_context():
+            milestones = [
+                Milestone(
+                    customer_id=cid,
+                    msx_milestone_id=f'INLINE-{index}',
+                    title=f'Milestone {index}',
+                    url=f'https://msx.example.com/inline-{index}',
+                )
+                for index in (1, 2)
+            ]
+            db.session.add_all(milestones)
+            db.session.commit()
+            milestone_ids = [milestone.id for milestone in milestones]
+
+        resp = client.post(
+            f'/customer/{cid}/engagement/create-inline',
+            json={
+                'title': 'Linked Inline Engagement',
+                'technical_problem': 'Legacy platform',
+                'milestone_ids': milestone_ids,
+                'milestones': [],
+            },
+        )
+        assert resp.status_code == 200
+        assert set(resp.get_json()['milestone_ids']) == set(milestone_ids)
+
+        with app.app_context():
+            engagement = Engagement.query.filter_by(
+                title='Linked Inline Engagement'
+            ).one()
+            assert {milestone.id for milestone in engagement.milestones} == set(
+                milestone_ids
+            )
+
+    def test_inline_create_materializes_fresh_msx_milestone(
+        self, client, app, engagement_data
+    ):
+        """Picker records not yet local should be created and linked."""
+        cid = engagement_data['customer_id']
+        resp = client.post(
+            f'/customer/{cid}/engagement/create-inline',
+            json={
+                'title': 'Fresh MSX Link',
+                'milestone_ids': [],
+                'milestones': [{
+                    'id': 'FRESH-MSX-001',
+                    'name': 'Fresh milestone',
+                    'number': '7-10001',
+                    'status': 'On Track',
+                    'monthly_usage': 1200,
+                    'due_date': '2026-12-15',
+                    'url': 'https://msx.example.com/fresh',
+                }],
+            },
+        )
+        assert resp.status_code == 200
+
+        with app.app_context():
+            milestone = Milestone.query.filter_by(
+                msx_milestone_id='FRESH-MSX-001'
+            ).one()
+            assert milestone.customer_id == cid
+            assert milestone.title == 'Fresh milestone'
+            assert milestone.due_date == datetime(2026, 12, 15)
+            engagement = Engagement.query.filter_by(title='Fresh MSX Link').one()
+            assert engagement.milestones == [milestone]
+
+    def test_inline_create_rejects_other_customer_milestone(
+        self, client, app, engagement_data
+    ):
+        """Milestones from another customer must not be linked."""
+        cid = engagement_data['customer_id']
+        with app.app_context():
+            other_customer = Customer(name='Other Customer', tpid=9002)
+            db.session.add(other_customer)
+            db.session.flush()
+            milestone = Milestone(
+                customer_id=other_customer.id,
+                msx_milestone_id='OTHER-001',
+                title='Other milestone',
+                url='https://msx.example.com/other-001',
+            )
+            db.session.add(milestone)
+            db.session.commit()
+            milestone_id = milestone.id
+
+        resp = client.post(
+            f'/customer/{cid}/engagement/create-inline',
+            json={
+                'title': 'Must Not Exist',
+                'milestone_ids': [milestone_id],
+                'milestones': [],
+            },
+        )
+        assert resp.status_code == 400
+        with app.app_context():
+            assert Engagement.query.filter_by(title='Must Not Exist').first() is None
+
 
 class TestCustomerViewEngagements:
     """Test engagement display on customer view page."""
@@ -452,6 +555,119 @@ class TestEngagementAPI:
         """Returns 404 for non-existent customer."""
         resp = client.get('/api/customer/99999/engagements')
         assert resp.status_code == 404
+
+    def test_update_engagement_links_multiple_milestones(
+        self, client, app, engagement_data, monkeypatch
+    ):
+        """AJAX update should replace links with selected customer milestones."""
+        cid = engagement_data['customer_id']
+        with app.app_context():
+            engagement = Engagement(customer_id=cid, title='Gap', status='Active')
+            milestones = [
+                Milestone(
+                    customer_id=cid,
+                    msx_milestone_id=f'UPDATE-{index}',
+                    title=f'Update milestone {index}',
+                    url=f'https://msx.example.com/update-{index}',
+                )
+                for index in (1, 2)
+            ]
+            db.session.add_all([engagement, *milestones])
+            db.session.commit()
+            engagement_id = engagement.id
+            milestone_ids = [milestone.id for milestone in milestones]
+
+        monkeypatch.setattr(
+            'app.routes.engagements.track_engagement_on_milestones',
+            lambda engagement: None,
+        )
+        resp = client.post(
+            f'/api/engagement/{engagement_id}/milestones',
+            json={'milestone_ids': milestone_ids, 'milestones': []},
+        )
+        assert resp.status_code == 200
+        assert set(resp.get_json()['milestone_ids']) == set(milestone_ids)
+
+        with app.app_context():
+            engagement = db.session.get(Engagement, engagement_id)
+            assert {milestone.id for milestone in engagement.milestones} == set(
+                milestone_ids
+            )
+
+    def test_add_milestone_preserves_existing_links(
+        self, client, app, engagement_data, monkeypatch
+    ):
+        """Additive API should preserve links and be idempotent."""
+        customer_id = engagement_data['customer_id']
+        with app.app_context():
+            engagement = Engagement(
+                customer_id=customer_id,
+                title='Existing engagement',
+                status='Active',
+            )
+            existing = Milestone(
+                customer_id=customer_id,
+                msx_milestone_id='EXISTING-LINK',
+                title='Existing link',
+                url='https://msx.example.com/existing-link',
+            )
+            orphan = Milestone(
+                customer_id=customer_id,
+                msx_milestone_id='ORPHAN-LINK',
+                title='Orphan link',
+                url='https://msx.example.com/orphan-link',
+            )
+            engagement.milestones.append(existing)
+            db.session.add_all([engagement, orphan])
+            db.session.commit()
+            engagement_id = engagement.id
+            expected_ids = {existing.id, orphan.id}
+            orphan_id = orphan.id
+
+        tracked = []
+        monkeypatch.setattr(
+            'app.routes.engagements.track_engagement_on_milestones',
+            lambda engagement: tracked.append(engagement.id),
+        )
+        url = f'/api/engagement/{engagement_id}/milestones/{orphan_id}/add'
+        first = client.post(url)
+        second = client.post(url)
+
+        assert first.status_code == 200
+        assert second.status_code == 200
+        assert set(first.get_json()['milestone_ids']) == expected_ids
+        assert tracked == [engagement_id]
+        with app.app_context():
+            engagement = db.session.get(Engagement, engagement_id)
+            assert {item.id for item in engagement.milestones} == expected_ids
+
+    def test_add_milestone_rejects_different_customer(
+        self, client, app, engagement_data
+    ):
+        """Additive API should reject cross-customer links."""
+        with app.app_context():
+            other_customer = Customer(name='Fabrikam', tpid=5002)
+            engagement = Engagement(
+                customer_id=engagement_data['customer_id'],
+                title='Contoso engagement',
+                status='Active',
+            )
+            milestone = Milestone(
+                customer=other_customer,
+                msx_milestone_id='CROSS-CUSTOMER',
+                title='Wrong customer milestone',
+                url='https://msx.example.com/cross-customer',
+            )
+            db.session.add_all([engagement, milestone])
+            db.session.commit()
+            engagement_id = engagement.id
+            milestone_id = milestone.id
+
+        resp = client.post(
+            f'/api/engagement/{engagement_id}/milestones/{milestone_id}/add'
+        )
+        assert resp.status_code == 400
+        assert 'same customer' in resp.get_json()['error']
 
     def test_create_inline_engagement_json(self, client, app, engagement_data):
         """Create engagement via JSON body (flyout mode)."""

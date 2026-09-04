@@ -2120,17 +2120,13 @@ class Favorite(db.Model):
 
 
 class HygieneNote(db.Model):
-    """Free-text reason note for hygiene report items.
-
-    Tracks why an engagement has no milestones or a milestone has no
-    engagement. Stored in a separate table to avoid muddying existing models.
-    """
+    """Free-text reason explaining why an engagement has no milestones."""
     __tablename__ = 'hygiene_notes'
-    ENTITY_TYPES = ['engagement', 'milestone']
+    ENTITY_TYPES = ['engagement']
 
     id = db.Column(db.Integer, primary_key=True)
-    entity_type = db.Column(db.String(20), nullable=False)  # 'engagement' or 'milestone'
-    entity_id = db.Column(db.Integer, nullable=False)  # FK to engagement.id or milestone.id
+    entity_type = db.Column(db.String(20), nullable=False)  # 'engagement'
+    entity_id = db.Column(db.Integer, nullable=False)  # FK to engagement.id
     note = db.Column(db.Text, nullable=False, default='')
     created_at = db.Column(db.DateTime, default=utc_now)
     updated_at = db.Column(db.DateTime, default=utc_now, onupdate=utc_now)

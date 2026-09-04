@@ -18,6 +18,71 @@ logger = logging.getLogger(__name__)
 
 # Create blueprint
 engagements_bp = Blueprint('engagements', __name__)
+def _resolve_customer_milestones(
+    customer_id: int,
+    milestone_ids: list,
+    milestone_data: list,
+) -> list[Milestone]:
+    """Resolve local IDs and MSX picker records into customer milestones."""
+    resolved: list[Milestone] = []
+    seen_ids: set[int] = set()
+
+    try:
+        local_ids = [int(milestone_id) for milestone_id in milestone_ids]
+    except (TypeError, ValueError) as exc:
+        raise ValueError('Invalid milestone selection') from exc
+
+    if local_ids:
+        local_milestones = Milestone.query.filter(
+            Milestone.id.in_(local_ids),
+            Milestone.customer_id == customer_id,
+        ).all()
+        if len(local_milestones) != len(set(local_ids)):
+            raise ValueError('One or more milestones do not belong to this customer')
+        for milestone in local_milestones:
+            resolved.append(milestone)
+            seen_ids.add(milestone.id)
+
+    for item in milestone_data:
+        if not isinstance(item, dict):
+            raise ValueError('Invalid milestone data')
+        msx_id = str(item.get('id') or '').strip()
+        if not msx_id:
+            raise ValueError('Milestone data is missing an MSX ID')
+        milestone = Milestone.query.filter_by(msx_milestone_id=msx_id).first()
+        if milestone and milestone.customer_id not in (None, customer_id):
+            raise ValueError('One or more milestones do not belong to this customer')
+        if not milestone:
+            milestone = Milestone(
+                customer_id=customer_id,
+                msx_milestone_id=msx_id,
+            )
+            db.session.add(milestone)
+        elif milestone.customer_id is None:
+            milestone.customer_id = customer_id
+
+        milestone.title = item.get('name') or milestone.title
+        milestone.milestone_number = item.get('number') or milestone.milestone_number
+        milestone.msx_status = item.get('status') or milestone.msx_status
+        milestone.msx_status_code = item.get('status_code') or milestone.msx_status_code
+        milestone.opportunity_name = (
+            item.get('opportunity_name') or milestone.opportunity_name
+        )
+        milestone.workload = item.get('workload') or milestone.workload
+        milestone.monthly_usage = item.get('monthly_usage') or milestone.monthly_usage
+        milestone.url = item.get('url') or milestone.url
+        due_date = item.get('due_date')
+        if due_date:
+            try:
+                milestone.due_date = datetime.strptime(due_date[:10], '%Y-%m-%d').date()
+            except (TypeError, ValueError):
+                pass
+        db.session.flush()
+        if milestone.id not in seen_ids:
+            resolved.append(milestone)
+            seen_ids.add(milestone.id)
+
+    return resolved
 
 
 @engagements_bp.route('/engagements')
@@ -453,11 +518,14 @@ def api_engagement_update_milestones(id: int):
     if data is None:
         return jsonify({'success': False, 'error': 'No data provided'}), 400
 
-    milestone_ids = data.get('milestone_ids', [])
-    milestones = Milestone.query.filter(
-        Milestone.id.in_([int(mid) for mid in milestone_ids]),
-        Milestone.customer_id == engagement.customer_id
-    ).all() if milestone_ids else []
+    try:
+        milestones = _resolve_customer_milestones(
+            engagement.customer_id,
+            data.get('milestone_ids', []),
+            data.get('milestones', []),
+        )
+    except ValueError as exc:
+        return jsonify({'success': False, 'error': str(exc)}), 400
 
     engagement.milestones = milestones
     db.session.commit()
@@ -468,6 +536,34 @@ def api_engagement_update_milestones(id: int):
     return jsonify({
         'success': True,
         'count': len(milestones),
+        'milestone_ids': [milestone.id for milestone in milestones],
+    })
+
+
+@engagements_bp.route(
+    '/api/engagement/<int:id>/milestones/<int:milestone_id>/add',
+    methods=['POST'],
+)
+def api_engagement_add_milestone(id: int, milestone_id: int):
+    """Add one customer milestone to an engagement without replacing existing links."""
+    engagement = Engagement.query.get_or_404(id)
+    milestone = Milestone.query.get_or_404(milestone_id)
+
+    if milestone.customer_id != engagement.customer_id:
+        return jsonify({
+            'success': False,
+            'error': 'Milestone and engagement must belong to the same customer',
+        }), 400
+
+    if milestone not in engagement.milestones:
+        engagement.milestones.append(milestone)
+        db.session.commit()
+        track_engagement_on_milestones(engagement)
+
+    return jsonify({
+        'success': True,
+        'engagement_id': engagement.id,
+        'milestone_ids': [linked.id for linked in engagement.milestones],
     })
 
 
@@ -527,7 +623,7 @@ def api_engagements_milestones():
 @engagements_bp.route('/customer/<int:customer_id>/engagement/create-inline',
                        methods=['POST'])
 def engagement_create_inline(customer_id: int):
-    """Create an engagement with just a title (inline from note form)."""
+    """Create an engagement inline, optionally linked to customer milestones."""
     customer = Customer.query.get_or_404(customer_id)
     data = request.get_json() if request.is_json else None
     title = (data.get('title', '') if data else request.form.get('title', '')).strip()
@@ -561,10 +657,26 @@ def engagement_create_inline(customer_id: int):
                 engagement.target_date = date_cls.fromisoformat(target)
             except ValueError:
                 pass
+
+    try:
+        milestones = _resolve_customer_milestones(
+            customer_id,
+            data.get('milestone_ids', []) if data else request.form.getlist('milestone_ids'),
+            data.get('milestones', []) if data else [],
+        )
+    except ValueError as exc:
+        return jsonify(success=False, error=str(exc)), 400
+    engagement.milestones.extend(milestones)
+
     db.session.add(engagement)
     db.session.commit()
 
-    return jsonify(success=True, id=engagement.id, title=engagement.title)
+    return jsonify(
+        success=True,
+        id=engagement.id,
+        title=engagement.title,
+        milestone_ids=[milestone.id for milestone in milestones],
+    )
 
 
 @engagements_bp.route('/api/engagement/<int:id>', methods=['GET'])

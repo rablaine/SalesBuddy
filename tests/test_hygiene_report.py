@@ -1,6 +1,4 @@
-"""
-Tests for the Engagement / Milestone Hygiene report and HygieneNote API.
-"""
+"""Tests for the Engagement / Milestone Hygiene report and reason-note API."""
 import json
 
 import pytest
@@ -106,6 +104,88 @@ class TestHygieneReport:
         # On-team toggle should be present
         assert 'onTeamToggle' in html
 
+    def test_milestones_can_be_grouped_by_seller(self, client, hygiene_data):
+        """Milestone rows should expose seller data to the persisted grouping control."""
+        resp = client.get('/reports/hygiene')
+        html = resp.data.decode()
+        assert 'groupBySellerToggle' in html
+        assert 'data-seller-name="Test Seller"' in html
+        assert 'salesbuddy_hygiene_milestone_view' in html
+        assert '--bs-table-bg: var(--bs-tertiary-bg)' in html
+        assert "row.className = 'ms-seller-group table-light'" not in html
+        assert 'milestoneGlobalHeader' in html
+        assert "row.className = 'ms-group-columns'" in html
+        assert 'tbody.appendChild(createColumnHeader())' in html
+        engagement_section = html.split('Active Engagements without Milestones', 1)[1]
+        engagement_table = engagement_section.split('</table>', 1)[0]
+        milestone_section = html.split('Milestones without Engagements', 1)[1]
+        milestone_table = milestone_section.split('</table>', 1)[0]
+        assert 'id="milestoneGlobalHeader"' not in engagement_table
+        assert 'id="milestoneGlobalHeader"' in milestone_table
+
+    def test_report_renders_remediation_actions(self, client, hygiene_data):
+        """Gap rows should expose inline milestone and engagement fixes."""
+        resp = client.get('/reports/hygiene')
+        html = resp.data.decode()
+        assert 'data-link-engagement-id=' in html
+        assert 'data-add-existing-milestone-id=' in html
+        assert 'data-create-engagement-milestone-id=' in html
+        assert 'id="linkMilestonesModal"' in html
+        assert 'id="addExistingEngagementModal"' in html
+        assert 'id="existingEngagementSelect"' in html
+        assert 'id="createEngagementFromEmptyState"' in html
+        assert 'id="createEngagementModal"' in html
+        assert 'id="engagementAnnotatedCount"' in html
+        assert 'data-create-engagement-milestone-status=' in html
+        assert 'data-create-engagement-milestone-msx-id=' in html
+        assert 'modal-dialog modal-lg hygiene-picker-overflow-dialog' in html
+        assert 'modal-dialog modal-xl hygiene-picker-overflow-dialog' in html
+        assert '.hygiene-picker-overflow-dialog .modal-body' in html
+        assert 'modal-xl modal-dialog-scrollable' not in html
+        assert 'min-height: min(720px' not in html
+        assert 'z-index: 1090 !important' in html
+        assert 'js/milestone-multi-picker.js' in html
+        assert 'removeResolvedMilestones' in html
+        assert '/api/customer/' in html
+        assert "'/milestones/' + activeMilestoneId + '/add'" in html
+        assert "existingModalElement.addEventListener('hidden.bs.modal'" in html
+        assert 'openCreateEngagement(createButton)' in html
+        assert 'function updateHygieneSummaryCounts()' in html
+        assert html.count('updateHygieneSummaryCounts();') == 3
+        assert 'Why no milestone?' in html
+        assert 'data-entity-type="milestone"' not in html
+
+    def test_report_embeds_client_sort_values(self, client, hygiene_data):
+        """Milestone rows should expose customer and ACR values for redraw sorting."""
+        resp = client.get('/reports/hygiene')
+        html = resp.data.decode()
+        assert 'data-customer-name="Acme Corp"' in html
+        assert 'data-acr=' in html
+        assert 'customerOrder' in html
+        assert 'acrOrder' in html
+
+    def test_shared_picker_keeps_scrollbar_open_and_colors_statuses(self, client):
+        """Shared picker should preserve scroll interaction and standard badge colors."""
+        resp = client.get('/static/js/milestone-multi-picker.js')
+        assert resp.status_code == 200
+        javascript = resp.data.decode()
+        assert "case 'On Track': return 'bg-success'" in javascript
+        assert "case 'At Risk': return 'bg-warning text-dark'" in javascript
+        assert "case 'Blocked': return 'bg-danger'" in javascript
+        assert "this.results.addEventListener('pointerdown'" in javascript
+        assert "if (!picker.resultsInteracting) picker.closeResults()" in javascript
+        assert 'this.closeResults();' in javascript
+        assert 'this.input.blur();' in javascript
+        assert "this.input.addEventListener('click'" in javascript
+        assert 'milestone.local_milestone_id != null' in javascript
+        assert 'Number.isInteger(milestoneId) && milestoneId > 0' in javascript
+        assert 'initialSelections' in javascript
+        assert 'Loading optional additional milestones...' in javascript
+        assert "'card border-success mb-2'" in javascript
+        assert 'bg-success-subtle' not in javascript
+        assert 'card-body d-flex justify-content-between' in javascript
+        assert 'bi bi-check-circle-fill text-success' in javascript
+
     def test_shows_existing_hygiene_notes(self, client, app, hygiene_data):
         """Should display pre-existing hygiene notes inline."""
         with app.app_context():
@@ -123,7 +203,7 @@ class TestHygieneReport:
 
 
 class TestHygieneNoteAPI:
-    """Tests for POST /api/hygiene-note."""
+    """Tests for engagement reason notes posted to /api/hygiene-note."""
 
     def test_create_note(self, client, app, hygiene_data):
         """Should create a new hygiene note."""
@@ -150,8 +230,8 @@ class TestHygieneNoteAPI:
         """Should update an existing hygiene note."""
         with app.app_context():
             hn = HygieneNote(
-                entity_type='milestone',
-                entity_id=hygiene_data['ms_no_eng_id'],
+                entity_type='engagement',
+                entity_id=hygiene_data['eng_no_ms_id'],
                 note='Old reason',
             )
             db.session.add(hn)
@@ -159,8 +239,8 @@ class TestHygieneNoteAPI:
 
         resp = client.post('/api/hygiene-note',
                            data=json.dumps({
-                               'entity_type': 'milestone',
-                               'entity_id': hygiene_data['ms_no_eng_id'],
+                               'entity_type': 'engagement',
+                               'entity_id': hygiene_data['eng_no_ms_id'],
                                'note': 'Updated reason',
                            }),
                            content_type='application/json')
@@ -168,10 +248,19 @@ class TestHygieneNoteAPI:
 
         with app.app_context():
             hn = HygieneNote.query.filter_by(
-                entity_type='milestone',
-                entity_id=hygiene_data['ms_no_eng_id'],
+                entity_type='engagement',
+                entity_id=hygiene_data['eng_no_ms_id'],
             ).first()
             assert hn.note == 'Updated reason'
+
+    def test_rejects_removed_milestone_reason_notes(self, client, hygiene_data):
+        """Milestones should no longer accept obsolete reason notes."""
+        resp = client.post('/api/hygiene-note', json={
+            'entity_type': 'milestone',
+            'entity_id': hygiene_data['ms_no_eng_id'],
+            'note': 'Obsolete reason',
+        })
+        assert resp.status_code == 400
 
     def test_delete_note_on_empty(self, client, app, hygiene_data):
         """Should delete the record when note is empty."""
