@@ -358,8 +358,8 @@
             <div class="modal-body">
                 <div class="d-flex gap-2 mb-3">
                     <div class="btn-group" role="group" aria-label="Agenda item type">
-                        <button type="button" class="btn btn-primary agenda-type-button" data-item-type="milestone"><i class="bi bi-flag"></i> Milestones</button>
-                        <button type="button" class="btn btn-outline-primary agenda-type-button" data-item-type="engagement"><i class="bi bi-diagram-3"></i> Engagements</button>
+                        <button type="button" class="btn btn-primary agenda-type-button" data-item-type="engagement"><i class="bi bi-diagram-3"></i> Engagements</button>
+                        <button type="button" class="btn btn-outline-primary agenda-type-button" data-item-type="milestone"><i class="bi bi-flag"></i> Milestones</button>
                     </div>
                     <input type="search" class="form-control" id="agendaCandidateSearch" placeholder="Search customer or title..." autocomplete="off">
                 </div>
@@ -377,10 +377,24 @@
     const workspaceId = {{ workspace.id }};
     const workspaceNotes = document.getElementById('workspaceNotes');
     const workspaceSaveState = document.getElementById('workspaceSaveState');
+    const workspaceNotesHeightKey = 'salesbuddy_one_on_one_notes_height_' + workspaceId;
     let workspaceTimer;
-    let activeType = 'milestone';
+    let activeType = 'engagement';
     let searchTimer;
     let editingEngagementId = null;
+
+    const savedWorkspaceNotesHeight = Number(
+        localStorage.getItem(workspaceNotesHeightKey)
+    );
+    if (savedWorkspaceNotesHeight > 0) {
+        workspaceNotes.style.height = savedWorkspaceNotesHeight + 'px';
+    }
+    if (window.ResizeObserver) {
+        new ResizeObserver(function() {
+            const height = Math.round(workspaceNotes.offsetHeight);
+            if (height > 0) localStorage.setItem(workspaceNotesHeightKey, String(height));
+        }).observe(workspaceNotes);
+    }
 
     function setSaveState(element, text, className) {
         element.textContent = text;

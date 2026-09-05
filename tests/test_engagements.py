@@ -388,6 +388,40 @@ class TestInlineEngagementCreation:
                 milestone_ids
             )
 
+    def test_inline_create_tracks_linked_engagement_story(
+        self, client, app, engagement_data, monkeypatch
+    ):
+        """Milestone-linked inline creation should sync the engagement story."""
+        cid = engagement_data['customer_id']
+        tracked_engagement_ids = []
+        monkeypatch.setattr(
+            'app.routes.engagements.track_engagement_on_milestones',
+            lambda engagement: tracked_engagement_ids.append(engagement.id),
+        )
+        with app.app_context():
+            milestone = Milestone(
+                customer_id=cid,
+                msx_milestone_id='INLINE-TRACKED',
+                title='Tracked milestone',
+                url='https://msx.example.com/inline-tracked',
+            )
+            db.session.add(milestone)
+            db.session.commit()
+            milestone_id = milestone.id
+
+        response = client.post(
+            f'/customer/{cid}/engagement/create-inline',
+            json={
+                'title': 'Tracked Inline Engagement',
+                'technical_problem': 'Legacy platform',
+                'milestone_ids': [milestone_id],
+                'milestones': [],
+            },
+        )
+
+        assert response.status_code == 200
+        assert tracked_engagement_ids == [response.get_json()['id']]
+
     def test_inline_create_materializes_fresh_msx_milestone(
         self, client, app, engagement_data
     ):

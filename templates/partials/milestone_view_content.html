@@ -39,7 +39,7 @@
             <div class="card-header">
                 <h5 class="mb-0"><i class="bi bi-signpost-split"></i> Navigation</h5>
             </div>
-            <div class="card-body">
+            <div class="card-body" id="milestoneNavigationLinks">
                 {% if milestone.customer %}
                 <p class="mb-2">
                     {{ customer_favicon(milestone.customer) }} <strong>Customer:</strong>
@@ -59,6 +59,13 @@
                     <a href="{{ url_for('engagements.engagement_view', id=eng.id) }}">{{ eng.title[:50] }}{% if eng.title|length > 50 %}...{% endif %}</a>
                 </p>
                 {% endfor %}
+                {% elif milestone.customer %}
+                <div id="milestoneEngagementEmpty" class="border-top pt-3 mt-1">
+                    <div class="small text-muted mb-2">No engagement linked to this milestone.</div>
+                    <button type="button" class="btn btn-sm btn-outline-primary" onclick="openMilestoneEngagementModal()">
+                        <i class="bi bi-plus-lg me-1"></i>Create engagement
+                    </button>
+                </div>
                 {% endif %}
                 {% if not milestone.customer and not milestone.opportunity and not milestone.engagements %}
                 <p class="text-muted mb-0">Not linked to a customer or opportunity.</p>
@@ -290,6 +297,83 @@
     </div>
 </div>
 
+{% if milestone.customer and not milestone.engagements %}
+<!-- Create Engagement Modal -->
+<div class="modal fade" id="milestoneEngagementModal" tabindex="-1"
+     aria-labelledby="milestoneEngagementModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <form id="milestoneEngagementForm">
+                <div class="modal-header">
+                    <div>
+                        <h5 class="modal-title" id="milestoneEngagementModalLabel">
+                            <i class="bi bi-diagram-3 me-2"></i>Create engagement
+                        </h5>
+                        <div class="small text-muted">Linked to {{ milestone.display_text }}</div>
+                    </div>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="row g-3">
+                        <div class="col-md-8">
+                            <label for="milestoneEngagementTitle" class="form-label">Title *</label>
+                            <input type="text" class="form-control" id="milestoneEngagementTitle"
+                                   value="{{ milestone.display_text }}" maxlength="300" required>
+                        </div>
+                        <div class="col-md-4">
+                            <label for="milestoneEngagementStatus" class="form-label">Status</label>
+                            <select class="form-select" id="milestoneEngagementStatus">
+                                <option value="Active">Active</option>
+                                <option value="On Hold">On Hold</option>
+                                <option value="Won">Won</option>
+                                <option value="Lost">Lost</option>
+                            </select>
+                        </div>
+                        <div class="col-12">
+                            <div class="small text-uppercase text-muted fw-semibold">Engagement story</div>
+                        </div>
+                        <div class="col-12">
+                            <label for="milestoneEngagementProblem" class="form-label">Technical/Business Problem</label>
+                            <textarea class="form-control" id="milestoneEngagementProblem" rows="3"
+                                      placeholder="What problem or challenge are they facing?"></textarea>
+                        </div>
+                        <div class="col-12">
+                            <label for="milestoneEngagementImpact" class="form-label">Business Process/Strategy Impact</label>
+                            <textarea class="form-control" id="milestoneEngagementImpact" rows="3"
+                                      placeholder="How is this problem impacting their business?"></textarea>
+                        </div>
+                        <div class="col-12">
+                            <label for="milestoneEngagementResources" class="form-label">Solution Resources</label>
+                            <textarea class="form-control" id="milestoneEngagementResources" rows="3"
+                                      placeholder="What services, people, or solutions are addressing it?"></textarea>
+                        </div>
+                        <div class="col-md-6">
+                            <label for="milestoneEngagementAcr" class="form-label">Estimated monthly ACR</label>
+                            <div class="input-group">
+                                <span class="input-group-text">$</span>
+                                <input type="number" class="form-control" id="milestoneEngagementAcr" min="0" step="1">
+                                <span class="input-group-text">/mo</span>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <label for="milestoneEngagementTarget" class="form-label">Target date</label>
+                            <input type="date" class="form-control" id="milestoneEngagementTarget">
+                        </div>
+                    </div>
+                    <div class="alert alert-danger d-none mt-3 mb-0" id="milestoneEngagementError"></div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary" id="milestoneEngagementSubmit">
+                        <i class="bi bi-check2 me-1"></i>Create engagement
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endif %}
+
 {% if milestone.msx_milestone_id %}
 <!-- New Task Modal -->
 <div class="modal fade" id="newTaskModal" tabindex="-1" aria-labelledby="newTaskModalLabel" aria-hidden="true">
@@ -356,6 +440,95 @@ function escapeHtml(str) {
 }
 
 {% include '_forecast_comments_js.html' %}
+
+{% if milestone.customer and not milestone.engagements %}
+// ── Engagement creation ────────────────────────────────────────────
+var _milestoneEngagementModal = null;
+var _milestoneEngagementParentModal = null;
+
+window.openMilestoneEngagementModal = function() {
+    var modalElement = document.getElementById('milestoneEngagementModal');
+    _milestoneEngagementParentModal = modalElement.closest('.modal.show');
+    if (_milestoneEngagementParentModal) {
+        var parentModal = bootstrap.Modal.getInstance(_milestoneEngagementParentModal);
+        if (parentModal) {
+            _milestoneEngagementParentModal.addEventListener('hidden.bs.modal', function showCreator() {
+                showMilestoneEngagementModal(modalElement);
+            }, {once: true});
+            parentModal.hide();
+            return;
+        }
+    }
+    showMilestoneEngagementModal(modalElement);
+};
+
+function showMilestoneEngagementModal(modalElement) {
+    if (modalElement.parentElement !== document.body) document.body.appendChild(modalElement);
+    _milestoneEngagementModal = bootstrap.Modal.getOrCreateInstance(modalElement);
+    _milestoneEngagementModal.show();
+    modalElement.addEventListener('shown.bs.modal', function focusTitle() {
+        document.getElementById('milestoneEngagementTitle').focus();
+    }, {once: true});
+}
+
+document.getElementById('milestoneEngagementModal').addEventListener('hidden.bs.modal', function() {
+    if (_milestoneEngagementParentModal) {
+        var parentModal = bootstrap.Modal.getInstance(_milestoneEngagementParentModal);
+        if (parentModal) parentModal.show();
+        _milestoneEngagementParentModal = null;
+    }
+});
+
+document.getElementById('milestoneEngagementForm').addEventListener('submit', function(event) {
+    event.preventDefault();
+    if (!this.reportValidity()) return;
+    var button = document.getElementById('milestoneEngagementSubmit');
+    var error = document.getElementById('milestoneEngagementError');
+    var title = document.getElementById('milestoneEngagementTitle').value.trim();
+    error.classList.add('d-none');
+    button.disabled = true;
+    button.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Creating...';
+    fetch('{{ url_for("engagements.engagement_create_inline", customer_id=milestone.customer.id) }}', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            title: title,
+            status: document.getElementById('milestoneEngagementStatus').value,
+            technical_problem: document.getElementById('milestoneEngagementProblem').value.trim(),
+            business_impact: document.getElementById('milestoneEngagementImpact').value.trim(),
+            solution_resources: document.getElementById('milestoneEngagementResources').value.trim(),
+            estimated_acr: document.getElementById('milestoneEngagementAcr').value,
+            target_date: document.getElementById('milestoneEngagementTarget').value,
+            milestone_ids: [{{ milestone.id }}],
+            milestones: [],
+        }),
+    })
+    .then(function(response) {
+        return response.json().then(function(data) {
+            if (!response.ok || !data.success) throw new Error(data.error || 'Could not create engagement');
+            return data;
+        });
+    })
+    .then(function(data) {
+        var emptyState = document.getElementById('milestoneEngagementEmpty');
+        var row = document.createElement('p');
+        row.className = 'mb-2';
+        row.innerHTML = '<i class="bi bi-diagram-3"></i> <strong>Engagement:</strong> ' +
+            '<a href="/engagement/' + data.id + '"></a>';
+        row.querySelector('a').textContent = data.title;
+        emptyState.replaceWith(row);
+        _milestoneEngagementModal.hide();
+    })
+    .catch(function(errorValue) {
+        error.textContent = errorValue.message;
+        error.classList.remove('d-none');
+    })
+    .finally(function() {
+        button.disabled = false;
+        button.innerHTML = '<i class="bi bi-check2 me-1"></i>Create engagement';
+    });
+});
+{% endif %}
 
 function formatCurrency(val) {
     if (val == null) return '';

@@ -183,6 +183,13 @@ class TestOneOnOneWorkspaceAPI:
         assert page.status_code == 200
         assert b'Standing notes' in page.data
         assert b'Next conversation' in page.data
+        html = page.data.decode()
+        engagement_button = html.index('data-item-type="engagement"')
+        milestone_button = html.index('data-item-type="milestone"')
+        assert engagement_button < milestone_button
+        assert "let activeType = 'engagement';" in html
+        assert 'salesbuddy_one_on_one_notes_height_' in html
+        assert 'new ResizeObserver' in html
 
         response = client.patch(
             f'/api/one-on-one/{workspace_id}',
