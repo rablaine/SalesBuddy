@@ -8,6 +8,10 @@ brought the change into `main`, so the admin Updates card can show
 Format: `## M/D/YYYY - <merge-short-sha>`. See
 `scripts/tag-changelog.ps1` for the helper that fills this in.
 
+## 9/5/2026
+
+- Show engagement breadcrumbs in seller, customer, engagement order for clearer account context.
+
 ## 9/5/2026 - bca5c27
 
 - Create a fully detailed, automatically linked engagement directly from any customer milestone that does not already have one.

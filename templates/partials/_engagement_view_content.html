@@ -26,6 +26,13 @@
     <div style="min-width: 0; flex: 1;">
         <nav aria-label="breadcrumb">
             <ol class="breadcrumb mb-1">
+                {% if customer.seller %}
+                <li class="breadcrumb-item">
+                    <a href="{{ url_for('sellers.seller_view', id=customer.seller.id) }}">
+                        <i class="bi bi-person"></i> {{ customer.seller.name }}
+                    </a>
+                </li>
+                {% endif %}
                 <li class="breadcrumb-item">
                     <a href="{{ url_for('customers.customer_view', id=customer.id) }}">
                         {{ customer_favicon(customer, size=16) }} {{ customer.get_display_name() }}
