@@ -1,18 +1,102 @@
 {% extends "base.html" %}
 {% block title %}1:1 Notes - {{ workspace.person_name }} - Sales Buddy{% endblock %}
 
+{% block extra_css %}
+<link href="https://cdnjs.cloudflare.com/ajax/libs/quill/2.0.0-dev.3/quill.snow.min.css" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/quill-better-table@1.2.10/dist/quill-better-table.css" rel="stylesheet">
+{% endblock %}
+
 {% block content %}
 <style>
     .one-on-one-shell { max-width: 1500px; margin: 0 auto; }
     .workspace-kicker { letter-spacing: 0.09em; text-transform: uppercase; font-size: 0.72rem; }
     .workspace-notes {
         min-height: 560px;
+        height: 560px;
         resize: vertical;
         line-height: 1.65;
         border: 0;
         background: transparent;
         box-shadow: none !important;
+        overflow: hidden;
+    }
+    .workspace-notes .ql-editor {
         padding: 1.25rem;
+        overflow-y: auto;
+        font-size: 1rem;
+    }
+    .workspace-notes .ql-editor.ql-blank::before {
+        left: 1.25rem;
+        right: 1.25rem;
+        color: var(--bs-secondary-color);
+    }
+    .notes-surface .ql-toolbar {
+        border: 0;
+        border-bottom: 1px solid var(--bs-border-color);
+        background: var(--bs-secondary-bg);
+        border-radius: var(--bs-border-radius-lg) var(--bs-border-radius-lg) 0 0;
+    }
+    .notes-surface .ql-snow .ql-stroke { stroke: var(--bs-body-color); }
+    .notes-surface .ql-snow .ql-fill { fill: var(--bs-body-color); }
+    .notes-surface .ql-snow .ql-picker { color: var(--bs-body-color); }
+    .notes-surface .ql-snow .ql-picker-options {
+        background: var(--bs-body-bg);
+        border-color: var(--bs-border-color);
+    }
+    .notes-surface .ql-snow button:hover .ql-stroke,
+    .notes-surface .ql-snow button.ql-active .ql-stroke { stroke: var(--bs-primary); }
+    .notes-surface .ql-snow button:hover .ql-fill,
+    .notes-surface .ql-snow button.ql-active .ql-fill { fill: var(--bs-primary); }
+    .workspace-notes img {
+        max-width: 100%;
+    }
+    .workspace-notes table {
+        border-collapse: collapse;
+        width: 100%;
+        margin: 0.75rem 0;
+    }
+    .workspace-notes td {
+        border: 1px solid var(--bs-border-color);
+        min-width: 80px;
+        padding: 0.45rem 0.6rem;
+    }
+    .notes-surface .ql-toolbar button.ql-insert-table {
+        color: var(--bs-body-color);
+        font-size: 1rem;
+        line-height: 1;
+    }
+    .table-size-picker {
+        position: absolute;
+        z-index: 1060;
+        top: calc(100% + 0.35rem);
+        right: 0;
+        width: 230px;
+        padding: 0.75rem;
+        background: var(--bs-body-bg);
+        border: 1px solid var(--bs-border-color);
+        border-radius: var(--bs-border-radius);
+        box-shadow: var(--bs-box-shadow);
+    }
+    .table-size-picker input { min-width: 0; }
+    .notes-surface .qlbt-operation-menu {
+        background: var(--bs-body-bg);
+        border-color: var(--bs-border-color);
+        color: var(--bs-body-color);
+    }
+    .notes-surface .qlbt-col-tool .qlbt-col-tool-cell {
+        background: var(--bs-secondary-bg);
+        border-color: var(--bs-border-color);
+    }
+    .notes-surface .qlbt-col-tool .qlbt-col-tool-cell-holder:hover {
+        background: var(--bs-primary);
+    }
+    .notes-surface .qlbt-operation-menu .qlbt-operation-menu-item,
+    .notes-surface .qlbt-operation-menu .qlbt-operation-color-picker {
+        background: var(--bs-body-bg);
+        color: var(--bs-body-color);
+    }
+    .notes-surface .qlbt-operation-menu .qlbt-operation-menu-item:hover {
+        background: var(--bs-tertiary-bg);
     }
     .notes-surface {
         background: var(--bs-tertiary-bg);
@@ -98,8 +182,7 @@
                 <small class="save-state text-muted" id="workspaceSaveState">Saved</small>
             </div>
             <div class="notes-surface">
-                <textarea class="form-control workspace-notes" id="workspaceNotes"
-                          placeholder="Context, coaching notes, recurring themes, things to follow up on...">{{ workspace.notes }}</textarea>
+                <div class="workspace-notes" id="workspaceNotes">{{ workspace.notes|safe }}</div>
             </div>
         </div>
 
@@ -358,8 +441,8 @@
             <div class="modal-body">
                 <div class="d-flex gap-2 mb-3">
                     <div class="btn-group" role="group" aria-label="Agenda item type">
-                        <button type="button" class="btn btn-primary agenda-type-button" data-item-type="milestone"><i class="bi bi-flag"></i> Milestones</button>
-                        <button type="button" class="btn btn-outline-primary agenda-type-button" data-item-type="engagement"><i class="bi bi-diagram-3"></i> Engagements</button>
+                        <button type="button" class="btn btn-primary agenda-type-button" data-item-type="engagement"><i class="bi bi-diagram-3"></i> Engagements</button>
+                        <button type="button" class="btn btn-outline-primary agenda-type-button" data-item-type="milestone"><i class="bi bi-flag"></i> Milestones</button>
                     </div>
                     <input type="search" class="form-control" id="agendaCandidateSearch" placeholder="Search customer or title..." autocomplete="off">
                 </div>
@@ -372,15 +455,110 @@
     </div>
 </div>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/quill/2.0.0-dev.3/quill.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/quill-better-table@1.2.10/dist/quill-better-table.min.js"></script>
 <script>
 (function() {
     const workspaceId = {{ workspace.id }};
     const workspaceNotes = document.getElementById('workspaceNotes');
     const workspaceSaveState = document.getElementById('workspaceSaveState');
+    const workspaceNotesHeightKey = 'salesbuddy_one_on_one_notes_height_' + workspaceId;
     let workspaceTimer;
-    let activeType = 'milestone';
+    let activeType = 'engagement';
     let searchTimer;
     let editingEngagementId = null;
+
+    Quill.register({'modules/better-table': quillBetterTable}, true);
+    const workspaceQuill = new Quill(workspaceNotes, {
+        theme: 'snow',
+        placeholder: 'Context, coaching notes, recurring themes, things to follow up on...',
+        modules: {
+            toolbar: [
+                [{header: [1, 2, 3, false]}],
+                ['bold', 'italic', 'underline', 'strike'],
+                [{list: 'ordered'}, {list: 'bullet'}],
+                [{indent: '-1'}, {indent: '+1'}],
+                ['link', 'image']
+            ],
+            table: false,
+            'better-table': {
+                operationMenu: {
+                    items: {
+                        insertColumnRight: {text: 'Insert column right'},
+                        insertColumnLeft: {text: 'Insert column left'},
+                        insertRowUp: {text: 'Insert row above'},
+                        insertRowDown: {text: 'Insert row below'},
+                        deleteColumn: {text: 'Delete column'},
+                        deleteRow: {text: 'Delete row'},
+                        deleteTable: {text: 'Delete table'}
+                    }
+                }
+            },
+            keyboard: {
+                bindings: quillBetterTable.keyboardBindings
+            }
+        }
+    });
+    const toolbar = workspaceQuill.getModule('toolbar').container;
+    const tableButtonGroup = toolbar.lastElementChild;
+    tableButtonGroup.classList.add('position-relative');
+    const tableButton = document.createElement('button');
+    tableButton.type = 'button';
+    tableButton.className = 'ql-insert-table';
+    tableButton.title = 'Insert table';
+    tableButton.setAttribute('aria-label', 'Insert table');
+    tableButton.setAttribute('aria-expanded', 'false');
+    tableButton.innerHTML = '<i class="bi bi-table"></i>';
+    const tableSizePicker = document.createElement('div');
+    tableSizePicker.className = 'table-size-picker d-none';
+    tableSizePicker.innerHTML =
+        '<div class="fw-semibold small mb-2">Insert table</div>' +
+        '<div class="d-flex gap-2 align-items-end">' +
+            '<div class="flex-fill"><label class="form-label small mb-1" for="workspaceTableRows">Rows</label>' +
+            '<input class="form-control form-control-sm" id="workspaceTableRows" type="number" min="1" max="20" value="3"></div>' +
+            '<div class="flex-fill"><label class="form-label small mb-1" for="workspaceTableColumns">Columns</label>' +
+            '<input class="form-control form-control-sm" id="workspaceTableColumns" type="number" min="1" max="12" value="3"></div>' +
+            '<button type="button" class="btn btn-sm btn-primary" data-insert-table>Insert</button>' +
+        '</div>';
+    tableButton.addEventListener('click', function(event) {
+        event.stopPropagation();
+        const opening = tableSizePicker.classList.contains('d-none');
+        tableSizePicker.classList.toggle('d-none', !opening);
+        tableButton.setAttribute('aria-expanded', String(opening));
+        if (opening) tableSizePicker.querySelector('#workspaceTableRows').focus();
+    });
+    tableSizePicker.addEventListener('click', function(event) {
+        event.stopPropagation();
+    });
+    tableSizePicker.querySelector('[data-insert-table]').addEventListener('click', function() {
+        const rows = Number(tableSizePicker.querySelector('#workspaceTableRows').value);
+        const columns = Number(tableSizePicker.querySelector('#workspaceTableColumns').value);
+        if (!Number.isInteger(rows) || rows < 1 || rows > 20 ||
+                !Number.isInteger(columns) || columns < 1 || columns > 12) return;
+        tableSizePicker.classList.add('d-none');
+        tableButton.setAttribute('aria-expanded', 'false');
+        workspaceQuill.focus();
+        workspaceQuill.getModule('better-table').insertTable(rows, columns);
+    });
+    document.addEventListener('click', function() {
+        tableSizePicker.classList.add('d-none');
+        tableButton.setAttribute('aria-expanded', 'false');
+    });
+    tableButtonGroup.append(tableButton, tableSizePicker);
+    toolbar.appendChild(tableButtonGroup);
+
+    const savedWorkspaceNotesHeight = Number(
+        localStorage.getItem(workspaceNotesHeightKey)
+    );
+    if (savedWorkspaceNotesHeight > 0) {
+        workspaceNotes.style.height = savedWorkspaceNotesHeight + 'px';
+    }
+    if (window.ResizeObserver) {
+        new ResizeObserver(function() {
+            const height = Math.round(workspaceNotes.offsetHeight);
+            if (height > 0) localStorage.setItem(workspaceNotesHeightKey, String(height));
+        }).observe(workspaceNotes);
+    }
 
     function setSaveState(element, text, className) {
         element.textContent = text;
@@ -390,10 +568,16 @@
     function saveWorkspaceNotes() {
         clearTimeout(workspaceTimer);
         setSaveState(workspaceSaveState, 'Saving...', 'save-state text-muted');
+        const hasRichContent = workspaceQuill.getText().trim() ||
+            workspaceQuill.root.querySelector('table, img');
         fetch('/api/one-on-one/' + workspaceId, {
             method: 'PATCH',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({notes: workspaceNotes.value}),
+            body: JSON.stringify({
+                notes: hasRichContent
+                    ? workspaceQuill.root.innerHTML
+                    : ''
+            }),
         })
         .then(function(response) {
             if (!response.ok) throw new Error('Save failed');
@@ -404,12 +588,12 @@
         });
     }
 
-    workspaceNotes.addEventListener('input', function() {
+    workspaceQuill.on('text-change', function() {
         setSaveState(workspaceSaveState, 'Unsaved', 'save-state text-muted');
         clearTimeout(workspaceTimer);
         workspaceTimer = setTimeout(saveWorkspaceNotes, 700);
     });
-    workspaceNotes.addEventListener('blur', saveWorkspaceNotes);
+    workspaceQuill.root.addEventListener('blur', saveWorkspaceNotes);
 
     document.querySelectorAll('[data-talking-points]').forEach(function(input) {
         let timer;

@@ -671,6 +671,9 @@ def engagement_create_inline(customer_id: int):
     db.session.add(engagement)
     db.session.commit()
 
+    if milestones:
+        track_engagement_on_milestones(engagement)
+
     return jsonify(
         success=True,
         id=engagement.id,

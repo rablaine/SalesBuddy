@@ -465,6 +465,55 @@ class TestMilestoneViewOverhaul:
         assert b'Fabric Migration' in resp.data
         assert b'bi-diagram-3' in resp.data
 
+    def test_view_offers_engagement_creation_when_unlinked(
+        self, client, app, db_session, sample_user, sample_customer
+    ):
+        """Customer milestones without engagements should expose creation flow."""
+        ms_id = self._create_milestone(
+            app,
+            customer_id=sample_customer.id,
+            title='Create Engagement Milestone',
+        )
+
+        resp = client.get(f'/milestone/{ms_id}')
+        html = resp.data.decode()
+
+        assert resp.status_code == 200
+        assert 'No engagement linked to this milestone.' in html
+        assert 'onclick="openMilestoneEngagementModal()"' in html
+        assert 'id="milestoneEngagementModal"' in html
+        assert 'Technical/Business Problem' in html
+        assert f'milestone_ids: [{ms_id}]' in html
+
+    def test_view_hides_engagement_creation_when_linked(
+        self, client, app, db_session, sample_user, sample_customer
+    ):
+        """Linked milestones should show navigation without duplicate create CTA."""
+        from app.models import Engagement
+        with app.app_context():
+            milestone = Milestone(
+                url='https://test/linked-ms',
+                title='Already Linked Milestone',
+                msx_milestone_id='already-linked-milestone',
+                customer_id=sample_customer.id,
+            )
+            engagement = Engagement(
+                customer_id=sample_customer.id,
+                title='Existing Linked Engagement',
+                status='Active',
+            )
+            engagement.milestones.append(milestone)
+            db.session.add(engagement)
+            db.session.commit()
+            milestone_id = milestone.id
+
+        resp = client.get(f'/milestone/{milestone_id}')
+        html = resp.data.decode()
+
+        assert 'Existing Linked Engagement' in html
+        assert 'No engagement linked to this milestone.' not in html
+        assert 'id="milestoneEngagementModal"' not in html
+
     def test_view_shows_cached_comments(self, client, app, db_session, sample_user):
         """Cached comments render immediately in the template."""
         comments = [

@@ -183,15 +183,46 @@ class TestOneOnOneWorkspaceAPI:
         assert page.status_code == 200
         assert b'Standing notes' in page.data
         assert b'Next conversation' in page.data
+        html = page.data.decode()
+        engagement_button = html.index('data-item-type="engagement"')
+        milestone_button = html.index('data-item-type="milestone"')
+        assert engagement_button < milestone_button
+        assert "let activeType = 'engagement';" in html
+        assert 'salesbuddy_one_on_one_notes_height_' in html
+        assert 'new ResizeObserver' in html
+        assert 'quill/2.0.0-dev.3/quill.min.js' in html
+        assert 'new Quill(workspaceNotes' in html
+        assert "['bold', 'italic', 'underline', 'strike']" in html
+        assert 'quill-better-table@1.2.10' in html
+        assert "insertTable(rows, columns)" in html
+        assert 'id="workspaceTableRows"' in html
+        assert 'id="workspaceTableColumns"' in html
+        assert "querySelector('table, img')" in html
+        assert "['clean']" not in html
 
         response = client.patch(
             f'/api/one-on-one/{workspace_id}',
-            json={'notes': 'Ask about career goals and blockers.'},
+            json={'notes': '<p><strong>Ask</strong> about career goals and blockers.</p>'},
         )
         assert response.status_code == 200
         with app.app_context():
             workspace = db.session.get(OneOnOneWorkspace, workspace_id)
-            assert workspace.notes == 'Ask about career goals and blockers.'
+            assert workspace.notes == (
+                '<p><strong>Ask</strong> about career goals and blockers.</p>'
+            )
+        hub_html = client.get('/one-on-one/').data.decode()
+        assert 'Ask about career goals and blockers.' in hub_html
+        assert '&lt;strong&gt;Ask&lt;/strong&gt;' not in hub_html
+
+        table_html = (
+            '<table><tbody><tr><td>Topic</td><td>Owner</td></tr></tbody></table>'
+        )
+        assert client.patch(
+            f'/api/one-on-one/{workspace_id}',
+            json={'notes': table_html},
+        ).status_code == 200
+        reloaded_html = client.get(f'/one-on-one/{workspace_id}').data.decode()
+        assert table_html in reloaded_html
 
     def test_engagement_item_exposes_inline_editor(
         self, client, app, one_on_one_data
