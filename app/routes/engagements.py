@@ -3,7 +3,7 @@ Engagement routes for Sales Buddy.
 Handles CRUD operations for customer engagement threads.
 """
 import logging
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify
 
 from app.models import (
@@ -737,6 +737,65 @@ def engagement_update_inline(id: int):
     if eng.milestones:
         track_engagement_on_milestones(eng)
     return jsonify(success=True, id=eng.id, title=eng.title, status=eng.status)
+
+
+@engagements_bp.route('/api/engagement/<int:id>/story', methods=['PATCH'])
+def engagement_update_story_field(id: int):
+    """Update one story field from the standalone engagement page."""
+    engagement = Engagement.query.get_or_404(id)
+    data = request.get_json(silent=True) or {}
+    if not isinstance(data, dict):
+        return jsonify(success=False, error='JSON object required.'), 400
+
+    field = str(data.get('field', '') or '')
+    value = str(data.get('value', '') or '').strip()
+
+    text_fields = {
+        'technical_problem',
+        'business_impact',
+        'solution_resources',
+        'business_outcome',
+    }
+    if field in text_fields:
+        setattr(engagement, field, value or None)
+        display_value = value or 'Not yet filled in'
+    elif field == 'estimated_acr':
+        try:
+            estimated_acr = int(value) if value else None
+        except ValueError:
+            return jsonify(success=False, error='Monthly ACR must be a whole number.'), 400
+        if estimated_acr is not None and estimated_acr < 0:
+            return jsonify(success=False, error='Monthly ACR cannot be negative.'), 400
+        engagement.estimated_acr = estimated_acr
+        display_value = (
+            f'${estimated_acr:,}/mo' if estimated_acr is not None
+            else 'Not yet filled in'
+        )
+    elif field == 'target_date':
+        try:
+            target_date = date.fromisoformat(value) if value else None
+        except ValueError:
+            return jsonify(success=False, error='Target date is invalid.'), 400
+        engagement.target_date = target_date
+        display_value = (
+            target_date.strftime('%b %d, %Y') if target_date
+            else 'Not yet set'
+        )
+    else:
+        return jsonify(success=False, error='Story field is invalid.'), 400
+
+    db.session.commit()
+    if engagement.milestones:
+        track_engagement_on_milestones(engagement)
+
+    return jsonify(
+        success=True,
+        field=field,
+        value=value,
+        display_value=display_value,
+        is_empty=not value,
+        story_completeness=engagement.story_completeness,
+    )
 
 
 # =============================================================================

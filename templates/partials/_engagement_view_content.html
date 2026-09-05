@@ -9,6 +9,7 @@
     --story-impact: #e65100;
     --story-resources: #f57f17;
     --story-acr: #2e7d32;
+    --story-outcome: #6f42c1;
     --story-date: #1565c0;
     --story-border: var(--bs-border-color);
 }
@@ -18,8 +19,38 @@
     --story-impact: #ff9800;
     --story-resources: #ffe135;
     --story-acr: #69f0ae;
+    --story-outcome: #c9a7ff;
     --story-date: #64b5f6;
     --story-border: rgba(255,255,255,0.15);
+}
+.story-inline-value[data-story-field] {
+    border-radius: var(--bs-border-radius-sm);
+    cursor: text;
+    margin-inline: -0.375rem;
+    padding: 0.25rem 0.375rem;
+    transition: background-color 120ms ease, box-shadow 120ms ease;
+}
+.story-inline-value[data-story-field]:hover,
+.story-inline-value[data-story-field]:focus {
+    background: var(--bs-tertiary-bg);
+    box-shadow: 0 0 0 1px var(--bs-border-color);
+    outline: 0;
+}
+.story-inline-editor {
+    margin-top: 0.25rem;
+}
+.story-inline-editor-group {
+    margin-top: 0.25rem;
+}
+.story-inline-editor-group .story-inline-editor {
+    margin-top: 0;
+    appearance: textfield;
+    -moz-appearance: textfield;
+}
+.story-inline-editor-group .story-inline-editor::-webkit-inner-spin-button,
+.story-inline-editor-group .story-inline-editor::-webkit-outer-spin-button {
+    margin: 0;
+    -webkit-appearance: none;
 }
 </style>
 <div class="d-flex justify-content-between align-items-center mb-4">
@@ -100,7 +131,7 @@ function toggleEngagementFavorite(btn, engId) {
             <div class="card-header d-flex justify-content-between align-items-center">
                 <h5 class="mb-0"><i class="bi bi-journal-text"></i> The Story</h5>
                 <div class="d-flex align-items-center gap-2">
-                    <span class="badge bg-secondary">{{ engagement.story_completeness }}% complete</span>
+                    <span class="badge bg-secondary" id="storyCompletenessBadge">{{ engagement.story_completeness }}% complete</span>
                     {% if linked_notes %}
                     <button type="button" class="btn btn-sm btn-outline-success" id="generateStoryBtn" onclick="generateStory()">
                         <i class="bi bi-stars"></i> Generate
@@ -109,18 +140,18 @@ function toggleEngagementFavorite(btn, engId) {
                 </div>
             </div>
             <div class="card-body">
-                {% macro story_field(label, prompt, value, ai_value='', color='') %}
+                {% macro story_field(key, label, prompt, value, ai_value='', color='') %}
                 <div class="mb-3">
                     <div class="d-flex justify-content-between">
                         <strong class="small">{{ label }}</strong>
                     </div>
                     <small class="text-muted fst-italic">{{ prompt }}</small>
                     {% if value %}
-                    <p class="mb-0 mt-1" style="white-space: pre-wrap;{% if color %} color: {{ color }};{% endif %}">{{ value }}</p>
+                    <p class="story-inline-value mb-0 mt-1" style="white-space: pre-wrap;{% if color %} color: {{ color }};{% endif %}"{% if show_header_actions %} data-story-field="{{ key }}" data-story-value="{{ value|e }}" tabindex="0" title="Click to edit"{% endif %}>{{ value }}</p>
                     {% elif ai_value %}
-                    <p class="mb-0 mt-1" style="white-space: pre-wrap; opacity: 0.45;{% if color %} color: {{ color }};{% endif %}" title="AI-generated value (not manually confirmed)">{{ ai_value }}</p>
+                    <p class="story-inline-value mb-0 mt-1" style="white-space: pre-wrap; opacity: 0.45;{% if color %} color: {{ color }};{% endif %}"{% if show_header_actions %} data-story-field="{{ key }}" data-story-value="{{ ai_value|e }}" tabindex="0" title="AI-generated value - click to edit and confirm"{% else %} title="AI-generated value (not manually confirmed)"{% endif %}>{{ ai_value }}</p>
                     {% else %}
-                    <p class="mb-0 mt-1 fst-italic small" style="{% if color %}color: {{ color }}; opacity: 0.5;{% else %}color: var(--bs-secondary);{% endif %}">Not yet filled in</p>
+                    <p class="story-inline-value mb-0 mt-1 fst-italic small" style="{% if color %}color: {{ color }}; opacity: 0.5;{% else %}color: var(--bs-secondary);{% endif %}"{% if show_header_actions %} data-story-field="{{ key }}" data-story-value="" tabindex="0" title="Click to edit"{% endif %}>Not yet filled in</p>
                     {% endif %}
                 </div>
                 {% endmacro %}
@@ -153,36 +184,159 @@ function toggleEngagementFavorite(btn, engId) {
                     {% endif %}
                 </div>
 
-                {{ story_field("Technical/Business Problem", '"...they have run into..."', engagement.technical_problem, engagement.ai_technical_problem, 'var(--story-problem)') }}
-                {{ story_field("Business Process/Strategy Impact", '"...and it\'s impacting..."', engagement.business_impact, engagement.ai_business_impact, 'var(--story-impact)') }}
-                {{ story_field("Solution Resources", '"We are addressing the Opportunity with..."', engagement.solution_resources, engagement.ai_solution_resources, 'var(--story-resources)') }}
+                {{ story_field("technical_problem", "Technical/Business Problem", '"...they have run into..."', engagement.technical_problem, engagement.ai_technical_problem, 'var(--story-problem)') }}
+                {{ story_field("business_impact", "Business Process/Strategy Impact", '"...and it\'s impacting..."', engagement.business_impact, engagement.ai_business_impact, 'var(--story-impact)') }}
+                {{ story_field("solution_resources", "Solution Resources", '"We are addressing the Opportunity with..."', engagement.solution_resources, engagement.ai_solution_resources, 'var(--story-resources)') }}
 
                 <div class="row">
-                    <div class="col-6">
-                        <strong class="small">Business Outcome</strong>
-                        <small class="text-muted d-block fst-italic">"...which will result in..."</small>
+                    <div class="col-4">
+                        <strong class="small">Est. ACR/mo</strong>
                         {% if engagement.estimated_acr %}
-                        <p class="mb-0 mt-1" style="color: var(--story-acr);">${{ "{:,}".format(engagement.estimated_acr | int) }}/mo</p>
+                        <p class="story-inline-value mb-0 mt-1" style="color: var(--story-acr);"{% if show_header_actions %} data-story-field="estimated_acr" data-story-type="number" data-story-value="{{ engagement.estimated_acr }}" tabindex="0" title="Click to edit"{% endif %}>${{ "{:,}".format(engagement.estimated_acr | int) }}/mo</p>
                         {% elif engagement.ai_estimated_acr %}
-                        <p class="mb-0 mt-1" style="color: var(--story-acr); opacity: 0.45;" title="AI-generated value (not manually confirmed)">${{ "{:,}".format(engagement.ai_estimated_acr | int) }}/mo</p>
+                        <p class="story-inline-value mb-0 mt-1" style="color: var(--story-acr); opacity: 0.45;"{% if show_header_actions %} data-story-field="estimated_acr" data-story-type="number" data-story-value="{{ engagement.ai_estimated_acr }}" tabindex="0" title="AI-generated value - click to edit and confirm"{% else %} title="AI-generated value (not manually confirmed)"{% endif %}>${{ "{:,}".format(engagement.ai_estimated_acr | int) }}/mo</p>
                         {% else %}
-                        <p class="text-muted mb-0 mt-1 fst-italic small">Not yet filled in</p>
+                        <p class="story-inline-value text-muted mb-0 mt-1 fst-italic small"{% if show_header_actions %} data-story-field="estimated_acr" data-story-type="number" data-story-value="" tabindex="0" title="Click to edit"{% endif %}>Not yet filled in</p>
                         {% endif %}
                     </div>
-                    <div class="col-6">
-                        <strong class="small">Target Date</strong>
-                        <small class="text-muted d-block fst-italic">"...by..."</small>
-                        {% if engagement.target_date %}
-                        <p class="mb-0 mt-1" style="color: var(--story-date);">{{ engagement.target_date.strftime('%b %d, %Y') }}</p>
-                        {% elif engagement.ai_target_date %}
-                        <p class="mb-0 mt-1" style="color: var(--story-date); opacity: 0.45;" title="AI-generated value (not manually confirmed)">{{ engagement.ai_target_date.strftime('%b %d, %Y') }}</p>
+                    <div class="col-4 text-center">
+                        <strong class="small">Business Outcomes</strong>
+                        {% if engagement.business_outcome %}
+                        <p class="story-inline-value mb-0 mt-1" style="white-space: pre-wrap; color: var(--story-outcome);"{% if show_header_actions %} data-story-field="business_outcome" data-story-value="{{ engagement.business_outcome|e }}" tabindex="0" title="Click to edit"{% endif %}>{{ engagement.business_outcome }}</p>
                         {% else %}
-                        <p class="text-muted mb-0 mt-1 fst-italic small">Not yet set</p>
+                        <p class="story-inline-value mb-0 mt-1 fst-italic small" style="color: var(--story-outcome); opacity: 0.5;"{% if show_header_actions %} data-story-field="business_outcome" data-story-value="" tabindex="0" title="Click to edit"{% endif %}>Not yet filled in</p>
+                        {% endif %}
+                    </div>
+                    <div class="col-4 text-end">
+                        <strong class="small">Target Date</strong>
+                        {% if engagement.target_date %}
+                        <p class="story-inline-value mb-0 mt-1" style="color: var(--story-date);"{% if show_header_actions %} data-story-field="target_date" data-story-type="date" data-story-value="{{ engagement.target_date.isoformat() }}" tabindex="0" title="Click to edit"{% endif %}>{{ engagement.target_date.strftime('%b %d, %Y') }}</p>
+                        {% elif engagement.ai_target_date %}
+                        <p class="story-inline-value mb-0 mt-1" style="color: var(--story-date); opacity: 0.45;"{% if show_header_actions %} data-story-field="target_date" data-story-type="date" data-story-value="{{ engagement.ai_target_date.isoformat() }}" tabindex="0" title="AI-generated value - click to edit and confirm"{% else %} title="AI-generated value (not manually confirmed)"{% endif %}>{{ engagement.ai_target_date.strftime('%b %d, %Y') }}</p>
+                        {% else %}
+                        <p class="story-inline-value text-muted mb-0 mt-1 fst-italic small"{% if show_header_actions %} data-story-field="target_date" data-story-type="date" data-story-value="" tabindex="0" title="Click to edit"{% endif %}>Not yet set</p>
                         {% endif %}
                     </div>
                 </div>
             </div>
         </div>
+
+        {% if show_header_actions %}
+        <script>
+        (function() {
+            const storyValues = document.querySelectorAll('[data-story-field]');
+
+            function finishStoryEdit(valueElement, editorHost, data) {
+                valueElement.dataset.storyValue = data.value;
+                valueElement.textContent = data.display_value;
+                valueElement.hidden = false;
+                valueElement.style.removeProperty('opacity');
+                valueElement.classList.toggle('fst-italic', data.is_empty);
+                valueElement.classList.toggle('small', data.is_empty);
+                valueElement.classList.toggle('text-muted', data.is_empty);
+                editorHost.remove();
+
+                const badge = document.getElementById('storyCompletenessBadge');
+                if (badge) badge.textContent = data.story_completeness + '% complete';
+            }
+
+            function activateStoryEditor(valueElement) {
+                if (valueElement.hidden) return;
+
+                const fieldType = valueElement.dataset.storyType || 'text';
+                const editor = fieldType === 'text'
+                    ? document.createElement('textarea')
+                    : document.createElement('input');
+                editor.className = 'form-control form-control-sm story-inline-editor';
+                editor.value = valueElement.dataset.storyValue || '';
+                editor.dataset.originalValue = editor.value;
+
+                if (fieldType === 'text') {
+                    editor.rows = 2;
+                    editor.setAttribute('aria-label', 'Edit story field');
+                } else {
+                    editor.type = fieldType;
+                    editor.setAttribute('aria-label', fieldType === 'date'
+                        ? 'Edit target date'
+                        : 'Edit monthly ACR');
+                    if (fieldType === 'number') editor.min = '0';
+                }
+
+                valueElement.hidden = true;
+                let editorHost = editor;
+                if (fieldType === 'number') {
+                    const inputGroup = document.createElement('div');
+                    inputGroup.className = 'input-group input-group-sm story-inline-editor-group';
+                    const prefix = document.createElement('span');
+                    prefix.className = 'input-group-text';
+                    prefix.textContent = '$';
+                    const suffix = document.createElement('span');
+                    suffix.className = 'input-group-text';
+                    suffix.textContent = '/mo';
+                    inputGroup.append(prefix, editor, suffix);
+                    editorHost = inputGroup;
+                }
+                valueElement.insertAdjacentElement('afterend', editorHost);
+                editor.focus();
+                if (fieldType === 'text') editor.select();
+
+                let saving = false;
+                async function save() {
+                    if (saving) return;
+                    saving = true;
+                    editor.disabled = true;
+
+                    try {
+                        const response = await fetch('/api/engagement/{{ engagement.id }}/story', {
+                            method: 'PATCH',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({
+                                field: valueElement.dataset.storyField,
+                                value: editor.value,
+                            }),
+                        });
+                        const data = await response.json();
+                        if (!response.ok || !data.success) {
+                            throw new Error(data.error || 'Could not save story field.');
+                        }
+                        finishStoryEdit(valueElement, editorHost, data);
+                    } catch (error) {
+                        saving = false;
+                        editor.disabled = false;
+                        editor.classList.add('is-invalid');
+                        editor.title = error.message;
+                        editor.focus();
+                    }
+                }
+
+                editor.addEventListener('blur', save);
+                editor.addEventListener('keydown', function(event) {
+                    if (event.key === 'Escape') {
+                        event.preventDefault();
+                        saving = true;
+                        valueElement.hidden = false;
+                        editorHost.remove();
+                    } else if (event.key === 'Enter' && !event.shiftKey) {
+                        event.preventDefault();
+                        save();
+                    }
+                });
+            }
+
+            storyValues.forEach(function(valueElement) {
+                valueElement.addEventListener('click', function() {
+                    activateStoryEditor(valueElement);
+                });
+                valueElement.addEventListener('keydown', function(event) {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        activateStoryEditor(valueElement);
+                    }
+                });
+            });
+        })();
+        </script>
+        {% endif %}
 
         <!-- Linked Opportunities -->
         {% if engagement.opportunities %}
