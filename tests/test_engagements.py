@@ -13,6 +13,7 @@ import json
 from datetime import datetime, timezone, date
 
 import pytest
+from bs4 import BeautifulSoup
 from app.models import db, Customer, Seller, Territory, Note, Engagement, ActionItem, Topic, Milestone
 
 
@@ -147,6 +148,14 @@ class TestEngagementCRUD:
         resp = client.get(f'/engagement/{eng_id}')
         assert resp.status_code == 200
         assert b'View Test Engagement' in resp.data
+
+        soup = BeautifulSoup(resp.data, 'html.parser')
+        breadcrumb_items = soup.select('nav[aria-label="breadcrumb"] .breadcrumb-item')
+        assert [item.get_text(' ', strip=True) for item in breadcrumb_items] == [
+            'Dana Lee',
+            'Contoso Ltd',
+            'Engagement',
+        ]
 
     def test_edit_engagement(self, client, app, engagement_data):
         """Edit an existing engagement."""
