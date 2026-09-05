@@ -8,7 +8,7 @@ brought the change into `main`, so the admin Updates card can show
 Format: `## M/D/YYYY - <merge-short-sha>`. See
 `scripts/tag-changelog.ps1` for the helper that fills this in.
 
-## 9/5/2026
+## 9/5/2026 - 7c4c0f8
 
 - Show engagement breadcrumbs in seller, customer, engagement order for clearer account context.
 
