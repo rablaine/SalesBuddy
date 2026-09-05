@@ -12,6 +12,7 @@ Format: `## M/D/YYYY - <merge-short-sha>`. See
 
 - Create a fully detailed, automatically linked engagement directly from any customer milestone that does not already have one.
 - Default 1:1 agenda selection to engagements and preserve each workspace's resized Standing notes area across agenda updates.
+- Add rich-text formatting, editable tables, links, lists, headings, and images to persistent 1:1 Standing notes.
 
 ## 9/4/2026 - e4b3f92
 
