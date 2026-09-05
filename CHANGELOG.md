@@ -8,7 +8,7 @@ brought the change into `main`, so the admin Updates card can show
 Format: `## M/D/YYYY - <merge-short-sha>`. See
 `scripts/tag-changelog.ps1` for the helper that fills this in.
 
-## 9/5/2026
+## 9/5/2026 - 863d58f
 
 - Edit engagement story fields directly on the engagement page and save changes by pressing Enter or clicking away.
 - Add persistent Business Outcomes and clarify monthly ACR editing with fixed currency labels and number-only input.
