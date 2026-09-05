@@ -410,6 +410,7 @@ def _customer_to_dict(customer: Customer) -> Dict[str, Any]:
                 "technical_problem": eng.technical_problem,
                 "business_impact": eng.business_impact,
                 "solution_resources": eng.solution_resources,
+                "business_outcome": eng.business_outcome,
                 "estimated_acr": eng.estimated_acr,
                 "target_date": eng.target_date.isoformat() if eng.target_date else None,
                 "created_at": eng.created_at.isoformat() if eng.created_at else None,
@@ -1364,6 +1365,7 @@ def restore_from_backup(data: Dict[str, Any]) -> Dict[str, Any]:
             technical_problem=eng_data.get("technical_problem"),
             business_impact=eng_data.get("business_impact"),
             solution_resources=eng_data.get("solution_resources"),
+            business_outcome=eng_data.get("business_outcome"),
             estimated_acr=_parse_acr_value(eng_data.get("estimated_acr")),
             target_date=target_date,
         )

@@ -311,6 +311,7 @@ def run_migrations(db):
     # account sync after upgrading to populate DAEs as internal contacts.
 
     # Migration: Add AI-generated story fields to engagements
+    _add_column_if_not_exists(db, inspector, 'engagements', 'business_outcome', 'TEXT')
     _add_column_if_not_exists(db, inspector, 'engagements', 'ai_key_individuals', 'TEXT')
     _add_column_if_not_exists(db, inspector, 'engagements', 'ai_technical_problem', 'TEXT')
     _add_column_if_not_exists(db, inspector, 'engagements', 'ai_business_impact', 'TEXT')

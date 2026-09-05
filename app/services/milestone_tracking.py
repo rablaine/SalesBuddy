@@ -264,6 +264,8 @@ def _build_engagement_plain_text(engagement) -> str:
         lines.append(f"Business Impact: {_strip_html(engagement.business_impact)}")
     if engagement.solution_resources:
         lines.append(f"Solution Resources: {_strip_html(engagement.solution_resources)}")
+    if engagement.business_outcome:
+        lines.append(f"Business Outcome: {_strip_html(engagement.business_outcome)}")
     if engagement.estimated_acr:
         lines.append(f"Estimated ACR: ${int(engagement.estimated_acr):,}/mo")
     if engagement.target_date:
@@ -313,6 +315,7 @@ def _build_engagement_html_table(engagement) -> str:
     add_row('Technical Problem', engagement.technical_problem)
     add_row('Business Impact', engagement.business_impact)
     add_row('Solution Resources', engagement.solution_resources)
+    add_row('Business Outcome', engagement.business_outcome)
 
     # Combined ACR + Target Date row (side by side)
     acr_str = f'${int(engagement.estimated_acr):,}/mo' if engagement.estimated_acr else None

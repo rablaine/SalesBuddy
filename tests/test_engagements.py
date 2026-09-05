@@ -101,8 +101,8 @@ class TestEngagementCRUD:
             assert eng.solution_resources == 'Azure Migrate, App Service'
             assert eng.estimated_acr == 50000
             assert eng.target_date == date(2025, 6, 30)
-            # 5/6 filled (no contacts yet)
-            assert eng.story_completeness == 83
+            # 5/7 filled (no contacts or business outcome yet)
+            assert eng.story_completeness == 71
 
     def test_create_engagement_minimal(self, client, app, engagement_data):
         """Create engagement with just title and status (minimal required fields)."""
@@ -570,6 +570,101 @@ class TestCustomerViewEngagements:
 class TestEngagementAPI:
     """Test engagement API endpoints for inline creation flyouts."""
 
+    def test_update_single_story_field(self, client, app, engagement_data):
+        """PATCH story API should update one field without clearing others."""
+        customer_id = engagement_data['customer_id']
+        with app.app_context():
+            engagement = Engagement(
+                customer_id=customer_id,
+                title='Story API engagement',
+                status='Active',
+                technical_problem='Original problem',
+                business_impact='Preserve this impact',
+                business_outcome='Preserve this outcome',
+            )
+            db.session.add(engagement)
+            db.session.commit()
+            engagement_id = engagement.id
+
+        response = client.patch(
+            f'/api/engagement/{engagement_id}/story',
+            json={'field': 'technical_problem', 'value': 'Updated problem'},
+        )
+
+        assert response.status_code == 200
+        data = response.get_json()
+        assert data['display_value'] == 'Updated problem'
+        assert data['story_completeness'] == 42
+        with app.app_context():
+            engagement = db.session.get(Engagement, engagement_id)
+            assert engagement.technical_problem == 'Updated problem'
+            assert engagement.business_impact == 'Preserve this impact'
+            assert engagement.business_outcome == 'Preserve this outcome'
+            assert engagement.title == 'Story API engagement'
+            assert engagement.status == 'Active'
+
+    def test_update_story_field_validates_typed_values(
+        self, client, app, engagement_data
+    ):
+        """PATCH story API should validate ACR and format valid target dates."""
+        with app.app_context():
+            engagement = Engagement(
+                customer_id=engagement_data['customer_id'],
+                title='Typed story fields',
+                status='Active',
+            )
+            db.session.add(engagement)
+            db.session.commit()
+            engagement_id = engagement.id
+
+        invalid_response = client.patch(
+            f'/api/engagement/{engagement_id}/story',
+            json={'field': 'estimated_acr', 'value': 'not-a-number'},
+        )
+        assert invalid_response.status_code == 400
+
+        date_response = client.patch(
+            f'/api/engagement/{engagement_id}/story',
+            json={'field': 'target_date', 'value': '2027-03-15'},
+        )
+        assert date_response.status_code == 200
+        assert date_response.get_json()['display_value'] == 'Mar 15, 2027'
+
+    def test_engagement_page_enables_inline_story_editing(
+        self, client, app, engagement_data
+    ):
+        """Standalone page should expose all editable story values."""
+        with app.app_context():
+            engagement = Engagement(
+                customer_id=engagement_data['customer_id'],
+                title='Editable story',
+                status='Active',
+            )
+            db.session.add(engagement)
+            db.session.commit()
+            engagement_id = engagement.id
+
+        response = client.get(f'/engagement/{engagement_id}')
+        assert response.status_code == 200
+        html = response.data.decode()
+        for field in (
+            'technical_problem',
+            'business_impact',
+            'solution_resources',
+            'estimated_acr',
+            'business_outcome',
+            'target_date',
+        ):
+            assert f'data-story-field="{field}"' in html
+        assert 'Est. ACR/mo' in html
+        assert 'Business Outcomes' in html
+        assert 'Expected monthly Azure consumed revenue' not in html
+        assert '"...by..."' not in html
+        assert "prefix.textContent = '$'" in html
+        assert "suffix.textContent = '/mo'" in html
+        assert 'story-inline-editor::-webkit-inner-spin-button' in html
+        assert f"fetch('/api/engagement/{engagement_id}/story'" in html
+
     def test_get_customer_engagements(self, client, app, engagement_data):
         """GET /api/customer/<id>/engagements returns JSON list."""
         cid = engagement_data['customer_id']
@@ -824,7 +919,7 @@ class TestStoryCompleteness:
             )
             db.session.add(eng)
             db.session.commit()
-            assert eng.story_completeness == 33  # 2 of 6 fields
+            assert eng.story_completeness == 28  # 2 of 7 fields
 
     def test_full_story(self, app, engagement_data):
         """Engagement with all fields should be 100%."""
@@ -837,6 +932,7 @@ class TestStoryCompleteness:
                 technical_problem='Legacy systems',
                 business_impact='Cost reduction',
                 solution_resources='Azure Migrate',
+                business_outcome='Retire the legacy data center',
                 estimated_acr=100000,
                 target_date=date(2025, 12, 31),
             )

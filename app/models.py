@@ -986,6 +986,7 @@ class Engagement(db.Model):
     technical_problem = db.Column(db.Text, nullable=True)  # "...they have run into..."
     business_impact = db.Column(db.Text, nullable=True)  # "...and it's impacting..."
     solution_resources = db.Column(db.Text, nullable=True)  # "We are addressing the Opportunity with..."
+    business_outcome = db.Column(db.Text, nullable=True)
     estimated_acr = db.Column(db.Integer, nullable=True)  # Monthly ACR in dollars
     target_date = db.Column(db.Date, nullable=True)  # "...by..."
 
@@ -1039,7 +1040,8 @@ class Engagement(db.Model):
         """Return percentage of story fields filled (0-100)."""
         fields = [
             bool(self.contacts), self.technical_problem, self.business_impact,
-            self.solution_resources, self.estimated_acr, self.target_date
+            self.solution_resources, self.estimated_acr,
+            self.business_outcome, self.target_date
         ]
         filled = sum(1 for f in fields if f)
         return int((filled / len(fields)) * 100)
