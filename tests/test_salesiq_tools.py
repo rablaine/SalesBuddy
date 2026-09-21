@@ -233,9 +233,8 @@ class TestToolCoverage:
     def test_u2c_attainment_tool_exists(self):
         """U2C attainment should have a tool."""
         names = self._tool_names()
-        assert any('u2c' in n for n in names), (
-            'No tool covers U2C attainment. Add one to salesiq_tools.py.'
-        )
+        assert 'get_u2c_attainment' in names
+        assert 'get_u2c_attainment_trend' in names
 
     def test_portfolio_overview_tool_exists(self):
         """Portfolio overview should have a tool."""

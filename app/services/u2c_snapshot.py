@@ -196,16 +196,19 @@ def import_official_snapshot(fq_label: str | None = None,
     resolved = _resolve_version_label(fq, rows, pull_version, territories)
 
     if existing:
-        db.session.delete(existing)
-        db.session.flush()
-
-    snapshot = U2CSnapshot(
-        fiscal_quarter=fq,
-        snapshot_date=datetime.now(timezone.utc),
-        source=U2CSnapshot.SOURCE_MSXI,
-    )
-    db.session.add(snapshot)
-    db.session.flush()  # Get snapshot.id
+        # Keep the quarter header so its permanent weekly history remains
+        # attached. Only the current item set is replaced below.
+        snapshot = existing
+        snapshot.snapshot_date = datetime.now(timezone.utc)
+        snapshot.source = U2CSnapshot.SOURCE_MSXI
+    else:
+        snapshot = U2CSnapshot(
+            fiscal_quarter=fq,
+            snapshot_date=datetime.now(timezone.utc),
+            source=U2CSnapshot.SOURCE_MSXI,
+        )
+        db.session.add(snapshot)
+        db.session.flush()  # Get snapshot.id
 
     matched, total_acr = _write_snapshot_items(snapshot, rows)
     _stamp_snapshot_pull(snapshot, rows, resolved)

@@ -19,6 +19,9 @@ Format: `## M/D/YYYY - <merge-short-sha>`. See
 - Milestones in the official baseline that you don't sync locally still count toward attainment, using MSXi's own view of where they landed, with the milestone owner's alias shown on the row. Milestones that sync later get linked automatically rather than waiting for MSXi's next weekly publish.
 - Removed locally-built U2C snapshots, along with the "Take Snapshot" button and the "stale milestone import" warning that existed only to gate it. Everything now comes from the official report, which means one set of numbers that matches what you're measured on instead of two that disagree. **Any local snapshots you had are deleted, including past quarters, and they can't be rebuilt - MSXi only ever serves the current quarter.** Restore a database backup first if you want to keep the old figures.
 - The report now shows the date of the MSXi data you're looking at, separately from when Sales Buddy last checked. MSXi publishes weekly; we check daily.
+- Keep the complete U2C weekly history across refreshes, continue daily U2C updates when milestone auto-sync is disabled, and show an actionable warning when an automatic MSXi refresh fails.
+- Keep the U2C seller and customer filters available when a selection has no matching milestones, with a clear action that restores the full report.
+- Anchor the U2C trend chart to the actual fiscal-quarter boundaries instead of an auto-padded date near the first available weekly snapshot.
 - Fixed the "stale milestone import" warning sticking around after a successful sync. Manual syncs now update the last-sync time the scheduler and admin panel use, so a hand-run sync no longer looks overdue.
 
 ## 9/5/2026 - 863d58f

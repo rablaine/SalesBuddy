@@ -1,6 +1,6 @@
 # Plan: Automated U2C Official Import + Attainment History
 
-**Status:** Draft / not yet implemented
+**Status:** Implemented through Phase 6; live rollover verification pending
 **Last updated:** 2026-09-21
 **Branch:** suggested `feature/u2c-auto-import` (after `feature/u2c-official-snapshot-import` merges)
 
@@ -98,8 +98,9 @@ table). No drops.
   `'current'` equals. Probe candidate Tuesdays newest-first and compare
   fingerprints against the `current` payload we already have. Normally resolves on
   the first probe. Must tolerate gaps by continuing backwards.
-- `list_available_versions(fq_label, weeks=10) -> list[str]` - probe backwards,
-  skipping gaps, returning members that actually return rows.
+- `pull_version_series(fq_label, weeks=10) -> list[tuple[str, list[dict]]]` -
+  probe backwards, skipping gaps, and return each available version with its
+  rows so callers do not repeat the same query.
 - Add a prominent comment on `_u2c_query`'s `Where` list: **these filters change
   the measure values, not just the row set - do not "simplify" them.**
 

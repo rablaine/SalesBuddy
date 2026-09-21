@@ -11,6 +11,17 @@
     </div>
 </div>
 
+{% if u2c_sync_error %}
+<div class="alert alert-danger d-flex align-items-start gap-2 mb-3" role="alert">
+    <i class="bi bi-exclamation-triangle-fill mt-1"></i>
+    <div>
+        <strong>Automatic MSXi refresh failed.</strong>
+        Your last saved U2C data is still shown.
+        <div class="small mt-1">{{ u2c_sync_error }}</div>
+    </div>
+</div>
+{% endif %}
+
 <!-- Controls: Quarter selector, workload filter, official import -->
 <div class="card mb-3">
     <div class="card-body py-2">
@@ -143,20 +154,39 @@
 </div>
 {% endif %}
 
+{% if attainment.remaining_items or attainment.committed_items %}
+<div class="card mb-3" id="u2cFilterBar">
+    <div class="card-body py-2 d-flex align-items-center gap-2 flex-wrap">
+        <span class="small text-muted fw-semibold me-1">
+            <i class="bi bi-funnel"></i> Filter milestones:
+        </span>
+        <select id="filterSeller" class="form-select form-select-sm" style="width: 180px;">
+            <option value="">All Sellers</option>
+        </select>
+        <select id="filterCustomer" class="form-select form-select-sm" style="width: 220px;">
+            <option value="">All Customers</option>
+        </select>
+        <button type="button" class="btn btn-sm btn-outline-secondary d-none"
+                id="clearMilestoneFilters">
+            <i class="bi bi-x-circle"></i> Clear seller and customer
+        </button>
+    </div>
+</div>
+<div class="alert alert-light border text-muted text-center d-none mb-4"
+     id="u2cFilterEmpty" role="status">
+    <i class="bi bi-funnel"></i>
+    No milestones match these filters.
+    <button type="button" class="btn btn-link btn-sm p-0 ms-1"
+            id="clearMilestoneFiltersEmpty">Clear seller and customer</button>
+</div>
+{% endif %}
+
 <!-- Remaining Milestones (need to commit) -->
 {% if attainment.remaining_items %}
 <div class="card mb-4" id="remainingCard">
     <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
         <h5 class="mb-0"><i class="bi bi-hourglass-split text-warning"></i> Remaining</h5>
-        <div class="d-flex align-items-center gap-2 flex-wrap">
-            <select id="filterSeller" class="form-select form-select-sm" style="width: 180px;">
-                <option value="">All Sellers</option>
-            </select>
-            <select id="filterCustomer" class="form-select form-select-sm" style="width: 220px;">
-                <option value="">All Customers</option>
-            </select>
-            <span class="badge bg-warning text-dark" id="remainingBadge">{{ attainment.remaining_count }} milestones - ${{ "{:,.0f}".format(attainment.target_total - attainment.committed_total) }}/mo</span>
-        </div>
+        <span class="badge bg-warning text-dark" id="remainingBadge">{{ attainment.remaining_count }} milestones - ${{ "{:,.0f}".format(attainment.target_total - attainment.committed_total) }}/mo</span>
     </div>
     <div class="table-responsive">
         <table class="table table-hover mb-0" id="remainingTable">
@@ -349,6 +379,7 @@
 // territory, all sent up front so switching follows the workload dropdown
 // instantly - the same client-side filtering the cards and tables use.
 const TREND_SERIES = {{ trend|tojson }};
+const TREND_BOUNDS = {{ trend_bounds|tojson }};
 let u2cTrendChart = null;
 
 function u2cTrendColors() {
@@ -362,6 +393,18 @@ function u2cTrendColors() {
 
 function u2cMoney(v) {
     return '$' + Math.round(v).toLocaleString();
+}
+
+function u2cTrendPoints(points, field) {
+    return points.map(p => ({ x: Date.parse(p.date), y: p[field] }));
+}
+
+function u2cTrendDate(value) {
+    return new Date(value).toLocaleDateString(undefined, {
+        month: 'short',
+        day: '2-digit',
+        timeZone: 'UTC',
+    });
 }
 
 function renderU2cTrend(prefix) {
@@ -390,9 +433,10 @@ function renderU2cTrend(prefix) {
     const colors = u2cTrendColors();
 
     if (u2cTrendChart) {
-        u2cTrendChart.data.labels = points.map(p => p.label);
-        u2cTrendChart.data.datasets[0].data = points.map(p => p.committed_acr);
-        u2cTrendChart.data.datasets[1].data = points.map(p => p.starting_acr);
+        u2cTrendChart.data.datasets[0].data = u2cTrendPoints(
+            points, 'committed_acr');
+        u2cTrendChart.data.datasets[1].data = u2cTrendPoints(
+            points, 'starting_acr');
         u2cTrendChart.update();
         return;
     }
@@ -400,11 +444,10 @@ function renderU2cTrend(prefix) {
     u2cTrendChart = new Chart(canvas, {
         type: 'line',
         data: {
-            labels: points.map(p => p.label),
             datasets: [
                 {
                     label: 'Committed ACR',
-                    data: points.map(p => p.committed_acr),
+                    data: u2cTrendPoints(points, 'committed_acr'),
                     borderColor: '#198754',
                     backgroundColor: 'rgba(25, 135, 84, 0.12)',
                     fill: true,
@@ -413,7 +456,7 @@ function renderU2cTrend(prefix) {
                 },
                 {
                     label: 'Target (starting uncommitted)',
-                    data: points.map(p => p.starting_acr),
+                    data: u2cTrendPoints(points, 'starting_acr'),
                     borderColor: colors.muted,
                     borderDash: [6, 4],
                     pointRadius: 0,
@@ -432,6 +475,13 @@ function renderU2cTrend(prefix) {
                 },
                 tooltip: {
                     callbacks: {
+                        title: items => {
+                            if (!items.length) return '';
+                            const series = TREND_SERIES[
+                                (document.getElementById('workloadFilter') || {}).value || ''
+                            ] || [];
+                            return (series[items[0].dataIndex] || {}).label || '';
+                        },
                         label: ctx => {
                             const series = TREND_SERIES[
                                 (document.getElementById('workloadFilter') || {}).value || ''
@@ -450,7 +500,16 @@ function renderU2cTrend(prefix) {
                 },
             },
             scales: {
-                x: { ticks: { color: colors.muted }, grid: { color: colors.grid } },
+                x: {
+                    type: 'linear',
+                    min: Date.parse(TREND_BOUNDS.start),
+                    max: Date.parse(TREND_BOUNDS.end),
+                    ticks: {
+                        color: colors.muted,
+                        callback: u2cTrendDate,
+                    },
+                    grid: { color: colors.grid },
+                },
                 y: {
                     beginAtZero: true,
                     ticks: { color: colors.muted, callback: u2cMoney },
@@ -627,6 +686,7 @@ function applyAllFilters() {
     const wlPrefix = workloadSel ? workloadSel.value : '';
     const sellerId = sellerSel ? sellerSel.value : '';
     const customerId = custSel ? custSel.value : '';
+    const hasSellerOrCustomerFilter = Boolean(sellerId || customerId);
 
     // Save filter state
     if (wlPrefix) localStorage.setItem(WL_KEY, wlPrefix);
@@ -706,6 +766,14 @@ function applyAllFilters() {
     // Show/hide empty cards
     if (el('remainingCard')) el('remainingCard').style.display = remainingCount > 0 ? '' : 'none';
     if (el('committedCard')) el('committedCard').style.display = committedCount > 0 ? '' : 'none';
+    if (el('u2cFilterEmpty')) {
+        el('u2cFilterEmpty').classList.toggle(
+            'd-none', remainingCount + committedCount > 0);
+    }
+    if (el('clearMilestoneFilters')) {
+        el('clearMilestoneFilters').classList.toggle(
+            'd-none', !hasSellerOrCustomerFilter);
+    }
 
     // Re-sort remaining after filter change
     const tbody = el('remainingBody');
@@ -717,6 +785,15 @@ function applyAllFilters() {
 
 // Legacy wrapper for workload filter onchange
 function applyWorkloadFilter() {
+    applyAllFilters();
+}
+
+function clearMilestoneFilters() {
+    const sellerSel = el('filterSeller');
+    const custSel = el('filterCustomer');
+    if (sellerSel) sellerSel.value = '';
+    if (custSel) custSel.value = '';
+    filterCustomerBySeller('');
     applyAllFilters();
 }
 
@@ -788,9 +865,15 @@ document.addEventListener('DOMContentLoaded', function() {
         });
         // Remove inline onchange since we wire it here
     }
+    const clearBtn = el('clearMilestoneFilters');
+    if (clearBtn) clearBtn.addEventListener('click', clearMilestoneFilters);
+    const clearEmptyBtn = el('clearMilestoneFiltersEmpty');
+    if (clearEmptyBtn) {
+        clearEmptyBtn.addEventListener('click', clearMilestoneFilters);
+    }
 });
 
-function importOfficialSnapshot(replace) {
+function importOfficialSnapshot() {
     const btns = Array.from(document.querySelectorAll('#importOfficialBtn, #importOfficialBtnEmpty'));
     const original = btns.map(b => b.innerHTML);
     btns.forEach(b => {
@@ -805,21 +888,12 @@ function importOfficialSnapshot(replace) {
     fetch('{{ url_for("reports.api_u2c_import_official") }}', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ replace: !!replace })
+        body: JSON.stringify({})
     })
     .then(r => r.json())
     .then(data => {
         if (data.success) {
             location.href = '{{ url_for("reports.report_u2c") }}?fq=' + encodeURIComponent(data.fiscal_quarter);
-            return;
-        }
-        if (data.needs_replace) {
-            const kind = data.existing_source === 'msxi' ? 'an official' : 'a local';
-            restore();
-            if (confirm('There is already ' + kind + ' snapshot for this quarter. '
-                        + 'Replace it with the official MSXi baseline?')) {
-                importOfficialSnapshot(true);
-            }
             return;
         }
         alert(data.error || 'Failed to import the official snapshot');

@@ -4,6 +4,7 @@ from datetime import datetime, timezone, date, timedelta
 
 from app.models import (
     db, Customer, Milestone, Opportunity, Territory, U2CSnapshot, U2CSnapshotItem,
+    U2CSnapshotVersion,
 )
 from app.services.u2c_snapshot import (
     current_fiscal_quarter, fiscal_quarter_date_range,
@@ -363,6 +364,24 @@ class TestReportRoute:
         assert b'Take Local' not in response.data
         assert b'Stale local milestone import' not in response.data
 
+    def test_report_surfaces_automatic_refresh_failure(self, client, app):
+        """A failed background pull should not be hidden from the user."""
+        import json
+        from app.models import SyncStatus
+
+        with app.app_context():
+            SyncStatus.mark_started('u2c_import')
+            SyncStatus.mark_completed(
+                'u2c_import',
+                success=False,
+                details=json.dumps({'error': 'MSXi schema changed'}),
+            )
+
+        response = client.get('/reports/u2c')
+        assert response.status_code == 200
+        assert b'Automatic MSXi refresh failed.' in response.data
+        assert b'MSXi schema changed' in response.data
+
     def test_report_with_snapshot(self, client, app, u2c_data):
         """Report should show attainment when a snapshot exists."""
         with app.app_context():
@@ -371,6 +390,10 @@ class TestReportRoute:
         response = client.get(f'/reports/u2c?fq={fq}')
         assert response.status_code == 200
         assert b'Attainment' in response.data
+        assert b'id="u2cFilterBar"' in response.data
+        assert b'id="u2cFilterEmpty"' in response.data
+        assert response.data.index(b'id="u2cFilterBar"') < response.data.index(
+            b'id="remainingCard"')
 
     def test_create_snapshot_endpoint_is_gone(self, client, app, u2c_data):
         """The local snapshot API was removed along with the feature."""
@@ -655,14 +678,32 @@ class TestImportOfficialSnapshot:
 
     def test_import_replaces_when_asked(self, app, u2c_data, official_rows):
         with app.app_context():
-            make_snapshot()
+            snapshot_id = make_snapshot()['snapshot_id']
+            db.session.add(U2CSnapshotVersion(
+                snapshot_id=snapshot_id,
+                msxi_version='20260701',
+                version_date=date(2026, 7, 1),
+                total_items=1,
+                total_starting_acr=1000.0,
+                total_committed_acr=0.0,
+                total_converted_acr=0.0,
+            ))
+            db.session.commit()
+
             result = import_official_snapshot(replace=True)
+
             assert result['success'] is True
             assert result['replaced'] is True
-            assert U2CSnapshot.query.filter_by(
-                fiscal_quarter=current_fiscal_quarter()).count() == 1
+            snapshot = U2CSnapshot.query.filter_by(
+                fiscal_quarter=current_fiscal_quarter()).one()
+            assert snapshot.id == snapshot_id
             # The replaced snapshot's items must not survive.
             assert U2CSnapshotItem.query.count() == 3
+            # Weekly history is permanent, including versions MSXi has expired.
+            assert U2CSnapshotVersion.query.filter_by(
+                snapshot_id=snapshot_id,
+                msxi_version='20260701',
+            ).count() == 1
 
     def test_attainment_uses_msxi_state_for_unmatched_milestones(self, app, u2c_data,
                                                                  official_rows):
@@ -705,22 +746,26 @@ class TestImportOfficialRoute:
         assert data['success'] is True
         assert data['source'] == 'msxi'
 
-    def test_import_endpoint_conflicts_with_existing(self, client, app, u2c_data,
-                                                     official_rows):
+    def test_import_endpoint_refreshes_existing_snapshot(
+        self, client, app, u2c_data, official_rows,
+    ):
         with app.app_context():
             make_snapshot()
         response = client.post('/api/reports/u2c/import-official', json={})
-        assert response.status_code == 409
-        assert response.get_json()['needs_replace'] is True
-
-    def test_import_endpoint_replaces_when_asked(self, client, app, u2c_data,
-                                                 official_rows):
-        with app.app_context():
-            make_snapshot()
-        response = client.post('/api/reports/u2c/import-official',
-                               json={'replace': True})
         assert response.status_code == 200
         assert response.get_json()['replaced'] is True
+
+    def test_import_endpoint_records_sync_status(self, client, app, u2c_data,
+                                                 official_rows):
+        from app.models import SyncStatus
+
+        with app.app_context():
+            make_snapshot()
+        response = client.post('/api/reports/u2c/import-official', json={})
+        assert response.status_code == 200
+        with app.app_context():
+            status = SyncStatus.get_status('u2c_import')
+            assert status['state'] == 'complete'
 
     def test_import_endpoint_reports_pull_failure(self, client, app, monkeypatch):
         import app.services.u2c_pull as pull_module
@@ -796,6 +841,58 @@ class TestScheduledU2CImport:
             SyncStatus.update_heartbeat('u2c_import')
             assert _u2c_import_due() is False
 
+    def test_sync_claim_is_atomic(self, app):
+        from app.models import SyncStatus
+
+        with app.app_context():
+            assert SyncStatus.try_mark_started('u2c_import') is True
+            assert SyncStatus.try_mark_started('u2c_import') is False
+            SyncStatus.mark_completed('u2c_import', success=True)
+            assert SyncStatus.try_mark_started('u2c_import') is True
+
+    def test_process_lock_rejects_a_concurrent_refresh(self, app):
+        from app.services.scheduled_sync import _u2c_process_lock
+
+        with app.app_context():
+            with _u2c_process_lock() as first:
+                with _u2c_process_lock() as second:
+                    assert first is True
+                    assert second is False
+
+    def test_long_running_import_renews_its_heartbeat(self, app, monkeypatch):
+        import time
+        from app.models import SyncStatus
+        import app.services.scheduled_sync as scheduled
+
+        heartbeats = []
+
+        def slow_refresh():
+            time.sleep(0.04)
+            return {
+                'success': True,
+                'outcome': 'unchanged',
+                'fiscal_quarter': current_fiscal_quarter(),
+            }
+
+        monkeypatch.setattr(
+            scheduled, 'U2C_HEARTBEAT_INTERVAL_SECONDS', 0.01)
+        monkeypatch.setattr(
+            'app.services.u2c_snapshot.refresh_official_snapshot',
+            slow_refresh,
+        )
+        monkeypatch.setattr(
+            SyncStatus,
+            'update_heartbeat',
+            lambda sync_type: heartbeats.append(sync_type),
+        )
+
+        with app.app_context():
+            result = scheduled.run_u2c_import(force=True)
+
+        assert result['success'] is True
+        assert heartbeats
+        assert set(heartbeats) == {'u2c_import'}
+
     def test_run_records_outcome_in_sync_status(self, app, monkeypatch):
         import json
         from app.models import SyncStatus
@@ -835,6 +932,26 @@ class TestScheduledU2CImport:
             SyncStatus.mark_completed('u2c_import', success=True)
             _run_u2c_import()
             assert fake.calls == []
+
+    def test_daily_u2c_runs_when_milestone_auto_sync_is_disabled(
+        self, app, monkeypatch,
+    ):
+        from app.models import UserPreference
+        import app.services.scheduled_sync as scheduled
+
+        calls = []
+        monkeypatch.setattr(
+            scheduled,
+            'run_u2c_import_if_due',
+            lambda current_app: calls.append(current_app),
+        )
+        with app.app_context():
+            pref = UserPreference.query.first()
+            pref.milestone_auto_sync = False
+            db.session.commit()
+
+        scheduled._run_daily_scheduler_cycle(app, None)
+        assert calls == [app]
 
 
 class TestRematchSnapshotItems:
@@ -999,6 +1116,24 @@ class TestVersionHelpers:
         unclassified = [_msxi_row(workload=None)]
         classified = [_msxi_row(workload='Data: SQL')]
         assert fingerprint_rows(unclassified) != fingerprint_rows(classified)
+
+    @pytest.mark.parametrize(
+        ('field', 'value'),
+        [
+            ('customer_name', 'Renamed Customer'),
+            ('milestone_name', 'Renamed Milestone'),
+            ('opportunity_number', 'OPP-CHANGED'),
+            ('owner_alias', 'newowner'),
+            ('starting_due_date', date(2026, 9, 30)),
+            ('starting_status', 'At Risk'),
+        ],
+    )
+    def test_fingerprint_tracks_every_persisted_msxi_field(self, field, value):
+        from app.services.u2c_pull import fingerprint_rows
+
+        before = [_msxi_row()]
+        after = [_msxi_row(**{field: value})]
+        assert fingerprint_rows(before) != fingerprint_rows(after)
 
 
 class TestRefreshOfficialSnapshot:
@@ -1231,6 +1366,11 @@ class TestAttainmentTrend:
         response = client.get('/reports/u2c')
         assert b'u2cTrendChart' in response.data
         assert b'Attainment Over the Quarter' in response.data
+        assert b"type: 'linear'" in response.data
+        assert b'Date.parse(p.date)' in response.data
+        assert b'"start": "2026-07-01"' in response.data
+        assert b'"end": "2026-09-30"' in response.data
+        assert b'min: Date.parse(TREND_BOUNDS.start)' in response.data
 
     def test_salesiq_trend_tool(self, app, monkeypatch):
         from app.services.salesiq_tools import get_u2c_attainment_trend

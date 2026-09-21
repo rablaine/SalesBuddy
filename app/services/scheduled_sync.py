@@ -12,6 +12,9 @@ import random
 import time
 import threading
 import logging
+import errno
+import os
+from contextlib import contextmanager
 from datetime import datetime, date, timedelta, timezone
 
 logger = logging.getLogger(__name__)
@@ -238,6 +241,45 @@ U2C_IMPORT_INTERVAL_HOURS = 20
 # A failed attempt retries much sooner - the usual cause is the machine being
 # off VPN or not yet signed in at boot, which fixes itself within the hour.
 U2C_RETRY_INTERVAL_HOURS = 1
+U2C_HEARTBEAT_INTERVAL_SECONDS = 30
+
+
+@contextmanager
+def _u2c_process_lock():
+    """Acquire the cross-process lock guarding U2C snapshot writes."""
+    from app.db_paths import resolve_data_dir
+
+    lock_path = resolve_data_dir() / '.u2c-import.lock'
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    handle = lock_path.open('a+b')
+    acquired = False
+    try:
+        if handle.tell() == 0:
+            handle.write(b'\0')
+            handle.flush()
+        handle.seek(0)
+        try:
+            if os.name == 'nt':
+                import msvcrt
+                msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            acquired = True
+        except OSError as exc:
+            if exc.errno not in (errno.EACCES, errno.EAGAIN, errno.EDEADLK):
+                raise
+        yield acquired
+    finally:
+        if acquired:
+            handle.seek(0)
+            if os.name == 'nt':
+                import msvcrt
+                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        handle.close()
 
 
 def _u2c_import_due() -> bool:
@@ -268,12 +310,24 @@ def _u2c_import_due() -> bool:
     return True
 
 
-def _run_u2c_import():
-    """Refresh the official U2C baseline. Assumes an active app context.
+def run_u2c_import(force: bool = False) -> dict | None:
+    """Run one U2C refresh while holding the cross-process write lock."""
+    with _u2c_process_lock() as acquired:
+        if not acquired:
+            return {
+                'success': False,
+                'outcome': 'in_progress',
+                'error': 'A U2C refresh is already in progress.',
+            }
+        return _run_u2c_import_locked(force)
+
+
+def _run_u2c_import_locked(force: bool = False) -> dict | None:
+    """Refresh the official U2C baseline and record its SyncStatus.
 
     Always re-matches the current snapshot against local milestones first -
     that's a free local pass, and it matters most right after a milestone sync.
-    The MSXi refresh itself only runs when due.
+    The MSXi refresh itself only runs when due unless ``force`` is true.
     """
     import json
 
@@ -287,19 +341,44 @@ def _run_u2c_import():
     except Exception:
         logger.exception("Error re-matching U2C snapshot items")
 
-    if not _u2c_import_due():
-        return
+    if not force and not _u2c_import_due():
+        return None
 
-    SyncStatus.mark_started('u2c_import')
+    if not SyncStatus.try_mark_started('u2c_import'):
+        return {
+            'success': False,
+            'outcome': 'in_progress',
+            'error': 'A U2C refresh is already in progress.',
+        }
+
+    from flask import current_app
+
+    heartbeat_stop = threading.Event()
+    flask_app = current_app._get_current_object()
+
+    def _heartbeat() -> None:
+        while not heartbeat_stop.wait(U2C_HEARTBEAT_INTERVAL_SECONDS):
+            try:
+                with flask_app.app_context():
+                    SyncStatus.update_heartbeat('u2c_import')
+            except Exception:
+                logger.exception("Error updating U2C import heartbeat")
+
+    heartbeat_thread = threading.Thread(target=_heartbeat, daemon=True)
+    heartbeat_thread.start()
+
     try:
         result = refresh_official_snapshot()
-    except Exception:
+    except Exception as exc:
         logger.exception("Error refreshing the official U2C baseline")
-        SyncStatus.mark_completed(
-            'u2c_import', success=False,
-            details=json.dumps({'outcome': OUTCOME_BROKEN}),
-        )
-        return
+        result = {
+            'success': False,
+            'outcome': OUTCOME_BROKEN,
+            'error': str(exc),
+        }
+    finally:
+        heartbeat_stop.set()
+        heartbeat_thread.join()
 
     outcome = result.get('outcome')
     if result.get('success'):
@@ -322,6 +401,12 @@ def _run_u2c_import():
             'error': result.get('error'),
         }),
     )
+    return result
+
+
+def _run_u2c_import() -> dict | None:
+    """Run the scheduled U2C refresh when its cadence is due."""
+    return run_u2c_import()
 
 
 def run_u2c_import_if_due(app):
@@ -330,7 +415,7 @@ def run_u2c_import_if_due(app):
         _run_u2c_import()
 
 
-def start_milestone_sync_background(app):
+def start_milestone_sync_background(app) -> threading.Thread | None:
     """Catch up on missed sync at startup. Fires once if sync is overdue.
 
     Args:
@@ -340,73 +425,77 @@ def start_milestone_sync_background(app):
         from app.models import UserPreference, SyncStatus
         pref = UserPreference.query.first()
         if not pref:
-            return
+            return None
         if not SyncStatus.is_complete('accounts'):
             logger.debug("Skipping milestone sync - first account sync not yet completed")
-            return
+            return None
         if not pref.milestone_auto_sync:
             logger.debug("Milestone auto-sync disabled in settings")
-            return
+            return None
         _ensure_sync_time(pref)
         if not _missed_sync(pref):
             logger.debug("Milestone sync not needed at startup")
-            return
+            return None
 
     logger.info("Milestone sync overdue, starting catchup")
     thread = threading.Thread(target=_run_sync, args=(app,), daemon=True)
     thread.start()
+    return thread
 
 
-def start_daily_milestone_scheduler(app):
+def _run_daily_scheduler_cycle(app, last_sync_date: date | None) -> date | None:
+    """Run one scheduler decision without coupling U2C to milestone settings."""
+    should_run_milestones = False
+    with app.app_context():
+        from app.models import UserPreference, SyncStatus
+
+        pref = UserPreference.query.first()
+        accounts_ready = SyncStatus.is_complete('accounts')
+        if pref and accounts_ready and pref.milestone_auto_sync:
+            _ensure_sync_time(pref)
+            today = date.today()
+            if last_sync_date != today and _should_sync(pref):
+                should_run_milestones = True
+                last_sync_date = today
+
+    if should_run_milestones:
+        logger.info("Daily scheduler triggering milestone sync")
+        _run_sync(app)
+    else:
+        # U2C has its own cadence and only needs configured territories. It
+        # must continue even when milestone auto-sync is disabled or accounts
+        # have not completed their first sync.
+        try:
+            run_u2c_import_if_due(app)
+        except Exception:
+            logger.exception("Error running the daily U2C import")
+    return last_sync_date
+
+
+def start_daily_milestone_scheduler(
+    app,
+    startup_sync_thread: threading.Thread | None = None,
+):
     """Start a daemon thread that fires milestone sync at the stored time daily.
 
     Args:
         app: Flask application instance.
+        startup_sync_thread: Optional milestone catch-up thread to wait for
+            before the independent U2C scheduler begins.
     """
 
     def _scheduler():
         logger.info("Milestone daily scheduler started")
         last_sync_date = None
+        if startup_sync_thread is not None:
+            # The catch-up path runs U2C after milestones. Waiting here keeps
+            # the independent scheduler from racing ahead at startup.
+            startup_sync_thread.join()
 
         while True:
             try:
-                should_run = False
-                with app.app_context():
-                    from app.models import UserPreference, SyncStatus
-                    pref = UserPreference.query.first()
-                    if not pref:
-                        time.sleep(300)
-                        continue
-
-                    if not SyncStatus.is_complete('accounts'):
-                        time.sleep(300)
-                        continue
-
-                    _ensure_sync_time(pref)
-
-                    if not pref.milestone_auto_sync:
-                        last_sync_date = datetime.now().date()
-                        time.sleep(300)
-                        continue
-
-                    today = datetime.now().date()
-                    if last_sync_date != today and _should_sync(pref):
-                        should_run = True
-                        last_sync_date = today
-
-                if should_run:
-                    logger.info("Daily scheduler triggering milestone sync")
-                    _run_sync(app)
-                else:
-                    # The U2C baseline refreshes daily on its own cadence - it's
-                    # a single Power BI query, not a full sync, so it shouldn't
-                    # wait for a Mon/Wed/Fri milestone sync. The first pass
-                    # through this loop doubles as startup catchup.
-                    try:
-                        run_u2c_import_if_due(app)
-                    except Exception:
-                        logger.exception("Error running the daily U2C import")
-
+                last_sync_date = _run_daily_scheduler_cycle(
+                    app, last_sync_date)
                 time.sleep(300)
             except Exception:
                 logger.exception("Error in milestone daily scheduler")

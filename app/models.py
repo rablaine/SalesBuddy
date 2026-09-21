@@ -2,7 +2,7 @@
 Database models for Sales Buddy application.
 All SQLAlchemy models and association tables.
 """
-from datetime import datetime, timezone, date
+from datetime import datetime, timezone, date, timedelta
 from typing import Optional
 from flask_sqlalchemy import SQLAlchemy
 
@@ -2010,6 +2010,51 @@ class SyncStatus(db.Model):
         status.details = None
         db.session.commit()
         return status
+
+    @classmethod
+    def try_mark_started(cls, sync_type: str) -> bool:
+        """Atomically claim a sync across web and worker processes.
+
+        Returns False when another process has a live heartbeat. Stale or
+        completed rows can be claimed again.
+        """
+        from sqlalchemy.dialects.sqlite import insert
+
+        now = utc_now()
+        inserted = db.session.execute(
+            insert(cls)
+            .values(
+                sync_type=sync_type,
+                started_at=now,
+                heartbeat_at=now,
+            )
+            .on_conflict_do_nothing(index_elements=['sync_type'])
+        ).rowcount
+        if inserted:
+            db.session.commit()
+            return True
+
+        stale_before = now - timedelta(seconds=cls.HEARTBEAT_ALIVE_SECONDS)
+        claimed = (
+            cls.query
+            .filter_by(sync_type=sync_type)
+            .filter(db.or_(
+                cls.completed_at.isnot(None),
+                cls.started_at.is_(None),
+                cls.heartbeat_at.is_(None),
+                cls.heartbeat_at < stale_before,
+            ))
+            .update({
+                cls.started_at: now,
+                cls.completed_at: None,
+                cls.heartbeat_at: now,
+                cls.success: None,
+                cls.items_synced: None,
+                cls.details: None,
+            }, synchronize_session=False)
+        )
+        db.session.commit()
+        return bool(claimed)
     
     @classmethod
     def mark_completed(cls, sync_type: str, success: bool,

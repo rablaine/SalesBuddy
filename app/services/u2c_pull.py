@@ -637,7 +637,13 @@ def fingerprint_rows(rows: list[dict]) -> str:
     """
     parts = sorted(
         "|".join((
+            str(r.get("customer_name") or ""),
+            str(r.get("milestone_name") or ""),
             str(r.get("milestone_number") or ""),
+            str(r.get("opportunity_number") or ""),
+            str(r.get("owner_alias") or ""),
+            str(r.get("starting_due_date") or ""),
+            str(r.get("starting_status") or ""),
             str(r.get("current_commitment") or ""),
             str(r.get("current_status") or ""),
             str(r.get("workload") or ""),

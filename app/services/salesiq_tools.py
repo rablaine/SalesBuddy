@@ -2118,7 +2118,7 @@ def get_u2c_attainment(
 @tool(
     'get_u2c_attainment_trend',
     'Get the week-by-week U2C attainment history for a fiscal quarter. Each '
-    'point is one MSX Insights weekly publish, showing converted ACR against '
+    'point is one MSX Insights weekly publish, showing committed ACR against '
     'the frozen starting target. Useful for "how has attainment progressed?" '
     'questions. Note the series can go down - MSXi restates conversions.',
     {
