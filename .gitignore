@@ -46,6 +46,9 @@ seed_db/
 # Installation-specific runtime file (app publishes the resolved DB path here)
 data-path.txt
 
+# Browser HAR captures (used when reverse-engineering MSXi reports - huge)
+*.har
+
 # IDE
 .vscode/
 .idea/
