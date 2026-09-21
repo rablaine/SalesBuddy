@@ -46,6 +46,9 @@ seed_db/
 # Installation-specific runtime file (app publishes the resolved DB path here)
 data-path.txt
 
+# Browser HAR captures (used when reverse-engineering MSXi reports - huge)
+*.har
+
 # IDE
 .vscode/
 .idea/
@@ -140,7 +143,4 @@ installer/obj/
 installer/SalesBuddy.CustomActions/bin/
 installer/SalesBuddy.CustomActions/obj/
 paste_to_word.docx
-
-# Local-only planning docs
-docs/PLAN_*.md
 

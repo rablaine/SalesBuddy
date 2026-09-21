@@ -1,4 +1,5 @@
 """Reports blueprint - cross-domain reports hub and individual report views."""
+import json
 import logging
 from datetime import datetime, timedelta, timezone, date
 from flask import Blueprint, current_app, render_template, url_for, jsonify, request
@@ -9,7 +10,7 @@ from app.models import (
     notes_engagements, notes_milestones, notes_topics,
     MarketingSummary, MarketingInteraction, MarketingContact,
     U2CSnapshot, U2CSnapshotItem,
-    OneOnOneWorkspace,
+    OneOnOneWorkspace, Territory,
 )
 from sqlalchemy import func, desc, or_
 
@@ -1739,7 +1740,8 @@ def report_marketing_insights():
 def report_u2c():
     """U2C Attainment report - quarterly milestone commitment tracking."""
     from app.services.u2c_snapshot import (
-        current_fiscal_quarter, get_attainment, get_workload_prefixes,
+        current_fiscal_quarter, fiscal_quarter_date_range, get_attainment,
+        get_attainment_trend_by_workload, get_workload_prefixes,
     )
 
     # Get all snapshots for the dropdown
@@ -1748,14 +1750,6 @@ def report_u2c():
         .order_by(U2CSnapshot.fiscal_quarter.desc())
         .all()
     )
-    # Convert UTC snapshot_date to local for display in <option> (can't use
-    # local-datetime JS inside <select>).  Attach as a transient attribute.
-    for s in snapshots:
-        if s.snapshot_date:
-            local_dt = s.snapshot_date.replace(tzinfo=timezone.utc).astimezone()
-            s.local_date = local_dt.strftime('%b %d, %Y')
-        else:
-            s.local_date = ''
 
     # Determine which snapshot to show
     selected_fq = request.args.get('fq')
@@ -1764,6 +1758,8 @@ def report_u2c():
     snapshot = None
     attainment = None
     workload_prefixes = []
+    trend = {}
+    trend_bounds = None
 
     if selected_fq:
         snapshot = U2CSnapshot.query.filter_by(fiscal_quarter=selected_fq).first()
@@ -1776,21 +1772,30 @@ def report_u2c():
     if snapshot:
         workload_prefixes = get_workload_prefixes(snapshot.id)
         attainment = get_attainment(snapshot.id)
+        trend = get_attainment_trend_by_workload(snapshot.id)
+        quarter_start, quarter_end = fiscal_quarter_date_range(
+            snapshot.fiscal_quarter)
+        trend_bounds = {
+            'start': quarter_start.isoformat(),
+            'end': quarter_end.isoformat(),
+        }
 
-    # Check milestone sync freshness (relevant when no snapshot exists yet)
-    from app.models import UserPreference
-    pref = UserPreference.query.first()
-    last_sync = pref.last_milestone_sync if pref else None
-    # "Fresh" = synced on or after the 5th of this month
-    sync_threshold = datetime.combine(
-        date.today().replace(day=5), datetime.min.time(),
-    )
-    # last_sync is stored as naive UTC in SQLite, compare naive-to-naive
-    if last_sync and last_sync.tzinfo is not None:
-        last_sync_naive = last_sync.replace(tzinfo=None)
-    else:
-        last_sync_naive = last_sync
-    milestones_fresh = last_sync_naive is not None and last_sync_naive >= sync_threshold
+    # The official MSXi import is scoped by the territories configured here.
+    territory_count = Territory.query.count()
+
+    # When the baseline last refreshed, and what MSXi load it came from. The
+    # two are different questions: we check daily, MSXi publishes weekly.
+    u2c_sync_status = SyncStatus.get_status('u2c_import')
+    u2c_sync_error = None
+    if u2c_sync_status.get('state') == 'failed':
+        try:
+            sync_details = json.loads(u2c_sync_status.get('details') or '{}')
+        except (TypeError, json.JSONDecodeError):
+            logger.warning("U2C sync status contains invalid JSON details")
+            sync_details = {}
+        u2c_sync_error = sync_details.get('error') or (
+            'Check your VPN connection, Azure sign-in, and configured territories.'
+        )
 
     return render_template(
         'report_u2c.html',
@@ -1799,23 +1804,24 @@ def report_u2c():
         attainment=attainment,
         workload_prefixes=workload_prefixes,
         current_fq=current_fq,
-        last_milestone_sync=last_sync,
-        milestones_fresh=milestones_fresh,
+        territory_count=territory_count,
+        last_checked=u2c_sync_status.get('completed_at'),
+        u2c_sync_error=u2c_sync_error,
+        trend=trend,
+        trend_bounds=trend_bounds,
     )
 
 
-@bp.route('/api/reports/u2c/create-snapshot', methods=['POST'])
-def api_u2c_create_snapshot():
-    """Create a U2C snapshot for the current (or specified) fiscal quarter."""
-    from app.services.u2c_snapshot import create_snapshot, current_fiscal_quarter
+@bp.route('/api/reports/u2c/import-official', methods=['POST'])
+def api_u2c_import_official():
+    """Force the complete official MSX Insights U2C refresh workflow."""
+    from app.services.scheduled_sync import run_u2c_import
 
-    fq = request.json.get('fiscal_quarter') if request.is_json else None
-    if not fq:
-        fq = current_fiscal_quarter()
-
-    result = create_snapshot(fq)
-    status = 200 if result.get('success') else 409
-    return jsonify(result), status
+    result = run_u2c_import(force=True)
+    if result.get('success'):
+        return jsonify(result), 200
+    status_code = 409 if result.get('outcome') == 'in_progress' else 502
+    return jsonify(result), status_code
 
 
 @bp.route('/reports/connect-impact')

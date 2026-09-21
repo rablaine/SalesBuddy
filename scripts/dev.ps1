@@ -14,7 +14,7 @@
 #   .\scripts\dev.ps1 start -Port 5050
 #
 # Notes:
-#   - Targets ONLY flask processes launched from THIS repo's venv, so it never
+#   - Targets ONLY Flask processes launched from THIS repo's venv, so it never
 #     touches the installed production app (waitress on 5151) or other repos.
 #   - Sets FLASK_ENV=development and points Azure CLI at the dev-isolated
 #     config dir (%USERPROFILE%\SalesBuddyDev\.azure) so MSX calls use the
@@ -47,16 +47,22 @@ elseif ($Start) { $Action = 'start' }
 
 $RepoRoot = Split-Path $PSScriptRoot -Parent
 $VenvFlask = Join-Path $RepoRoot 'venv\Scripts\flask.exe'
-
-# Match python processes running THIS repo's flask.exe with the 'run' verb.
-$MatchFragment = (Join-Path $RepoRoot 'venv\Scripts\flask.exe')
+$VenvPython = Join-Path $RepoRoot 'venv\Scripts\python.exe'
 
 function Get-DevFlask {
     Get-CimInstance Win32_Process -Filter "Name='python.exe'" |
         Where-Object {
-            $_.CommandLine -and
-            $_.CommandLine -like "*$MatchFragment*" -and
-            $_.CommandLine -like '*run*'
+            if (-not $_.CommandLine) { return $false }
+
+            $usesRepoVenv = (
+                $_.CommandLine -like "*$VenvFlask*" -or
+                $_.CommandLine -like "*$VenvPython*"
+            )
+            $runsFlask = (
+                $_.CommandLine -like '*flask.exe*run*' -or
+                $_.CommandLine -like '*-m flask*run*'
+            )
+            $usesRepoVenv -and $runsFlask
         }
 }
 

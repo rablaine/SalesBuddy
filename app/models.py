@@ -2,7 +2,7 @@
 Database models for Sales Buddy application.
 All SQLAlchemy models and association tables.
 """
-from datetime import datetime, timezone, date
+from datetime import datetime, timezone, date, timedelta
 from typing import Optional
 from flask_sqlalchemy import SQLAlchemy
 
@@ -2010,6 +2010,51 @@ class SyncStatus(db.Model):
         status.details = None
         db.session.commit()
         return status
+
+    @classmethod
+    def try_mark_started(cls, sync_type: str) -> bool:
+        """Atomically claim a sync across web and worker processes.
+
+        Returns False when another process has a live heartbeat. Stale or
+        completed rows can be claimed again.
+        """
+        from sqlalchemy.dialects.sqlite import insert
+
+        now = utc_now()
+        inserted = db.session.execute(
+            insert(cls)
+            .values(
+                sync_type=sync_type,
+                started_at=now,
+                heartbeat_at=now,
+            )
+            .on_conflict_do_nothing(index_elements=['sync_type'])
+        ).rowcount
+        if inserted:
+            db.session.commit()
+            return True
+
+        stale_before = now - timedelta(seconds=cls.HEARTBEAT_ALIVE_SECONDS)
+        claimed = (
+            cls.query
+            .filter_by(sync_type=sync_type)
+            .filter(db.or_(
+                cls.completed_at.isnot(None),
+                cls.started_at.is_(None),
+                cls.heartbeat_at.is_(None),
+                cls.heartbeat_at < stale_before,
+            ))
+            .update({
+                cls.started_at: now,
+                cls.completed_at: None,
+                cls.heartbeat_at: now,
+                cls.success: None,
+                cls.items_synced: None,
+                cls.details: None,
+            }, synchronize_session=False)
+        )
+        db.session.commit()
+        return bool(claimed)
     
     @classmethod
     def mark_completed(cls, sync_type: str, success: bool,
@@ -2348,24 +2393,55 @@ class MarketingContact(db.Model):
 # =============================================================================
 
 class U2CSnapshot(db.Model):
-    """Header for a fiscal quarter U2C milestone snapshot.
+    """Header for a fiscal quarter U2C milestone baseline.
 
-    Captured on the 5th of each fiscal quarter's first month (or manually).
-    Records the set of uncommitted milestones on open opportunities at that
-    point in time so attainment can be tracked against a fixed baseline.
+    Mirrors the official MSX Insights "Uncommitted to Committed" report for one
+    fiscal quarter.  MSXi freezes the baseline columns itself, so a refresh
+    reproduces the same starting numbers and only updates its current view of
+    each milestone.
     """
     __tablename__ = 'u2c_snapshots'
+
+    SOURCE_MSXI = 'msxi'
 
     id = db.Column(db.Integer, primary_key=True)
     fiscal_quarter = db.Column(db.String(10), nullable=False, unique=True)  # e.g. "FY26 Q4"
     snapshot_date = db.Column(db.DateTime, nullable=False, default=utc_now)
     total_items = db.Column(db.Integer, default=0, nullable=False)
     total_monthly_acr = db.Column(db.Float, default=0.0, nullable=False)
+    # Retained so the column keeps a value on existing rows; every snapshot is
+    # now sourced from MSXi. Locally-built snapshots were removed in the
+    # migration that added the version-history columns.
+    source = db.Column(db.String(20), nullable=False, default=SOURCE_MSXI,
+                       server_default=SOURCE_MSXI)
     created_at = db.Column(db.DateTime, default=utc_now, nullable=False)
+
+    # Which MSXi weekly "Snapshot Version" the current item rows came from,
+    # as a yyyymmdd string (e.g. '20260915').
+    msxi_version = db.Column(db.String(20), nullable=True)
+    last_refreshed_at = db.Column(db.DateTime, nullable=True)
+    # Hash of the pulled payload - lets a daily refresh skip the write when
+    # MSXi hasn't published a new weekly load.
+    content_fingerprint = db.Column(db.String(64), nullable=True)
+    # Set once the quarter has rolled over in MSXi and been closed out. A
+    # finalised quarter can never change again - MSXi stops serving it.
+    is_final = db.Column(db.Boolean, nullable=False, default=False,
+                         server_default='0')
+
+    @property
+    def msxi_version_date(self):
+        """The MSXi version this snapshot came from, as a date."""
+        from app.services.u2c_pull import version_to_date
+        return version_to_date(self.msxi_version) if self.msxi_version else None
 
     items = db.relationship(
         'U2CSnapshotItem', back_populates='snapshot',
         cascade='all, delete-orphan', lazy='dynamic',
+    )
+    versions = db.relationship(
+        'U2CSnapshotVersion', back_populates='snapshot',
+        cascade='all, delete-orphan', lazy='dynamic',
+        order_by='U2CSnapshotVersion.version_date',
     )
 
     def __repr__(self) -> str:
@@ -2395,12 +2471,130 @@ class U2CSnapshotItem(db.Model):
     opportunity_name = db.Column(db.String(500), nullable=True)
     msx_status = db.Column(db.String(50), nullable=True)  # Status at snapshot time
 
+    # Official MSXi fields (populated only for imported snapshots)
+    opportunity_number = db.Column(db.String(50), nullable=True)
+    owner_alias = db.Column(db.String(100), nullable=True)
+    # MSXi's view of the milestone at import time - used as the attainment
+    # fallback when the milestone isn't in our local cache.
+    msxi_commitment = db.Column(db.String(50), nullable=True)
+    msxi_status = db.Column(db.String(50), nullable=True)
+    msxi_converted_acr = db.Column(db.Float, nullable=True)
+
     snapshot = db.relationship('U2CSnapshot', back_populates='items')
     milestone = db.relationship('Milestone', lazy='select')
     customer = db.relationship('Customer', lazy='select')
 
     def __repr__(self) -> str:
         return f'<U2CSnapshotItem {self.milestone_title} ${self.monthly_acr}>'
+
+
+class U2CSnapshotVersion(db.Model):
+    """One MSXi weekly snapshot version's totals for a fiscal quarter.
+
+    MSXi's "Snapshot Version" slicer exposes roughly seven weeks of Tuesday
+    loads before older ones expire.  We copy each version's aggregates here the
+    first time we see it, so the quarter's attainment trend survives long after
+    MSXi has dropped the underlying version.
+
+    Rows are write-once: a dated MSXi version is immutable, so a version we have
+    already stored never needs re-fetching.
+
+    Note that ``total_converted_acr`` is **not** monotonic - MSXi restates
+    conversions downward between loads - so this is a true time series, not a
+    running maximum.
+    """
+    __tablename__ = 'u2c_snapshot_versions'
+
+    id = db.Column(db.Integer, primary_key=True)
+    snapshot_id = db.Column(db.Integer, db.ForeignKey('u2c_snapshots.id'),
+                            nullable=False)
+    # MSXi SnapshotDateID member, e.g. '20260915'
+    msxi_version = db.Column(db.String(20), nullable=False)
+    # Same value parsed out, so the trend plots against real dates and gap
+    # weeks read as gaps instead of compressing the axis.
+    version_date = db.Column(db.Date, nullable=False)
+
+    total_items = db.Column(db.Integer, nullable=False, default=0)
+    total_starting_acr = db.Column(db.Float, nullable=False, default=0.0)
+    # How much of the starting baseline had committed by this week. This is the
+    # figure the report's "Committed ACR" card shows, so the trend and the cards
+    # answer the same question.
+    total_committed_acr = db.Column(db.Float, nullable=False, default=0.0,
+                                    server_default='0')
+    # MSXi's own converted-pipeline measure, kept for reference. It can exceed
+    # the baseline when milestones convert for more than they started at.
+    total_converted_acr = db.Column(db.Float, nullable=False, default=0.0)
+    captured_at = db.Column(db.DateTime, nullable=False, default=utc_now)
+
+    snapshot = db.relationship('U2CSnapshot', back_populates='versions')
+    items = db.relationship(
+        'U2CSnapshotVersionItem', back_populates='version',
+        cascade='all, delete-orphan', lazy='dynamic',
+    )
+
+    __table_args__ = (
+        db.UniqueConstraint('snapshot_id', 'msxi_version',
+                            name='uq_u2c_version_per_snapshot'),
+        db.Index('ix_u2c_snapshot_versions_snapshot_id', 'snapshot_id'),
+    )
+
+    @property
+    def attainment_pct(self) -> float:
+        """Committed ACR as a percentage of the frozen starting baseline.
+
+        Matches the report's "U2C %" card - snapshot-ACR basis, not MSXi's
+        converted-pipeline measure.
+        """
+        if not self.total_starting_acr:
+            return 0.0
+        return round((self.total_committed_acr / self.total_starting_acr) * 100, 1)
+
+    def __repr__(self) -> str:
+        return (f'<U2CSnapshotVersion {self.msxi_version} '
+                f'converted=${self.total_converted_acr:,.0f}>')
+
+
+class U2CSnapshotVersionItem(db.Model):
+    """One milestone's numbers within one MSXi weekly version.
+
+    Kept deliberately narrow - just the key, the classification, and the two
+    ACR figures - because the descriptive fields live once on
+    ``U2CSnapshotItem`` and never change between versions.  This is what lets
+    the attainment trend be sliced by workload instead of only showing a
+    territory-wide total nobody is measured on.
+
+    ``workload`` is MSXi's own value, frozen as it was for that week, so a
+    milestone reclassified mid-quarter doesn't rewrite earlier weeks.
+    """
+    __tablename__ = 'u2c_snapshot_version_items'
+
+    id = db.Column(db.Integer, primary_key=True)
+    version_id = db.Column(db.Integer, db.ForeignKey('u2c_snapshot_versions.id'),
+                           nullable=False)
+    milestone_number = db.Column(db.String(50), nullable=True)
+    workload = db.Column(db.String(200), nullable=True)
+    starting_acr = db.Column(db.Float, nullable=False, default=0.0)
+    # MSXi's own converted-pipeline measure. Not the same thing as "how much of
+    # the baseline converted": a milestone can convert for more than it started
+    # at, so this can exceed starting_acr.
+    converted_acr = db.Column(db.Float, nullable=False, default=0.0)
+    commitment = db.Column(db.String(50), nullable=True)
+    status = db.Column(db.String(50), nullable=True)
+
+    version = db.relationship('U2CSnapshotVersion', back_populates='items')
+
+    @property
+    def is_committed(self) -> bool:
+        """Whether MSXi considered this milestone committed that week."""
+        return self.commitment == 'Committed' or self.status == 'Completed'
+
+    __table_args__ = (
+        db.Index('ix_u2c_version_items_version_id', 'version_id'),
+    )
+
+    def __repr__(self) -> str:
+        return (f'<U2CSnapshotVersionItem {self.milestone_number} '
+                f'{self.workload}>')
 
 
 # =============================================================================

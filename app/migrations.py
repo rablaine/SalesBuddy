@@ -175,6 +175,12 @@ def run_migrations(db):
     # Migration: Create alignment tables (custom alignment sync feature)
     _migrate_alignment_tables(db, inspector)
 
+    # Migration: Add official MSXi snapshot columns to the U2C tables
+    _migrate_u2c_official_import(db, inspector)
+
+    # Migration: Add version-history columns for the automated U2C refresh
+    _migrate_u2c_version_history(db, inspector)
+
     # Note: milestone_comments table is created by db.create_all() — no migration needed
 
     # Migration: Add review_status, review_notes, reviewed_at to revenue_analyses
@@ -1723,3 +1729,103 @@ def _migrate_alignment_tables(db, inspector):
                 """))
                 conn.commit()
             print("  Rebuilt 'alignment_selections' to territory-only schema")
+
+
+def _migrate_u2c_official_import(db, inspector):
+    """Add the columns that back importing the official MSXi U2C snapshot.
+
+    ``u2c_snapshots.source`` records where a snapshot came from ('local' for
+    one derived from our synced milestones, 'msxi' for the official report
+    pull).  The item columns carry the MSXi identifiers and the report's own
+    view of each milestone so attainment still works for milestones that
+    aren't in our local cache.  Idempotent.
+    """
+    if _table_exists(inspector, 'u2c_snapshots'):
+        _add_column_if_not_exists(
+            db, inspector, 'u2c_snapshots', 'source',
+            "VARCHAR(20) NOT NULL DEFAULT 'local'",
+        )
+
+    if _table_exists(inspector, 'u2c_snapshot_items'):
+        _add_column_if_not_exists(
+            db, inspector, 'u2c_snapshot_items', 'opportunity_number', 'VARCHAR(50)')
+        _add_column_if_not_exists(
+            db, inspector, 'u2c_snapshot_items', 'owner_alias', 'VARCHAR(100)')
+        _add_column_if_not_exists(
+            db, inspector, 'u2c_snapshot_items', 'msxi_commitment', 'VARCHAR(50)')
+        _add_column_if_not_exists(
+            db, inspector, 'u2c_snapshot_items', 'msxi_status', 'VARCHAR(50)')
+        _add_column_if_not_exists(
+            db, inspector, 'u2c_snapshot_items', 'msxi_converted_acr', 'FLOAT')
+
+
+def _migrate_u2c_version_history(db, inspector):
+    """Add the columns backing the automated daily U2C refresh.
+
+    ``msxi_version`` records which MSXi weekly "Snapshot Version" the stored
+    items came from, ``content_fingerprint`` lets a refresh skip the write when
+    MSXi hasn't published a new load, and ``is_final`` marks a quarter that has
+    rolled over and can never change again.
+
+    Also drops any locally-built snapshots.  Local and official snapshots aren't
+    comparable numbers, and MSXi will not serve a past quarter again, so the
+    local ones are removed rather than left to sit alongside official data
+    pretending to be the same measurement.
+
+    The ``u2c_snapshot_versions`` and ``u2c_snapshot_version_items`` tables are
+    created by ``db.create_all()``.
+    Idempotent.
+    """
+    if not _table_exists(inspector, 'u2c_snapshots'):
+        return
+
+    _add_column_if_not_exists(
+        db, inspector, 'u2c_snapshots', 'msxi_version', 'VARCHAR(20)')
+    _add_column_if_not_exists(
+        db, inspector, 'u2c_snapshots', 'last_refreshed_at', 'DATETIME')
+    _add_column_if_not_exists(
+        db, inspector, 'u2c_snapshots', 'content_fingerprint', 'VARCHAR(64)')
+    _add_column_if_not_exists(
+        db, inspector, 'u2c_snapshots', 'is_final',
+        'BOOLEAN NOT NULL DEFAULT 0')
+
+    # The weekly trend needs to know which milestones were committed each week,
+    # not just MSXi's converted-pipeline measure - a milestone can convert for
+    # more than it started at, so that measure doesn't reconcile with the
+    # report's "Committed ACR" card.
+    if _table_exists(inspector, 'u2c_snapshot_versions'):
+        _add_column_if_not_exists(
+            db, inspector, 'u2c_snapshot_versions', 'total_committed_acr',
+            'FLOAT NOT NULL DEFAULT 0')
+    if _table_exists(inspector, 'u2c_snapshot_version_items'):
+        _add_column_if_not_exists(
+            db, inspector, 'u2c_snapshot_version_items', 'commitment',
+            'VARCHAR(50)')
+        _add_column_if_not_exists(
+            db, inspector, 'u2c_snapshot_version_items', 'status',
+            'VARCHAR(50)')
+
+    _drop_local_u2c_snapshots(db)
+
+
+def _drop_local_u2c_snapshots(db):
+    """Remove locally-built U2C snapshots. One-time, idempotent."""
+    from sqlalchemy import text
+
+    rows = db.session.execute(
+        text("SELECT id FROM u2c_snapshots WHERE source = 'local'")
+    ).fetchall()
+    if not rows:
+        return
+
+    ids = [r[0] for r in rows]
+    placeholders = ','.join(str(int(i)) for i in ids)
+    db.session.execute(text(
+        f"DELETE FROM u2c_snapshot_items WHERE snapshot_id IN ({placeholders})"
+    ))
+    db.session.execute(text(
+        f"DELETE FROM u2c_snapshots WHERE id IN ({placeholders})"
+    ))
+    db.session.commit()
+    print(f"  Removed {len(ids)} locally-built U2C snapshot(s) - "
+          "the official MSXi baseline replaces them")

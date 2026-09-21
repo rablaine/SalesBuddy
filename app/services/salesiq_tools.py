@@ -2116,6 +2116,53 @@ def get_u2c_attainment(
 
 
 @tool(
+    'get_u2c_attainment_trend',
+    'Get the week-by-week U2C attainment history for a fiscal quarter. Each '
+    'point is one MSX Insights weekly publish, showing committed ACR against '
+    'the frozen starting target. Useful for "how has attainment progressed?" '
+    'questions. Note the series can go down - MSXi restates conversions.',
+    {
+        'type': 'object',
+        'properties': {
+            'fiscal_quarter': {
+                'type': 'string',
+                'description': 'Fiscal quarter label, e.g. "FY27 Q1". Defaults to current quarter.',
+            },
+        },
+    },
+)
+def get_u2c_attainment_trend(fiscal_quarter: str | None = None) -> dict:
+    """Return the stored weekly attainment series for a fiscal quarter."""
+    from app.models import U2CSnapshot
+    from app.services.u2c_snapshot import (
+        current_fiscal_quarter, get_attainment_trend,
+    )
+
+    fq = fiscal_quarter or current_fiscal_quarter()
+    snapshot = U2CSnapshot.query.filter_by(fiscal_quarter=fq).first()
+    if not snapshot:
+        return {'fiscal_quarter': fq, 'message': f'No U2C snapshot exists for {fq}.'}
+
+    points = get_attainment_trend(snapshot.id)
+    if not points:
+        return {
+            'fiscal_quarter': fq,
+            'message': (
+                f'No weekly history stored yet for {fq}. It fills in as MSXi '
+                'publishes each week.'
+            ),
+        }
+
+    return {
+        'fiscal_quarter': fq,
+        'is_final': snapshot.is_final,
+        'msxi_version': snapshot.msxi_version,
+        'points': points,
+        'latest_u2c_pct': points[-1]['u2c_pct'],
+    }
+
+
+@tool(
     'report_connect_impact',
     'Get Connect Impact report: customers ranked by total estimated ACR/mo '
     'from committed milestones you are on the team for. Defaults to last 5 months.',

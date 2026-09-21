@@ -338,8 +338,8 @@ def create_app():
 
             # Start milestone sync scheduler (catchup on startup, then daily at random time)
             from app.services.scheduled_sync import start_milestone_sync_background, start_daily_milestone_scheduler
-            start_milestone_sync_background(app)
-            start_daily_milestone_scheduler(app)
+            startup_sync_thread = start_milestone_sync_background(app)
+            start_daily_milestone_scheduler(app, startup_sync_thread)
             schedulers_started.append('milestone_sync')
 
             # Start daily meeting cache (catchup on startup, then daily at 7 AM)
