@@ -534,6 +534,8 @@ def _msxi_row(**overrides):
         'current_due_date': q_start + timedelta(days=45),
         'starting_acr': 5000.0,
         'converted_acr': 0.0,
+        # MSXi classifies every row itself - this is what the report filters on.
+        'workload': 'Data: Analytics - Fabric - New Analytics',
     }
     row.update(overrides)
     return row
@@ -580,7 +582,6 @@ class TestImportOfficialSnapshot:
             ms = Milestone.query.filter_by(title='Deploy Fabric').first()
             ms.milestone_number = 'MS-1'
             db.session.commit()
-            workload = ms.workload
             ms_id = ms.id
 
             result = import_official_snapshot()
@@ -589,7 +590,48 @@ class TestImportOfficialSnapshot:
 
             item = U2CSnapshotItem.query.filter_by(milestone_number='MS-1').first()
             assert item.milestone_id == ms_id
-            assert item.workload == workload
+
+    def test_msxi_workload_classifies_unmatched_rows(self, app, u2c_data,
+                                                     official_rows):
+        """Rows with no local milestone must still be filterable by workload."""
+        with app.app_context():
+            import_official_snapshot()
+            orphan = U2CSnapshotItem.query.filter_by(
+                milestone_number='MS-999').first()
+            assert orphan.milestone_id is None
+            assert orphan.workload == 'Data: Analytics - Fabric - New Analytics'
+
+    def test_msxi_workload_wins_over_the_local_value(self, app, u2c_data,
+                                                     official_rows):
+        """The U2C report is measured on MSXi's classification, not ours."""
+        with app.app_context():
+            ms = Milestone.query.filter_by(title='Deploy Fabric').first()
+            ms.milestone_number = 'MS-1'
+            ms.workload = 'Infra: Something Else'
+            db.session.commit()
+
+            import_official_snapshot()
+            item = U2CSnapshotItem.query.filter_by(milestone_number='MS-1').first()
+            assert item.workload == 'Data: Analytics - Fabric - New Analytics'
+
+    def test_local_workload_is_the_fallback(self, app, u2c_data, monkeypatch):
+        """If MSXi ever stops classifying a row, fall back to what we know."""
+        import app.services.u2c_pull as pull_module
+
+        rows = [_msxi_row(workload=None)]
+        monkeypatch.setattr(
+            pull_module, 'pull_u2c_milestones',
+            lambda fq, territories=None, version=None: rows,
+        )
+        with app.app_context():
+            ms = Milestone.query.filter_by(title='Deploy Fabric').first()
+            ms.milestone_number = 'MS-1'
+            db.session.commit()
+            local_workload = ms.workload
+
+            import_official_snapshot()
+            item = U2CSnapshotItem.query.filter_by(milestone_number='MS-1').first()
+            assert item.workload == local_workload
 
     def test_import_falls_back_to_customer_name_match(self, app, u2c_data, official_rows):
         with app.app_context():
@@ -832,7 +874,9 @@ class TestRematchSnapshotItems:
             assert rematch_current_snapshot() == 1
             refreshed = db.session.get(U2CSnapshotItem, item.id)
             assert refreshed.milestone_id == milestone.id
-            assert refreshed.workload == 'Data: SQL'
+            # MSXi already classified this row, so re-matching links the
+            # milestone without overwriting the report's own workload.
+            assert refreshed.workload == 'Infra: Windows'
 
     def test_rematch_without_a_snapshot_is_a_no_op(self, app):
         from app.services.u2c_snapshot import rematch_current_snapshot
@@ -877,9 +921,10 @@ class FakeMsxi:
         converted = self.versions[key]
         return [
             _msxi_row(converted_acr=converted,
+                      workload='Data: Analytics - Fabric - New Analytics',
                       current_commitment='Committed' if converted else 'Uncommitted'),
             _msxi_row(milestone_name='Migrate SQL', milestone_number='MS-2',
-                      starting_acr=3000.0),
+                      workload='Infra: Windows', starting_acr=3000.0),
         ]
 
     def install(self, monkeypatch):
@@ -936,6 +981,24 @@ class TestVersionHelpers:
         before = [_msxi_row(converted_acr=0.0)]
         after = [_msxi_row(converted_acr=5000.0)]
         assert fingerprint_rows(before) != fingerprint_rows(after)
+
+    def test_fingerprint_tracks_workload_changes(self):
+        """Workload decides which filtered view a row lands in, so it counts as
+        new data even when the money hasn't moved."""
+        from app.services.u2c_pull import fingerprint_rows
+
+        before = [_msxi_row(workload='Infra: Windows')]
+        after = [_msxi_row(workload='Data: SQL')]
+        assert fingerprint_rows(before) != fingerprint_rows(after)
+
+    def test_fingerprint_tracks_newly_projected_fields(self):
+        """A field we start storing must invalidate the hash, or existing
+        snapshots keep stale values until MSXi happens to publish again."""
+        from app.services.u2c_pull import fingerprint_rows
+
+        unclassified = [_msxi_row(workload=None)]
+        classified = [_msxi_row(workload='Data: SQL')]
+        assert fingerprint_rows(unclassified) != fingerprint_rows(classified)
 
 
 class TestRefreshOfficialSnapshot:
@@ -1180,6 +1243,164 @@ class TestAttainmentTrend:
         with app.app_context():
             result = get_u2c_attainment_trend('FY20 Q1')
             assert 'No U2C snapshot exists' in result['message']
+
+
+class TestTrendWorkloadFiltering:
+    """The trend has to follow the workload dropdown like everything else."""
+
+    def _seed(self, app, monkeypatch):
+        from app.services.u2c_snapshot import (
+            backfill_version_history, refresh_official_snapshot,
+        )
+        fq = current_fiscal_quarter()
+        # Row 1 is Data (5000 starting), row 2 is Infra (3000 starting, never
+        # converts). Only the Data row's conversion moves.
+        FakeMsxi(fq, {
+            '20260908': 1000.0, '20260915': 4000.0,
+        }).install(monkeypatch)
+        refresh_official_snapshot()
+        snapshot = U2CSnapshot.query.filter_by(fiscal_quarter=fq).first()
+        backfill_version_history(snapshot)
+        return snapshot
+
+    def test_per_item_history_is_stored(self, app, monkeypatch):
+        from app.models import U2CSnapshotVersionItem
+        with app.app_context():
+            snapshot = self._seed(app, monkeypatch)
+            rows = (
+                U2CSnapshotVersionItem.query
+                .join(U2CSnapshotVersionItem.version)
+                .filter_by(snapshot_id=snapshot.id)
+                .all()
+            )
+            assert len(rows) == 4  # 2 milestones x 2 versions
+            assert {r.workload for r in rows} == {
+                'Data: Analytics - Fabric - New Analytics', 'Infra: Windows'}
+
+    def test_filtered_trend_only_counts_that_workload(self, app, monkeypatch):
+        from app.services.u2c_snapshot import get_attainment_trend
+        with app.app_context():
+            snapshot = self._seed(app, monkeypatch)
+
+            data = get_attainment_trend(snapshot.id, 'Data')
+            assert [p['starting_acr'] for p in data] == [5000.0, 5000.0]
+            assert [p['converted_acr'] for p in data] == [1000.0, 4000.0]
+            assert data[-1]['attainment_pct'] == 80.0
+
+            infra = get_attainment_trend(snapshot.id, 'Infra')
+            assert [p['starting_acr'] for p in infra] == [3000.0, 3000.0]
+            assert [p['converted_acr'] for p in infra] == [0.0, 0.0]
+
+    def test_workload_series_sum_to_the_overall_series(self, app, monkeypatch):
+        from app.services.u2c_snapshot import get_attainment_trend
+        with app.app_context():
+            snapshot = self._seed(app, monkeypatch)
+            overall = get_attainment_trend(snapshot.id)
+            data = get_attainment_trend(snapshot.id, 'Data')
+            infra = get_attainment_trend(snapshot.id, 'Infra')
+
+            for i, point in enumerate(overall):
+                assert point['starting_acr'] == (
+                    data[i]['starting_acr'] + infra[i]['starting_acr'])
+                assert point['converted_acr'] == (
+                    data[i]['converted_acr'] + infra[i]['converted_acr'])
+
+    def test_series_map_has_one_entry_per_prefix_plus_overall(self, app, monkeypatch):
+        from app.services.u2c_snapshot import get_attainment_trend_by_workload
+        with app.app_context():
+            snapshot = self._seed(app, monkeypatch)
+            series = get_attainment_trend_by_workload(snapshot.id)
+            assert set(series) == {'', 'Data', 'Infra'}
+
+    def test_totals_only_weeks_are_skipped_when_filtering(self, app, monkeypatch):
+        """Versions stored before per-item history can't answer a filtered ask."""
+        from app.models import U2CSnapshotVersion, U2CSnapshotVersionItem
+        from app.services.u2c_snapshot import get_attainment_trend
+
+        with app.app_context():
+            snapshot = self._seed(app, monkeypatch)
+            oldest = (
+                U2CSnapshotVersion.query
+                .filter_by(snapshot_id=snapshot.id)
+                .order_by(U2CSnapshotVersion.version_date)
+                .first()
+            )
+            U2CSnapshotVersionItem.query.filter_by(
+                version_id=oldest.id).delete()
+            db.session.commit()
+
+            assert len(get_attainment_trend(snapshot.id)) == 2
+            assert len(get_attainment_trend(snapshot.id, 'Data')) == 1
+
+    def test_backfill_completes_totals_only_versions(self, app, monkeypatch):
+        """A week stored as totals alone gets its detail filled in later."""
+        from app.models import U2CSnapshotVersion, U2CSnapshotVersionItem
+        from app.services.u2c_snapshot import backfill_version_history
+
+        with app.app_context():
+            snapshot = self._seed(app, monkeypatch)
+            oldest = (
+                U2CSnapshotVersion.query
+                .filter_by(snapshot_id=snapshot.id)
+                .order_by(U2CSnapshotVersion.version_date)
+                .first()
+            )
+            U2CSnapshotVersionItem.query.filter_by(
+                version_id=oldest.id).delete()
+            db.session.commit()
+            assert oldest.items.count() == 0
+
+            assert backfill_version_history(snapshot) == 1
+            assert oldest.items.count() == 2
+
+    def test_chart_series_reaches_the_page(self, client, app, monkeypatch):
+        with app.app_context():
+            self._seed(app, monkeypatch)
+
+        response = client.get('/reports/u2c')
+        assert b'TREND_SERIES' in response.data
+        assert b'renderU2cTrend' in response.data
+
+    def test_cards_and_trend_agree_on_the_filtered_target(self, app, monkeypatch):
+        """Both views must classify a row the same way, or the page contradicts
+        itself: the cards filter U2CSnapshotItem.workload while the chart
+        filters the per-version copies."""
+        from app.services.u2c_snapshot import get_attainment, get_attainment_trend
+
+        with app.app_context():
+            snapshot = self._seed(app, monkeypatch)
+            for prefix in ('Data', 'Infra'):
+                cards = get_attainment(snapshot.id, prefix)
+                trend = get_attainment_trend(snapshot.id, prefix)[-1]
+                assert cards['target_total'] == trend['starting_acr'], prefix
+
+    def test_a_new_stored_field_forces_a_reimport(self, app, monkeypatch):
+        """Adding a projected column must not leave stored items stale."""
+        import app.services.u2c_pull as pull_module
+        from app.services.u2c_snapshot import (
+            OUTCOME_IMPORTED, refresh_official_snapshot,
+        )
+
+        fq = current_fiscal_quarter()
+        unclassified = [_msxi_row(workload=None)]
+        monkeypatch.setattr(
+            pull_module, 'pull_u2c_milestones',
+            lambda f, territories=None, version=None: unclassified,
+        )
+        with app.app_context():
+            refresh_official_snapshot()
+            item = U2CSnapshotItem.query.first()
+            assert item.workload is None
+
+            # MSXi starts classifying the same row - same money, new field.
+            classified = [_msxi_row(workload='Data: SQL')]
+            monkeypatch.setattr(
+                pull_module, 'pull_u2c_milestones',
+                lambda f, territories=None, version=None: classified,
+            )
+            result = refresh_official_snapshot()
+            assert result['outcome'] == OUTCOME_IMPORTED
+            assert U2CSnapshotItem.query.first().workload == 'Data: SQL'
 
 
 class TestCloseOutQuarter:

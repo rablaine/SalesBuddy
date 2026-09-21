@@ -324,6 +324,10 @@ _SELECT_SPECS: list[tuple[str, str, str, bool]] = [
     ("f", "MilestonePartnerName", "partner_name", False),
     ("f", "MilestoneNumber", "milestone_number", False),
     ("f", "OpportunityNumber", "opportunity_number", False),
+    # MSXi's own workload classification. Must come from DimWorkload (d4):
+    # projecting DimMilestone.Workload (d3) instead cross-joins the result to
+    # every workload member (42 rows -> 5,166, each carrying the full total).
+    ("d4", "Workload", "workload", False),
 ]
 
 _FROM = [
@@ -623,15 +627,20 @@ def fingerprint_rows(rows: list[dict]) -> str:
     """Return a stable hash of a pulled payload.
 
     Lets a daily refresh tell "MSXi published a new weekly load" from "same data
-    we already have" without spending an extra query. Only the fields that can
-    actually move between versions are hashed - the baseline columns are frozen
-    by MSXi, so including them would add nothing.
+    we already have" without spending an extra query.
+
+    This must cover every field we persist, not just the ones that obviously
+    move. Workload is included because it decides which filtered view a row
+    lands in - and because a field added to the projection has to change the
+    hash, or stored rows would keep their stale values until MSXi happened to
+    publish something else.
     """
     parts = sorted(
         "|".join((
             str(r.get("milestone_number") or ""),
             str(r.get("current_commitment") or ""),
             str(r.get("current_status") or ""),
+            str(r.get("workload") or ""),
             f"{float(r.get('converted_acr') or 0.0):.2f}",
             f"{float(r.get('starting_acr') or 0.0):.2f}",
         ))

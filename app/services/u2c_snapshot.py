@@ -15,7 +15,7 @@ from datetime import date, datetime, timedelta, timezone
 
 from app.models import (
     Customer, Milestone, Opportunity, U2CSnapshot, U2CSnapshotItem,
-    U2CSnapshotVersion, db,
+    U2CSnapshotVersion, U2CSnapshotVersionItem, db,
 )
 
 logger = logging.getLogger(__name__)
@@ -286,7 +286,11 @@ def _write_snapshot_items(snapshot: U2CSnapshot,
                 row.get('milestone_name') or row.get('milestone_number') or 'Untitled'
             ),
             milestone_number=row.get('milestone_number'),
-            workload=milestone.workload if milestone else None,
+            # MSXi classifies every row, including milestones we've never
+            # synced. Local workload is only a fallback - relying on it meant
+            # unmatched rows had no workload at all and silently vanished from
+            # any filtered view.
+            workload=row.get('workload') or (milestone.workload if milestone else None),
             due_date=datetime.combine(due, datetime.min.time()) if due else None,
             monthly_acr=acr,
             opportunity_name=(
@@ -334,23 +338,35 @@ def record_version_totals(snapshot: U2CSnapshot, version: str,
     if version_date is None:
         return None
 
-    existing = U2CSnapshotVersion.query.filter_by(
+    entry = U2CSnapshotVersion.query.filter_by(
         snapshot_id=snapshot.id, msxi_version=version,
     ).first()
-    if existing:
-        return None
+    if entry is not None and entry.items.count():
+        return None  # fully stored; dated MSXi versions never change
 
-    entry = U2CSnapshotVersion(
-        snapshot_id=snapshot.id,
-        msxi_version=version,
-        version_date=version_date,
-        total_items=len(rows),
-        total_starting_acr=round(
-            sum(float(r.get('starting_acr') or 0.0) for r in rows), 2),
-        total_converted_acr=round(
-            sum(float(r.get('converted_acr') or 0.0) for r in rows), 2),
-    )
-    db.session.add(entry)
+    if entry is None:
+        entry = U2CSnapshotVersion(
+            snapshot_id=snapshot.id,
+            msxi_version=version,
+            version_date=version_date,
+        )
+        db.session.add(entry)
+
+    entry.total_items = len(rows)
+    entry.total_starting_acr = round(
+        sum(float(r.get('starting_acr') or 0.0) for r in rows), 2)
+    entry.total_converted_acr = round(
+        sum(float(r.get('converted_acr') or 0.0) for r in rows), 2)
+    db.session.flush()  # need entry.id for the item rows
+
+    for row in rows:
+        db.session.add(U2CSnapshotVersionItem(
+            version_id=entry.id,
+            milestone_number=row.get('milestone_number'),
+            workload=row.get('workload'),
+            starting_acr=float(row.get('starting_acr') or 0.0),
+            converted_acr=float(row.get('converted_acr') or 0.0),
+        ))
     return entry
 
 
@@ -360,26 +376,31 @@ def backfill_version_history(snapshot: U2CSnapshot,
     """Store every retained weekly version we don't already have.
 
     MSXi keeps roughly seven weeks of loads, so calling this the first time we
-    see a quarter recovers most of its attainment trend immediately. Versions
-    already stored are skipped - they can never change.
+    see a quarter recovers most of its attainment trend immediately.
+
+    Only versions whose per-milestone detail is already stored are skipped.  A
+    version recorded as totals alone - which is how versions were stored before
+    the trend became filterable - is re-pulled so its detail can be filled in
+    while MSXi still retains it.
 
     Returns:
-        Number of new version rows stored.
+        Number of version rows stored or completed.
     """
     from app.services.u2c_pull import (
         DEFAULT_HISTORY_WEEKS, U2CPullError, pull_version_series,
     )
 
-    known = {
+    complete = {
         v.msxi_version for v in
         U2CSnapshotVersion.query.filter_by(snapshot_id=snapshot.id).all()
+        if v.items.count()
     }
     try:
         series = pull_version_series(
             snapshot.fiscal_quarter,
             territories=territories,
             weeks=weeks or DEFAULT_HISTORY_WEEKS,
-            skip=known,
+            skip=complete,
         )
     except U2CPullError as exc:
         logger.warning("U2C version backfill for %s failed: %s",
@@ -559,7 +580,10 @@ def rematch_snapshot_items(snapshot: U2CSnapshot) -> int:
         })
         if milestone:
             item.milestone_id = milestone.id
-            item.workload = milestone.workload
+            # Only fill workload if MSXi didn't classify the row - MSXi's
+            # value is what the U2C report is measured on.
+            if not item.workload:
+                item.workload = milestone.workload
             newly_matched += 1
         if customer and not item.customer_id:
             item.customer_id = customer.id
@@ -797,7 +821,8 @@ def get_attainment(snapshot_id: int, workload_prefix: str | None = None) -> dict
     }
 
 
-def get_attainment_trend(snapshot_id: int) -> list[dict]:
+def get_attainment_trend(snapshot_id: int,
+                         workload_prefix: str | None = None) -> list[dict]:
     """Return a quarter's weekly attainment points, oldest first.
 
     Sourced from our own stored copies of MSXi's weekly versions, so the series
@@ -809,6 +834,10 @@ def get_attainment_trend(snapshot_id: int) -> list[dict]:
 
     Args:
         snapshot_id: ID of the U2CSnapshot to chart.
+        workload_prefix: Optional workload prefix (e.g. 'Data') to scope the
+            series to, matching the report's workload filter. Weeks recorded
+            before per-milestone detail was stored are skipped when filtering,
+            since they can only answer the territory-wide question.
 
     Returns:
         List of dicts with 'date', 'label', 'starting_acr', 'converted_acr'
@@ -820,16 +849,54 @@ def get_attainment_trend(snapshot_id: int) -> list[dict]:
         .order_by(U2CSnapshotVersion.version_date)
         .all()
     )
-    return [
-        {
-            'date': v.version_date.isoformat(),
-            'label': v.version_date.strftime('%b %d'),
-            'starting_acr': v.total_starting_acr,
-            'converted_acr': v.total_converted_acr,
-            'attainment_pct': v.attainment_pct,
-        }
-        for v in versions
-    ]
+
+    points = []
+    for version in versions:
+        if workload_prefix:
+            if not version.items.count():
+                continue  # totals-only week: can't answer a filtered question
+            count, starting, converted = (
+                db.session.query(
+                    db.func.count(U2CSnapshotVersionItem.id),
+                    db.func.coalesce(
+                        db.func.sum(U2CSnapshotVersionItem.starting_acr), 0.0),
+                    db.func.coalesce(
+                        db.func.sum(U2CSnapshotVersionItem.converted_acr), 0.0),
+                )
+                .filter(
+                    U2CSnapshotVersionItem.version_id == version.id,
+                    U2CSnapshotVersionItem.workload.like(f'{workload_prefix}%'),
+                )
+                .one()
+            )
+        else:
+            count = version.total_items
+            starting = version.total_starting_acr
+            converted = version.total_converted_acr
+
+        pct = round((converted / starting) * 100, 1) if starting else 0.0
+        points.append({
+            'date': version.version_date.isoformat(),
+            'label': version.version_date.strftime('%b %d'),
+            'items': count,
+            'starting_acr': round(starting, 2),
+            'converted_acr': round(converted, 2),
+            'attainment_pct': pct,
+        })
+    return points
+
+
+def get_attainment_trend_by_workload(snapshot_id: int) -> dict[str, list[dict]]:
+    """Return the trend for every workload prefix plus the overall series.
+
+    Keyed by workload prefix, with ``''`` holding the unfiltered series, so the
+    report can switch the chart as the workload dropdown changes without a
+    round trip - the same way its cards and tables already filter client-side.
+    """
+    series = {'': get_attainment_trend(snapshot_id)}
+    for prefix in get_workload_prefixes(snapshot_id):
+        series[prefix] = get_attainment_trend(snapshot_id, prefix)
+    return series
 
 
 def get_workload_prefixes(snapshot_id: int) -> list[str]:

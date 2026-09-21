@@ -1739,7 +1739,7 @@ def report_marketing_insights():
 def report_u2c():
     """U2C Attainment report - quarterly milestone commitment tracking."""
     from app.services.u2c_snapshot import (
-        current_fiscal_quarter, get_attainment, get_attainment_trend,
+        current_fiscal_quarter, get_attainment, get_attainment_trend_by_workload,
         get_workload_prefixes,
     )
 
@@ -1757,7 +1757,7 @@ def report_u2c():
     snapshot = None
     attainment = None
     workload_prefixes = []
-    trend = []
+    trend = {}
 
     if selected_fq:
         snapshot = U2CSnapshot.query.filter_by(fiscal_quarter=selected_fq).first()
@@ -1770,7 +1770,7 @@ def report_u2c():
     if snapshot:
         workload_prefixes = get_workload_prefixes(snapshot.id)
         attainment = get_attainment(snapshot.id)
-        trend = get_attainment_trend(snapshot.id)
+        trend = get_attainment_trend_by_workload(snapshot.id)
 
     # The official MSXi import is scoped by the territories configured here.
     territory_count = Territory.query.count()

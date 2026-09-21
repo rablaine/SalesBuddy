@@ -123,15 +123,21 @@
 </div>
 
 <!-- Weekly attainment trend -->
-{% if trend|length > 1 %}
-<div class="card mb-4">
+{% if trend.get('', [])|length > 1 %}
+<div class="card mb-4" id="trendCard">
     <div class="card-header d-flex justify-content-between align-items-center">
-        <h5 class="mb-0"><i class="bi bi-graph-up-arrow"></i> Attainment Over the Quarter</h5>
-        <small class="text-muted">One point per MSXi weekly publish</small>
+        <h5 class="mb-0">
+            <i class="bi bi-graph-up-arrow"></i> Attainment Over the Quarter
+            <span id="trendScope" class="badge bg-secondary ms-2 d-none"></span>
+        </h5>
+        <small class="text-muted">One point per MSXi weekly publish - cards may be fresher</small>
     </div>
     <div class="card-body">
         <div style="position: relative; height: 240px;">
             <canvas id="u2cTrendChart"></canvas>
+        </div>
+        <div id="trendEmpty" class="text-muted small text-center d-none py-4">
+            Not enough weekly history for this workload yet.
         </div>
     </div>
 </div>
@@ -336,23 +342,62 @@
 {% endblock %}
 
 {% block extra_js %}
-{% if trend|length > 1 %}
+{% if trend.get('', [])|length > 1 %}
 <script src="{{ url_for('static', filename='js/vendor/chart.umd.min.js') }}"></script>
 <script>
-(function renderU2cTrend() {
-    const points = {{ trend|tojson }};
-    const canvas = document.getElementById('u2cTrendChart');
-    if (!canvas || points.length < 2) return;
+// Attainment trend. One series per workload prefix plus '' for the whole
+// territory, all sent up front so switching follows the workload dropdown
+// instantly - the same client-side filtering the cards and tables use.
+const TREND_SERIES = {{ trend|tojson }};
+let u2cTrendChart = null;
 
-    // Match the active Bootstrap theme instead of hardcoding colors.
+function u2cTrendColors() {
     const css = getComputedStyle(document.body);
-    const muted = css.getPropertyValue('--bs-secondary-color').trim() || '#6c757d';
-    const grid = css.getPropertyValue('--bs-border-color').trim() || '#dee2e6';
-    const text = css.getPropertyValue('--bs-body-color').trim() || '#333';
+    return {
+        muted: css.getPropertyValue('--bs-secondary-color').trim() || '#6c757d',
+        grid: css.getPropertyValue('--bs-border-color').trim() || '#dee2e6',
+        text: css.getPropertyValue('--bs-body-color').trim() || '#333',
+    };
+}
 
-    const money = v => '$' + Math.round(v).toLocaleString();
+function u2cMoney(v) {
+    return '$' + Math.round(v).toLocaleString();
+}
 
-    new Chart(canvas, {
+function renderU2cTrend(prefix) {
+    const canvas = document.getElementById('u2cTrendChart');
+    if (!canvas) return;
+
+    const points = TREND_SERIES[prefix || ''] || [];
+    const empty = document.getElementById('trendEmpty');
+    const scope = document.getElementById('trendScope');
+
+    if (scope) {
+        scope.textContent = prefix || '';
+        scope.classList.toggle('d-none', !prefix);
+    }
+
+    // One point isn't a trend, and a workload can legitimately have fewer
+    // weeks of history than the territory as a whole.
+    const enough = points.length > 1;
+    canvas.style.display = enough ? '' : 'none';
+    if (empty) empty.classList.toggle('d-none', enough);
+    if (!enough) {
+        if (u2cTrendChart) { u2cTrendChart.destroy(); u2cTrendChart = null; }
+        return;
+    }
+
+    const colors = u2cTrendColors();
+
+    if (u2cTrendChart) {
+        u2cTrendChart.data.labels = points.map(p => p.label);
+        u2cTrendChart.data.datasets[0].data = points.map(p => p.converted_acr);
+        u2cTrendChart.data.datasets[1].data = points.map(p => p.starting_acr);
+        u2cTrendChart.update();
+        return;
+    }
+
+    u2cTrendChart = new Chart(canvas, {
         type: 'line',
         data: {
             labels: points.map(p => p.label),
@@ -369,7 +414,7 @@
                 {
                     label: 'Target (starting uncommitted)',
                     data: points.map(p => p.starting_acr),
-                    borderColor: muted,
+                    borderColor: colors.muted,
                     borderDash: [6, 4],
                     pointRadius: 0,
                     fill: false,
@@ -383,31 +428,38 @@
             plugins: {
                 legend: {
                     position: 'bottom',
-                    labels: { color: text, boxWidth: 12, boxHeight: 3 },
+                    labels: { color: colors.text, boxWidth: 12, boxHeight: 3 },
                 },
                 tooltip: {
                     callbacks: {
                         label: ctx => {
-                            const p = points[ctx.dataIndex];
+                            const series = TREND_SERIES[
+                                (document.getElementById('workloadFilter') || {}).value || ''
+                            ] || [];
+                            const p = series[ctx.dataIndex];
+                            if (!p) return '';
                             if (ctx.datasetIndex === 0) {
-                                return ` Converted ${money(p.converted_acr)} (${p.attainment_pct}%)`;
+                                // Snapshot-ACR basis, so this lines up with the
+                                // "U2C %" card rather than "Attainment %",
+                                // which revalues commits at live ACR.
+                                return ` Converted ${u2cMoney(p.converted_acr)} (${p.attainment_pct}% U2C)`;
                             }
-                            return ` Target ${money(p.starting_acr)}`;
+                            return ` Target ${u2cMoney(p.starting_acr)}`;
                         },
                     },
                 },
             },
             scales: {
-                x: { ticks: { color: muted }, grid: { color: grid } },
+                x: { ticks: { color: colors.muted }, grid: { color: colors.grid } },
                 y: {
                     beginAtZero: true,
-                    ticks: { color: muted, callback: money },
-                    grid: { color: grid },
+                    ticks: { color: colors.muted, callback: u2cMoney },
+                    grid: { color: colors.grid },
                 },
             },
         },
     });
-})();
+}
 </script>
 {% endif %}
 <script>
@@ -658,6 +710,9 @@ function applyAllFilters() {
     // Re-sort remaining after filter change
     const tbody = el('remainingBody');
     if (tbody) applySortToBody(tbody);
+
+    // Keep the attainment trend on the same workload as everything else.
+    if (typeof renderU2cTrend === 'function') renderU2cTrend(wlPrefix);
 }
 
 // Legacy wrapper for workload filter onchange

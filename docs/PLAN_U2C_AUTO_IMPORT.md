@@ -230,6 +230,23 @@ Notes from implementation:
   is a free local pass run before every refresh.
 - A failed import retries within the hour rather than waiting a full day, which
   covers the cold-boot auth case that was originally deferred.
+- The trend is sliced by workload, because a territory-wide total isn't what
+  anyone is measured on. Workload comes from `DimWorkload` (`d4.Workload`),
+  which projects cleanly - 42 rows, measures unchanged. **Do not use
+  `d3.Workload`** (`DimMilestone`): it cross-joins to 5,166 rows with every
+  workload carrying the full total.
+- That also fixed a latent bug. Workload previously came only from the local
+  milestone, so unmatched MSXi rows had `NULL` and were silently dropped by the
+  `LIKE` in every filtered view, understating filtered totals.
+- `U2CSnapshotVersionItem` stores per-milestone detail per version rather than
+  workload-level aggregates. Same collection cost - the backfill already pulled
+  and discarded those rows - and it leaves the door open to slicing the trend by
+  seller or customer later without another schema change.
+- `fingerprint_rows()` includes workload. It has to cover every field we
+  persist: when workload was added to the projection, the "unchanged"
+  short-circuit meant stored items kept their stale local values, so the cards
+  filtered on old data while the chart filtered on new and the page contradicted
+  itself. Any future projected column must be added to the hash too.
 
 ## The October verification
 

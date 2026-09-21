@@ -2475,6 +2475,10 @@ class U2CSnapshotVersion(db.Model):
     captured_at = db.Column(db.DateTime, nullable=False, default=utc_now)
 
     snapshot = db.relationship('U2CSnapshot', back_populates='versions')
+    items = db.relationship(
+        'U2CSnapshotVersionItem', back_populates='version',
+        cascade='all, delete-orphan', lazy='dynamic',
+    )
 
     __table_args__ = (
         db.UniqueConstraint('snapshot_id', 'msxi_version',
@@ -2492,6 +2496,39 @@ class U2CSnapshotVersion(db.Model):
     def __repr__(self) -> str:
         return (f'<U2CSnapshotVersion {self.msxi_version} '
                 f'converted=${self.total_converted_acr:,.0f}>')
+
+
+class U2CSnapshotVersionItem(db.Model):
+    """One milestone's numbers within one MSXi weekly version.
+
+    Kept deliberately narrow - just the key, the classification, and the two
+    ACR figures - because the descriptive fields live once on
+    ``U2CSnapshotItem`` and never change between versions.  This is what lets
+    the attainment trend be sliced by workload instead of only showing a
+    territory-wide total nobody is measured on.
+
+    ``workload`` is MSXi's own value, frozen as it was for that week, so a
+    milestone reclassified mid-quarter doesn't rewrite earlier weeks.
+    """
+    __tablename__ = 'u2c_snapshot_version_items'
+
+    id = db.Column(db.Integer, primary_key=True)
+    version_id = db.Column(db.Integer, db.ForeignKey('u2c_snapshot_versions.id'),
+                           nullable=False)
+    milestone_number = db.Column(db.String(50), nullable=True)
+    workload = db.Column(db.String(200), nullable=True)
+    starting_acr = db.Column(db.Float, nullable=False, default=0.0)
+    converted_acr = db.Column(db.Float, nullable=False, default=0.0)
+
+    version = db.relationship('U2CSnapshotVersion', back_populates='items')
+
+    __table_args__ = (
+        db.Index('ix_u2c_version_items_version_id', 'version_id'),
+    )
+
+    def __repr__(self) -> str:
+        return (f'<U2CSnapshotVersionItem {self.milestone_number} '
+                f'{self.workload}>')
 
 
 # =============================================================================

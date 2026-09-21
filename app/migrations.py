@@ -1772,7 +1772,8 @@ def _migrate_u2c_version_history(db, inspector):
     local ones are removed rather than left to sit alongside official data
     pretending to be the same measurement.
 
-    The ``u2c_snapshot_versions`` table itself is created by ``db.create_all()``.
+    The ``u2c_snapshot_versions`` and ``u2c_snapshot_version_items`` tables are
+    created by ``db.create_all()``.
     Idempotent.
     """
     if not _table_exists(inspector, 'u2c_snapshots'):
