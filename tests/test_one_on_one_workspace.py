@@ -329,6 +329,126 @@ class TestOneOnOneWorkspaceAPI:
         assert response.status_code == 400
         assert 'outside this workspace scope' in response.get_json()['error']
 
+    def test_u2c_shortcut_adds_every_linked_engagement(
+        self, client, app, one_on_one_data
+    ):
+        """U2C should queue every linked engagement instead of the milestone."""
+        with app.app_context():
+            milestone = db.session.get(Milestone, one_on_one_data['milestone_id'])
+            first = db.session.get(Engagement, one_on_one_data['engagement_id'])
+            second = Engagement(
+                customer=milestone.customer,
+                title='Second linked workstream',
+                status='On Hold',
+            )
+            db.session.add(second)
+            first.milestones.append(milestone)
+            second.milestones.append(milestone)
+            db.session.commit()
+            engagement_ids = {first.id, second.id}
+
+        response = client.post(
+            f"/api/seller/{one_on_one_data['seller_id']}/one-on-one/u2c",
+            json={
+                'milestone_id': one_on_one_data['milestone_id'],
+                'talking_points': 'Confirm the path to commitment.',
+            },
+        )
+
+        assert response.status_code == 200
+        payload = response.get_json()
+        assert payload['target_count'] == 2
+        assert payload['added_count'] == 2
+        assert payload['restored_count'] == 0
+        with app.app_context():
+            workspace = OneOnOneWorkspace.query.filter_by(
+                seller_id=one_on_one_data['seller_id']
+            ).one()
+            assert {item.engagement_id for item in workspace.agenda_items} == (
+                engagement_ids
+            )
+            assert {item.item_type for item in workspace.agenda_items} == {
+                'engagement'
+            }
+            assert {item.talking_points for item in workspace.agenda_items} == {
+                'Confirm the path to commitment.'
+            }
+
+    def test_u2c_shortcut_falls_back_to_unlinked_milestone(
+        self, client, app, one_on_one_data
+    ):
+        """A milestone without engagements should itself become the agenda item."""
+        milestone_id = one_on_one_data['lower_priority_team_milestone_id']
+        response = client.post(
+            f"/api/seller/{one_on_one_data['seller_id']}/one-on-one/u2c",
+            json={
+                'milestone_id': milestone_id,
+                'talking_points': 'Decide who owns the next step.',
+            },
+        )
+
+        assert response.status_code == 200
+        assert response.get_json()['target_count'] == 1
+        with app.app_context():
+            item = OneOnOneAgendaItem.query.filter_by(
+                milestone_id=milestone_id
+            ).one()
+            assert item.item_type == 'milestone'
+            assert item.talking_points == 'Decide who owns the next step.'
+
+    def test_u2c_shortcut_restores_discussed_but_preserves_active_notes(
+        self, client, app, one_on_one_data
+    ):
+        """Re-adding should restore history without replacing active preparation."""
+        milestone_id = one_on_one_data['lower_priority_team_milestone_id']
+        url = f"/api/seller/{one_on_one_data['seller_id']}/one-on-one/u2c"
+        first = client.post(url, json={
+            'milestone_id': milestone_id,
+            'talking_points': 'Original preparation.',
+        })
+        item_id = first.get_json()['items'][0]['id']
+
+        active = client.post(url, json={
+            'milestone_id': milestone_id,
+            'talking_points': 'Should not replace active preparation.',
+        })
+        client.patch(
+            f'/api/one-on-one/agenda/{item_id}',
+            json={'status': 'discussed'},
+        )
+        restored = client.post(url, json={
+            'milestone_id': milestone_id,
+            'talking_points': 'Fresh follow-up question.',
+        })
+
+        assert active.get_json()['already_active_count'] == 1
+        assert restored.get_json()['restored_count'] == 1
+        with app.app_context():
+            item = db.session.get(OneOnOneAgendaItem, item_id)
+            assert item.status == 'active'
+            assert item.talking_points == 'Fresh follow-up question.'
+
+    def test_u2c_shortcut_validates_note_and_seller_scope(
+        self, client, one_on_one_data
+    ):
+        """The shortcut should reject empty notes and cross-seller milestones."""
+        url = f"/api/seller/{one_on_one_data['seller_id']}/one-on-one/u2c"
+        empty = client.post(url, json={
+            'milestone_id': one_on_one_data['milestone_id'],
+            'talking_points': '   ',
+        })
+        cross_seller = client.post(url, json={
+            'milestone_id': one_on_one_data['other_milestone_id'],
+            'talking_points': 'Wrong seller.',
+        })
+
+        assert empty.status_code == 400
+        assert empty.get_json()['error'] == 'A discussion note is required'
+        assert cross_seller.status_code == 400
+        assert 'outside this seller workspace scope' in (
+            cross_seller.get_json()['error']
+        )
+
     def test_milestone_becomes_linked_engagement(
         self, client, app, one_on_one_data
     ):

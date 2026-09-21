@@ -13,6 +13,8 @@ over to the next one.
 import logging
 from datetime import date, datetime, timedelta, timezone
 
+from sqlalchemy.orm import selectinload
+
 from app.models import (
     Customer, Milestone, Opportunity, U2CSnapshot, U2CSnapshotItem,
     U2CSnapshotVersion, U2CSnapshotVersionItem, db,
@@ -743,6 +745,16 @@ def get_attainment(snapshot_id: int, workload_prefix: str | None = None) -> dict
             U2CSnapshotItem.workload.like(f'{workload_prefix}%')
         )
     items = items_query.all()
+    milestone_ids = {item.milestone_id for item in items if item.milestone_id}
+    live_milestones = {
+        milestone.id: milestone
+        for milestone in (
+            Milestone.query
+            .options(selectinload(Milestone.engagements))
+            .filter(Milestone.id.in_(milestone_ids))
+            .all()
+        )
+    } if milestone_ids else {}
 
     # Also filter by due date within the snapshot's fiscal quarter
     q_start, q_end = fiscal_quarter_date_range(snapshot.fiscal_quarter)
@@ -764,7 +776,7 @@ def get_attainment(snapshot_id: int, workload_prefix: str | None = None) -> dict
         target_total += item.monthly_acr
 
         # Check current live milestone status
-        live_ms = Milestone.query.get(item.milestone_id) if item.milestone_id else None
+        live_ms = live_milestones.get(item.milestone_id)
         is_committed = False
         current_status = item.msx_status  # fallback to snapshot status
         current_commitment = 'Uncommitted'
@@ -820,6 +832,14 @@ def get_attainment(snapshot_id: int, workload_prefix: str | None = None) -> dict
             'current_commitment': current_commitment,
             'status_source': source,
             'is_committed': is_committed,
+            'engagements': [
+                {
+                    'id': engagement.id,
+                    'title': engagement.title,
+                    'status': engagement.status,
+                }
+                for engagement in live_ms.engagements
+            ] if live_ms else [],
         }
 
         if is_committed:

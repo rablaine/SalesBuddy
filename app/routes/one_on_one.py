@@ -1,7 +1,9 @@
 """Persistent one-on-one notes and agenda workspace routes."""
+import logging
 from datetime import datetime, timezone
 
 from flask import Blueprint, jsonify, redirect, render_template, request, url_for
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy import or_
 from sqlalchemy.orm import joinedload
 
@@ -17,31 +19,18 @@ from app.models import (
 )
 from app.services.backup import schedule_customer_backup
 from app.services.milestone_tracking import track_note_on_milestones
+from app.services.one_on_one import (
+    add_milestone_context_to_seller_agenda,
+    add_or_restore_agenda_entity,
+    get_or_create_seller_workspace,
+)
 
 one_on_one_bp = Blueprint('one_on_one', __name__)
+logger = logging.getLogger(__name__)
 
 _PERSON_TYPES = {'Manager', 'Seller', 'Other'}
 _ITEM_TYPES = {'milestone', 'engagement'}
 _ITEM_STATUSES = {'active', 'discussed'}
-
-
-def get_or_create_seller_workspace(seller: Seller) -> OneOnOneWorkspace:
-    """Return the persistent workspace linked to a seller, creating it if needed."""
-    workspace = OneOnOneWorkspace.query.filter_by(seller_id=seller.id).first()
-    if workspace:
-        if workspace.person_name != seller.name:
-            workspace.person_name = seller.name
-            db.session.commit()
-        return workspace
-
-    workspace = OneOnOneWorkspace(
-        seller_id=seller.id,
-        person_name=seller.name,
-        person_type='Seller',
-    )
-    db.session.add(workspace)
-    db.session.commit()
-    return workspace
 
 
 def _entity_for_item(item_type: str, entity_id: int):
@@ -122,6 +111,7 @@ def seller_workspace(seller_id: int):
     if not seller:
         return 'Seller not found', 404
     workspace = get_or_create_seller_workspace(seller)
+    db.session.commit()
     return redirect(url_for('one_on_one.workspace_view', workspace_id=workspace.id))
 
 
@@ -307,35 +297,73 @@ def agenda_add(workspace_id: int):
     if not _entity_allowed(workspace, entity):
         return jsonify({'success': False, 'error': 'Item is outside this workspace scope'}), 400
 
-    id_field = 'milestone_id' if item_type == 'milestone' else 'engagement_id'
-    existing = OneOnOneAgendaItem.query.filter_by(
-        workspace_id=workspace.id,
-        item_type=item_type,
-        **{id_field: entity_id},
-    ).first()
-    if existing:
-        if existing.status == 'active':
-            return jsonify({'success': False, 'error': 'Item is already on the agenda'}), 409
-        existing.status = 'active'
-        existing.discussed_at = None
-        existing.updated_at = datetime.now(timezone.utc)
-        item = existing
-    else:
-        customer = _entity_customer(entity)
-        title = entity.display_text if item_type == 'milestone' else entity.title
-        item = OneOnOneAgendaItem(
-            workspace_id=workspace.id,
-            item_type=item_type,
-            title_snapshot=title,
-            customer_snapshot=customer.get_display_name(),
-            milestone_id=entity_id if item_type == 'milestone' else None,
-            engagement_id=entity_id if item_type == 'engagement' else None,
-            sort_order=len(workspace.agenda_items),
-        )
-        db.session.add(item)
-    workspace.updated_at = datetime.now(timezone.utc)
+    item, outcome = add_or_restore_agenda_entity(workspace, item_type, entity)
+    if outcome == 'already_active':
+        return jsonify({'success': False, 'error': 'Item is already on the agenda'}), 409
     db.session.commit()
     return jsonify({'success': True, 'item': _agenda_item_payload(item)})
+
+
+@one_on_one_bp.route(
+    '/api/seller/<int:seller_id>/one-on-one/u2c',
+    methods=['POST'],
+)
+def agenda_add_u2c_context(seller_id: int):
+    """Add a U2C milestone's engagement context to a seller 1:1 agenda."""
+    seller = db.session.get(Seller, seller_id)
+    if not seller:
+        return jsonify({'success': False, 'error': 'Seller not found'}), 404
+
+    data = request.get_json(silent=True) or {}
+    try:
+        milestone_id = int(data.get('milestone_id') or 0)
+    except (TypeError, ValueError):
+        milestone_id = 0
+    talking_points = str(data.get('talking_points') or '').strip()
+    if not milestone_id:
+        return jsonify({'success': False, 'error': 'Milestone ID is required'}), 400
+    if not talking_points:
+        return jsonify({'success': False, 'error': 'A discussion note is required'}), 400
+
+    milestone = db.session.get(Milestone, milestone_id)
+    if not milestone:
+        return jsonify({'success': False, 'error': 'Milestone not found'}), 404
+
+    try:
+        workspace, results = add_milestone_context_to_seller_agenda(
+            seller,
+            milestone,
+            talking_points,
+        )
+    except ValueError as exc:
+        return jsonify({'success': False, 'error': str(exc)}), 400
+
+    try:
+        db.session.commit()
+    except SQLAlchemyError:
+        db.session.rollback()
+        logger.exception(
+            "Failed to add U2C milestone %s to seller %s's 1:1",
+            milestone_id,
+            seller_id,
+        )
+        return jsonify({
+            'success': False,
+            'error': 'The 1:1 agenda could not be updated. Please try again.',
+        }), 500
+    outcomes = [outcome for _, outcome in results]
+    return jsonify({
+        'success': True,
+        'workspace_url': url_for(
+            'one_on_one.workspace_view',
+            workspace_id=workspace.id,
+        ),
+        'target_count': len(results),
+        'added_count': outcomes.count('added'),
+        'restored_count': outcomes.count('restored'),
+        'already_active_count': outcomes.count('already_active'),
+        'items': [_agenda_item_payload(item) for item, _ in results],
+    })
 
 
 @one_on_one_bp.route('/api/one-on-one/agenda/<int:item_id>', methods=['PATCH'])
