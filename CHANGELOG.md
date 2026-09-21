@@ -8,7 +8,7 @@ brought the change into `main`, so the admin Updates card can show
 Format: `## M/D/YYYY - <merge-short-sha>`. See
 `scripts/tag-changelog.ps1` for the helper that fills this in.
 
-## 9/21/2026
+## 9/21/2026 - a8006da
 
 - The U2C Attainment report is now built from the official MSX Insights baseline. It pulls the same "Uncommitted to Committed" milestone table the portal shows, scoped to your configured territories, so your quarterly target matches MSXi to the dollar instead of being re-derived from your synced milestones.
 - It keeps itself up to date, refreshing once a day, so your target and attainment track the portal without you pressing anything.
