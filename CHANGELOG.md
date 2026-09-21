@@ -10,19 +10,9 @@ Format: `## M/D/YYYY - <merge-short-sha>`. See
 
 ## 9/21/2026 - a8006da
 
-- The U2C Attainment report is now built from the official MSX Insights baseline. It pulls the same "Uncommitted to Committed" milestone table the portal shows, scoped to your configured territories, so your quarterly target matches MSXi to the dollar instead of being re-derived from your synced milestones.
-- It keeps itself up to date, refreshing once a day, so your target and attainment track the portal without you pressing anything.
-- Quarter rollover is handled automatically. When MSXi moves to a new quarter, Sales Buddy closes out the old one, keeps it in the quarter dropdown for reference, and starts tracking the new one.
-- Added an attainment history for each quarter, with a chart on the report showing committed ACR climbing toward your target week by week. It follows the workload dropdown and reconciles exactly with the Committed ACR and U2C % cards, so you can see progress for just the workloads you own instead of a territory-wide total. MSXi publishes a new snapshot weekly and only keeps about seven weeks of them, so Sales Buddy stores each week's totals permanently - your quarter's progress stays visible long after MSXi drops it. The line can dip, because a milestone can drop back out of committed.
-- Workload now comes from the official MSXi report rather than your locally synced milestones. Previously any milestone you don't sync locally had no workload at all and silently disappeared whenever you filtered by one, quietly understating the filtered totals.
-- Ask SalesIQ "how has U2C attainment progressed this quarter?" and it can now read that weekly history.
-- Milestones in the official baseline that you don't sync locally still count toward attainment, using MSXi's own view of where they landed, with the milestone owner's alias shown on the row. Milestones that sync later get linked automatically rather than waiting for MSXi's next weekly publish.
-- Removed locally-built U2C snapshots, along with the "Take Snapshot" button and the "stale milestone import" warning that existed only to gate it. Everything now comes from the official report, which means one set of numbers that matches what you're measured on instead of two that disagree. **Any local snapshots you had are deleted, including past quarters, and they can't be rebuilt - MSXi only ever serves the current quarter.** Restore a database backup first if you want to keep the old figures.
-- The report now shows the date of the MSXi data you're looking at, separately from when Sales Buddy last checked. MSXi publishes weekly; we check daily.
-- Keep the complete U2C weekly history across refreshes, continue daily U2C updates when milestone auto-sync is disabled, and show an actionable warning when an automatic MSXi refresh fails.
-- Keep the U2C seller and customer filters available when a selection has no matching milestones, with a clear action that restores the full report.
-- Anchor the U2C trend chart to the actual fiscal-quarter boundaries instead of an auto-padded date near the first available weekly snapshot.
-- Fixed the "stale milestone import" warning sticking around after a successful sync. Manual syncs now update the last-sync time the scheduler and admin panel use, so a hand-run sync no longer looks overdue.
+- Build the U2C Attainment report from the official MSX Insights baseline, automatically refresh it daily, and preserve completed quarters for reference.
+- Add a workload-aware quarterly trend chart showing committed ACR progressing toward the frozen target, with permanent weekly history and SalesIQ access.
+- Improve milestone filtering and reliability, including unmatched MSXi milestones, seller and customer filters, automatic failure warnings, and safe quarter rollover.
 
 ## 9/5/2026 - 863d58f
 
