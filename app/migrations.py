@@ -175,6 +175,9 @@ def run_migrations(db):
     # Migration: Create alignment tables (custom alignment sync feature)
     _migrate_alignment_tables(db, inspector)
 
+    # Migration: Add official MSXi snapshot columns to the U2C tables
+    _migrate_u2c_official_import(db, inspector)
+
     # Note: milestone_comments table is created by db.create_all() — no migration needed
 
     # Migration: Add review_status, review_notes, reviewed_at to revenue_analyses
@@ -1723,3 +1726,31 @@ def _migrate_alignment_tables(db, inspector):
                 """))
                 conn.commit()
             print("  Rebuilt 'alignment_selections' to territory-only schema")
+
+
+def _migrate_u2c_official_import(db, inspector):
+    """Add the columns that back importing the official MSXi U2C snapshot.
+
+    ``u2c_snapshots.source`` records where a snapshot came from ('local' for
+    one derived from our synced milestones, 'msxi' for the official report
+    pull).  The item columns carry the MSXi identifiers and the report's own
+    view of each milestone so attainment still works for milestones that
+    aren't in our local cache.  Idempotent.
+    """
+    if _table_exists(inspector, 'u2c_snapshots'):
+        _add_column_if_not_exists(
+            db, inspector, 'u2c_snapshots', 'source',
+            "VARCHAR(20) NOT NULL DEFAULT 'local'",
+        )
+
+    if _table_exists(inspector, 'u2c_snapshot_items'):
+        _add_column_if_not_exists(
+            db, inspector, 'u2c_snapshot_items', 'opportunity_number', 'VARCHAR(50)')
+        _add_column_if_not_exists(
+            db, inspector, 'u2c_snapshot_items', 'owner_alias', 'VARCHAR(100)')
+        _add_column_if_not_exists(
+            db, inspector, 'u2c_snapshot_items', 'msxi_commitment', 'VARCHAR(50)')
+        _add_column_if_not_exists(
+            db, inspector, 'u2c_snapshot_items', 'msxi_status', 'VARCHAR(50)')
+        _add_column_if_not_exists(
+            db, inspector, 'u2c_snapshot_items', 'msxi_converted_acr', 'FLOAT')

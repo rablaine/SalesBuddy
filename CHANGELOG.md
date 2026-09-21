@@ -8,6 +8,13 @@ brought the change into `main`, so the admin Updates card can show
 Format: `## M/D/YYYY - <merge-short-sha>`. See
 `scripts/tag-changelog.ps1` for the helper that fills this in.
 
+## 9/21/2026
+
+- Import the official MSX Insights U2C baseline straight into the U2C Attainment report. The new Import Official button pulls the same "Uncommitted to Committed" milestone table the portal shows, scoped to your configured territories, so your quarterly target matches MSXi to the dollar instead of being re-derived from your synced milestones.
+- U2C snapshots now show where they came from (Official MSXi vs Local) in the quarter picker and as a badge on the report.
+- Milestones in the official baseline that you don't sync locally still count toward attainment, using MSXi's own view of where they landed, with the milestone owner's alias shown on the row.
+- The automatic quarter-start snapshot on the 5th now imports the official baseline first and only falls back to a local snapshot if the MSXi pull isn't available.
+
 ## 9/5/2026 - 863d58f
 
 - Edit engagement story fields directly on the engagement page and save changes by pressing Enter or clicking away.

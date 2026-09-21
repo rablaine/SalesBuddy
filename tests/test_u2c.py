@@ -3,11 +3,12 @@ import pytest
 from datetime import datetime, timezone, date, timedelta
 
 from app.models import (
-    db, Customer, Milestone, Opportunity, U2CSnapshot, U2CSnapshotItem,
+    db, Customer, Milestone, Opportunity, Territory, U2CSnapshot, U2CSnapshotItem,
 )
 from app.services.u2c_snapshot import (
     create_snapshot, current_fiscal_quarter, fiscal_quarter_date_range,
-    get_attainment, get_workload_prefixes, is_snapshot_due,
+    get_attainment, get_workload_prefixes, import_official_snapshot,
+    is_snapshot_due,
 )
 
 
@@ -363,3 +364,352 @@ class TestSalesIQTool:
             result = execute_tool('get_u2c_attainment', {})
             assert result['success'] is True
             assert 'attainment_pct' in result
+
+
+class TestMsxiQuarterLabels:
+    """Test translating Sales Buddy FQ labels into MSXi filter labels."""
+
+    def test_translates_label(self):
+        from app.services.u2c_pull import msxi_quarter_labels
+        assert msxi_quarter_labels('FY27 Q1') == ('FY27', 'FY27-Q1')
+
+    def test_accepts_hyphenated_label(self):
+        from app.services.u2c_pull import msxi_quarter_labels
+        assert msxi_quarter_labels('fy26-q4') == ('FY26', 'FY26-Q4')
+
+    def test_rejects_garbage(self):
+        from app.services.u2c_pull import U2CPullError, msxi_quarter_labels
+        with pytest.raises(U2CPullError):
+            msxi_quarter_labels('not a quarter')
+
+
+class TestU2CQueryShape:
+    """Test the semantic query sent to Power BI."""
+
+    def test_query_filters_on_requested_territories(self):
+        from app.services.u2c_pull import _u2c_query
+        query = _u2c_query(['East.SMECC.MAA.0101'], 'FY27', 'FY27-Q1')
+        literals = []
+
+        def walk(node):
+            if isinstance(node, dict):
+                if 'Literal' in node and isinstance(node['Literal'], dict):
+                    literals.append(node['Literal'].get('Value'))
+                for value in node.values():
+                    walk(value)
+            elif isinstance(node, list):
+                for value in node:
+                    walk(value)
+
+        walk(query['Where'])
+        assert "'East.SMECC.MAA.0101'" in literals
+        assert "'FY27'" in literals
+        assert "'FY27-Q1'" in literals
+        # The baseline is the uncommitted set at the start of the quarter.
+        assert "'Uncommitted'" in literals
+
+    def test_query_selects_expected_columns(self):
+        from app.services.u2c_pull import _u2c_query
+        query = _u2c_query(['T1'], 'FY27', 'FY27-Q1')
+        names = [s['Name'] for s in query['Select']]
+        for expected in ('customer_name', 'milestone_name', 'milestone_number',
+                         'starting_acr', 'converted_acr', 'starting_due_date',
+                         'current_commitment', 'current_status'):
+            assert expected in names
+
+    def test_escapes_quotes_in_territory_names(self):
+        from app.services.u2c_pull import _lit
+        assert _lit("O'Brien") == "'O''Brien'"
+
+
+class TestDsrDecode:
+    """Test the Power BI DSR decoder against the report's response shape."""
+
+    def test_decodes_detail_rows_not_subtotal(self):
+        from app.services.u2c_pull import _decode
+        data = {
+            'descriptor': {'Select': [
+                {'Value': 'G0', 'Name': 'customer_name'},
+                {'Value': 'M0', 'Name': 'starting_acr'},
+            ]},
+            'dsr': {'DS': [{
+                'PH': [
+                    {'DM0': [{'S': [{'N': 'M0', 'T': 3}], 'C': [900]}]},
+                    {'DM1': [
+                        {'S': [{'N': 'G0', 'T': 1, 'DN': 'D0'}, {'N': 'M0', 'T': 3}],
+                         'C': [0, 500]},
+                        {'C': [1, 400]},
+                    ]},
+                ],
+                'ValueDicts': {'D0': ['Acme', 'Globex']},
+            }]},
+        }
+        rows = _decode(data)
+        assert rows == [
+            {'customer_name': 'Acme', 'starting_acr': 500},
+            {'customer_name': 'Globex', 'starting_acr': 400},
+        ]
+
+    def test_repeats_previous_value_for_reuse_bitmask(self):
+        from app.services.u2c_pull import _decode
+        data = {
+            'descriptor': {'Select': [
+                {'Value': 'G0', 'Name': 'customer_name'},
+                {'Value': 'M0', 'Name': 'starting_acr'},
+            ]},
+            'dsr': {'DS': [{
+                'PH': [{'DM0': [
+                    {'S': [{'N': 'G0', 'T': 1, 'DN': 'D0'}, {'N': 'M0', 'T': 3}],
+                     'C': [0, 500]},
+                    {'C': [400], 'R': 1},
+                ]}],
+                'ValueDicts': {'D0': ['Acme']},
+            }]},
+        }
+        rows = _decode(data)
+        assert rows[1]['customer_name'] == 'Acme'
+        assert rows[1]['starting_acr'] == 400
+
+    def test_empty_payload_returns_no_rows(self):
+        from app.services.u2c_pull import _decode
+        assert _decode({}) == []
+
+
+def _msxi_row(**overrides):
+    """Build one MSXi U2C row with sensible defaults."""
+    q_start, _ = fiscal_quarter_date_range(current_fiscal_quarter())
+    row = {
+        'customer_name': 'Test Corp',
+        'milestone_name': 'Deploy Fabric',
+        'milestone_number': 'MS-1',
+        'opportunity_number': 'OPP-1',
+        'owner_alias': 'someone',
+        'starting_commitment': 'Uncommitted',
+        'current_commitment': 'Uncommitted',
+        'starting_status': 'On Track',
+        'current_status': 'On Track',
+        'starting_due_date': q_start + timedelta(days=45),
+        'current_due_date': q_start + timedelta(days=45),
+        'starting_acr': 5000.0,
+        'converted_acr': 0.0,
+    }
+    row.update(overrides)
+    return row
+
+
+@pytest.fixture
+def official_rows(app):
+    """Patch the MSXi pull so the import runs without network access."""
+    rows = [
+        _msxi_row(),
+        _msxi_row(milestone_name='Migrate SQL', milestone_number='MS-2',
+                  starting_acr=3000.0, converted_acr=3000.0,
+                  current_commitment='Committed'),
+        _msxi_row(customer_name='Unknown Account', milestone_name='Other Team Work',
+                  milestone_number='MS-999', opportunity_number='OPP-999',
+                  owner_alias='someoneelse', starting_acr=1000.0),
+    ]
+    import app.services.u2c_pull as pull_module
+    original = pull_module.pull_u2c_milestones
+    pull_module.pull_u2c_milestones = lambda fq, territories=None: rows
+    yield rows
+    pull_module.pull_u2c_milestones = original
+
+
+class TestImportOfficialSnapshot:
+    """Test importing the official MSXi U2C baseline."""
+
+    def test_import_creates_official_snapshot(self, app, u2c_data, official_rows):
+        with app.app_context():
+            result = import_official_snapshot()
+            assert result['success'] is True
+            assert result['total_items'] == 3
+            assert result['total_monthly_acr'] == 9000.0
+
+            snapshot = U2CSnapshot.query.filter_by(
+                fiscal_quarter=current_fiscal_quarter()).first()
+            assert snapshot.source == U2CSnapshot.SOURCE_MSXI
+            assert snapshot.is_official is True
+            assert snapshot.source_label == 'Official MSXi'
+
+    def test_import_links_matching_local_milestones(self, app, u2c_data, official_rows):
+        with app.app_context():
+            ms = Milestone.query.filter_by(title='Deploy Fabric').first()
+            ms.milestone_number = 'MS-1'
+            db.session.commit()
+            workload = ms.workload
+            ms_id = ms.id
+
+            result = import_official_snapshot()
+            assert result['matched_locally'] == 1
+            assert result['unmatched'] == 2
+
+            item = U2CSnapshotItem.query.filter_by(milestone_number='MS-1').first()
+            assert item.milestone_id == ms_id
+            assert item.workload == workload
+
+    def test_import_falls_back_to_customer_name_match(self, app, u2c_data, official_rows):
+        with app.app_context():
+            customer_id = Customer.query.filter_by(name='Test Corp').first().id
+            import_official_snapshot()
+            item = U2CSnapshotItem.query.filter_by(milestone_number='MS-2').first()
+            assert item.customer_id == customer_id
+
+            orphan = U2CSnapshotItem.query.filter_by(milestone_number='MS-999').first()
+            assert orphan.customer_id is None
+            assert orphan.owner_alias == 'someoneelse'
+
+    def test_import_refuses_to_clobber_existing_snapshot(self, app, u2c_data,
+                                                         official_rows):
+        with app.app_context():
+            create_snapshot()
+            result = import_official_snapshot()
+            assert result['success'] is False
+            assert result['needs_replace'] is True
+            assert result['existing_source'] == U2CSnapshot.SOURCE_LOCAL
+
+    def test_import_replaces_when_asked(self, app, u2c_data, official_rows):
+        with app.app_context():
+            create_snapshot()
+            result = import_official_snapshot(replace=True)
+            assert result['success'] is True
+            assert result['replaced'] is True
+            assert U2CSnapshot.query.filter_by(
+                fiscal_quarter=current_fiscal_quarter()).count() == 1
+            # The replaced snapshot's items must not survive.
+            assert U2CSnapshotItem.query.count() == 3
+
+    def test_attainment_uses_msxi_state_for_unmatched_milestones(self, app, u2c_data,
+                                                                 official_rows):
+        with app.app_context():
+            import_official_snapshot()
+            snapshot = U2CSnapshot.query.filter_by(
+                fiscal_quarter=current_fiscal_quarter()).first()
+            attainment = get_attainment(snapshot.id)
+
+            assert attainment['source'] == U2CSnapshot.SOURCE_MSXI
+            assert attainment['target_total'] == 9000.0
+            # MS-2 is Committed per MSXi even though we have no local milestone.
+            assert attainment['committed_count'] == 1
+            assert attainment['committed_total'] == 3000.0
+            committed = attainment['committed_items'][0]
+            assert committed['milestone_number'] == 'MS-2'
+            assert committed['status_source'] == 'msxi'
+
+    def test_import_surfaces_pull_errors(self, app, u2c_data, monkeypatch):
+        with app.app_context():
+            import app.services.u2c_pull as pull_module
+
+            def boom(fq, territories=None):
+                raise pull_module.U2CPullError('No territories configured.')
+
+            monkeypatch.setattr(pull_module, 'pull_u2c_milestones', boom)
+            result = import_official_snapshot()
+            assert result['success'] is False
+            assert 'No territories configured.' in result['error']
+
+
+class TestImportOfficialRoute:
+    """Test the official import API endpoint."""
+
+    def test_import_endpoint_returns_snapshot(self, client, app, u2c_data,
+                                              official_rows):
+        response = client.post('/api/reports/u2c/import-official', json={})
+        assert response.status_code == 200
+        data = response.get_json()
+        assert data['success'] is True
+        assert data['source'] == 'msxi'
+
+    def test_import_endpoint_conflicts_with_existing(self, client, app, u2c_data,
+                                                     official_rows):
+        with app.app_context():
+            create_snapshot()
+        response = client.post('/api/reports/u2c/import-official', json={})
+        assert response.status_code == 409
+        assert response.get_json()['needs_replace'] is True
+
+    def test_import_endpoint_replaces_when_asked(self, client, app, u2c_data,
+                                                 official_rows):
+        with app.app_context():
+            create_snapshot()
+        response = client.post('/api/reports/u2c/import-official',
+                               json={'replace': True})
+        assert response.status_code == 200
+        assert response.get_json()['replaced'] is True
+
+    def test_import_endpoint_reports_pull_failure(self, client, app, monkeypatch):
+        import app.services.u2c_pull as pull_module
+
+        def boom(fq, territories=None):
+            raise pull_module.U2CPullError('gateway down')
+
+        monkeypatch.setattr(pull_module, 'pull_u2c_milestones', boom)
+        response = client.post('/api/reports/u2c/import-official', json={})
+        assert response.status_code == 502
+        assert 'gateway down' in response.get_json()['error']
+
+
+class TestTerritoryCodes:
+    """Test reading the territory scope for the official pull."""
+
+    def test_returns_configured_territories(self, app):
+        from app.services.u2c_pull import get_territory_codes
+        with app.app_context():
+            db.session.add(Territory(name='East.SMECC.MAA.0101'))
+            db.session.add(Territory(name='East.SMECC.SOU.0207'))
+            db.session.commit()
+            assert get_territory_codes() == [
+                'East.SMECC.MAA.0101', 'East.SMECC.SOU.0207',
+            ]
+
+    def test_pull_requires_territories(self, app):
+        from app.services.u2c_pull import U2CPullError, pull_u2c_milestones
+        with app.app_context():
+            with pytest.raises(U2CPullError, match='No territories'):
+                pull_u2c_milestones('FY27 Q1')
+
+
+class TestScheduledSnapshot:
+    """Test the automatic quarter-start snapshot picking its source."""
+
+    def test_prefers_official_import(self, app, monkeypatch):
+        import app.services.scheduled_sync as sched
+        import app.services.u2c_snapshot as snap
+        calls = []
+        monkeypatch.setattr(snap, 'is_snapshot_due', lambda: True)
+        monkeypatch.setattr(snap, 'import_official_snapshot', lambda: (
+            calls.append('official') or {
+                'success': True, 'source': 'msxi', 'fiscal_quarter': 'FY27 Q1',
+                'total_items': 1, 'total_monthly_acr': 100.0,
+            }))
+        monkeypatch.setattr(snap, 'create_snapshot', lambda: calls.append('local'))
+        with app.app_context():
+            sched._check_u2c_snapshot()
+        assert calls == ['official']
+
+    def test_falls_back_to_local_snapshot(self, app, monkeypatch):
+        import app.services.scheduled_sync as sched
+        import app.services.u2c_snapshot as snap
+        calls = []
+        monkeypatch.setattr(snap, 'is_snapshot_due', lambda: True)
+        monkeypatch.setattr(snap, 'import_official_snapshot', lambda: (
+            calls.append('official') or {'success': False, 'error': 'no az login'}))
+        monkeypatch.setattr(snap, 'create_snapshot', lambda: (
+            calls.append('local') or {
+                'success': True, 'fiscal_quarter': 'FY27 Q1',
+                'total_items': 1, 'total_monthly_acr': 100.0,
+            }))
+        with app.app_context():
+            sched._check_u2c_snapshot()
+        assert calls == ['official', 'local']
+
+    def test_does_nothing_when_not_due(self, app, monkeypatch):
+        import app.services.scheduled_sync as sched
+        import app.services.u2c_snapshot as snap
+        calls = []
+        monkeypatch.setattr(snap, 'is_snapshot_due', lambda: False)
+        monkeypatch.setattr(snap, 'import_official_snapshot', lambda: calls.append('official'))
+        monkeypatch.setattr(snap, 'create_snapshot', lambda: calls.append('local'))
+        with app.app_context():
+            sched._check_u2c_snapshot()
+        assert calls == []

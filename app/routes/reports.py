@@ -9,7 +9,7 @@ from app.models import (
     notes_engagements, notes_milestones, notes_topics,
     MarketingSummary, MarketingInteraction, MarketingContact,
     U2CSnapshot, U2CSnapshotItem,
-    OneOnOneWorkspace,
+    OneOnOneWorkspace, Territory,
 )
 from sqlalchemy import func, desc, or_
 
@@ -1792,6 +1792,9 @@ def report_u2c():
         last_sync_naive = last_sync
     milestones_fresh = last_sync_naive is not None and last_sync_naive >= sync_threshold
 
+    # The official MSXi import is scoped by the territories configured here.
+    territory_count = Territory.query.count()
+
     return render_template(
         'report_u2c.html',
         snapshots=snapshots,
@@ -1801,6 +1804,7 @@ def report_u2c():
         current_fq=current_fq,
         last_milestone_sync=last_sync,
         milestones_fresh=milestones_fresh,
+        territory_count=territory_count,
     )
 
 
@@ -1816,6 +1820,28 @@ def api_u2c_create_snapshot():
     result = create_snapshot(fq)
     status = 200 if result.get('success') else 409
     return jsonify(result), status
+
+
+@bp.route('/api/reports/u2c/import-official', methods=['POST'])
+def api_u2c_import_official():
+    """Import the official MSX Insights U2C baseline for a fiscal quarter.
+
+    Pulls the MSXi "Uncommitted to Committed" milestone table scoped to the
+    territories configured in Sales Buddy, so the baseline matches the official
+    report instead of being re-derived from our milestone cache.
+    """
+    from app.services.u2c_snapshot import current_fiscal_quarter, import_official_snapshot
+
+    payload = request.get_json(silent=True) or {}
+    fq = payload.get('fiscal_quarter') or current_fiscal_quarter()
+    replace = bool(payload.get('replace'))
+
+    result = import_official_snapshot(fq, replace=replace)
+    if result.get('success'):
+        return jsonify(result), 200
+    # A pre-existing snapshot is a conflict the user can resolve by replacing;
+    # anything else is a failed pull.
+    return jsonify(result), 409 if result.get('needs_replace') else 502
 
 
 @bp.route('/reports/connect-impact')

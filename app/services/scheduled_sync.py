@@ -232,21 +232,39 @@ def _run_marketing_sync(app):
 
 
 def _check_u2c_snapshot():
-    """Create a U2C snapshot if today is the 5th of a fiscal quarter start month."""
+    """Create a U2C snapshot if today is the 5th of a fiscal quarter start month.
+
+    Prefers the official MSX Insights baseline so the quarter starts from the
+    same numbers the field is measured on, and falls back to a local snapshot
+    built from our synced milestones when the MSXi pull isn't available (no
+    ``az login``, no VPN, no territories configured).
+    """
     try:
-        from app.services.u2c_snapshot import is_snapshot_due, create_snapshot
-        if is_snapshot_due():
-            logger.info("U2C snapshot due - creating automatically")
+        from app.services.u2c_snapshot import (
+            create_snapshot, import_official_snapshot, is_snapshot_due,
+        )
+        if not is_snapshot_due():
+            return
+
+        logger.info("U2C snapshot due - importing official MSXi baseline")
+        result = import_official_snapshot()
+        if not result.get('success'):
+            logger.warning(
+                "Official U2C import failed (%s) - falling back to a local snapshot",
+                result.get('error'),
+            )
             result = create_snapshot()
-            if result.get('success'):
-                logger.info(
-                    "U2C snapshot created: %s, %d milestones, $%.2f ACR",
-                    result['fiscal_quarter'],
-                    result['total_items'],
-                    result['total_monthly_acr'],
-                )
-            else:
-                logger.warning("U2C snapshot skipped: %s", result.get('error'))
+
+        if result.get('success'):
+            logger.info(
+                "U2C snapshot created (%s): %s, %d milestones, $%.2f ACR",
+                result.get('source', 'local'),
+                result['fiscal_quarter'],
+                result['total_items'],
+                result['total_monthly_acr'],
+            )
+        else:
+            logger.warning("U2C snapshot skipped: %s", result.get('error'))
     except Exception:
         logger.exception("Error checking U2C snapshot")
 

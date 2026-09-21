@@ -2350,18 +2350,35 @@ class MarketingContact(db.Model):
 class U2CSnapshot(db.Model):
     """Header for a fiscal quarter U2C milestone snapshot.
 
-    Captured on the 5th of each fiscal quarter's first month (or manually).
-    Records the set of uncommitted milestones on open opportunities at that
-    point in time so attainment can be tracked against a fixed baseline.
+    Either captured locally on the 5th of each fiscal quarter's first month (or
+    manually), or imported from the official MSX Insights U2C report.  Records
+    the set of uncommitted milestones on open opportunities at that point in
+    time so attainment can be tracked against a fixed baseline.
     """
     __tablename__ = 'u2c_snapshots'
+
+    SOURCE_LOCAL = 'local'
+    SOURCE_MSXI = 'msxi'
 
     id = db.Column(db.Integer, primary_key=True)
     fiscal_quarter = db.Column(db.String(10), nullable=False, unique=True)  # e.g. "FY26 Q4"
     snapshot_date = db.Column(db.DateTime, nullable=False, default=utc_now)
     total_items = db.Column(db.Integer, default=0, nullable=False)
     total_monthly_acr = db.Column(db.Float, default=0.0, nullable=False)
+    # 'local' = derived from our synced milestones, 'msxi' = official MSXi pull
+    source = db.Column(db.String(20), nullable=False, default=SOURCE_LOCAL,
+                       server_default=SOURCE_LOCAL)
     created_at = db.Column(db.DateTime, default=utc_now, nullable=False)
+
+    @property
+    def is_official(self) -> bool:
+        """Return True if this snapshot came from the official MSXi report."""
+        return self.source == self.SOURCE_MSXI
+
+    @property
+    def source_label(self) -> str:
+        """Return a human-readable label for where the snapshot came from."""
+        return 'Official MSXi' if self.is_official else 'Local'
 
     items = db.relationship(
         'U2CSnapshotItem', back_populates='snapshot',
@@ -2394,6 +2411,15 @@ class U2CSnapshotItem(db.Model):
     monthly_acr = db.Column(db.Float, default=0.0, nullable=False)
     opportunity_name = db.Column(db.String(500), nullable=True)
     msx_status = db.Column(db.String(50), nullable=True)  # Status at snapshot time
+
+    # Official MSXi fields (populated only for imported snapshots)
+    opportunity_number = db.Column(db.String(50), nullable=True)
+    owner_alias = db.Column(db.String(100), nullable=True)
+    # MSXi's view of the milestone at import time - used as the attainment
+    # fallback when the milestone isn't in our local cache.
+    msxi_commitment = db.Column(db.String(50), nullable=True)
+    msxi_status = db.Column(db.String(50), nullable=True)
+    msxi_converted_acr = db.Column(db.Float, nullable=True)
 
     snapshot = db.relationship('U2CSnapshot', back_populates='items')
     milestone = db.relationship('Milestone', lazy='select')

@@ -21,7 +21,7 @@
                 <select name="fq" class="form-select form-select-sm" style="width: auto;" onchange="this.form.submit()">
                     {% for s in snapshots %}
                     <option value="{{ s.fiscal_quarter }}" {% if snapshot and s.id == snapshot.id %}selected{% endif %}>
-                        {{ s.fiscal_quarter }} ({{ s.local_date }})
+                        {{ s.fiscal_quarter }} ({{ s.local_date }}{% if s.is_official %} - Official{% endif %})
                     </option>
                     {% endfor %}
                 </select>
@@ -41,6 +41,13 @@
             </div>
             {% endif %}
             <div class="ms-auto d-flex align-items-center gap-3">
+                {% if snapshot %}
+                <span class="badge {% if snapshot.is_official %}bg-success{% else %}bg-secondary{% endif %}"
+                      title="{% if snapshot.is_official %}Baseline imported from the MSX Insights U2C report{% else %}Baseline built from your synced milestones{% endif %}">
+                    <i class="bi bi-{% if snapshot.is_official %}patch-check{% else %}hdd{% endif %}"></i>
+                    {{ snapshot.source_label }}
+                </span>
+                {% endif %}
                 {% if not snapshot or snapshot.fiscal_quarter != current_fq %}
                 <span class="small text-muted">
                     <i class="bi bi-clock-history"></i>
@@ -54,6 +61,11 @@
                     <i class="bi bi-camera"></i> Take {{ current_fq }} Snapshot
                 </button>
                 {% endif %}
+                <button type="button" class="btn btn-sm btn-outline-success" id="importOfficialBtn"
+                        onclick="importOfficialSnapshot()"
+                        {% if not territory_count %}disabled title="Add your sales territories first"{% endif %}>
+                    <i class="bi bi-cloud-download"></i> Import Official {{ current_fq }}
+                </button>
             </div>
         </form>
     </div>
@@ -208,6 +220,9 @@
                         {% if item.opportunity_name %}
                         <div class="small text-muted">{{ item.opportunity_name }}</div>
                         {% endif %}
+                        {% if item.owner_alias and not item.milestone_id %}
+                        <div class="small text-muted"><i class="bi bi-person"></i> {{ item.owner_alias }}</div>
+                        {% endif %}
                     </td>
                     <td><span class="small">{{ item.workload or '-' }}</span></td>
                     <td style="white-space: nowrap;">
@@ -283,6 +298,9 @@
                         {% if item.opportunity_name %}
                         <div class="small text-muted">{{ item.opportunity_name }}</div>
                         {% endif %}
+                        {% if item.owner_alias and not item.milestone_id %}
+                        <div class="small text-muted"><i class="bi bi-person"></i> {{ item.owner_alias }}</div>
+                        {% endif %}
                     </td>
                     <td><span class="small">{{ item.workload or '-' }}</span></td>
                     <td style="white-space: nowrap;">
@@ -314,12 +332,19 @@
         <i class="bi bi-camera display-1 text-muted"></i>
         <h4 class="mt-3">No U2C Snapshot Yet</h4>
         <p class="text-muted">
-            Take a snapshot to capture your current uncommitted milestones as the baseline for this quarter.
-            <br>Snapshots are also created automatically on the 5th of each fiscal quarter start month.
+            Import the official MSX Insights baseline for this quarter, or take a local snapshot
+            of your currently synced uncommitted milestones.
+            <br>Local snapshots are also created automatically on the 5th of each fiscal quarter start month.
         </p>
-        <button class="btn btn-primary" id="createSnapshotBtnEmpty" onclick="createSnapshot()" {% if not milestones_fresh %}disabled title="Sync milestones first"{% endif %}>
-            <i class="bi bi-camera"></i> Take {{ current_fq }} Snapshot Now
-        </button>
+        <div class="d-flex justify-content-center gap-2">
+            <button class="btn btn-success" id="importOfficialBtnEmpty" onclick="importOfficialSnapshot()"
+                    {% if not territory_count %}disabled title="Add your sales territories first"{% endif %}>
+                <i class="bi bi-cloud-download"></i> Import Official {{ current_fq }} Snapshot
+            </button>
+            <button class="btn btn-outline-primary" id="createSnapshotBtnEmpty" onclick="createSnapshot()" {% if not milestones_fresh %}disabled title="Sync milestones first"{% endif %}>
+                <i class="bi bi-camera"></i> Take Local {{ current_fq }} Snapshot
+            </button>
+        </div>
     </div>
 </div>
 {% else %}
@@ -692,6 +717,47 @@ function createSnapshot() {
             btn.disabled = false;
             btn.innerHTML = '<i class="bi bi-camera"></i> Take {{ current_fq }} Snapshot';
         }
+    });
+}
+
+function importOfficialSnapshot(replace) {
+    const btns = Array.from(document.querySelectorAll('#importOfficialBtn, #importOfficialBtnEmpty'));
+    const original = btns.map(b => b.innerHTML);
+    btns.forEach(b => {
+        b.disabled = true;
+        b.innerHTML = '<i class="bi bi-hourglass-split"></i> Importing...';
+    });
+    const restore = () => btns.forEach((b, i) => {
+        b.disabled = false;
+        b.innerHTML = original[i];
+    });
+
+    fetch('{{ url_for("reports.api_u2c_import_official") }}', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ replace: !!replace })
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            location.href = '{{ url_for("reports.report_u2c") }}?fq=' + encodeURIComponent(data.fiscal_quarter);
+            return;
+        }
+        if (data.needs_replace) {
+            const kind = data.existing_source === 'msxi' ? 'an official' : 'a local';
+            restore();
+            if (confirm('There is already ' + kind + ' snapshot for this quarter. '
+                        + 'Replace it with the official MSXi baseline?')) {
+                importOfficialSnapshot(true);
+            }
+            return;
+        }
+        alert(data.error || 'Failed to import the official snapshot');
+        restore();
+    })
+    .catch(err => {
+        alert('Error: ' + err.message);
+        restore();
     });
 }
 

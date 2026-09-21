@@ -162,6 +162,172 @@ def create_snapshot(fq_label: str | None = None) -> dict:
     }
 
 
+def _resolve_local_records(row: dict) -> tuple[Milestone | None, Customer | None,
+                                               Opportunity | None]:
+    """Match an MSXi U2C row to our local milestone / customer / opportunity.
+
+    Matching is by MSX business key (milestone number, opportunity number) and
+    falls back to an exact case-insensitive customer-name match, since the MSXi
+    report covers every milestone in the territory - including ones on accounts
+    we have never synced.
+
+    Args:
+        row: One row from ``u2c_pull.pull_u2c_milestones``.
+
+    Returns:
+        Tuple of (milestone, customer, opportunity); any element may be None.
+    """
+    milestone = None
+    if row.get('milestone_number'):
+        milestone = (
+            Milestone.query
+            .filter_by(milestone_number=row['milestone_number'])
+            .order_by(Milestone.id.desc())
+            .first()
+        )
+
+    opportunity = None
+    if row.get('opportunity_number'):
+        opportunity = (
+            Opportunity.query
+            .filter_by(opportunity_number=row['opportunity_number'])
+            .first()
+        )
+    if opportunity is None and milestone is not None:
+        opportunity = milestone.opportunity
+
+    customer = milestone.customer if milestone else None
+    if customer is None and opportunity is not None:
+        customer = opportunity.customer
+    if customer is None and row.get('customer_name'):
+        customer = Customer.query.filter(
+            db.func.lower(Customer.name) == row['customer_name'].strip().lower()
+        ).first()
+
+    return milestone, customer, opportunity
+
+
+def import_official_snapshot(fq_label: str | None = None,
+                             territories: list[str] | None = None,
+                             replace: bool = False) -> dict:
+    """Import the official MSX Insights U2C baseline for a fiscal quarter.
+
+    Pulls the same milestone detail table the MSXi "Uncommitted to Committed"
+    report shows, scoped to the territories configured in Sales Buddy, and
+    stores it as the snapshot for that quarter.  The baseline comes from the
+    report's "starting" columns, so a re-import reproduces the same baseline and
+    only refreshes MSXi's current view of each milestone.
+
+    Args:
+        fq_label: Fiscal quarter to import (e.g. 'FY27 Q1').  Defaults to the
+            current fiscal quarter.
+        territories: Sales territory codes to scope to.  Defaults to the
+            territories configured in Sales Buddy.
+        replace: Replace an existing snapshot for this quarter.  Required when
+            one already exists, so a manual snapshot is never silently dropped.
+
+    Returns:
+        Dict with 'success' plus snapshot totals, or 'error' on failure.
+    """
+    from app.services.u2c_pull import U2CPullError, pull_u2c_milestones
+
+    fq = fq_label or current_fiscal_quarter()
+
+    existing = U2CSnapshot.query.filter_by(fiscal_quarter=fq).first()
+    if existing and not replace:
+        return {
+            'success': False,
+            'error': f'Snapshot already exists for {fq}',
+            'snapshot_id': existing.id,
+            'existing_source': existing.source,
+            'needs_replace': True,
+        }
+
+    try:
+        rows = pull_u2c_milestones(fq, territories=territories)
+    except U2CPullError as exc:
+        logger.warning("Official U2C import for %s failed: %s", fq, exc)
+        return {'success': False, 'error': str(exc)}
+
+    if not rows:
+        return {
+            'success': False,
+            'error': (
+                f'MSXi returned no uncommitted milestones for {fq}. '
+                'Check that the quarter and your territories are correct.'
+            ),
+        }
+
+    if existing:
+        db.session.delete(existing)
+        db.session.flush()
+
+    snapshot = U2CSnapshot(
+        fiscal_quarter=fq,
+        snapshot_date=datetime.now(timezone.utc),
+        source=U2CSnapshot.SOURCE_MSXI,
+    )
+    db.session.add(snapshot)
+    db.session.flush()  # Get snapshot.id
+
+    total_acr = 0.0
+    matched = 0
+    for row in rows:
+        milestone, customer, opportunity = _resolve_local_records(row)
+        if milestone:
+            matched += 1
+
+        acr = float(row.get('starting_acr') or 0.0)
+        due = row.get('starting_due_date')
+        item = U2CSnapshotItem(
+            snapshot_id=snapshot.id,
+            milestone_id=milestone.id if milestone else None,
+            customer_id=customer.id if customer else None,
+            customer_name=row.get('customer_name') or 'Unknown',
+            milestone_title=(
+                row.get('milestone_name') or row.get('milestone_number') or 'Untitled'
+            ),
+            milestone_number=row.get('milestone_number'),
+            workload=milestone.workload if milestone else None,
+            due_date=datetime.combine(due, datetime.min.time()) if due else None,
+            monthly_acr=acr,
+            opportunity_name=(
+                opportunity.name if opportunity
+                else (milestone.opportunity_name if milestone else None)
+            ),
+            msx_status=row.get('starting_status'),
+            opportunity_number=row.get('opportunity_number'),
+            owner_alias=row.get('owner_alias'),
+            msxi_commitment=row.get('current_commitment'),
+            msxi_status=row.get('current_status'),
+            msxi_converted_acr=float(row.get('converted_acr') or 0.0),
+        )
+        db.session.add(item)
+        total_acr += acr
+
+    snapshot.total_items = len(rows)
+    snapshot.total_monthly_acr = round(total_acr, 2)
+    db.session.commit()
+
+    logger.info(
+        "Official MSXi U2C snapshot imported for %s: %d milestones "
+        "(%d matched locally), $%.2f total monthly ACR",
+        fq, len(rows), matched, total_acr,
+    )
+
+    return {
+        'success': True,
+        'snapshot_id': snapshot.id,
+        'fiscal_quarter': fq,
+        'source': snapshot.source,
+        'total_items': len(rows),
+        'matched_locally': matched,
+        'unmatched': len(rows) - matched,
+        'total_monthly_acr': round(total_acr, 2),
+        'replaced': bool(existing),
+    }
+
+
 def get_attainment(snapshot_id: int, workload_prefix: str | None = None) -> dict:
     """Calculate U2C attainment for a snapshot.
 
@@ -212,8 +378,10 @@ def get_attainment(snapshot_id: int, workload_prefix: str | None = None) -> dict
         current_status = item.msx_status  # fallback to snapshot status
         current_commitment = 'Uncommitted'
         live_acr = item.monthly_acr  # fallback to snapshot ACR
+        source = 'snapshot'
 
         if live_ms:
+            source = 'live'
             current_status = live_ms.msx_status
             current_commitment = live_ms.customer_commitment or 'Uncommitted'
             live_acr = live_ms.monthly_usage or 0.0
@@ -221,6 +389,18 @@ def get_attainment(snapshot_id: int, workload_prefix: str | None = None) -> dict
                 current_commitment == 'Committed'
                 or current_status in ('Completed',)
             )
+        elif item.msxi_commitment or item.msxi_status:
+            # Official import with no local milestone (an account we don't sync):
+            # fall back to MSXi's own view of where the milestone landed.
+            source = 'msxi'
+            current_status = item.msxi_status or item.msx_status
+            current_commitment = item.msxi_commitment or 'Uncommitted'
+            is_committed = (
+                current_commitment == 'Committed'
+                or current_status in ('Completed',)
+            )
+            if is_committed and item.msxi_converted_acr:
+                live_acr = item.msxi_converted_acr
 
         # Look up seller via customer relationship
         seller_name = None
@@ -243,9 +423,11 @@ def get_attainment(snapshot_id: int, workload_prefix: str | None = None) -> dict
             'monthly_acr': item.monthly_acr,
             'live_acr': live_acr,
             'opportunity_name': item.opportunity_name,
+            'owner_alias': item.owner_alias,
             'snapshot_status': item.msx_status,
             'current_status': current_status,
             'current_commitment': current_commitment,
+            'status_source': source,
             'is_committed': is_committed,
         }
 
@@ -268,6 +450,8 @@ def get_attainment(snapshot_id: int, workload_prefix: str | None = None) -> dict
         'success': True,
         'fiscal_quarter': snapshot.fiscal_quarter,
         'snapshot_date': snapshot.snapshot_date.isoformat(),
+        'source': snapshot.source,
+        'source_label': snapshot.source_label,
         'target_total': round(target_total, 2),
         'committed_total': round(committed_total, 2),
         'attainment_total': round(attainment_total, 2),
