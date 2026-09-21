@@ -1777,10 +1777,25 @@ def report_u2c():
         workload_prefixes = get_workload_prefixes(snapshot.id)
         attainment = get_attainment(snapshot.id)
 
-    # Check milestone sync freshness (relevant when no snapshot exists yet)
+    # Check milestone sync freshness (relevant before taking a local snapshot).
+    # SyncStatus is the authoritative record for both manual and scheduled
+    # milestone syncs. UserPreference.last_milestone_sync is legacy and was only
+    # updated by the scheduler, so a successful sync from this page still looked
+    # stale after reload.
     from app.models import UserPreference
-    pref = UserPreference.query.first()
-    last_sync = pref.last_milestone_sync if pref else None
+    milestone_sync_status = SyncStatus.get_status('milestones')
+    last_sync = (
+        milestone_sync_status.get('completed_at')
+        if milestone_sync_status.get('state') == 'complete'
+        else None
+    )
+    # Freshness requires a successful sync, but for display fall back to the
+    # legacy timestamp so a sync that's mid-flight or failed doesn't read as
+    # "never synced".
+    display_last_sync = last_sync
+    if display_last_sync is None:
+        pref = UserPreference.query.first()
+        display_last_sync = pref.last_milestone_sync if pref else None
     # "Fresh" = synced on or after the 5th of this month
     sync_threshold = datetime.combine(
         date.today().replace(day=5), datetime.min.time(),
@@ -1802,7 +1817,7 @@ def report_u2c():
         attainment=attainment,
         workload_prefixes=workload_prefixes,
         current_fq=current_fq,
-        last_milestone_sync=last_sync,
+        last_milestone_sync=display_last_sync,
         milestones_fresh=milestones_fresh,
         territory_count=territory_count,
     )

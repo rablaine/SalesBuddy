@@ -16,7 +16,7 @@ from typing import Dict, Any, List, Optional, Generator, Tuple
 
 from app.models import (
     db, CaipActivity, Customer, Milestone, MilestoneAudit, MsxTask,
-    Opportunity, User, SyncStatus,
+    Opportunity, User, SyncStatus, UserPreference,
 )
 from app.services.msx_api import (
     batch_get_milestones,
@@ -44,6 +44,23 @@ logger = logging.getLogger(__name__)
 
 # Active milestone statuses (uncommitted - the ones we're working to commit)
 ACTIVE_STATUSES = {'On Track', 'At Risk', 'Blocked'}
+
+
+def _stamp_last_milestone_sync() -> None:
+    """Record the sync time on UserPreference.
+
+    The scheduler reads this field to decide whether a scheduled sync was
+    missed, and the admin panel displays it. Manual syncs have to stamp it
+    too, otherwise a sync the user just ran by hand still looks overdue.
+    """
+    try:
+        pref = UserPreference.query.first()
+        if pref:
+            pref.last_milestone_sync = datetime.now(timezone.utc)
+            db.session.commit()
+    except Exception:
+        db.session.rollback()
+        logger.exception("Failed to stamp last_milestone_sync")
 
 
 def sync_all_customer_milestones() -> Dict[str, Any]:
@@ -208,7 +225,8 @@ def sync_all_customer_milestones() -> Dict[str, Any]:
             'updated': results['milestones_updated'],
         }),
     )
-    
+    _stamp_last_milestone_sync()
+
     return results
 
 
@@ -835,6 +853,7 @@ def sync_all_customer_milestones_stream(
             'stale_milestones_updated': total_stale_ms_updated,
         }),
     )
+    _stamp_last_milestone_sync()
 
     yield _sse_event('complete', {
         'success': sync_success,

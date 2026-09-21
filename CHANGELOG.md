@@ -14,6 +14,8 @@ Format: `## M/D/YYYY - <merge-short-sha>`. See
 - U2C snapshots now show where they came from (Official MSXi vs Local) in the quarter picker and as a badge on the report.
 - Milestones in the official baseline that you don't sync locally still count toward attainment, using MSXi's own view of where they landed, with the milestone owner's alias shown on the row.
 - The automatic quarter-start snapshot on the 5th now imports the official baseline first and only falls back to a local snapshot if the MSXi pull isn't available.
+- Fix the "stale milestone import" warning on the U2C report sticking around after a successful sync. The warning now reads the real milestone sync record, and manual syncs update the last-sync time the scheduler and admin panel use, so a hand-run sync no longer looks overdue.
+- The local snapshot button is now labeled "Take Local ... Snapshot" so it's clearly distinct from the official MSXi import.
 
 ## 9/5/2026 - 863d58f
 

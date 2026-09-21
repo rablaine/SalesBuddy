@@ -304,6 +304,51 @@ class TestReportRoute:
         assert response.status_code == 200
         assert b'U2C Attainment' in response.data
 
+    def test_report_uses_sync_status_for_local_snapshot_freshness(
+        self, client, app,
+    ):
+        """A successful manual milestone sync must clear the stale warning."""
+        with app.app_context():
+            from app.models import SyncStatus
+
+            SyncStatus.mark_started('milestones')
+            SyncStatus.mark_completed('milestones', success=True)
+
+        response = client.get('/reports/u2c')
+        assert response.status_code == 200
+        assert b'Stale local milestone import' not in response.data
+        assert b'Take Local' in response.data
+
+    def test_failed_sync_remains_stale(self, client, app):
+        """A failed milestone sync must not enable a local snapshot."""
+        with app.app_context():
+            from app.models import SyncStatus
+
+            SyncStatus.mark_started('milestones')
+            SyncStatus.mark_completed('milestones', success=False)
+
+        response = client.get('/reports/u2c')
+        assert response.status_code == 200
+        assert b'Stale local milestone import' in response.data
+
+    def test_manual_sync_stamps_legacy_last_sync(self, app):
+        """Manual syncs must stamp UserPreference so the scheduler agrees."""
+        with app.app_context():
+            from app.models import UserPreference, db
+            from app.services.milestone_sync import _stamp_last_milestone_sync
+
+            pref = UserPreference.query.first()
+            if not pref:
+                pref = UserPreference()
+                db.session.add(pref)
+                db.session.commit()
+            pref.last_milestone_sync = None
+            db.session.commit()
+
+            _stamp_last_milestone_sync()
+
+            assert UserPreference.query.first().last_milestone_sync is not None
+
     def test_report_with_snapshot(self, client, app, u2c_data):
         """Report should show attainment when a snapshot exists."""
         with app.app_context():
