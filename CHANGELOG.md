@@ -8,7 +8,7 @@ brought the change into `main`, so the admin Updates card can show
 Format: `## M/D/YYYY - <merge-short-sha>`. See
 `scripts/tag-changelog.ps1` for the helper that fills this in.
 
-## 9/21/2026
+## 9/21/2026 - 99a26dd
 
 - Add Remaining U2C milestones and their linked engagements to seller 1:1 agendas with a custom discussion note.
 
