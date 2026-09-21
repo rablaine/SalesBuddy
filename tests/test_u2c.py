@@ -716,50 +716,132 @@ class TestTerritoryCodes:
                 pull_u2c_milestones('FY27 Q1')
 
 
-class TestScheduledSnapshot:
-    """Test the automatic quarter-start snapshot picking its source."""
+class TestScheduledU2CImport:
+    """The daily scheduler hook that refreshes the official baseline."""
 
-    def test_prefers_official_import(self, app, monkeypatch):
-        import app.services.scheduled_sync as sched
-        import app.services.u2c_snapshot as snap
-        calls = []
-        monkeypatch.setattr(snap, 'is_snapshot_due', lambda: True)
-        monkeypatch.setattr(snap, 'import_official_snapshot', lambda: (
-            calls.append('official') or {
-                'success': True, 'source': 'msxi', 'fiscal_quarter': 'FY27 Q1',
-                'total_items': 1, 'total_monthly_acr': 100.0,
-            }))
-        monkeypatch.setattr(snap, 'create_snapshot', lambda: calls.append('local'))
+    def test_due_when_never_run(self, app):
+        from app.services.scheduled_sync import _u2c_import_due
         with app.app_context():
-            sched._check_u2c_snapshot()
-        assert calls == ['official']
+            assert _u2c_import_due() is True
 
-    def test_falls_back_to_local_snapshot(self, app, monkeypatch):
-        import app.services.scheduled_sync as sched
-        import app.services.u2c_snapshot as snap
-        calls = []
-        monkeypatch.setattr(snap, 'is_snapshot_due', lambda: True)
-        monkeypatch.setattr(snap, 'import_official_snapshot', lambda: (
-            calls.append('official') or {'success': False, 'error': 'no az login'}))
-        monkeypatch.setattr(snap, 'create_snapshot', lambda: (
-            calls.append('local') or {
-                'success': True, 'fiscal_quarter': 'FY27 Q1',
-                'total_items': 1, 'total_monthly_acr': 100.0,
-            }))
+    def test_not_due_straight_after_a_success(self, app):
+        from app.models import SyncStatus
+        from app.services.scheduled_sync import _u2c_import_due
         with app.app_context():
-            sched._check_u2c_snapshot()
-        assert calls == ['official', 'local']
+            SyncStatus.mark_started('u2c_import')
+            SyncStatus.mark_completed('u2c_import', success=True)
+            assert _u2c_import_due() is False
 
-    def test_does_nothing_when_not_due(self, app, monkeypatch):
-        import app.services.scheduled_sync as sched
-        import app.services.u2c_snapshot as snap
-        calls = []
-        monkeypatch.setattr(snap, 'is_snapshot_due', lambda: False)
-        monkeypatch.setattr(snap, 'import_official_snapshot', lambda: calls.append('official'))
-        monkeypatch.setattr(snap, 'create_snapshot', lambda: calls.append('local'))
+    def test_failure_retries_sooner_than_a_success(self, app):
+        """Off-VPN at boot is the common failure, and it self-heals quickly."""
+        from app.models import SyncStatus, db as _db
+        from app.services.scheduled_sync import _u2c_import_due
         with app.app_context():
-            sched._check_u2c_snapshot()
-        assert calls == []
+            SyncStatus.mark_started('u2c_import')
+            SyncStatus.mark_completed('u2c_import', success=False)
+            status = SyncStatus.query.filter_by(sync_type='u2c_import').first()
+            # Two hours ago: past the retry threshold, well short of the daily one.
+            status.completed_at = datetime.now(timezone.utc).replace(
+                tzinfo=None) - timedelta(hours=2)
+            _db.session.commit()
+            assert _u2c_import_due() is True
+
+            status.success = True
+            _db.session.commit()
+            assert _u2c_import_due() is False
+
+    def test_in_progress_is_not_due(self, app):
+        from app.models import SyncStatus
+        from app.services.scheduled_sync import _u2c_import_due
+        with app.app_context():
+            SyncStatus.mark_started('u2c_import')
+            SyncStatus.update_heartbeat('u2c_import')
+            assert _u2c_import_due() is False
+
+    def test_run_records_outcome_in_sync_status(self, app, monkeypatch):
+        import json
+        from app.models import SyncStatus
+        from app.services.scheduled_sync import _run_u2c_import
+
+        fq = current_fiscal_quarter()
+        FakeMsxi(fq, {'20260915': 5000.0}).install(monkeypatch)
+
+        with app.app_context():
+            _run_u2c_import()
+            status = SyncStatus.get_status('u2c_import')
+            assert status['state'] == 'complete'
+            assert json.loads(status['details'])['outcome'] == 'imported'
+
+    def test_run_records_failure_when_msxi_is_dark(self, app, monkeypatch):
+        import json
+        from app.models import SyncStatus
+        from app.services.scheduled_sync import _run_u2c_import
+
+        FakeMsxi(None, {}).install(monkeypatch)
+
+        with app.app_context():
+            _run_u2c_import()
+            status = SyncStatus.get_status('u2c_import')
+            assert status['state'] == 'failed'
+            assert json.loads(status['details'])['outcome'] == 'broken'
+
+    def test_skips_the_pull_when_not_due(self, app, monkeypatch):
+        from app.models import SyncStatus
+        from app.services.scheduled_sync import _run_u2c_import
+
+        fq = current_fiscal_quarter()
+        fake = FakeMsxi(fq, {'20260915': 5000.0}).install(monkeypatch)
+
+        with app.app_context():
+            SyncStatus.mark_started('u2c_import')
+            SyncStatus.mark_completed('u2c_import', success=True)
+            _run_u2c_import()
+            assert fake.calls == []
+
+
+class TestRematchSnapshotItems:
+    """Local re-matching between MSXi's weekly publishes."""
+
+    def test_rematch_links_milestones_synced_after_the_import(
+        self, app, monkeypatch,
+    ):
+        from app.services.u2c_snapshot import (
+            refresh_official_snapshot, rematch_current_snapshot,
+        )
+        fq = current_fiscal_quarter()
+        FakeMsxi(fq, {'20260915': 0.0}).install(monkeypatch)
+
+        with app.app_context():
+            refresh_official_snapshot()
+            snapshot = U2CSnapshot.query.filter_by(fiscal_quarter=fq).first()
+            item = U2CSnapshotItem.query.filter_by(
+                snapshot_id=snapshot.id, milestone_number='MS-2').first()
+            assert item.milestone_id is None
+
+            # The milestone shows up in a later milestone sync.
+            customer = Customer(name='Late Corp', tpid=4242)
+            db.session.add(customer)
+            db.session.flush()
+            milestone = Milestone(
+                url='https://example.com/ms-late',
+                title='Migrate SQL',
+                milestone_number='MS-2',
+                msx_status='On Track',
+                workload='Data: SQL',
+                customer_id=customer.id,
+            )
+            db.session.add(milestone)
+            db.session.commit()
+
+            assert rematch_current_snapshot() == 1
+            refreshed = db.session.get(U2CSnapshotItem, item.id)
+            assert refreshed.milestone_id == milestone.id
+            assert refreshed.workload == 'Data: SQL'
+
+    def test_rematch_without_a_snapshot_is_a_no_op(self, app):
+        from app.services.u2c_snapshot import rematch_current_snapshot
+        with app.app_context():
+            assert rematch_current_snapshot() == 0
 
 
 # =============================================================================

@@ -165,8 +165,9 @@ def _run_sync(app):
             # full pull is far heavier than a milestone sync.
             _run_revenue_sync()
 
-            # Check if a U2C snapshot is due (5th of FQ start month)
-            _check_u2c_snapshot()
+            # Refresh the official U2C baseline. Runs after the milestone sync
+            # so freshly synced milestones can be matched to MSXi rows.
+            _run_u2c_import()
     except Exception:
         logger.exception("Error during milestone sync")
     finally:
@@ -231,42 +232,102 @@ def _run_marketing_sync(app):
         logger.exception("Error during marketing insights sync")
 
 
-def _check_u2c_snapshot():
-    """Create a U2C snapshot if today is the 5th of a fiscal quarter start month.
+# The official U2C baseline is refreshed at most this often. MSXi publishes
+# weekly, so daily is comfortably ahead of the data without being wasteful.
+U2C_IMPORT_INTERVAL_HOURS = 20
+# A failed attempt retries much sooner - the usual cause is the machine being
+# off VPN or not yet signed in at boot, which fixes itself within the hour.
+U2C_RETRY_INTERVAL_HOURS = 1
 
-    Prefers the official MSX Insights baseline so the quarter starts from the
-    same numbers the field is measured on, and falls back to a local snapshot
-    built from our synced milestones when the MSXi pull isn't available (no
-    ``az login``, no VPN, no territories configured).
+
+def _u2c_import_due() -> bool:
+    """True when the official U2C baseline is due for a refresh.
+
+    Keyed off SyncStatus rather than a calendar so a machine that was off still
+    catches up on its next run, exactly like ``_revenue_sync_due``.
     """
+    from app.models import SyncStatus
+
+    status = SyncStatus.get_status('u2c_import')
+    state = status.get('state')
+    if state == 'in_progress':
+        return False
+    completed = status.get('completed_at')
+    if not completed:
+        return True
+    if completed.tzinfo is None:
+        completed = completed.replace(tzinfo=timezone.utc)
+
+    age_hours = (datetime.now(timezone.utc) - completed).total_seconds() / 3600
+    threshold = (U2C_RETRY_INTERVAL_HOURS if state == 'failed'
+                 else U2C_IMPORT_INTERVAL_HOURS)
+    if age_hours < threshold:
+        logger.debug("U2C import last ran %.1fh ago (threshold %dh), skipping",
+                     age_hours, threshold)
+        return False
+    return True
+
+
+def _run_u2c_import():
+    """Refresh the official U2C baseline. Assumes an active app context.
+
+    Always re-matches the current snapshot against local milestones first -
+    that's a free local pass, and it matters most right after a milestone sync.
+    The MSXi refresh itself only runs when due.
+    """
+    import json
+
+    from app.models import SyncStatus
+    from app.services.u2c_snapshot import (
+        OUTCOME_BROKEN, refresh_official_snapshot, rematch_current_snapshot,
+    )
+
     try:
-        from app.services.u2c_snapshot import (
-            create_snapshot, import_official_snapshot, is_snapshot_due,
-        )
-        if not is_snapshot_due():
-            return
-
-        logger.info("U2C snapshot due - importing official MSXi baseline")
-        result = import_official_snapshot()
-        if not result.get('success'):
-            logger.warning(
-                "Official U2C import failed (%s) - falling back to a local snapshot",
-                result.get('error'),
-            )
-            result = create_snapshot()
-
-        if result.get('success'):
-            logger.info(
-                "U2C snapshot created (%s): %s, %d milestones, $%.2f ACR",
-                result.get('source', 'local'),
-                result['fiscal_quarter'],
-                result['total_items'],
-                result['total_monthly_acr'],
-            )
-        else:
-            logger.warning("U2C snapshot skipped: %s", result.get('error'))
+        rematch_current_snapshot()
     except Exception:
-        logger.exception("Error checking U2C snapshot")
+        logger.exception("Error re-matching U2C snapshot items")
+
+    if not _u2c_import_due():
+        return
+
+    SyncStatus.mark_started('u2c_import')
+    try:
+        result = refresh_official_snapshot()
+    except Exception:
+        logger.exception("Error refreshing the official U2C baseline")
+        SyncStatus.mark_completed(
+            'u2c_import', success=False,
+            details=json.dumps({'outcome': OUTCOME_BROKEN}),
+        )
+        return
+
+    outcome = result.get('outcome')
+    if result.get('success'):
+        logger.info("U2C refresh (%s): %s, %s milestones, version %s",
+                    outcome, result.get('fiscal_quarter'),
+                    result.get('total_items'), result.get('msxi_version'))
+    else:
+        logger.warning("U2C refresh (%s) failed: %s", outcome, result.get('error'))
+
+    SyncStatus.mark_completed(
+        'u2c_import',
+        success=bool(result.get('success')),
+        items_synced=result.get('total_items'),
+        details=json.dumps({
+            'outcome': outcome,
+            'fiscal_quarter': result.get('fiscal_quarter'),
+            'msxi_version': result.get('msxi_version'),
+            'matched_locally': result.get('matched_locally'),
+            'versions_backfilled': result.get('versions_backfilled'),
+            'error': result.get('error'),
+        }),
+    )
+
+
+def run_u2c_import_if_due(app):
+    """Refresh the official U2C baseline from outside an app context."""
+    with app.app_context():
+        _run_u2c_import()
 
 
 def start_milestone_sync_background(app):
@@ -336,6 +397,15 @@ def start_daily_milestone_scheduler(app):
                 if should_run:
                     logger.info("Daily scheduler triggering milestone sync")
                     _run_sync(app)
+                else:
+                    # The U2C baseline refreshes daily on its own cadence - it's
+                    # a single Power BI query, not a full sync, so it shouldn't
+                    # wait for a Mon/Wed/Fri milestone sync. The first pass
+                    # through this loop doubles as startup catchup.
+                    try:
+                        run_u2c_import_if_due(app)
+                    except Exception:
+                        logger.exception("Error running the daily U2C import")
 
                 time.sleep(300)
             except Exception:

@@ -628,6 +628,56 @@ def _refresh_previous_quarter(fq: str, territories: list[str] | None) -> dict:
     return result
 
 
+def rematch_snapshot_items(snapshot: U2CSnapshot) -> int:
+    """Re-link a snapshot's items to local milestones without re-pulling MSXi.
+
+    The MSXi report covers every milestone in the territory, including ones on
+    accounts we haven't synced yet, so items can start out unmatched. A later
+    milestone sync fills those gaps - but MSXi only publishes weekly, so waiting
+    for the next import would leave attainment falling back to MSXi's view for
+    up to a week. This is a free local pass that closes that window.
+
+    Args:
+        snapshot: Snapshot whose items should be re-resolved.
+
+    Returns:
+        Number of items that gained a local milestone link.
+    """
+    newly_matched = 0
+    items = U2CSnapshotItem.query.filter_by(snapshot_id=snapshot.id).all()
+    for item in items:
+        if item.milestone_id:
+            continue
+        milestone, customer, opportunity = _resolve_local_records({
+            'milestone_number': item.milestone_number,
+            'opportunity_number': item.opportunity_number,
+            'customer_name': item.customer_name,
+        })
+        if milestone:
+            item.milestone_id = milestone.id
+            item.workload = milestone.workload
+            newly_matched += 1
+        if customer and not item.customer_id:
+            item.customer_id = customer.id
+        if opportunity and not item.opportunity_name:
+            item.opportunity_name = opportunity.name
+
+    if newly_matched:
+        db.session.commit()
+        logger.info("Re-matched %d previously unmatched U2C items for %s",
+                    newly_matched, snapshot.fiscal_quarter)
+    return newly_matched
+
+
+def rematch_current_snapshot() -> int:
+    """Re-link the current quarter's snapshot items. No-op if none exists."""
+    snapshot = U2CSnapshot.query.filter_by(
+        fiscal_quarter=current_fiscal_quarter()).first()
+    if snapshot is None:
+        return 0
+    return rematch_snapshot_items(snapshot)
+
+
 def close_out_quarter(fq_label: str,
                       territories: list[str] | None = None) -> dict:
     """Capture a rolled-over quarter's final numbers, then freeze it.
