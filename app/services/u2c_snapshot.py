@@ -341,7 +341,7 @@ def record_version_totals(snapshot: U2CSnapshot, version: str,
     entry = U2CSnapshotVersion.query.filter_by(
         snapshot_id=snapshot.id, msxi_version=version,
     ).first()
-    if entry is not None and entry.items.count():
+    if entry is not None and _version_is_complete(entry):
         return None  # fully stored; dated MSXi versions never change
 
     if entry is None:
@@ -351,10 +351,18 @@ def record_version_totals(snapshot: U2CSnapshot, version: str,
             version_date=version_date,
         )
         db.session.add(entry)
+    else:
+        # Completing a version stored before a field existed: clear the old
+        # rows first, or the re-pull doubles every per-item total.
+        U2CSnapshotVersionItem.query.filter_by(version_id=entry.id).delete()
+        db.session.flush()
 
     entry.total_items = len(rows)
     entry.total_starting_acr = round(
         sum(float(r.get('starting_acr') or 0.0) for r in rows), 2)
+    entry.total_committed_acr = round(
+        sum(float(r.get('starting_acr') or 0.0)
+            for r in rows if _row_is_committed(r)), 2)
     entry.total_converted_acr = round(
         sum(float(r.get('converted_acr') or 0.0) for r in rows), 2)
     db.session.flush()  # need entry.id for the item rows
@@ -366,8 +374,33 @@ def record_version_totals(snapshot: U2CSnapshot, version: str,
             workload=row.get('workload'),
             starting_acr=float(row.get('starting_acr') or 0.0),
             converted_acr=float(row.get('converted_acr') or 0.0),
+            commitment=row.get('current_commitment'),
+            status=row.get('current_status'),
         ))
     return entry
+
+
+def _row_is_committed(row: dict) -> bool:
+    """Whether MSXi considered a pulled row committed.
+
+    Mirrors the ``is_committed`` rule ``get_attainment`` applies, so the trend
+    and the report's cards agree on what counts.
+    """
+    return (row.get('current_commitment') == 'Committed'
+            or row.get('current_status') == 'Completed')
+
+
+def _version_is_complete(version: U2CSnapshotVersion) -> bool:
+    """Whether a stored version has everything the trend needs.
+
+    Versions written before a field existed are treated as incomplete so they
+    get re-pulled while MSXi still retains them, rather than silently answering
+    filtered questions with missing data.
+    """
+    if not version.items.count():
+        return False
+    return not version.items.filter(
+        U2CSnapshotVersionItem.commitment.is_(None)).count()
 
 
 def backfill_version_history(snapshot: U2CSnapshot,
@@ -393,7 +426,7 @@ def backfill_version_history(snapshot: U2CSnapshot,
     complete = {
         v.msxi_version for v in
         U2CSnapshotVersion.query.filter_by(snapshot_id=snapshot.id).all()
-        if v.items.count()
+        if _version_is_complete(v)
     }
     try:
         series = pull_version_series(
@@ -829,8 +862,16 @@ def get_attainment_trend(snapshot_id: int,
     keeps growing past MSXi's ~7-week retention and covers the whole quarter by
     the time it ends.
 
-    The converted total is deliberately not smoothed or clamped: MSXi restates
-    conversions downward between loads, so the line legitimately dips.
+    ``committed_acr`` is how much of the frozen starting baseline had committed
+    by that week, which is what the report's "Committed ACR" card shows.  MSXi's
+    own converted-pipeline measure is returned alongside it as
+    ``msxi_converted_acr`` but is deliberately not the headline: a milestone can
+    convert for more than it started at (one $2,000 baseline converting at
+    $5,600), so that measure can exceed the target and wouldn't reconcile with
+    the cards.
+
+    Nothing is smoothed or clamped: MSXi restates conversions downward between
+    loads, so the line legitimately dips.
 
     Args:
         snapshot_id: ID of the U2CSnapshot to chart.
@@ -840,8 +881,8 @@ def get_attainment_trend(snapshot_id: int,
             since they can only answer the territory-wide question.
 
     Returns:
-        List of dicts with 'date', 'label', 'starting_acr', 'converted_acr'
-        and 'attainment_pct'.
+        List of dicts with 'date', 'label', 'items', 'starting_acr',
+        'committed_acr', 'msxi_converted_acr' and 'u2c_pct'.
     """
     versions = (
         U2CSnapshotVersion.query
@@ -850,16 +891,26 @@ def get_attainment_trend(snapshot_id: int,
         .all()
     )
 
+    committed_sum = db.func.sum(
+        db.case(
+            (db.or_(U2CSnapshotVersionItem.commitment == 'Committed',
+                    U2CSnapshotVersionItem.status == 'Completed'),
+             U2CSnapshotVersionItem.starting_acr),
+            else_=0.0,
+        )
+    )
+
     points = []
     for version in versions:
         if workload_prefix:
             if not version.items.count():
                 continue  # totals-only week: can't answer a filtered question
-            count, starting, converted = (
+            count, starting, committed, converted = (
                 db.session.query(
                     db.func.count(U2CSnapshotVersionItem.id),
                     db.func.coalesce(
                         db.func.sum(U2CSnapshotVersionItem.starting_acr), 0.0),
+                    db.func.coalesce(committed_sum, 0.0),
                     db.func.coalesce(
                         db.func.sum(U2CSnapshotVersionItem.converted_acr), 0.0),
                 )
@@ -872,16 +923,18 @@ def get_attainment_trend(snapshot_id: int,
         else:
             count = version.total_items
             starting = version.total_starting_acr
+            committed = version.total_committed_acr
             converted = version.total_converted_acr
 
-        pct = round((converted / starting) * 100, 1) if starting else 0.0
+        pct = round((committed / starting) * 100, 1) if starting else 0.0
         points.append({
             'date': version.version_date.isoformat(),
             'label': version.version_date.strftime('%b %d'),
             'items': count,
             'starting_acr': round(starting, 2),
-            'converted_acr': round(converted, 2),
-            'attainment_pct': pct,
+            'committed_acr': round(committed, 2),
+            'msxi_converted_acr': round(converted, 2),
+            'u2c_pct': pct,
         })
     return points
 

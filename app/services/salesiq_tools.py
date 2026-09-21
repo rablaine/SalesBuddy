@@ -2158,7 +2158,7 @@ def get_u2c_attainment_trend(fiscal_quarter: str | None = None) -> dict:
         'is_final': snapshot.is_final,
         'msxi_version': snapshot.msxi_version,
         'points': points,
-        'latest_attainment_pct': points[-1]['attainment_pct'],
+        'latest_u2c_pct': points[-1]['u2c_pct'],
     }
 
 

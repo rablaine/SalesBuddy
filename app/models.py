@@ -2471,6 +2471,13 @@ class U2CSnapshotVersion(db.Model):
 
     total_items = db.Column(db.Integer, nullable=False, default=0)
     total_starting_acr = db.Column(db.Float, nullable=False, default=0.0)
+    # How much of the starting baseline had committed by this week. This is the
+    # figure the report's "Committed ACR" card shows, so the trend and the cards
+    # answer the same question.
+    total_committed_acr = db.Column(db.Float, nullable=False, default=0.0,
+                                    server_default='0')
+    # MSXi's own converted-pipeline measure, kept for reference. It can exceed
+    # the baseline when milestones convert for more than they started at.
     total_converted_acr = db.Column(db.Float, nullable=False, default=0.0)
     captured_at = db.Column(db.DateTime, nullable=False, default=utc_now)
 
@@ -2488,10 +2495,14 @@ class U2CSnapshotVersion(db.Model):
 
     @property
     def attainment_pct(self) -> float:
-        """Converted ACR as a percentage of the frozen starting baseline."""
+        """Committed ACR as a percentage of the frozen starting baseline.
+
+        Matches the report's "U2C %" card - snapshot-ACR basis, not MSXi's
+        converted-pipeline measure.
+        """
         if not self.total_starting_acr:
             return 0.0
-        return round((self.total_converted_acr / self.total_starting_acr) * 100, 1)
+        return round((self.total_committed_acr / self.total_starting_acr) * 100, 1)
 
     def __repr__(self) -> str:
         return (f'<U2CSnapshotVersion {self.msxi_version} '
@@ -2518,9 +2529,19 @@ class U2CSnapshotVersionItem(db.Model):
     milestone_number = db.Column(db.String(50), nullable=True)
     workload = db.Column(db.String(200), nullable=True)
     starting_acr = db.Column(db.Float, nullable=False, default=0.0)
+    # MSXi's own converted-pipeline measure. Not the same thing as "how much of
+    # the baseline converted": a milestone can convert for more than it started
+    # at, so this can exceed starting_acr.
     converted_acr = db.Column(db.Float, nullable=False, default=0.0)
+    commitment = db.Column(db.String(50), nullable=True)
+    status = db.Column(db.String(50), nullable=True)
 
     version = db.relationship('U2CSnapshotVersion', back_populates='items')
+
+    @property
+    def is_committed(self) -> bool:
+        """Whether MSXi considered this milestone committed that week."""
+        return self.commitment == 'Committed' or self.status == 'Completed'
 
     __table_args__ = (
         db.Index('ix_u2c_version_items_version_id', 'version_id'),

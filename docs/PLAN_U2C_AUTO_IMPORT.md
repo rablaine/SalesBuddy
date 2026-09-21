@@ -247,6 +247,19 @@ Notes from implementation:
   short-circuit meant stored items kept their stale local values, so the cards
   filtered on old data while the chart filtered on new and the page contradicted
   itself. Any future projected column must be added to the hash too.
+- The chart plots **committed ACR** (how much of the frozen baseline has
+  committed), not MSXi's `$ Uncommited to Commited Pipeline (Total)` measure.
+  Those are different numbers: a milestone can convert for more than it started
+  at - one real $2,000 baseline converted at $5,600 - so MSXi's measure can
+  exceed its own target and won't reconcile with the "Committed ACR" card.
+  MSXi's figure is still stored and returned as `msxi_converted_acr`.
+- Commitment state is therefore stored per version item, not inferred from
+  `converted_acr > 0`, and `_version_is_complete()` treats a version missing it
+  as incomplete so it gets re-pulled while MSXi still retains it.
+- When completing a partially stored version, the old item rows must be deleted
+  first. Appending instead doubled every per-item total while leaving the
+  header aggregates correct, so only the *filtered* series was wrong - the kind
+  of bug that hides from an unfiltered smoke test.
 
 ## The October verification
 

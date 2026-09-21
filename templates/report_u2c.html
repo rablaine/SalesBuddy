@@ -391,7 +391,7 @@ function renderU2cTrend(prefix) {
 
     if (u2cTrendChart) {
         u2cTrendChart.data.labels = points.map(p => p.label);
-        u2cTrendChart.data.datasets[0].data = points.map(p => p.converted_acr);
+        u2cTrendChart.data.datasets[0].data = points.map(p => p.committed_acr);
         u2cTrendChart.data.datasets[1].data = points.map(p => p.starting_acr);
         u2cTrendChart.update();
         return;
@@ -403,8 +403,8 @@ function renderU2cTrend(prefix) {
             labels: points.map(p => p.label),
             datasets: [
                 {
-                    label: 'Converted ACR',
-                    data: points.map(p => p.converted_acr),
+                    label: 'Committed ACR',
+                    data: points.map(p => p.committed_acr),
                     borderColor: '#198754',
                     backgroundColor: 'rgba(25, 135, 84, 0.12)',
                     fill: true,
@@ -439,10 +439,10 @@ function renderU2cTrend(prefix) {
                             const p = series[ctx.dataIndex];
                             if (!p) return '';
                             if (ctx.datasetIndex === 0) {
-                                // Snapshot-ACR basis, so this lines up with the
-                                // "U2C %" card rather than "Attainment %",
-                                // which revalues commits at live ACR.
-                                return ` Converted ${u2cMoney(p.converted_acr)} (${p.attainment_pct}% U2C)`;
+                                // Same basis as the "Committed ACR" and "U2C %"
+                                // cards: how much of the frozen baseline has
+                                // committed.
+                                return ` Committed ${u2cMoney(p.committed_acr)} (${p.u2c_pct}% U2C)`;
                             }
                             return ` Target ${u2cMoney(p.starting_acr)}`;
                         },

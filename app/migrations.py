@@ -1789,6 +1789,22 @@ def _migrate_u2c_version_history(db, inspector):
         db, inspector, 'u2c_snapshots', 'is_final',
         'BOOLEAN NOT NULL DEFAULT 0')
 
+    # The weekly trend needs to know which milestones were committed each week,
+    # not just MSXi's converted-pipeline measure - a milestone can convert for
+    # more than it started at, so that measure doesn't reconcile with the
+    # report's "Committed ACR" card.
+    if _table_exists(inspector, 'u2c_snapshot_versions'):
+        _add_column_if_not_exists(
+            db, inspector, 'u2c_snapshot_versions', 'total_committed_acr',
+            'FLOAT NOT NULL DEFAULT 0')
+    if _table_exists(inspector, 'u2c_snapshot_version_items'):
+        _add_column_if_not_exists(
+            db, inspector, 'u2c_snapshot_version_items', 'commitment',
+            'VARCHAR(50)')
+        _add_column_if_not_exists(
+            db, inspector, 'u2c_snapshot_version_items', 'status',
+            'VARCHAR(50)')
+
     _drop_local_u2c_snapshots(db)
 
 

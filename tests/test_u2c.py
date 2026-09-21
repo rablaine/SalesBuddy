@@ -1188,7 +1188,10 @@ class TestAttainmentTrend:
 
             assert [p['date'] for p in trend] == [
                 '2026-09-01', '2026-09-08', '2026-09-15']
-            assert [p['converted_acr'] for p in trend] == [1000.0, 800.0, 4000.0]
+            # The Data row (5000 baseline) commits, the Infra row never does.
+            assert [p['committed_acr'] for p in trend] == [5000.0, 5000.0, 5000.0]
+            assert [p['msxi_converted_acr'] for p in trend] == [
+                1000.0, 800.0, 4000.0]
             assert trend[0]['label'] == 'Sep 01'
 
     def test_trend_reports_percentage_against_the_frozen_baseline(
@@ -1200,7 +1203,7 @@ class TestAttainmentTrend:
             trend = get_attainment_trend(snapshot.id)
             # Baseline is 5000 + 3000 from the fake rows.
             assert all(p['starting_acr'] == 8000.0 for p in trend)
-            assert trend[-1]['attainment_pct'] == 50.0
+            assert trend[-1]['u2c_pct'] == 62.5  # 5000 / 8000
 
     def test_trend_is_empty_without_history(self, app, u2c_data):
         from app.services.u2c_snapshot import get_attainment_trend
@@ -1235,7 +1238,7 @@ class TestAttainmentTrend:
             self._seed(app, monkeypatch)
             result = get_u2c_attainment_trend()
             assert len(result['points']) == 3
-            assert result['latest_attainment_pct'] == 50.0
+            assert result['latest_u2c_pct'] == 62.5
             assert result['msxi_version'] == '20260915'
 
     def test_salesiq_trend_tool_without_a_snapshot(self, app):
@@ -1284,12 +1287,12 @@ class TestTrendWorkloadFiltering:
 
             data = get_attainment_trend(snapshot.id, 'Data')
             assert [p['starting_acr'] for p in data] == [5000.0, 5000.0]
-            assert [p['converted_acr'] for p in data] == [1000.0, 4000.0]
-            assert data[-1]['attainment_pct'] == 80.0
+            assert [p['committed_acr'] for p in data] == [5000.0, 5000.0]
+            assert data[-1]['u2c_pct'] == 100.0
 
             infra = get_attainment_trend(snapshot.id, 'Infra')
             assert [p['starting_acr'] for p in infra] == [3000.0, 3000.0]
-            assert [p['converted_acr'] for p in infra] == [0.0, 0.0]
+            assert [p['committed_acr'] for p in infra] == [0.0, 0.0]
 
     def test_workload_series_sum_to_the_overall_series(self, app, monkeypatch):
         from app.services.u2c_snapshot import get_attainment_trend
@@ -1302,8 +1305,8 @@ class TestTrendWorkloadFiltering:
             for i, point in enumerate(overall):
                 assert point['starting_acr'] == (
                     data[i]['starting_acr'] + infra[i]['starting_acr'])
-                assert point['converted_acr'] == (
-                    data[i]['converted_acr'] + infra[i]['converted_acr'])
+                assert point['committed_acr'] == (
+                    data[i]['committed_acr'] + infra[i]['committed_acr'])
 
     def test_series_map_has_one_entry_per_prefix_plus_overall(self, app, monkeypatch):
         from app.services.u2c_snapshot import get_attainment_trend_by_workload
@@ -1353,6 +1356,31 @@ class TestTrendWorkloadFiltering:
             assert backfill_version_history(snapshot) == 1
             assert oldest.items.count() == 2
 
+    def test_completing_a_version_does_not_double_its_items(self, app, monkeypatch):
+        """Re-pulling a partially stored version must replace, not append."""
+        from app.models import U2CSnapshotVersion, U2CSnapshotVersionItem
+        from app.services.u2c_snapshot import (
+            backfill_version_history, get_attainment_trend,
+        )
+
+        with app.app_context():
+            snapshot = self._seed(app, monkeypatch)
+            before = get_attainment_trend(snapshot.id, 'Data')[-1]
+
+            # Simulate a version written before `commitment` existed: the rows
+            # are there but incomplete, so the backfill will re-pull them.
+            for version in U2CSnapshotVersion.query.filter_by(
+                    snapshot_id=snapshot.id):
+                U2CSnapshotVersionItem.query.filter_by(
+                    version_id=version.id).update({'commitment': None})
+            db.session.commit()
+
+            backfill_version_history(snapshot)
+
+            after = get_attainment_trend(snapshot.id, 'Data')[-1]
+            assert after['starting_acr'] == before['starting_acr']
+            assert after['items'] == before['items']
+
     def test_chart_series_reaches_the_page(self, client, app, monkeypatch):
         with app.app_context():
             self._seed(app, monkeypatch)
@@ -1373,6 +1401,46 @@ class TestTrendWorkloadFiltering:
                 cards = get_attainment(snapshot.id, prefix)
                 trend = get_attainment_trend(snapshot.id, prefix)[-1]
                 assert cards['target_total'] == trend['starting_acr'], prefix
+
+    def test_a_milestone_converting_above_its_baseline_does_not_inflate_the_chart(
+        self, app, monkeypatch,
+    ):
+        """A $2,000 baseline can convert at $5,600 in MSXi's own measure.
+
+        The chart must report how much of the *baseline* committed, matching the
+        "Committed ACR" card, rather than MSXi's converted-pipeline figure -
+        otherwise the line can exceed its own target and disagree with every
+        other number on the page.
+        """
+        import app.services.u2c_pull as pull_module
+        from app.services.u2c_snapshot import (
+            get_attainment, get_attainment_trend, refresh_official_snapshot,
+        )
+
+        rows = [
+            _msxi_row(milestone_number='MS-GROWS', workload='Data: SQL MI',
+                      starting_acr=2000.0, converted_acr=5600.0,
+                      current_commitment='Committed'),
+            _msxi_row(milestone_number='MS-FLAT', workload='Data: Fabric',
+                      starting_acr=3000.0, converted_acr=0.0),
+        ]
+        monkeypatch.setattr(
+            pull_module, 'pull_u2c_milestones',
+            lambda fq, territories=None, version=None: rows,
+        )
+        with app.app_context():
+            refresh_official_snapshot()
+            snapshot = U2CSnapshot.query.first()
+
+            point = get_attainment_trend(snapshot.id, 'Data')[-1]
+            cards = get_attainment(snapshot.id, 'Data')
+
+            assert point['committed_acr'] == 2000.0 == cards['committed_total']
+            assert point['starting_acr'] == 5000.0 == cards['target_total']
+            assert point['u2c_pct'] == cards['u2c_pct'] == 40.0
+            # MSXi's raw measure is still available, just not the headline.
+            assert point['msxi_converted_acr'] == 5600.0
+            assert point['committed_acr'] <= point['starting_acr']
 
     def test_a_new_stored_field_forces_a_reimport(self, app, monkeypatch):
         """Adding a projected column must not leave stored items stale."""
