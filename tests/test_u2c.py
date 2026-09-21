@@ -6,10 +6,62 @@ from app.models import (
     db, Customer, Milestone, Opportunity, Territory, U2CSnapshot, U2CSnapshotItem,
 )
 from app.services.u2c_snapshot import (
-    create_snapshot, current_fiscal_quarter, fiscal_quarter_date_range,
+    current_fiscal_quarter, fiscal_quarter_date_range,
     get_attainment, get_workload_prefixes, import_official_snapshot,
-    is_snapshot_due,
 )
+
+
+def make_snapshot(fq_label=None):
+    """Build a snapshot from locally synced milestones. Test scaffolding only.
+
+    Production code always sources snapshots from the MSXi pull now, but the
+    attainment tests care about the attainment maths rather than where the rows
+    came from, so this keeps them focused and independent of the pull.
+    """
+    fq = fq_label or current_fiscal_quarter()
+    milestones = (
+        Milestone.query
+        .join(Opportunity, Milestone.opportunity_id == Opportunity.id)
+        .filter(
+            Milestone.customer_commitment == 'Uncommitted',
+            Milestone.msx_status.in_(['On Track', 'At Risk', 'Blocked']),
+            Opportunity.statecode == 0,
+        )
+        .all()
+    )
+
+    snapshot = U2CSnapshot(
+        fiscal_quarter=fq,
+        snapshot_date=datetime.now(timezone.utc),
+        source=U2CSnapshot.SOURCE_MSXI,
+    )
+    db.session.add(snapshot)
+    db.session.flush()
+
+    total_acr = 0.0
+    for ms in milestones:
+        acr = ms.monthly_usage or 0.0
+        db.session.add(U2CSnapshotItem(
+            snapshot_id=snapshot.id,
+            milestone_id=ms.id,
+            customer_id=ms.customer_id,
+            customer_name=ms.customer.name if ms.customer else 'Unknown',
+            milestone_title=ms.title or ms.milestone_number or 'Untitled',
+            milestone_number=ms.milestone_number,
+            workload=ms.workload,
+            due_date=ms.due_date,
+            monthly_acr=acr,
+            opportunity_name=ms.opportunity.name if ms.opportunity else None,
+            msx_status=ms.msx_status,
+        ))
+        total_acr += acr
+
+    snapshot.total_items = len(milestones)
+    snapshot.total_monthly_acr = round(total_acr, 2)
+    db.session.commit()
+    return {'snapshot_id': snapshot.id, 'fiscal_quarter': fq,
+            'total_items': len(milestones),
+            'total_monthly_acr': round(total_acr, 2)}
 
 
 @pytest.fixture
@@ -160,31 +212,21 @@ class TestFiscalQuarter:
         assert end == date(2026, 3, 31)
 
 
-class TestCreateSnapshot:
-    """Test U2C snapshot creation."""
+class TestSnapshotScaffolding:
+    """Sanity checks on the test scaffolding the attainment tests build on."""
 
-    def test_create_snapshot_captures_uncommitted(self, app, u2c_data):
-        """Snapshot should capture only uncommitted milestones on open opps."""
+    def test_snapshot_captures_uncommitted(self, app, u2c_data):
+        """Only uncommitted milestones on open opps are in scope."""
         with app.app_context():
-            result = create_snapshot()
-            assert result['success'] is True
+            result = make_snapshot()
             assert result['total_items'] == 3  # ms1, ms2, ms3
             # ms4 (committed) and ms5 (closed opp) excluded
             assert result['total_monthly_acr'] == 10000.0  # 5000+3000+2000
 
-    def test_create_snapshot_prevents_duplicates(self, app, u2c_data):
-        """Cannot create two snapshots for the same fiscal quarter."""
-        with app.app_context():
-            result1 = create_snapshot()
-            assert result1['success'] is True
-            result2 = create_snapshot()
-            assert result2['success'] is False
-            assert 'already exists' in result2['error']
-
     def test_snapshot_stores_frozen_data(self, app, u2c_data):
         """Snapshot items should store milestone data at snapshot time."""
         with app.app_context():
-            create_snapshot()
+            make_snapshot()
             snapshot = U2CSnapshot.query.first()
             items = snapshot.items.all()
             assert len(items) == 3
@@ -197,9 +239,17 @@ class TestCreateSnapshot:
     def test_snapshot_records_customer_name(self, app, u2c_data):
         """Items should have the customer name frozen."""
         with app.app_context():
-            create_snapshot()
+            make_snapshot()
             item = U2CSnapshotItem.query.first()
             assert item.customer_name == 'Test Corp'
+
+    def test_one_snapshot_per_quarter(self, app, u2c_data):
+        """The unique constraint is what makes refresh-in-place safe."""
+        with app.app_context():
+            make_snapshot()
+            with pytest.raises(Exception):
+                make_snapshot()
+            db.session.rollback()
 
 
 class TestAttainment:
@@ -208,7 +258,7 @@ class TestAttainment:
     def test_attainment_all_uncommitted(self, app, u2c_data):
         """When nothing is committed, attainment should be 0%."""
         with app.app_context():
-            create_snapshot()
+            make_snapshot()
             snapshot = U2CSnapshot.query.first()
             result = get_attainment(snapshot.id)
             assert result['success'] is True
@@ -219,7 +269,7 @@ class TestAttainment:
     def test_attainment_after_commit(self, app, u2c_data):
         """Committing a milestone should increase attainment."""
         with app.app_context():
-            create_snapshot()
+            make_snapshot()
             snapshot = U2CSnapshot.query.first()
 
             # Commit ms1 (5000 ACR)
@@ -236,7 +286,7 @@ class TestAttainment:
     def test_attainment_completed_counts(self, app, u2c_data):
         """Completed milestones should count as committed."""
         with app.app_context():
-            create_snapshot()
+            make_snapshot()
             snapshot = U2CSnapshot.query.first()
 
             # Mark ms2 as completed
@@ -251,7 +301,7 @@ class TestAttainment:
     def test_attainment_workload_filter(self, app, u2c_data):
         """Workload filter should scope to matching milestones only."""
         with app.app_context():
-            create_snapshot()
+            make_snapshot()
             snapshot = U2CSnapshot.query.first()
 
             result = get_attainment(snapshot.id, workload_prefix='Data')
@@ -262,7 +312,7 @@ class TestAttainment:
     def test_remaining_sorted_by_acr(self, app, u2c_data):
         """Remaining items should be sorted by monthly ACR descending."""
         with app.app_context():
-            create_snapshot()
+            make_snapshot()
             snapshot = U2CSnapshot.query.first()
             result = get_attainment(snapshot.id)
             acrs = [i['monthly_acr'] for i in result['remaining_items']]
@@ -275,24 +325,11 @@ class TestWorkloadPrefixes:
     def test_get_workload_prefixes(self, app, u2c_data):
         """Should return distinct workload prefixes."""
         with app.app_context():
-            create_snapshot()
+            make_snapshot()
             snapshot = U2CSnapshot.query.first()
             prefixes = get_workload_prefixes(snapshot.id)
             assert 'Data' in prefixes
             assert 'Infra' in prefixes
-
-
-class TestIsSnapshotDue:
-    """Test auto-snapshot date detection."""
-
-    def test_not_due_on_wrong_day(self, app):
-        """Should not be due on a random day."""
-        with app.app_context():
-            from unittest.mock import patch
-            with patch('app.services.u2c_snapshot.date') as mock_date:
-                mock_date.today.return_value = date(2026, 4, 15)
-                mock_date.side_effect = lambda *a, **kw: date(*a, **kw)
-                assert is_snapshot_due() is False
 
 
 class TestReportRoute:
@@ -304,85 +341,45 @@ class TestReportRoute:
         assert response.status_code == 200
         assert b'U2C Attainment' in response.data
 
-    def test_report_uses_sync_status_for_local_snapshot_freshness(
-        self, client, app,
+    def test_report_shows_the_msxi_version_it_is_displaying(
+        self, client, app, monkeypatch,
     ):
-        """A successful manual milestone sync must clear the stale warning."""
-        with app.app_context():
-            from app.models import SyncStatus
+        """Users need to see the data date, not just when we last checked."""
+        from app.services.u2c_snapshot import refresh_official_snapshot
 
-            SyncStatus.mark_started('milestones')
-            SyncStatus.mark_completed('milestones', success=True)
+        fq = current_fiscal_quarter()
+        FakeMsxi(fq, {'20260915': 5000.0}).install(monkeypatch)
+        with app.app_context():
+            refresh_official_snapshot()
 
         response = client.get('/reports/u2c')
         assert response.status_code == 200
+        assert b'MSXi data as of Sep 15, 2026' in response.data
+
+    def test_report_no_longer_offers_local_snapshots(self, client):
+        """Local snapshots and their stale-sync gate are gone."""
+        response = client.get('/reports/u2c')
+        assert response.status_code == 200
+        assert b'Take Local' not in response.data
         assert b'Stale local milestone import' not in response.data
-        assert b'Take Local' in response.data
-
-    def test_failed_sync_remains_stale(self, client, app):
-        """A failed milestone sync must not enable a local snapshot."""
-        with app.app_context():
-            from app.models import SyncStatus
-
-            SyncStatus.mark_started('milestones')
-            SyncStatus.mark_completed('milestones', success=False)
-
-        response = client.get('/reports/u2c')
-        assert response.status_code == 200
-        assert b'Stale local milestone import' in response.data
-
-    def test_manual_sync_stamps_legacy_last_sync(self, app):
-        """Manual syncs must stamp UserPreference so the scheduler agrees."""
-        with app.app_context():
-            from app.models import UserPreference, db
-            from app.services.milestone_sync import _stamp_last_milestone_sync
-
-            pref = UserPreference.query.first()
-            if not pref:
-                pref = UserPreference()
-                db.session.add(pref)
-                db.session.commit()
-            pref.last_milestone_sync = None
-            db.session.commit()
-
-            _stamp_last_milestone_sync()
-
-            assert UserPreference.query.first().last_milestone_sync is not None
 
     def test_report_with_snapshot(self, client, app, u2c_data):
         """Report should show attainment when a snapshot exists."""
         with app.app_context():
-            create_snapshot()
+            make_snapshot()
         fq = current_fiscal_quarter()
         response = client.get(f'/reports/u2c?fq={fq}')
         assert response.status_code == 200
         assert b'Attainment' in response.data
 
-    def test_create_snapshot_api(self, client, app, u2c_data):
-        """POST to create snapshot should work."""
+    def test_create_snapshot_endpoint_is_gone(self, client, app, u2c_data):
+        """The local snapshot API was removed along with the feature."""
         response = client.post(
             '/api/reports/u2c/create-snapshot',
             json={},
             content_type='application/json',
         )
-        assert response.status_code == 200
-        data = response.get_json()
-        assert data['success'] is True
-        assert data['total_items'] == 3
-
-    def test_create_snapshot_api_duplicate(self, client, app, u2c_data):
-        """Duplicate snapshot creation should return 409."""
-        client.post(
-            '/api/reports/u2c/create-snapshot',
-            json={},
-            content_type='application/json',
-        )
-        response = client.post(
-            '/api/reports/u2c/create-snapshot',
-            json={},
-            content_type='application/json',
-        )
-        assert response.status_code == 409
+        assert response.status_code == 404
 
 
 class TestSalesIQTool:
@@ -404,7 +401,7 @@ class TestSalesIQTool:
     def test_u2c_tool_with_data(self, app, u2c_data):
         """Tool should return attainment data when snapshot exists."""
         with app.app_context():
-            create_snapshot()
+            make_snapshot()
             from app.services.salesiq_tools import execute_tool
             result = execute_tool('get_u2c_attainment', {})
             assert result['success'] is True
@@ -576,8 +573,7 @@ class TestImportOfficialSnapshot:
             snapshot = U2CSnapshot.query.filter_by(
                 fiscal_quarter=current_fiscal_quarter()).first()
             assert snapshot.source == U2CSnapshot.SOURCE_MSXI
-            assert snapshot.is_official is True
-            assert snapshot.source_label == 'Official MSXi'
+            assert snapshot.content_fingerprint
 
     def test_import_links_matching_local_milestones(self, app, u2c_data, official_rows):
         with app.app_context():
@@ -609,15 +605,15 @@ class TestImportOfficialSnapshot:
     def test_import_refuses_to_clobber_existing_snapshot(self, app, u2c_data,
                                                          official_rows):
         with app.app_context():
-            create_snapshot()
+            make_snapshot()
             result = import_official_snapshot()
             assert result['success'] is False
             assert result['needs_replace'] is True
-            assert result['existing_source'] == U2CSnapshot.SOURCE_LOCAL
+            assert result['existing_source'] == U2CSnapshot.SOURCE_MSXI
 
     def test_import_replaces_when_asked(self, app, u2c_data, official_rows):
         with app.app_context():
-            create_snapshot()
+            make_snapshot()
             result = import_official_snapshot(replace=True)
             assert result['success'] is True
             assert result['replaced'] is True
@@ -670,7 +666,7 @@ class TestImportOfficialRoute:
     def test_import_endpoint_conflicts_with_existing(self, client, app, u2c_data,
                                                      official_rows):
         with app.app_context():
-            create_snapshot()
+            make_snapshot()
         response = client.post('/api/reports/u2c/import-official', json={})
         assert response.status_code == 409
         assert response.get_json()['needs_replace'] is True
@@ -678,7 +674,7 @@ class TestImportOfficialRoute:
     def test_import_endpoint_replaces_when_asked(self, client, app, u2c_data,
                                                  official_rows):
         with app.app_context():
-            create_snapshot()
+            make_snapshot()
         response = client.post('/api/reports/u2c/import-official',
                                json={'replace': True})
         assert response.status_code == 200

@@ -1777,38 +1777,12 @@ def report_u2c():
         workload_prefixes = get_workload_prefixes(snapshot.id)
         attainment = get_attainment(snapshot.id)
 
-    # Check milestone sync freshness (relevant before taking a local snapshot).
-    # SyncStatus is the authoritative record for both manual and scheduled
-    # milestone syncs. UserPreference.last_milestone_sync is legacy and was only
-    # updated by the scheduler, so a successful sync from this page still looked
-    # stale after reload.
-    from app.models import UserPreference
-    milestone_sync_status = SyncStatus.get_status('milestones')
-    last_sync = (
-        milestone_sync_status.get('completed_at')
-        if milestone_sync_status.get('state') == 'complete'
-        else None
-    )
-    # Freshness requires a successful sync, but for display fall back to the
-    # legacy timestamp so a sync that's mid-flight or failed doesn't read as
-    # "never synced".
-    display_last_sync = last_sync
-    if display_last_sync is None:
-        pref = UserPreference.query.first()
-        display_last_sync = pref.last_milestone_sync if pref else None
-    # "Fresh" = synced on or after the 5th of this month
-    sync_threshold = datetime.combine(
-        date.today().replace(day=5), datetime.min.time(),
-    )
-    # last_sync is stored as naive UTC in SQLite, compare naive-to-naive
-    if last_sync and last_sync.tzinfo is not None:
-        last_sync_naive = last_sync.replace(tzinfo=None)
-    else:
-        last_sync_naive = last_sync
-    milestones_fresh = last_sync_naive is not None and last_sync_naive >= sync_threshold
-
     # The official MSXi import is scoped by the territories configured here.
     territory_count = Territory.query.count()
+
+    # When the baseline last refreshed, and what MSXi load it came from. The
+    # two are different questions: we check daily, MSXi publishes weekly.
+    u2c_sync_status = SyncStatus.get_status('u2c_import')
 
     return render_template(
         'report_u2c.html',
@@ -1817,24 +1791,9 @@ def report_u2c():
         attainment=attainment,
         workload_prefixes=workload_prefixes,
         current_fq=current_fq,
-        last_milestone_sync=display_last_sync,
-        milestones_fresh=milestones_fresh,
         territory_count=territory_count,
+        last_checked=u2c_sync_status.get('completed_at'),
     )
-
-
-@bp.route('/api/reports/u2c/create-snapshot', methods=['POST'])
-def api_u2c_create_snapshot():
-    """Create a U2C snapshot for the current (or specified) fiscal quarter."""
-    from app.services.u2c_snapshot import create_snapshot, current_fiscal_quarter
-
-    fq = request.json.get('fiscal_quarter') if request.is_json else None
-    if not fq:
-        fq = current_fiscal_quarter()
-
-    result = create_snapshot(fq)
-    status = 200 if result.get('success') else 409
-    return jsonify(result), status
 
 
 @bp.route('/api/reports/u2c/import-official', methods=['POST'])

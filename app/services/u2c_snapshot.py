@@ -1,14 +1,14 @@
 """
 U2C (Uncommitted to Committed) snapshot service.
 
-Takes a point-in-time snapshot of all uncommitted milestones on open
-opportunities at the start of each fiscal quarter.  The snapshot forms
-a fixed baseline so attainment (how many milestones moved to Committed)
-can be tracked throughout the quarter.
+Mirrors the official MSX Insights "Uncommitted to Committed" report so
+attainment is measured against the same baseline the field is measured on.
 
-Snapshots are created automatically on the 5th of each FQ start month
-(Jul, Oct, Jan, Apr) during the scheduled milestone sync, or manually
-from the admin panel / U2C report page.
+MSXi only ever serves whichever fiscal quarter is current to it, publishing a
+new snapshot version weekly and retaining roughly seven weeks of them.  A daily
+refresh keeps the current quarter live, stores each weekly version's totals
+permanently for the attainment trend, and closes out a quarter once MSXi rolls
+over to the next one.
 """
 import logging
 from datetime import date, datetime, timedelta, timezone
@@ -19,10 +19,6 @@ from app.models import (
 )
 
 logger = logging.getLogger(__name__)
-
-# Microsoft fiscal quarter start months (calendar month -> FQ)
-FQ_START_MONTHS = {7, 10, 1, 4}
-SNAPSHOT_DAY = 5  # Day of month to take snapshot
 
 
 def current_fiscal_quarter(ref_date: date | None = None) -> str:
@@ -85,99 +81,7 @@ def previous_fiscal_quarter(fq_label: str) -> str:
     return f"FY{fy % 100:02d} Q{q - 1}"
 
 
-def is_snapshot_due() -> bool:
-    """Return True if today is the 5th of a FQ start month and no snapshot exists yet."""
-    today = date.today()
-    if today.day != SNAPSHOT_DAY:
-        return False
-    if today.month not in FQ_START_MONTHS:
-        return False
-    fq = current_fiscal_quarter(today)
-    return not U2CSnapshot.query.filter_by(fiscal_quarter=fq).first()
 
-
-def create_snapshot(fq_label: str | None = None) -> dict:
-    """Create a U2C snapshot for the given fiscal quarter.
-
-    Captures all uncommitted milestones on open opportunities for customers
-    that have synced milestones.
-
-    Args:
-        fq_label: Fiscal quarter to snapshot (e.g. 'FY26 Q4').
-                  Defaults to current fiscal quarter.
-
-    Returns:
-        Dict with 'success', 'snapshot_id', 'total_items', 'total_monthly_acr'.
-    """
-    fq = fq_label or current_fiscal_quarter()
-
-    existing = U2CSnapshot.query.filter_by(fiscal_quarter=fq).first()
-    if existing:
-        return {
-            'success': False,
-            'error': f'Snapshot already exists for {fq}',
-            'snapshot_id': existing.id,
-        }
-
-    # Query uncommitted milestones on open opportunities
-    milestones = (
-        Milestone.query
-        .join(Opportunity, Milestone.opportunity_id == Opportunity.id)
-        .join(Customer, Milestone.customer_id == Customer.id)
-        .filter(
-            Milestone.customer_commitment == 'Uncommitted',
-            Milestone.msx_status.in_(['On Track', 'At Risk', 'Blocked']),
-            Opportunity.statecode == 0,  # Open
-        )
-        .options(
-            db.joinedload(Milestone.customer),
-            db.joinedload(Milestone.opportunity),
-        )
-        .all()
-    )
-
-    snapshot = U2CSnapshot(
-        fiscal_quarter=fq,
-        snapshot_date=datetime.now(timezone.utc),
-    )
-    db.session.add(snapshot)
-    db.session.flush()  # Get snapshot.id
-
-    total_acr = 0.0
-    for ms in milestones:
-        acr = ms.monthly_usage or 0.0
-        item = U2CSnapshotItem(
-            snapshot_id=snapshot.id,
-            milestone_id=ms.id,
-            customer_id=ms.customer_id,
-            customer_name=ms.customer.name if ms.customer else 'Unknown',
-            milestone_title=ms.title or ms.milestone_number or 'Untitled',
-            milestone_number=ms.milestone_number,
-            workload=ms.workload,
-            due_date=ms.due_date,
-            monthly_acr=acr,
-            opportunity_name=ms.opportunity.name if ms.opportunity else None,
-            msx_status=ms.msx_status,
-        )
-        db.session.add(item)
-        total_acr += acr
-
-    snapshot.total_items = len(milestones)
-    snapshot.total_monthly_acr = round(total_acr, 2)
-    db.session.commit()
-
-    logger.info(
-        "U2C snapshot created for %s: %d milestones, $%.2f total monthly ACR",
-        fq, len(milestones), total_acr,
-    )
-
-    return {
-        'success': True,
-        'snapshot_id': snapshot.id,
-        'fiscal_quarter': fq,
-        'total_items': len(milestones),
-        'total_monthly_acr': round(total_acr, 2),
-    }
 
 
 def _resolve_local_records(row: dict) -> tuple[Milestone | None, Customer | None,
@@ -878,7 +782,8 @@ def get_attainment(snapshot_id: int, workload_prefix: str | None = None) -> dict
         'fiscal_quarter': snapshot.fiscal_quarter,
         'snapshot_date': snapshot.snapshot_date.isoformat(),
         'source': snapshot.source,
-        'source_label': snapshot.source_label,
+        'msxi_version': snapshot.msxi_version,
+        'is_final': snapshot.is_final,
         'target_total': round(target_total, 2),
         'committed_total': round(committed_total, 2),
         'attainment_total': round(attainment_total, 2),

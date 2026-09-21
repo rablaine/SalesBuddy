@@ -1767,6 +1767,11 @@ def _migrate_u2c_version_history(db, inspector):
     MSXi hasn't published a new load, and ``is_final`` marks a quarter that has
     rolled over and can never change again.
 
+    Also drops any locally-built snapshots.  Local and official snapshots aren't
+    comparable numbers, and MSXi will not serve a past quarter again, so the
+    local ones are removed rather than left to sit alongside official data
+    pretending to be the same measurement.
+
     The ``u2c_snapshot_versions`` table itself is created by ``db.create_all()``.
     Idempotent.
     """
@@ -1782,3 +1787,28 @@ def _migrate_u2c_version_history(db, inspector):
     _add_column_if_not_exists(
         db, inspector, 'u2c_snapshots', 'is_final',
         'BOOLEAN NOT NULL DEFAULT 0')
+
+    _drop_local_u2c_snapshots(db)
+
+
+def _drop_local_u2c_snapshots(db):
+    """Remove locally-built U2C snapshots. One-time, idempotent."""
+    from sqlalchemy import text
+
+    rows = db.session.execute(
+        text("SELECT id FROM u2c_snapshots WHERE source = 'local'")
+    ).fetchall()
+    if not rows:
+        return
+
+    ids = [r[0] for r in rows]
+    placeholders = ','.join(str(int(i)) for i in ids)
+    db.session.execute(text(
+        f"DELETE FROM u2c_snapshot_items WHERE snapshot_id IN ({placeholders})"
+    ))
+    db.session.execute(text(
+        f"DELETE FROM u2c_snapshots WHERE id IN ({placeholders})"
+    ))
+    db.session.commit()
+    print(f"  Removed {len(ids)} locally-built U2C snapshot(s) - "
+          "the official MSXi baseline replaces them")

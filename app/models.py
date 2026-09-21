@@ -2348,16 +2348,15 @@ class MarketingContact(db.Model):
 # =============================================================================
 
 class U2CSnapshot(db.Model):
-    """Header for a fiscal quarter U2C milestone snapshot.
+    """Header for a fiscal quarter U2C milestone baseline.
 
-    Either captured locally on the 5th of each fiscal quarter's first month (or
-    manually), or imported from the official MSX Insights U2C report.  Records
-    the set of uncommitted milestones on open opportunities at that point in
-    time so attainment can be tracked against a fixed baseline.
+    Mirrors the official MSX Insights "Uncommitted to Committed" report for one
+    fiscal quarter.  MSXi freezes the baseline columns itself, so a refresh
+    reproduces the same starting numbers and only updates its current view of
+    each milestone.
     """
     __tablename__ = 'u2c_snapshots'
 
-    SOURCE_LOCAL = 'local'
     SOURCE_MSXI = 'msxi'
 
     id = db.Column(db.Integer, primary_key=True)
@@ -2365,13 +2364,15 @@ class U2CSnapshot(db.Model):
     snapshot_date = db.Column(db.DateTime, nullable=False, default=utc_now)
     total_items = db.Column(db.Integer, default=0, nullable=False)
     total_monthly_acr = db.Column(db.Float, default=0.0, nullable=False)
-    # 'local' = derived from our synced milestones, 'msxi' = official MSXi pull
-    source = db.Column(db.String(20), nullable=False, default=SOURCE_LOCAL,
-                       server_default=SOURCE_LOCAL)
+    # Retained so the column keeps a value on existing rows; every snapshot is
+    # now sourced from MSXi. Locally-built snapshots were removed in the
+    # migration that added the version-history columns.
+    source = db.Column(db.String(20), nullable=False, default=SOURCE_MSXI,
+                       server_default=SOURCE_MSXI)
     created_at = db.Column(db.DateTime, default=utc_now, nullable=False)
 
     # Which MSXi weekly "Snapshot Version" the current item rows came from,
-    # as a yyyymmdd string (e.g. '20260915'). None for local snapshots.
+    # as a yyyymmdd string (e.g. '20260915').
     msxi_version = db.Column(db.String(20), nullable=True)
     last_refreshed_at = db.Column(db.DateTime, nullable=True)
     # Hash of the pulled payload - lets a daily refresh skip the write when
@@ -2383,14 +2384,10 @@ class U2CSnapshot(db.Model):
                          server_default='0')
 
     @property
-    def is_official(self) -> bool:
-        """Return True if this snapshot came from the official MSXi report."""
-        return self.source == self.SOURCE_MSXI
-
-    @property
-    def source_label(self) -> str:
-        """Return a human-readable label for where the snapshot came from."""
-        return 'Official MSXi' if self.is_official else 'Local'
+    def msxi_version_date(self):
+        """The MSXi version this snapshot came from, as a date."""
+        from app.services.u2c_pull import version_to_date
+        return version_to_date(self.msxi_version) if self.msxi_version else None
 
     items = db.relationship(
         'U2CSnapshotItem', back_populates='snapshot',
