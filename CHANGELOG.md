@@ -8,6 +8,10 @@ brought the change into `main`, so the admin Updates card can show
 Format: `## M/D/YYYY - <merge-short-sha>`. See
 `scripts/tag-changelog.ps1` for the helper that fills this in.
 
+## 9/21/2026
+
+- Add Remaining U2C milestones and their linked engagements to seller 1:1 agendas with a custom discussion note.
+
 ## 9/21/2026 - a8006da
 
 - Build the U2C Attainment report from the official MSX Insights baseline, automatically refresh it daily, and preserve completed quarters for reference.

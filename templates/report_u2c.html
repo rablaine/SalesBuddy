@@ -198,6 +198,8 @@
                     <th class="sortable text-nowrap" data-sort="due_date" style="cursor: pointer; min-width: 110px;">Due Date <i class="bi bi-arrow-down-up text-muted small"></i></th>
                     <th class="sortable text-nowrap text-end" data-sort="acr" style="cursor: pointer; min-width: 110px;">Est. ACR <i class="bi bi-arrow-down-up text-muted small"></i></th>
                     <th class="sortable text-nowrap" data-sort="status" style="cursor: pointer; min-width: 90px;">Status <i class="bi bi-arrow-down-up text-muted small"></i></th>
+                    <th class="text-center" title="Linked to an engagement">Eng</th>
+                    <th title="Seller 1:1 notes">1:1</th>
                 </tr>
             </thead>
             <tbody id="remainingBody">
@@ -250,6 +252,74 @@
                         <span class="badge {% if item.current_status == 'On Track' %}bg-success{% elif item.current_status == 'At Risk' %}bg-warning text-dark{% elif item.current_status == 'Blocked' %}bg-danger{% else %}bg-secondary{% endif %}">
                             {{ item.current_status }}
                         </span>
+                    </td>
+                    <td class="text-center">
+                        {% if item.engagements %}
+                        <i class="bi bi-check-circle-fill text-success"
+                           title="Linked: {{ item.engagements|map(attribute='title')|join(', ') }}"
+                           aria-label="Linked to {{ item.engagements|length }} engagement{% if item.engagements|length != 1 %}s{% endif %}"></i>
+                        {% else %}
+                        <i class="bi bi-x-circle text-muted"
+                           title="No linked engagement"
+                           aria-label="No linked engagement"></i>
+                        {% endif %}
+                    </td>
+                    <td>
+                        <div class="u2c-agenda-action">
+                            {% if item.one_on_one_active %}
+                            <a href="{{ url_for('one_on_one.seller_workspace', seller_id=item.seller_id) }}"
+                               class="btn btn-sm btn-outline-success"
+                               title="Open {{ item.seller_name }}'s 1:1 notes"
+                               aria-label="Open {{ item.seller_name }}'s 1:1 notes">
+                                <i class="bi bi-check-circle"></i> On 1:1
+                            </a>
+                            {% elif item.milestone_id and item.seller_id %}
+                            <button type="button"
+                                    class="btn btn-sm btn-outline-primary js-u2c-agenda-toggle"
+                                    title="Add to {{ item.seller_name }}'s 1:1 notes"
+                                    aria-label="Add to {{ item.seller_name }}'s 1:1 notes"
+                                    aria-expanded="false"
+                                    aria-controls="u2cAgendaComposer{{ item.id }}">
+                                <i class="bi bi-person-plus"></i>
+                                Add
+                            </button>
+                            <div id="u2cAgendaComposer{{ item.id }}"
+                                 class="u2c-agenda-composer d-none mt-2"
+                                 style="width: 260px;">
+                                <label class="form-label small fw-semibold mb-1"
+                                       for="u2cAgendaNote{{ item.id }}">
+                                    Add to {{ item.seller_name }}'s 1:1
+                                </label>
+                                <textarea id="u2cAgendaNote{{ item.id }}"
+                                          class="form-control form-control-sm mb-2"
+                                          rows="3">Review the path to commitment for {{ item.milestone_title }}. Currently {{ item.current_status }} with ${{ "{:,.0f}".format(item.monthly_acr) }}/mo remaining.</textarea>
+                                <div class="d-flex align-items-center gap-2">
+                                    <button type="button"
+                                            class="btn btn-sm btn-primary js-u2c-agenda-save"
+                                            data-endpoint="{{ url_for('one_on_one.agenda_add_u2c_context', seller_id=item.seller_id) }}"
+                                            data-milestone-id="{{ item.milestone_id }}">
+                                        Add to 1:1
+                                    </button>
+                                    <button type="button"
+                                            class="btn btn-sm btn-link text-muted p-0 js-u2c-agenda-cancel">
+                                        Cancel
+                                    </button>
+                                </div>
+                                <div class="small text-danger mt-2 d-none u2c-agenda-error"
+                                     role="alert"></div>
+                            </div>
+                            {% elif not item.milestone_id %}
+                            <button type="button" class="btn btn-sm btn-outline-secondary"
+                                    disabled title="Sync this milestone locally before adding it to a 1:1">
+                                <i class="bi bi-person-plus"></i> Unavailable
+                            </button>
+                            {% else %}
+                            <button type="button" class="btn btn-sm btn-outline-secondary"
+                                    disabled title="Assign this customer to a seller first">
+                                <i class="bi bi-person-plus"></i> Unavailable
+                            </button>
+                            {% endif %}
+                        </div>
                     </td>
                 </tr>
                 {% endfor %}
@@ -798,7 +868,61 @@ function clearMilestoneFilters() {
 }
 
 // ==========================================================================
-// 5) Event wiring + state restore
+// 5) Add remaining milestone context to a seller 1:1
+// ==========================================================================
+function closeU2cAgendaComposer(composer) {
+    composer.classList.add('d-none');
+    const toggle = composer.parentElement.querySelector('.js-u2c-agenda-toggle');
+    if (toggle) toggle.setAttribute('aria-expanded', 'false');
+}
+
+async function addU2cAgendaContext(button) {
+    const composer = button.closest('.u2c-agenda-composer');
+    const note = composer.querySelector('textarea');
+    const error = composer.querySelector('.u2c-agenda-error');
+    const talkingPoints = note.value.trim();
+    if (!talkingPoints) {
+        error.textContent = 'Enter a discussion note before adding this item.';
+        error.classList.remove('d-none');
+        note.focus();
+        return;
+    }
+
+    error.classList.add('d-none');
+    const original = button.innerHTML;
+    button.disabled = true;
+    button.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Adding...';
+
+    try {
+        const response = await fetch(button.dataset.endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                milestone_id: button.dataset.milestoneId,
+                talking_points: talkingPoints,
+            }),
+        });
+        const data = await response.json();
+        if (!response.ok || !data.success) {
+            throw new Error(data.error || 'Unable to add this item to the 1:1.');
+        }
+
+        const action = composer.closest('.u2c-agenda-action');
+        const link = document.createElement('a');
+        link.href = data.workspace_url;
+        link.className = 'btn btn-sm btn-outline-success';
+        link.innerHTML = '<i class="bi bi-check-circle"></i> On 1:1';
+        action.replaceChildren(link);
+    } catch (err) {
+        error.textContent = err.message;
+        error.classList.remove('d-none');
+        button.disabled = false;
+        button.innerHTML = original;
+    }
+}
+
+// ==========================================================================
+// 6) Event wiring + state restore
 // ==========================================================================
 document.addEventListener('DOMContentLoaded', function() {
     populateFilterDropdowns();
@@ -871,6 +995,28 @@ document.addEventListener('DOMContentLoaded', function() {
     if (clearEmptyBtn) {
         clearEmptyBtn.addEventListener('click', clearMilestoneFilters);
     }
+    document.querySelectorAll('.js-u2c-agenda-toggle').forEach(button => {
+        button.addEventListener('click', function() {
+            const composer = el(this.getAttribute('aria-controls'));
+            const opening = composer.classList.contains('d-none');
+            document.querySelectorAll('.u2c-agenda-composer:not(.d-none)').forEach(
+                closeU2cAgendaComposer
+            );
+            composer.classList.toggle('d-none', !opening);
+            this.setAttribute('aria-expanded', opening ? 'true' : 'false');
+            if (opening) composer.querySelector('textarea').focus();
+        });
+    });
+    document.querySelectorAll('.js-u2c-agenda-cancel').forEach(button => {
+        button.addEventListener('click', function() {
+            closeU2cAgendaComposer(this.closest('.u2c-agenda-composer'));
+        });
+    });
+    document.querySelectorAll('.js-u2c-agenda-save').forEach(button => {
+        button.addEventListener('click', function() {
+            addU2cAgendaContext(this);
+        });
+    });
 });
 
 function importOfficialSnapshot() {

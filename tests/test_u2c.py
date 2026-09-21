@@ -3,7 +3,8 @@ import pytest
 from datetime import datetime, timezone, date, timedelta
 
 from app.models import (
-    db, Customer, Milestone, Opportunity, Territory, U2CSnapshot, U2CSnapshotItem,
+    db, Customer, Engagement, Milestone, OneOnOneAgendaItem, OneOnOneWorkspace,
+    Opportunity, Seller, Territory, U2CSnapshot, U2CSnapshotItem,
     U2CSnapshotVersion,
 )
 from app.services.u2c_snapshot import (
@@ -69,8 +70,9 @@ def make_snapshot(fq_label=None):
 def u2c_data(app):
     """Create milestones on open opportunities for U2C snapshot testing."""
     with app.app_context():
-        customer = Customer(name='Test Corp', tpid=9999)
-        db.session.add(customer)
+        seller = Seller(name='U2C Seller', alias='u2cseller')
+        customer = Customer(name='Test Corp', tpid=9999, seller=seller)
+        db.session.add_all([seller, customer])
         db.session.flush()
 
         opp = Opportunity(
@@ -162,6 +164,7 @@ def u2c_data(app):
 
         return {
             'customer_id': customer.id,
+            'seller_id': seller.id,
             'opp_id': opp.id,
             'ms1_id': ms1.id,
             'ms2_id': ms2.id,
@@ -319,6 +322,32 @@ class TestAttainment:
             acrs = [i['monthly_acr'] for i in result['remaining_items']]
             assert acrs == sorted(acrs, reverse=True)
 
+    def test_attainment_includes_linked_engagements(self, app, u2c_data):
+        """Remaining rows should identify every engagement linked to a milestone."""
+        with app.app_context():
+            milestone = db.session.get(Milestone, u2c_data['ms1_id'])
+            engagement = Engagement(
+                customer=milestone.customer,
+                title='Fabric adoption',
+                status='Active',
+            )
+            engagement.milestones.append(milestone)
+            db.session.add(engagement)
+            db.session.commit()
+            make_snapshot()
+
+            result = get_attainment(U2CSnapshot.query.first().id)
+            fabric = next(
+                item for item in result['remaining_items']
+                if item['milestone_id'] == milestone.id
+            )
+
+            assert fabric['engagements'] == [{
+                'id': engagement.id,
+                'title': 'Fabric adoption',
+                'status': 'Active',
+            }]
+
 
 class TestWorkloadPrefixes:
     """Test workload prefix extraction."""
@@ -394,6 +423,64 @@ class TestReportRoute:
         assert b'id="u2cFilterEmpty"' in response.data
         assert response.data.index(b'id="u2cFilterBar"') < response.data.index(
             b'id="remainingCard"')
+
+    def test_report_shows_engagement_and_one_on_one_action(
+        self, client, app, u2c_data
+    ):
+        """Remaining milestones should show engagement context and agenda actions."""
+        with app.app_context():
+            milestone = db.session.get(Milestone, u2c_data['ms1_id'])
+            engagement = Engagement(
+                customer=milestone.customer,
+                title='Fabric adoption',
+                status='Active',
+            )
+            engagement.milestones.append(milestone)
+            db.session.add(engagement)
+            db.session.commit()
+            make_snapshot()
+
+        fq = current_fiscal_quarter()
+        response = client.get(f'/reports/u2c?fq={fq}')
+        html = response.data.decode()
+
+        assert response.status_code == 200
+        assert 'Linked: Fabric adoption' in html
+        assert '>Eng</th>' in html
+        assert 'No linked engagement' in html
+        assert '<i class="bi bi-person-plus"></i>\n                                Add' in html
+        assert "Add to U2C Seller's 1:1 notes" in html
+        assert (
+            f"/api/seller/{u2c_data['seller_id']}/one-on-one/u2c" in html
+        )
+
+    def test_report_marks_context_already_on_one_on_one(
+        self, client, app, u2c_data
+    ):
+        """Rows should link to a seller workspace when all targets are active."""
+        with app.app_context():
+            make_snapshot()
+            workspace = OneOnOneWorkspace(
+                seller_id=u2c_data['seller_id'],
+                person_name='U2C Seller',
+                person_type='Seller',
+            )
+            item = OneOnOneAgendaItem(
+                workspace=workspace,
+                item_type='milestone',
+                milestone_id=u2c_data['ms1_id'],
+                title_snapshot='Deploy Fabric',
+                customer_snapshot='Test Corp',
+            )
+            db.session.add_all([workspace, item])
+            db.session.commit()
+
+        response = client.get(
+            f'/reports/u2c?fq={current_fiscal_quarter()}'
+        )
+
+        assert response.status_code == 200
+        assert b'On 1:1' in response.data
 
     def test_create_snapshot_endpoint_is_gone(self, client, app, u2c_data):
         """The local snapshot API was removed along with the feature."""

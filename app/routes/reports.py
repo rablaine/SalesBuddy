@@ -1770,8 +1770,11 @@ def report_u2c():
             snapshot = snapshots[0]
 
     if snapshot:
+        from app.services.one_on_one import add_agenda_state_to_milestone_rows
+
         workload_prefixes = get_workload_prefixes(snapshot.id)
         attainment = get_attainment(snapshot.id)
+        add_agenda_state_to_milestone_rows(attainment['remaining_items'])
         trend = get_attainment_trend_by_workload(snapshot.id)
         quarter_start, quarter_end = fiscal_quarter_date_range(
             snapshot.fiscal_quarter)
