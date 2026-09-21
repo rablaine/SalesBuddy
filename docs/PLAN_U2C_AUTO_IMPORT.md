@@ -206,18 +206,30 @@ burn-up of the quarter.
 
 ## Implementation phases
 
-| Phase | Scope |
-|---|---|
-| 1 | Schema: `u2c_snapshot_versions` + `u2c_snapshots` columns + migrations |
-| 2 | `u2c_pull` version support: `version=` param, `resolve_current_version()`, `list_available_versions()` |
-| 3 | `refresh_official_snapshot()` + `backfill_version_history()` + `SyncStatus('u2c_import')` |
-| 4 | Scheduler: daily `_u2c_import_due()`, startup catchup, remove `_check_u2c_snapshot()` |
-| 5 | Remove local snapshots + stale banner + one-time migration + changelog |
-| 6 | Attainment trend graph on the report |
-| 7 | October: verify rollover, then finish `close_out_quarter()` |
+| Phase | Scope | Status |
+|---|---|---|
+| 1 | Schema: `u2c_snapshot_versions` + `u2c_snapshots` columns + migrations | Done |
+| 2 | `u2c_pull` version support: `version=` param, `resolve_current_version()`, `list_available_versions()` | Done |
+| 3 | `refresh_official_snapshot()` + `backfill_version_history()` + `SyncStatus('u2c_import')` | Done |
+| 4 | Scheduler: daily `_u2c_import_due()`, startup catchup, remove `_check_u2c_snapshot()` | Done |
+| 5 | Remove local snapshots + stale banner + one-time migration + changelog | Done |
+| 6 | Attainment trend graph on the report | Done |
+| 7 | October: verify rollover, then finish `close_out_quarter()` | Pending Oct |
 
 Phases 1-6 are independent of the October unknown. Phase 7 is the only piece that
 must wait.
+
+Notes from implementation:
+
+- `resolve_current_version()` matched on the first probe against live MSXi
+  (`current` = `20260915`), and the backfill recovered six additional weeks
+  immediately, so a fresh install gets a usable trend straight away.
+- `rematch_snapshot_items()` was added beyond the original plan. The content
+  fingerprint only covers MSXi's data, so a milestone synced *after* an import
+  would otherwise stay unmatched until MSXi's next weekly publish. The re-match
+  is a free local pass run before every refresh.
+- A failed import retries within the hour rather than waiting a full day, which
+  covers the cold-boot auth case that was originally deferred.
 
 ## The October verification
 

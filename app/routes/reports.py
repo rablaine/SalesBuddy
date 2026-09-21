@@ -1739,7 +1739,8 @@ def report_marketing_insights():
 def report_u2c():
     """U2C Attainment report - quarterly milestone commitment tracking."""
     from app.services.u2c_snapshot import (
-        current_fiscal_quarter, get_attainment, get_workload_prefixes,
+        current_fiscal_quarter, get_attainment, get_attainment_trend,
+        get_workload_prefixes,
     )
 
     # Get all snapshots for the dropdown
@@ -1748,14 +1749,6 @@ def report_u2c():
         .order_by(U2CSnapshot.fiscal_quarter.desc())
         .all()
     )
-    # Convert UTC snapshot_date to local for display in <option> (can't use
-    # local-datetime JS inside <select>).  Attach as a transient attribute.
-    for s in snapshots:
-        if s.snapshot_date:
-            local_dt = s.snapshot_date.replace(tzinfo=timezone.utc).astimezone()
-            s.local_date = local_dt.strftime('%b %d, %Y')
-        else:
-            s.local_date = ''
 
     # Determine which snapshot to show
     selected_fq = request.args.get('fq')
@@ -1764,6 +1757,7 @@ def report_u2c():
     snapshot = None
     attainment = None
     workload_prefixes = []
+    trend = []
 
     if selected_fq:
         snapshot = U2CSnapshot.query.filter_by(fiscal_quarter=selected_fq).first()
@@ -1776,6 +1770,7 @@ def report_u2c():
     if snapshot:
         workload_prefixes = get_workload_prefixes(snapshot.id)
         attainment = get_attainment(snapshot.id)
+        trend = get_attainment_trend(snapshot.id)
 
     # The official MSXi import is scoped by the territories configured here.
     territory_count = Territory.query.count()
@@ -1793,6 +1788,7 @@ def report_u2c():
         current_fq=current_fq,
         territory_count=territory_count,
         last_checked=u2c_sync_status.get('completed_at'),
+        trend=trend,
     )
 
 

@@ -797,6 +797,41 @@ def get_attainment(snapshot_id: int, workload_prefix: str | None = None) -> dict
     }
 
 
+def get_attainment_trend(snapshot_id: int) -> list[dict]:
+    """Return a quarter's weekly attainment points, oldest first.
+
+    Sourced from our own stored copies of MSXi's weekly versions, so the series
+    keeps growing past MSXi's ~7-week retention and covers the whole quarter by
+    the time it ends.
+
+    The converted total is deliberately not smoothed or clamped: MSXi restates
+    conversions downward between loads, so the line legitimately dips.
+
+    Args:
+        snapshot_id: ID of the U2CSnapshot to chart.
+
+    Returns:
+        List of dicts with 'date', 'label', 'starting_acr', 'converted_acr'
+        and 'attainment_pct'.
+    """
+    versions = (
+        U2CSnapshotVersion.query
+        .filter_by(snapshot_id=snapshot_id)
+        .order_by(U2CSnapshotVersion.version_date)
+        .all()
+    )
+    return [
+        {
+            'date': v.version_date.isoformat(),
+            'label': v.version_date.strftime('%b %d'),
+            'starting_acr': v.total_starting_acr,
+            'converted_acr': v.total_converted_acr,
+            'attainment_pct': v.attainment_pct,
+        }
+        for v in versions
+    ]
+
+
 def get_workload_prefixes(snapshot_id: int) -> list[str]:
     """Return distinct workload prefixes for a snapshot's items.
 

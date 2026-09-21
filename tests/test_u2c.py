@@ -1101,6 +1101,87 @@ class TestVersionHistory:
             assert series == [6000.0, 4000.0, 4600.0]
 
 
+class TestAttainmentTrend:
+    """The chart series and its SalesIQ tool."""
+
+    def _seed(self, app, monkeypatch):
+        from app.services.u2c_snapshot import (
+            backfill_version_history, refresh_official_snapshot,
+        )
+        fq = current_fiscal_quarter()
+        FakeMsxi(fq, {
+            '20260901': 1000.0, '20260908': 800.0, '20260915': 4000.0,
+        }).install(monkeypatch)
+        refresh_official_snapshot()
+        snapshot = U2CSnapshot.query.filter_by(fiscal_quarter=fq).first()
+        backfill_version_history(snapshot)
+        return snapshot
+
+    def test_trend_is_ordered_oldest_first(self, app, monkeypatch):
+        from app.services.u2c_snapshot import get_attainment_trend
+        with app.app_context():
+            snapshot = self._seed(app, monkeypatch)
+            trend = get_attainment_trend(snapshot.id)
+
+            assert [p['date'] for p in trend] == [
+                '2026-09-01', '2026-09-08', '2026-09-15']
+            assert [p['converted_acr'] for p in trend] == [1000.0, 800.0, 4000.0]
+            assert trend[0]['label'] == 'Sep 01'
+
+    def test_trend_reports_percentage_against_the_frozen_baseline(
+        self, app, monkeypatch,
+    ):
+        from app.services.u2c_snapshot import get_attainment_trend
+        with app.app_context():
+            snapshot = self._seed(app, monkeypatch)
+            trend = get_attainment_trend(snapshot.id)
+            # Baseline is 5000 + 3000 from the fake rows.
+            assert all(p['starting_acr'] == 8000.0 for p in trend)
+            assert trend[-1]['attainment_pct'] == 50.0
+
+    def test_trend_is_empty_without_history(self, app, u2c_data):
+        from app.services.u2c_snapshot import get_attainment_trend
+        with app.app_context():
+            make_snapshot()
+            snapshot = U2CSnapshot.query.first()
+            assert get_attainment_trend(snapshot.id) == []
+
+    def test_chart_is_hidden_with_a_single_point(self, client, app, monkeypatch):
+        """One point isn't a trend - don't render an empty-looking chart."""
+        from app.services.u2c_snapshot import refresh_official_snapshot
+
+        fq = current_fiscal_quarter()
+        FakeMsxi(fq, {'20260915': 4000.0}).install(monkeypatch)
+        with app.app_context():
+            refresh_official_snapshot()
+
+        response = client.get('/reports/u2c')
+        assert b'u2cTrendChart' not in response.data
+
+    def test_chart_renders_with_multiple_points(self, client, app, monkeypatch):
+        with app.app_context():
+            self._seed(app, monkeypatch)
+
+        response = client.get('/reports/u2c')
+        assert b'u2cTrendChart' in response.data
+        assert b'Attainment Over the Quarter' in response.data
+
+    def test_salesiq_trend_tool(self, app, monkeypatch):
+        from app.services.salesiq_tools import get_u2c_attainment_trend
+        with app.app_context():
+            self._seed(app, monkeypatch)
+            result = get_u2c_attainment_trend()
+            assert len(result['points']) == 3
+            assert result['latest_attainment_pct'] == 50.0
+            assert result['msxi_version'] == '20260915'
+
+    def test_salesiq_trend_tool_without_a_snapshot(self, app):
+        from app.services.salesiq_tools import get_u2c_attainment_trend
+        with app.app_context():
+            result = get_u2c_attainment_trend('FY20 Q1')
+            assert 'No U2C snapshot exists' in result['message']
+
+
 class TestCloseOutQuarter:
     """Finalising a quarter that has rolled over in MSXi."""
 

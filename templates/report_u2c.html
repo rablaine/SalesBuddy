@@ -122,6 +122,21 @@
     </div>
 </div>
 
+<!-- Weekly attainment trend -->
+{% if trend|length > 1 %}
+<div class="card mb-4">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h5 class="mb-0"><i class="bi bi-graph-up-arrow"></i> Attainment Over the Quarter</h5>
+        <small class="text-muted">One point per MSXi weekly publish</small>
+    </div>
+    <div class="card-body">
+        <div style="position: relative; height: 240px;">
+            <canvas id="u2cTrendChart"></canvas>
+        </div>
+    </div>
+</div>
+{% endif %}
+
 <!-- Remaining Milestones (need to commit) -->
 {% if attainment.remaining_items %}
 <div class="card mb-4" id="remainingCard">
@@ -321,6 +336,80 @@
 {% endblock %}
 
 {% block extra_js %}
+{% if trend|length > 1 %}
+<script src="{{ url_for('static', filename='js/vendor/chart.umd.min.js') }}"></script>
+<script>
+(function renderU2cTrend() {
+    const points = {{ trend|tojson }};
+    const canvas = document.getElementById('u2cTrendChart');
+    if (!canvas || points.length < 2) return;
+
+    // Match the active Bootstrap theme instead of hardcoding colors.
+    const css = getComputedStyle(document.body);
+    const muted = css.getPropertyValue('--bs-secondary-color').trim() || '#6c757d';
+    const grid = css.getPropertyValue('--bs-border-color').trim() || '#dee2e6';
+    const text = css.getPropertyValue('--bs-body-color').trim() || '#333';
+
+    const money = v => '$' + Math.round(v).toLocaleString();
+
+    new Chart(canvas, {
+        type: 'line',
+        data: {
+            labels: points.map(p => p.label),
+            datasets: [
+                {
+                    label: 'Converted ACR',
+                    data: points.map(p => p.converted_acr),
+                    borderColor: '#198754',
+                    backgroundColor: 'rgba(25, 135, 84, 0.12)',
+                    fill: true,
+                    tension: 0.25,
+                    pointRadius: 3,
+                },
+                {
+                    label: 'Target (starting uncommitted)',
+                    data: points.map(p => p.starting_acr),
+                    borderColor: muted,
+                    borderDash: [6, 4],
+                    pointRadius: 0,
+                    fill: false,
+                },
+            ],
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
+            plugins: {
+                legend: {
+                    position: 'bottom',
+                    labels: { color: text, boxWidth: 12, boxHeight: 3 },
+                },
+                tooltip: {
+                    callbacks: {
+                        label: ctx => {
+                            const p = points[ctx.dataIndex];
+                            if (ctx.datasetIndex === 0) {
+                                return ` Converted ${money(p.converted_acr)} (${p.attainment_pct}%)`;
+                            }
+                            return ` Target ${money(p.starting_acr)}`;
+                        },
+                    },
+                },
+            },
+            scales: {
+                x: { ticks: { color: muted }, grid: { color: grid } },
+                y: {
+                    beginAtZero: true,
+                    ticks: { color: muted, callback: money },
+                    grid: { color: grid },
+                },
+            },
+        },
+    });
+})();
+</script>
+{% endif %}
 <script>
 // ==========================================================================
 // Storage keys
