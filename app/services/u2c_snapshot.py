@@ -14,7 +14,8 @@ import logging
 from datetime import date, datetime, timedelta, timezone
 
 from app.models import (
-    Customer, Milestone, Opportunity, U2CSnapshot, U2CSnapshotItem, db,
+    Customer, Milestone, Opportunity, U2CSnapshot, U2CSnapshotItem,
+    U2CSnapshotVersion, db,
 )
 
 logger = logging.getLogger(__name__)
@@ -65,6 +66,23 @@ def fiscal_quarter_date_range(fq_label: str) -> tuple[date, date]:
         end_year += 1
     end = date(end_year, end_month, 1) - timedelta(days=1)
     return start, end
+
+
+def previous_fiscal_quarter(fq_label: str) -> str:
+    """Return the fiscal quarter label immediately before the given one.
+
+    Args:
+        fq_label: Fiscal quarter label, e.g. 'FY27 Q1'.
+
+    Returns:
+        The preceding quarter, e.g. 'FY26 Q4'.
+    """
+    parts = fq_label.replace('FY', '').split(' Q')
+    fy = int(parts[0])
+    q = int(parts[1])
+    if q == 1:
+        return f"FY{(fy - 1) % 100:02d} Q4"
+    return f"FY{fy % 100:02d} Q{q - 1}"
 
 
 def is_snapshot_due() -> bool:
@@ -209,7 +227,8 @@ def _resolve_local_records(row: dict) -> tuple[Milestone | None, Customer | None
 
 def import_official_snapshot(fq_label: str | None = None,
                              territories: list[str] | None = None,
-                             replace: bool = False) -> dict:
+                             replace: bool = False,
+                             version: str | None = None) -> dict:
     """Import the official MSX Insights U2C baseline for a fiscal quarter.
 
     Pulls the same milestone detail table the MSXi "Uncommitted to Committed"
@@ -225,13 +244,20 @@ def import_official_snapshot(fq_label: str | None = None,
             territories configured in Sales Buddy.
         replace: Replace an existing snapshot for this quarter.  Required when
             one already exists, so a manual snapshot is never silently dropped.
+        version: MSXi snapshot version to import.  Defaults to the newest
+            retained load.  Pass an explicit ``yyyymmdd`` member to import a
+            specific weekly version, which is how a rolled-over quarter gets
+            closed out.
 
     Returns:
         Dict with 'success' plus snapshot totals, or 'error' on failure.
     """
-    from app.services.u2c_pull import U2CPullError, pull_u2c_milestones
+    from app.services.u2c_pull import (
+        CURRENT_VERSION, U2CPullError, pull_u2c_milestones,
+    )
 
     fq = fq_label or current_fiscal_quarter()
+    pull_version = version or CURRENT_VERSION
 
     existing = U2CSnapshot.query.filter_by(fiscal_quarter=fq).first()
     if existing and not replace:
@@ -244,7 +270,8 @@ def import_official_snapshot(fq_label: str | None = None,
         }
 
     try:
-        rows = pull_u2c_milestones(fq, territories=territories)
+        rows = pull_u2c_milestones(fq, territories=territories,
+                                   version=pull_version)
     except U2CPullError as exc:
         logger.warning("Official U2C import for %s failed: %s", fq, exc)
         return {'success': False, 'error': str(exc)}
@@ -252,11 +279,17 @@ def import_official_snapshot(fq_label: str | None = None,
     if not rows:
         return {
             'success': False,
+            # An empty pull is never destructive - we return here, before the
+            # existing snapshot is touched. The automated refresh relies on
+            # that, so keep this check above the delete.
             'error': (
                 f'MSXi returned no uncommitted milestones for {fq}. '
                 'Check that the quarter and your territories are correct.'
             ),
+            'empty': True,
         }
+
+    resolved = _resolve_version_label(fq, rows, pull_version, territories)
 
     if existing:
         db.session.delete(existing)
@@ -269,6 +302,67 @@ def import_official_snapshot(fq_label: str | None = None,
     )
     db.session.add(snapshot)
     db.session.flush()  # Get snapshot.id
+
+    matched, total_acr = _write_snapshot_items(snapshot, rows)
+    _stamp_snapshot_pull(snapshot, rows, resolved)
+    if resolved:
+        record_version_totals(snapshot, resolved, rows)
+    db.session.commit()
+
+    logger.info(
+        "Official MSXi U2C snapshot imported for %s (version %s): %d milestones "
+        "(%d matched locally), $%.2f total monthly ACR",
+        fq, resolved or pull_version, len(rows), matched, total_acr,
+    )
+
+    return {
+        'success': True,
+        'snapshot_id': snapshot.id,
+        'fiscal_quarter': fq,
+        'source': snapshot.source,
+        'msxi_version': resolved,
+        'total_items': len(rows),
+        'matched_locally': matched,
+        'unmatched': len(rows) - matched,
+        'total_monthly_acr': round(total_acr, 2),
+        'replaced': bool(existing),
+    }
+
+
+def _resolve_version_label(fq: str, rows: list[dict], pull_version: str,
+                           territories: list[str] | None) -> str | None:
+    """Turn the version we asked for into the dated member we actually got.
+
+    ``'current'`` is an alias, so it has to be resolved by probing before it can
+    be stored. Failing to resolve is not fatal - we just don't know the date.
+    """
+    from app.services.u2c_pull import (
+        CURRENT_VERSION, U2CPullError, resolve_current_version,
+    )
+
+    if pull_version != CURRENT_VERSION:
+        return pull_version
+    try:
+        return resolve_current_version(fq, territories=territories,
+                                       current_rows=rows)
+    except U2CPullError as exc:
+        logger.warning("Could not resolve MSXi version for %s: %s", fq, exc)
+        return None
+
+
+def _write_snapshot_items(snapshot: U2CSnapshot,
+                          rows: list[dict]) -> tuple[int, float]:
+    """Replace a snapshot's items with the given MSXi rows.
+
+    Args:
+        snapshot: The snapshot to populate. Existing items are removed first.
+        rows: Rows from ``u2c_pull.pull_u2c_milestones``.
+
+    Returns:
+        Tuple of (milestones matched to local records, total starting ACR).
+    """
+    U2CSnapshotItem.query.filter_by(snapshot_id=snapshot.id).delete()
+    db.session.flush()
 
     total_acr = 0.0
     matched = 0
@@ -307,24 +401,307 @@ def import_official_snapshot(fq_label: str | None = None,
 
     snapshot.total_items = len(rows)
     snapshot.total_monthly_acr = round(total_acr, 2)
-    db.session.commit()
+    return matched, total_acr
 
-    logger.info(
-        "Official MSXi U2C snapshot imported for %s: %d milestones "
-        "(%d matched locally), $%.2f total monthly ACR",
-        fq, len(rows), matched, total_acr,
+
+def _stamp_snapshot_pull(snapshot: U2CSnapshot, rows: list[dict],
+                         version: str | None) -> None:
+    """Record which MSXi load a snapshot's items came from."""
+    from app.services.u2c_pull import fingerprint_rows
+
+    snapshot.content_fingerprint = fingerprint_rows(rows)
+    snapshot.last_refreshed_at = datetime.now(timezone.utc)
+    if version:
+        snapshot.msxi_version = version
+
+
+def record_version_totals(snapshot: U2CSnapshot, version: str,
+                          rows: list[dict]) -> U2CSnapshotVersion | None:
+    """Store one weekly version's aggregates for the attainment trend.
+
+    Dated MSXi versions are immutable, so an already-stored version is left
+    alone. Returns the new row, or None if it already existed or the version
+    isn't a parseable date (e.g. the ``'current'`` alias, which we only store
+    once resolved to a real date).
+    """
+    from app.services.u2c_pull import version_to_date
+
+    version_date = version_to_date(version)
+    if version_date is None:
+        return None
+
+    existing = U2CSnapshotVersion.query.filter_by(
+        snapshot_id=snapshot.id, msxi_version=version,
+    ).first()
+    if existing:
+        return None
+
+    entry = U2CSnapshotVersion(
+        snapshot_id=snapshot.id,
+        msxi_version=version,
+        version_date=version_date,
+        total_items=len(rows),
+        total_starting_acr=round(
+            sum(float(r.get('starting_acr') or 0.0) for r in rows), 2),
+        total_converted_acr=round(
+            sum(float(r.get('converted_acr') or 0.0) for r in rows), 2),
+    )
+    db.session.add(entry)
+    return entry
+
+
+def backfill_version_history(snapshot: U2CSnapshot,
+                             territories: list[str] | None = None,
+                             weeks: int | None = None) -> int:
+    """Store every retained weekly version we don't already have.
+
+    MSXi keeps roughly seven weeks of loads, so calling this the first time we
+    see a quarter recovers most of its attainment trend immediately. Versions
+    already stored are skipped - they can never change.
+
+    Returns:
+        Number of new version rows stored.
+    """
+    from app.services.u2c_pull import (
+        DEFAULT_HISTORY_WEEKS, U2CPullError, pull_version_series,
     )
 
+    known = {
+        v.msxi_version for v in
+        U2CSnapshotVersion.query.filter_by(snapshot_id=snapshot.id).all()
+    }
+    try:
+        series = pull_version_series(
+            snapshot.fiscal_quarter,
+            territories=territories,
+            weeks=weeks or DEFAULT_HISTORY_WEEKS,
+            skip=known,
+        )
+    except U2CPullError as exc:
+        logger.warning("U2C version backfill for %s failed: %s",
+                       snapshot.fiscal_quarter, exc)
+        return 0
+
+    stored = 0
+    for version, rows in series:
+        if record_version_totals(snapshot, version, rows) is not None:
+            stored += 1
+    if stored:
+        db.session.commit()
+    logger.info("Backfilled %d weekly U2C versions for %s",
+                stored, snapshot.fiscal_quarter)
+    return stored
+
+
+# ---------------------------------------------------------------------------
+# Automated daily refresh
+# ---------------------------------------------------------------------------
+# Outcomes reported by refresh_official_snapshot(). These are the four things
+# MSXi's behaviour can mean, and they must stay distinguishable: MSXi answers
+# "quarter hasn't rolled over", "gap week", and "the model changed under us"
+# all with the same empty result set.
+OUTCOME_IMPORTED = 'imported'            # new data stored
+OUTCOME_UNCHANGED = 'unchanged'          # same weekly load we already had
+OUTCOME_NOT_ROLLED_OVER = 'not_rolled_over'  # still publishing the prior quarter
+OUTCOME_BROKEN = 'broken'                # auth, territories, or schema problem
+
+
+def refresh_official_snapshot(territories: list[str] | None = None) -> dict:
+    """Refresh the official U2C baseline. The daily automation entry point.
+
+    Pulls the current fiscal quarter from MSXi. Because MSXi only ever serves
+    whichever quarter is current *to it*, an empty result is meaningful rather
+    than an error, and rollover needs no calendar arithmetic: the outgoing
+    quarter is finished exactly when it stops returning rows, which is the same
+    moment the new one starts returning them.
+
+    Args:
+        territories: Territory codes to scope to. Defaults to the configured ones.
+
+    Returns:
+        Dict with 'success', 'outcome' (one of the ``OUTCOME_*`` constants),
+        and outcome-specific detail.
+    """
+    from app.services.u2c_pull import (
+        CURRENT_VERSION, U2CPullError, fingerprint_rows, pull_u2c_milestones,
+    )
+
+    fq = current_fiscal_quarter()
+    try:
+        rows = pull_u2c_milestones(fq, territories=territories)
+    except U2CPullError as exc:
+        logger.warning("U2C refresh for %s failed: %s", fq, exc)
+        return {'success': False, 'outcome': OUTCOME_BROKEN,
+                'fiscal_quarter': fq, 'error': str(exc)}
+
+    if not rows:
+        return _refresh_previous_quarter(fq, territories)
+
+    existing = U2CSnapshot.query.filter_by(fiscal_quarter=fq).first()
+    is_new_quarter = existing is None
+
+    if existing and existing.content_fingerprint == fingerprint_rows(rows):
+        # Same weekly load. Note that we looked, but don't churn the items.
+        existing.last_refreshed_at = datetime.now(timezone.utc)
+        db.session.commit()
+        return {
+            'success': True,
+            'outcome': OUTCOME_UNCHANGED,
+            'fiscal_quarter': fq,
+            'snapshot_id': existing.id,
+            'msxi_version': existing.msxi_version,
+            'total_items': existing.total_items,
+        }
+
+    result = import_official_snapshot(
+        fq, territories=territories, replace=True, version=CURRENT_VERSION,
+    )
+    if not result.get('success'):
+        result['outcome'] = OUTCOME_BROKEN
+        return result
+
+    result['outcome'] = OUTCOME_IMPORTED
+    snapshot = U2CSnapshot.query.get(result['snapshot_id'])
+
+    if snapshot:
+        # Backfill on every import, not just the first sight of a quarter. A
+        # version can come back empty transiently (observed: 20260901 returned
+        # nothing on one probe and full data an hour later), and since we only
+        # skip versions already stored, re-probing lets those gaps heal. Imports
+        # only happen when the content actually changed - roughly weekly - so
+        # this costs a handful of queries per week, not per day.
+        result['versions_backfilled'] = backfill_version_history(
+            snapshot, territories=territories)
+
+    if is_new_quarter and snapshot:
+        # First sight of this quarter means the previous one has rolled over.
+        result['closed_out'] = close_out_quarter(
+            previous_fiscal_quarter(fq), territories=territories)
+
+    return result
+
+
+def _refresh_previous_quarter(fq: str, territories: list[str] | None) -> dict:
+    """Handle an empty current-quarter pull.
+
+    Either MSXi hasn't rolled over yet - in which case the previous quarter is
+    still live and worth refreshing, which keeps its eventual final numbers
+    accurate - or something is broken and we must not touch stored data.
+    """
+    from app.services.u2c_pull import U2CPullError, pull_u2c_milestones
+
+    prev_fq = previous_fiscal_quarter(fq)
+    try:
+        prev_rows = pull_u2c_milestones(prev_fq, territories=territories)
+    except U2CPullError as exc:
+        logger.warning("U2C fallback pull for %s failed: %s", prev_fq, exc)
+        return {'success': False, 'outcome': OUTCOME_BROKEN,
+                'fiscal_quarter': fq, 'error': str(exc)}
+
+    if not prev_rows:
+        # Neither quarter has data. MSXi does not distinguish "no rows" from
+        # "you asked for something that no longer exists", so this is as close
+        # as we get to an error signal - surface it instead of failing quietly.
+        logger.error(
+            "U2C refresh found no data for %s or %s - check az login, VPN, "
+            "configured territories, and whether the MSXi model changed.",
+            fq, prev_fq,
+        )
+        return {
+            'success': False,
+            'outcome': OUTCOME_BROKEN,
+            'fiscal_quarter': fq,
+            'error': (
+                f'MSXi returned no U2C data for {fq} or {prev_fq}. Check that '
+                "you're signed in and on VPN, that your territories are "
+                'configured, and that the MSXi report still works in the portal.'
+            ),
+        }
+
+    logger.info("MSXi hasn't rolled over to %s yet - refreshing %s instead",
+                fq, prev_fq)
+    result = import_official_snapshot(prev_fq, territories=territories,
+                                      replace=True)
+    result['outcome'] = (OUTCOME_NOT_ROLLED_OVER if result.get('success')
+                         else OUTCOME_BROKEN)
+    result['awaiting_quarter'] = fq
+    return result
+
+
+def close_out_quarter(fq_label: str,
+                      territories: list[str] | None = None) -> dict:
+    """Capture a rolled-over quarter's final numbers, then freeze it.
+
+    MSXi stops serving a quarter once the next one becomes current, but retained
+    weekly versions from *before* the rollover still hold that quarter's data
+    for roughly seven weeks. Walking those versions newest-first finds the last
+    load published while the quarter was live - its true final state - even if
+    the machine was switched off when the rollover happened.
+
+    Best-effort by design: if no retained version still resolves, whatever the
+    daily refresh last captured stands, which is at most a day stale.
+
+    Args:
+        fq_label: The quarter that just ended, e.g. 'FY26 Q4'.
+        territories: Territory codes, defaulting to the configured ones.
+
+    Returns:
+        Dict describing what happened. Never raises.
+    """
+    from app.services.u2c_pull import (
+        DEFAULT_HISTORY_WEEKS, U2CPullError, candidate_versions,
+        pull_u2c_milestones,
+    )
+
+    snapshot = U2CSnapshot.query.filter_by(fiscal_quarter=fq_label).first()
+    if snapshot is None:
+        return {'success': False, 'reason': 'no_snapshot', 'fiscal_quarter': fq_label}
+    if snapshot.is_final:
+        return {'success': True, 'reason': 'already_final', 'fiscal_quarter': fq_label}
+
+    for version in candidate_versions(DEFAULT_HISTORY_WEEKS):
+        try:
+            rows = pull_u2c_milestones(fq_label, territories=territories,
+                                       version=version)
+        except U2CPullError as exc:
+            logger.warning("Close-out probe %s for %s failed: %s",
+                           version, fq_label, exc)
+            continue
+        if not rows:
+            continue
+
+        matched, total_acr = _write_snapshot_items(snapshot, rows)
+        _stamp_snapshot_pull(snapshot, rows, version)
+        record_version_totals(snapshot, version, rows)
+        snapshot.is_final = True
+        db.session.commit()
+        logger.info(
+            "Closed out %s from MSXi version %s: %d milestones, $%.2f ACR",
+            fq_label, version, len(rows), total_acr,
+        )
+        return {
+            'success': True,
+            'fiscal_quarter': fq_label,
+            'msxi_version': version,
+            'total_items': len(rows),
+            'matched_locally': matched,
+            'finalised': True,
+        }
+
+    # Nothing retained still resolves. Freeze what we already have.
+    snapshot.is_final = True
+    db.session.commit()
+    logger.info(
+        "No retained MSXi version still serves %s - freezing the last captured "
+        "snapshot (version %s) as final.",
+        fq_label, snapshot.msxi_version or 'unknown',
+    )
     return {
         'success': True,
-        'snapshot_id': snapshot.id,
-        'fiscal_quarter': fq,
-        'source': snapshot.source,
-        'total_items': len(rows),
-        'matched_locally': matched,
-        'unmatched': len(rows) - matched,
-        'total_monthly_acr': round(total_acr, 2),
-        'replaced': bool(existing),
+        'fiscal_quarter': fq_label,
+        'msxi_version': snapshot.msxi_version,
+        'finalised': True,
+        'reason': 'no_retained_version',
     }
 
 

@@ -2370,6 +2370,18 @@ class U2CSnapshot(db.Model):
                        server_default=SOURCE_LOCAL)
     created_at = db.Column(db.DateTime, default=utc_now, nullable=False)
 
+    # Which MSXi weekly "Snapshot Version" the current item rows came from,
+    # as a yyyymmdd string (e.g. '20260915'). None for local snapshots.
+    msxi_version = db.Column(db.String(20), nullable=True)
+    last_refreshed_at = db.Column(db.DateTime, nullable=True)
+    # Hash of the pulled payload - lets a daily refresh skip the write when
+    # MSXi hasn't published a new weekly load.
+    content_fingerprint = db.Column(db.String(64), nullable=True)
+    # Set once the quarter has rolled over in MSXi and been closed out. A
+    # finalised quarter can never change again - MSXi stops serving it.
+    is_final = db.Column(db.Boolean, nullable=False, default=False,
+                         server_default='0')
+
     @property
     def is_official(self) -> bool:
         """Return True if this snapshot came from the official MSXi report."""
@@ -2383,6 +2395,11 @@ class U2CSnapshot(db.Model):
     items = db.relationship(
         'U2CSnapshotItem', back_populates='snapshot',
         cascade='all, delete-orphan', lazy='dynamic',
+    )
+    versions = db.relationship(
+        'U2CSnapshotVersion', back_populates='snapshot',
+        cascade='all, delete-orphan', lazy='dynamic',
+        order_by='U2CSnapshotVersion.version_date',
     )
 
     def __repr__(self) -> str:
@@ -2427,6 +2444,57 @@ class U2CSnapshotItem(db.Model):
 
     def __repr__(self) -> str:
         return f'<U2CSnapshotItem {self.milestone_title} ${self.monthly_acr}>'
+
+
+class U2CSnapshotVersion(db.Model):
+    """One MSXi weekly snapshot version's totals for a fiscal quarter.
+
+    MSXi's "Snapshot Version" slicer exposes roughly seven weeks of Tuesday
+    loads before older ones expire.  We copy each version's aggregates here the
+    first time we see it, so the quarter's attainment trend survives long after
+    MSXi has dropped the underlying version.
+
+    Rows are write-once: a dated MSXi version is immutable, so a version we have
+    already stored never needs re-fetching.
+
+    Note that ``total_converted_acr`` is **not** monotonic - MSXi restates
+    conversions downward between loads - so this is a true time series, not a
+    running maximum.
+    """
+    __tablename__ = 'u2c_snapshot_versions'
+
+    id = db.Column(db.Integer, primary_key=True)
+    snapshot_id = db.Column(db.Integer, db.ForeignKey('u2c_snapshots.id'),
+                            nullable=False)
+    # MSXi SnapshotDateID member, e.g. '20260915'
+    msxi_version = db.Column(db.String(20), nullable=False)
+    # Same value parsed out, so the trend plots against real dates and gap
+    # weeks read as gaps instead of compressing the axis.
+    version_date = db.Column(db.Date, nullable=False)
+
+    total_items = db.Column(db.Integer, nullable=False, default=0)
+    total_starting_acr = db.Column(db.Float, nullable=False, default=0.0)
+    total_converted_acr = db.Column(db.Float, nullable=False, default=0.0)
+    captured_at = db.Column(db.DateTime, nullable=False, default=utc_now)
+
+    snapshot = db.relationship('U2CSnapshot', back_populates='versions')
+
+    __table_args__ = (
+        db.UniqueConstraint('snapshot_id', 'msxi_version',
+                            name='uq_u2c_version_per_snapshot'),
+        db.Index('ix_u2c_snapshot_versions_snapshot_id', 'snapshot_id'),
+    )
+
+    @property
+    def attainment_pct(self) -> float:
+        """Converted ACR as a percentage of the frozen starting baseline."""
+        if not self.total_starting_acr:
+            return 0.0
+        return round((self.total_converted_acr / self.total_starting_acr) * 100, 1)
+
+    def __repr__(self) -> str:
+        return (f'<U2CSnapshotVersion {self.msxi_version} '
+                f'converted=${self.total_converted_acr:,.0f}>')
 
 
 # =============================================================================

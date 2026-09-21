@@ -178,6 +178,9 @@ def run_migrations(db):
     # Migration: Add official MSXi snapshot columns to the U2C tables
     _migrate_u2c_official_import(db, inspector)
 
+    # Migration: Add version-history columns for the automated U2C refresh
+    _migrate_u2c_version_history(db, inspector)
+
     # Note: milestone_comments table is created by db.create_all() — no migration needed
 
     # Migration: Add review_status, review_notes, reviewed_at to revenue_analyses
@@ -1754,3 +1757,28 @@ def _migrate_u2c_official_import(db, inspector):
             db, inspector, 'u2c_snapshot_items', 'msxi_status', 'VARCHAR(50)')
         _add_column_if_not_exists(
             db, inspector, 'u2c_snapshot_items', 'msxi_converted_acr', 'FLOAT')
+
+
+def _migrate_u2c_version_history(db, inspector):
+    """Add the columns backing the automated daily U2C refresh.
+
+    ``msxi_version`` records which MSXi weekly "Snapshot Version" the stored
+    items came from, ``content_fingerprint`` lets a refresh skip the write when
+    MSXi hasn't published a new load, and ``is_final`` marks a quarter that has
+    rolled over and can never change again.
+
+    The ``u2c_snapshot_versions`` table itself is created by ``db.create_all()``.
+    Idempotent.
+    """
+    if not _table_exists(inspector, 'u2c_snapshots'):
+        return
+
+    _add_column_if_not_exists(
+        db, inspector, 'u2c_snapshots', 'msxi_version', 'VARCHAR(20)')
+    _add_column_if_not_exists(
+        db, inspector, 'u2c_snapshots', 'last_refreshed_at', 'DATETIME')
+    _add_column_if_not_exists(
+        db, inspector, 'u2c_snapshots', 'content_fingerprint', 'VARCHAR(64)')
+    _add_column_if_not_exists(
+        db, inspector, 'u2c_snapshots', 'is_final',
+        'BOOLEAN NOT NULL DEFAULT 0')

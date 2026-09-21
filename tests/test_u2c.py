@@ -556,7 +556,9 @@ def official_rows(app):
     ]
     import app.services.u2c_pull as pull_module
     original = pull_module.pull_u2c_milestones
-    pull_module.pull_u2c_milestones = lambda fq, territories=None: rows
+    pull_module.pull_u2c_milestones = (
+        lambda fq, territories=None, version=None: rows
+    )
     yield rows
     pull_module.pull_u2c_milestones = original
 
@@ -645,7 +647,7 @@ class TestImportOfficialSnapshot:
         with app.app_context():
             import app.services.u2c_pull as pull_module
 
-            def boom(fq, territories=None):
+            def boom(fq, territories=None, version=None):
                 raise pull_module.U2CPullError('No territories configured.')
 
             monkeypatch.setattr(pull_module, 'pull_u2c_milestones', boom)
@@ -685,7 +687,7 @@ class TestImportOfficialRoute:
     def test_import_endpoint_reports_pull_failure(self, client, app, monkeypatch):
         import app.services.u2c_pull as pull_module
 
-        def boom(fq, territories=None):
+        def boom(fq, territories=None, version=None):
             raise pull_module.U2CPullError('gateway down')
 
         monkeypatch.setattr(pull_module, 'pull_u2c_milestones', boom)
@@ -758,3 +760,327 @@ class TestScheduledSnapshot:
         with app.app_context():
             sched._check_u2c_snapshot()
         assert calls == []
+
+
+# =============================================================================
+# Automated daily refresh
+# =============================================================================
+
+class FakeMsxi:
+    """Stand-in for the MSXi pull, keyed by (fiscal quarter, version).
+
+    MSXi only ever serves whichever quarter is current to it, and answers every
+    other request with an empty list, so the fake does the same.
+    """
+
+    def __init__(self, live_quarter, versions):
+        """
+        Args:
+            live_quarter: The quarter MSXi currently serves, or None for
+                "MSXi is returning nothing at all".
+            versions: Ordered dict-ish of {version: converted_acr}, newest last.
+        """
+        self.live_quarter = live_quarter
+        self.versions = dict(versions)
+        self.calls = []
+
+    def newest(self):
+        return list(self.versions)[-1]
+
+    def __call__(self, fq, territories=None, version=None):
+        from app.services.u2c_pull import CURRENT_VERSION
+
+        self.calls.append((fq, version))
+        if fq != self.live_quarter:
+            return []
+        key = self.newest() if version in (None, CURRENT_VERSION) else version
+        if key not in self.versions:
+            return []
+        converted = self.versions[key]
+        return [
+            _msxi_row(converted_acr=converted,
+                      current_commitment='Committed' if converted else 'Uncommitted'),
+            _msxi_row(milestone_name='Migrate SQL', milestone_number='MS-2',
+                      starting_acr=3000.0),
+        ]
+
+    def install(self, monkeypatch):
+        import app.services.u2c_pull as pull_module
+        monkeypatch.setattr(pull_module, 'pull_u2c_milestones', self)
+        return self
+
+
+class TestPreviousFiscalQuarter:
+    """Quarter arithmetic used to find the quarter that just ended."""
+
+    def test_wraps_across_fiscal_year(self):
+        from app.services.u2c_snapshot import previous_fiscal_quarter
+        assert previous_fiscal_quarter('FY27 Q1') == 'FY26 Q4'
+
+    def test_steps_back_within_year(self):
+        from app.services.u2c_snapshot import previous_fiscal_quarter
+        assert previous_fiscal_quarter('FY27 Q3') == 'FY27 Q2'
+        assert previous_fiscal_quarter('FY27 Q4') == 'FY27 Q3'
+
+
+class TestVersionHelpers:
+    """Snapshot-version probing helpers."""
+
+    def test_candidates_are_tuesdays_newest_first(self):
+        from app.services.u2c_pull import candidate_versions, version_to_date
+
+        # 2026-09-21 is a Monday; the most recent load day is Tuesday the 15th.
+        versions = candidate_versions(weeks=3, ref_date=date(2026, 9, 21))
+        assert versions == ['20260915', '20260908', '20260901']
+        assert all(version_to_date(v).weekday() == 1 for v in versions)
+
+    def test_candidates_include_today_when_today_is_a_load_day(self):
+        from app.services.u2c_pull import candidate_versions
+
+        versions = candidate_versions(weeks=2, ref_date=date(2026, 9, 22))
+        assert versions[0] == '20260922'
+
+    def test_version_to_date_rejects_junk(self):
+        from app.services.u2c_pull import version_to_date
+        assert version_to_date('current') is None
+        assert version_to_date('') is None
+
+    def test_fingerprint_ignores_row_order(self):
+        from app.services.u2c_pull import fingerprint_rows
+
+        a = _msxi_row(milestone_number='MS-1')
+        b = _msxi_row(milestone_number='MS-2')
+        assert fingerprint_rows([a, b]) == fingerprint_rows([b, a])
+
+    def test_fingerprint_tracks_conversion_changes(self):
+        from app.services.u2c_pull import fingerprint_rows
+
+        before = [_msxi_row(converted_acr=0.0)]
+        after = [_msxi_row(converted_acr=5000.0)]
+        assert fingerprint_rows(before) != fingerprint_rows(after)
+
+
+class TestRefreshOfficialSnapshot:
+    """The daily automation entry point."""
+
+    def test_imports_when_msxi_has_the_current_quarter(self, app, monkeypatch):
+        from app.services.u2c_snapshot import (
+            OUTCOME_IMPORTED, refresh_official_snapshot,
+        )
+        fq = current_fiscal_quarter()
+        FakeMsxi(fq, {'20260908': 0.0, '20260915': 5000.0}).install(monkeypatch)
+
+        with app.app_context():
+            result = refresh_official_snapshot()
+            assert result['success'] is True
+            assert result['outcome'] == OUTCOME_IMPORTED
+            snapshot = U2CSnapshot.query.filter_by(fiscal_quarter=fq).first()
+            assert snapshot.source == U2CSnapshot.SOURCE_MSXI
+            assert snapshot.content_fingerprint
+
+    def test_second_run_is_unchanged(self, app, monkeypatch):
+        from app.services.u2c_snapshot import (
+            OUTCOME_UNCHANGED, refresh_official_snapshot,
+        )
+        fq = current_fiscal_quarter()
+        FakeMsxi(fq, {'20260915': 5000.0}).install(monkeypatch)
+
+        with app.app_context():
+            refresh_official_snapshot()
+            result = refresh_official_snapshot()
+            assert result['outcome'] == OUTCOME_UNCHANGED
+
+    def test_falls_back_to_previous_quarter_before_rollover(self, app, monkeypatch):
+        """Our calendar has moved on but MSXi still publishes the old quarter."""
+        from app.services.u2c_snapshot import (
+            OUTCOME_NOT_ROLLED_OVER, previous_fiscal_quarter,
+            refresh_official_snapshot,
+        )
+        fq = current_fiscal_quarter()
+        prev = previous_fiscal_quarter(fq)
+        FakeMsxi(prev, {'20260915': 1000.0}).install(monkeypatch)
+
+        with app.app_context():
+            result = refresh_official_snapshot()
+            assert result['outcome'] == OUTCOME_NOT_ROLLED_OVER
+            assert result['awaiting_quarter'] == fq
+            assert U2CSnapshot.query.filter_by(fiscal_quarter=prev).first()
+            assert U2CSnapshot.query.filter_by(fiscal_quarter=fq).first() is None
+
+    def test_both_quarters_empty_is_broken_not_silence(self, app, monkeypatch):
+        """MSXi answers 'schema changed' the same way it answers 'no rows'."""
+        from app.services.u2c_snapshot import (
+            OUTCOME_BROKEN, refresh_official_snapshot,
+        )
+        FakeMsxi(None, {'20260915': 0.0}).install(monkeypatch)
+
+        with app.app_context():
+            result = refresh_official_snapshot()
+            assert result['success'] is False
+            assert result['outcome'] == OUTCOME_BROKEN
+            assert 'VPN' in result['error'] or 'territories' in result['error']
+
+    def test_empty_pull_never_destroys_an_existing_snapshot(self, app, monkeypatch):
+        """The automation depends on an empty pull being non-destructive."""
+        from app.services.u2c_snapshot import refresh_official_snapshot
+
+        fq = current_fiscal_quarter()
+        fake = FakeMsxi(fq, {'20260915': 5000.0}).install(monkeypatch)
+
+        with app.app_context():
+            refresh_official_snapshot()
+            before = U2CSnapshot.query.filter_by(fiscal_quarter=fq).first()
+            assert before.total_items == 2
+
+            fake.live_quarter = None  # MSXi goes dark
+            refresh_official_snapshot()
+
+            after = U2CSnapshot.query.filter_by(fiscal_quarter=fq).first()
+            assert after is not None
+            assert after.total_items == 2
+
+
+class TestVersionHistory:
+    """The permanent weekly attainment trend."""
+
+    def test_import_records_the_version_it_pulled(self, app, monkeypatch):
+        from app.models import U2CSnapshotVersion
+        from app.services.u2c_snapshot import refresh_official_snapshot
+
+        fq = current_fiscal_quarter()
+        FakeMsxi(fq, {'20260915': 5000.0}).install(monkeypatch)
+
+        with app.app_context():
+            refresh_official_snapshot()
+            entry = U2CSnapshotVersion.query.filter_by(
+                msxi_version='20260915').first()
+            assert entry is not None
+            assert entry.version_date == date(2026, 9, 15)
+            assert entry.total_converted_acr == 5000.0
+
+    def test_backfill_recovers_retained_weeks(self, app, monkeypatch):
+        from app.models import U2CSnapshotVersion
+        from app.services.u2c_snapshot import (
+            backfill_version_history, refresh_official_snapshot,
+        )
+        fq = current_fiscal_quarter()
+        FakeMsxi(fq, {
+            '20260901': 1000.0, '20260908': 2000.0, '20260915': 5000.0,
+        }).install(monkeypatch)
+
+        with app.app_context():
+            refresh_official_snapshot()
+            snapshot = U2CSnapshot.query.filter_by(fiscal_quarter=fq).first()
+            backfill_version_history(snapshot)
+
+            stored = {
+                v.msxi_version: v.total_converted_acr
+                for v in U2CSnapshotVersion.query.filter_by(
+                    snapshot_id=snapshot.id)
+            }
+            assert stored == {'20260901': 1000.0, '20260908': 2000.0,
+                              '20260915': 5000.0}
+
+    def test_versions_are_write_once(self, app, monkeypatch):
+        """Dated MSXi versions are immutable, so re-storing is a no-op."""
+        from app.models import U2CSnapshotVersion
+        from app.services.u2c_snapshot import (
+            record_version_totals, refresh_official_snapshot,
+        )
+        fq = current_fiscal_quarter()
+        FakeMsxi(fq, {'20260915': 5000.0}).install(monkeypatch)
+
+        with app.app_context():
+            refresh_official_snapshot()
+            snapshot = U2CSnapshot.query.filter_by(fiscal_quarter=fq).first()
+            assert record_version_totals(
+                snapshot, '20260915', [_msxi_row()]) is None
+            assert U2CSnapshotVersion.query.filter_by(
+                snapshot_id=snapshot.id, msxi_version='20260915').count() == 1
+
+    def test_declining_conversions_are_stored_as_is(self, app, monkeypatch):
+        """MSXi restates conversions downward - the trend is not monotonic."""
+        from app.models import U2CSnapshotVersion
+        from app.services.u2c_snapshot import (
+            backfill_version_history, refresh_official_snapshot,
+        )
+        fq = current_fiscal_quarter()
+        FakeMsxi(fq, {
+            '20260901': 6000.0, '20260908': 4000.0, '20260915': 4600.0,
+        }).install(monkeypatch)
+
+        with app.app_context():
+            refresh_official_snapshot()
+            snapshot = U2CSnapshot.query.filter_by(fiscal_quarter=fq).first()
+            backfill_version_history(snapshot)
+
+            series = [
+                v.total_converted_acr for v in
+                U2CSnapshotVersion.query
+                .filter_by(snapshot_id=snapshot.id)
+                .order_by(U2CSnapshotVersion.version_date)
+            ]
+            assert series == [6000.0, 4000.0, 4600.0]
+
+
+class TestCloseOutQuarter:
+    """Finalising a quarter that has rolled over in MSXi."""
+
+    def test_close_out_uses_a_retained_pre_rollover_version(self, app, monkeypatch):
+        from app.services.u2c_snapshot import (
+            close_out_quarter, refresh_official_snapshot,
+        )
+        fq = current_fiscal_quarter()
+        fake = FakeMsxi(fq, {'20260915': 9000.0}).install(monkeypatch)
+
+        with app.app_context():
+            refresh_official_snapshot()
+            result = close_out_quarter(fq)
+
+            assert result['success'] is True
+            assert result['msxi_version'] == '20260915'
+            snapshot = U2CSnapshot.query.filter_by(fiscal_quarter=fq).first()
+            assert snapshot.is_final is True
+        assert fake.calls
+
+    def test_close_out_freezes_what_we_have_when_nothing_is_retained(
+        self, app, monkeypatch,
+    ):
+        """Best-effort: an expired quarter still gets marked final."""
+        from app.services.u2c_snapshot import (
+            close_out_quarter, refresh_official_snapshot,
+        )
+        fq = current_fiscal_quarter()
+        fake = FakeMsxi(fq, {'20260915': 9000.0}).install(monkeypatch)
+
+        with app.app_context():
+            refresh_official_snapshot()
+            fake.live_quarter = None  # quarter has aged out of MSXi entirely
+            result = close_out_quarter(fq)
+
+            assert result['success'] is True
+            assert result['reason'] == 'no_retained_version'
+            snapshot = U2CSnapshot.query.filter_by(fiscal_quarter=fq).first()
+            assert snapshot.is_final is True
+            assert snapshot.total_items == 2  # untouched
+
+    def test_close_out_is_idempotent(self, app, monkeypatch):
+        from app.services.u2c_snapshot import (
+            close_out_quarter, refresh_official_snapshot,
+        )
+        fq = current_fiscal_quarter()
+        FakeMsxi(fq, {'20260915': 9000.0}).install(monkeypatch)
+
+        with app.app_context():
+            refresh_official_snapshot()
+            close_out_quarter(fq)
+            again = close_out_quarter(fq)
+            assert again['reason'] == 'already_final'
+
+    def test_close_out_without_a_snapshot_is_a_no_op(self, app, monkeypatch):
+        from app.services.u2c_snapshot import close_out_quarter
+        FakeMsxi(None, {}).install(monkeypatch)
+        with app.app_context():
+            result = close_out_quarter('FY20 Q1')
+            assert result['success'] is False
+            assert result['reason'] == 'no_snapshot'

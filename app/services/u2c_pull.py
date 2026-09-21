@@ -23,6 +23,7 @@ owns the write side.
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import logging
 import re
@@ -57,6 +58,19 @@ _MODEL_ID_FALLBACK = 6659445
 # A report-level filter the published report carries: one bad snapshot load is
 # excluded by date id. Kept so our rows match the portal exactly.
 _EXCLUDED_SNAPSHOT_DATE_ID = "20260721"
+
+# The report's "Snapshot Version" slicer (``FactAzureConsumptionPipelineC2CSnapshots
+# .SnapshotDateID``) accepts either this alias or an explicit ``yyyymmdd`` member.
+# ``current`` is simply an alias for the newest retained version.
+CURRENT_VERSION = "current"
+
+# MSXi publishes a new snapshot version weekly, on Tuesdays (``date.weekday()``
+# returns 1 for Tuesday), and retains roughly seven weeks before older versions
+# stop returning rows. The series has gaps - some Tuesdays never loaded, and the
+# report itself excludes one bad load - so callers must probe rather than assume
+# every Tuesday exists.
+_LOAD_WEEKDAY = 1
+DEFAULT_HISTORY_WEEKS = 10
 
 _AUTH_SCHEME = "Bearer"
 
@@ -325,13 +339,23 @@ _FROM = [
 ]
 
 
-def _u2c_query(territories: list[str], fiscal_year: str, due_quarter: str) -> dict:
+def _u2c_query(territories: list[str], fiscal_year: str, due_quarter: str,
+               version: str = CURRENT_VERSION) -> dict:
     """Build the milestone-detail semantic query for the given territories.
+
+    .. warning::
+       Do **not** "simplify" the ``Where`` list. These filters constrain the
+       measures, not just the row set: dropping ``QtrRel`` alone returns the
+       same 42 rows with ``$ Starting Uncommitted Pipeline`` inflated from
+       $130,878 to $878,679. Any change here must be validated against the
+       portal's own numbers.
 
     Args:
         territories: ``DimCustomer.SalesTerritory`` values (e.g. ``East.SMECC.MAA.0101``).
         fiscal_year: MSXi fiscal year label, e.g. ``FY27``.
         due_quarter: MSXi due-quarter label, e.g. ``FY27-Q1``.
+        version: ``SnapshotDateID`` member - ``'current'`` for the newest load,
+            or an explicit ``yyyymmdd`` string for a retained weekly version.
     """
     select = [
         _mea(s, p, n) if is_measure else _col(s, p, n)
@@ -357,7 +381,7 @@ def _u2c_query(territories: list[str], fiscal_year: str, due_quarter: str) -> di
             _not_in("f", "PrevPositiveNegativePipeline", [_lit("Negative Milestones")]),
             _in("f", "PrevDueQuarter", [_lit(due_quarter)]),
             _in("d1", "QtrRel", [_lit("CQ")]),
-            _in("f", "SnapshotDateID", [_lit("current")]),
+            _in("f", "SnapshotDateID", [_lit(version)]),
             _in("d11", "SalesTerritory", [_lit(t) for t in territories]),
             _in("f", "PrevCommitmentRecommendation", [_lit("Uncommitted")]),
             _not_in("f", "PrevSalesStageName", ["null", _lit("Listen & Consult")]),
@@ -531,13 +555,22 @@ def get_territory_codes() -> list[str]:
 
 
 def pull_u2c_milestones(fq_label: str,
-                        territories: Optional[list[str]] = None) -> list[dict]:
+                        territories: Optional[list[str]] = None,
+                        version: str = CURRENT_VERSION) -> list[dict]:
     """Pull the official MSXi U2C milestone baseline for a fiscal quarter.
+
+    An empty list is a normal, meaningful result - it means MSXi has no rows for
+    that quarter/version combination, which happens when the quarter hasn't
+    become current yet, when it has already rolled over, or when the requested
+    version has expired. Callers must distinguish those cases themselves; MSXi
+    answers all of them the same way.
 
     Args:
         fq_label: Sales Buddy fiscal quarter label, e.g. ``'FY27 Q1'``.
         territories: Sales territory codes to scope to. Defaults to the
             territories configured in Sales Buddy.
+        version: ``SnapshotDateID`` member - ``'current'`` for the newest load,
+            or an explicit ``yyyymmdd`` string for a retained weekly version.
 
     Returns:
         One dict per milestone with the keys named in ``_SELECT_SPECS``, with the
@@ -557,8 +590,18 @@ def pull_u2c_milestones(fq_label: str,
     fiscal_year, due_quarter = msxi_quarter_labels(fq_label)
     session = requests.Session()
     session.trust_env = False  # ignore env proxy that stalls the capacity handshake
-    rows = _qes_post(session, _u2c_query(codes, fiscal_year, due_quarter))
+    rows = _qes_post(session, _u2c_query(codes, fiscal_year, due_quarter, version))
 
+    out = _normalise_rows(rows)
+    logger.info(
+        "MSXi U2C pull for %s (version %s) across %d territories returned %d milestones",
+        fq_label, version, len(codes), len(out),
+    )
+    return out
+
+
+def _normalise_rows(rows: list[dict]) -> list[dict]:
+    """Coerce raw QES rows into date/float typed records."""
     out: list[dict] = []
     for row in rows:
         record = dict(row)
@@ -570,9 +613,137 @@ def pull_u2c_milestones(fq_label: str,
             except (TypeError, ValueError):
                 record[key] = 0.0
         out.append(record)
-
-    logger.info(
-        "MSXi U2C pull for %s across %d territories returned %d milestones",
-        fq_label, len(codes), len(out),
-    )
     return out
+
+
+# ---------------------------------------------------------------------------
+# Snapshot version helpers
+# ---------------------------------------------------------------------------
+def fingerprint_rows(rows: list[dict]) -> str:
+    """Return a stable hash of a pulled payload.
+
+    Lets a daily refresh tell "MSXi published a new weekly load" from "same data
+    we already have" without spending an extra query. Only the fields that can
+    actually move between versions are hashed - the baseline columns are frozen
+    by MSXi, so including them would add nothing.
+    """
+    parts = sorted(
+        "|".join((
+            str(r.get("milestone_number") or ""),
+            str(r.get("current_commitment") or ""),
+            str(r.get("current_status") or ""),
+            f"{float(r.get('converted_acr') or 0.0):.2f}",
+            f"{float(r.get('starting_acr') or 0.0):.2f}",
+        ))
+        for r in rows
+    )
+    return hashlib.sha256("\n".join(parts).encode("utf-8")).hexdigest()
+
+
+def candidate_versions(weeks: int = DEFAULT_HISTORY_WEEKS,
+                       ref_date: Optional[date] = None) -> list[str]:
+    """Return plausible ``yyyymmdd`` version members, newest first.
+
+    MSXi loads on Tuesdays, so these are the last ``weeks`` Tuesdays on or
+    before ``ref_date``. Some will not exist - the series has gaps - so callers
+    must treat an empty pull as "skip this one" rather than "stop".
+    """
+    today = ref_date or date.today()
+    offset = (today.weekday() - _LOAD_WEEKDAY) % 7
+    last_load = today - timedelta(days=offset)
+    return [(last_load - timedelta(weeks=i)).strftime("%Y%m%d") for i in range(weeks)]
+
+
+def version_to_date(version: str) -> Optional[date]:
+    """Parse a ``yyyymmdd`` version member into a date."""
+    try:
+        return datetime.strptime(version, "%Y%m%d").date()
+    except (TypeError, ValueError):
+        return None
+
+
+def resolve_current_version(fq_label: str,
+                            territories: Optional[list[str]] = None,
+                            current_rows: Optional[list[dict]] = None,
+                            weeks: int = DEFAULT_HISTORY_WEEKS) -> Optional[str]:
+    """Work out which dated version ``'current'`` is currently aliasing.
+
+    MSXi exposes no column carrying the load date - ``SnapshotDateID`` projects
+    the literal string ``'current'`` when that's what you filtered on - so we
+    identify it by matching payloads against dated members, newest first.
+
+    Normally costs a single extra query: the most recent Tuesday is usually the
+    one ``'current'`` points at.
+
+    Args:
+        fq_label: Fiscal quarter to probe.
+        territories: Territory codes, defaulting to the configured ones.
+        current_rows: The already-pulled ``'current'`` payload, to save a query.
+        weeks: How far back to probe before giving up.
+
+    Returns:
+        The ``yyyymmdd`` member, or None if no retained version matched (which
+        can happen legitimately - a load published today won't be a Tuesday if
+        MSXi shifts its schedule).
+    """
+    rows = current_rows
+    if rows is None:
+        rows = pull_u2c_milestones(fq_label, territories=territories)
+    if not rows:
+        return None
+
+    target = fingerprint_rows(rows)
+    for version in candidate_versions(weeks):
+        try:
+            dated = pull_u2c_milestones(fq_label, territories=territories,
+                                        version=version)
+        except U2CPullError as exc:
+            logger.warning("Probing U2C version %s failed: %s", version, exc)
+            continue
+        if not dated:
+            continue  # gap week or expired
+        if fingerprint_rows(dated) == target:
+            return version
+    logger.info("Could not resolve which dated version 'current' aliases for %s",
+                fq_label)
+    return None
+
+
+def pull_version_series(fq_label: str,
+                        territories: Optional[list[str]] = None,
+                        weeks: int = DEFAULT_HISTORY_WEEKS,
+                        skip: Optional[set[str]] = None,
+                        ) -> list[tuple[str, list[dict]]]:
+    """Pull every retained weekly version for a quarter, newest first.
+
+    Used to backfill the attainment trend the first time we see a quarter: MSXi
+    retains roughly seven weeks, so a fresh import can recover most of a
+    quarter's history immediately.
+
+    Args:
+        fq_label: Fiscal quarter to pull.
+        territories: Territory codes, defaulting to the configured ones.
+        weeks: How far back to probe.
+        skip: Version members already stored. Dated versions are immutable, so
+            there is never a reason to re-fetch one.
+
+    Returns:
+        ``[(version, rows), ...]`` for versions that returned data, newest first.
+        Gaps and expired versions are simply absent.
+    """
+    skip = skip or set()
+    found: list[tuple[str, list[dict]]] = []
+    for version in candidate_versions(weeks):
+        if version in skip:
+            continue
+        try:
+            rows = pull_u2c_milestones(fq_label, territories=territories,
+                                       version=version)
+        except U2CPullError as exc:
+            logger.warning("Pulling U2C version %s failed: %s", version, exc)
+            continue
+        if rows:
+            found.append((version, rows))
+    logger.info("U2C version series for %s: %d of %d probed weeks had data",
+                fq_label, len(found), weeks)
+    return found

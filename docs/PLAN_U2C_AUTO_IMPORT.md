@@ -28,7 +28,7 @@ the October verification below.
 | `'current'` is an **alias for the newest retained version** | `current` is byte-identical to `20260915` |
 | Loads are **weekly, on Tuesdays** | Retained members are all Tuesdays |
 | Retention is **~7 weeks** | Floor was `20260804`; `20260728` and older return 0 |
-| **Gaps exist** in the version series | `20260901` is a Tuesday returning 0 rows; `20260721` is explicitly excluded by the report as a bad load |
+| **Gaps exist** in the version series | `20260721` is explicitly excluded by the report as a bad load. Separately, `20260901` returned 0 rows on one probe and full data an hour later - **empty results can be transient**, so gaps must be re-probed rather than recorded as permanent |
 | The baseline is **immutable** across versions | `starting_acr` = 130,878 in every version |
 | Attainment is **non-monotonic** | `converted_acr` ran 6,000 → 4,000 → 4,600 → 6,978 → 29,078; conversions get restated downward |
 | The `Where` filters are **load-bearing on the measures** | Dropping `QtrRel` kept 42 rows but moved `starting_acr` from 130,878 to 878,679 |
@@ -107,9 +107,10 @@ table). No drops.
 
 - `refresh_official_snapshot()` - the daily entry point. See flow below.
 - `backfill_version_history(fq)` - for any retained version not already in
-  `u2c_snapshot_versions`, pull it and store aggregates. Run once on first import
-  of a quarter (captures ~6 weeks of history immediately) and opportunistically
-  thereafter. Skip versions already stored - they're immutable.
+  `u2c_snapshot_versions`, pull it and store aggregates. Runs on **every**
+  import, not just the first sight of a quarter: empty results can be transient,
+  and since stored versions are skipped, re-probing lets gaps heal. Imports only
+  happen when content changed (~weekly), so the cost is bounded.
 - `close_out_quarter(prev_fq)` - walk versions backwards from the rollover date,
   import the newest one that still returns rows as the prior quarter's final item
   set, mark `is_final = True`.
