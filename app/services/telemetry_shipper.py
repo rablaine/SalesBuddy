@@ -35,7 +35,7 @@ Sent (per WorkIQ failure):
     - failure_type  (taxonomy: "npx_missing", "subprocess_timeout",
                      "nonzero_exit", "eula_failed", "server_error",
                      "planning_narration", "refusal", "too_short", "empty",
-                     "json_parse_failed")
+                     "json_parse_failed", "calendar_lookup_failed")
     - duration_ms   (optional, rounded)
 
 NOT sent (ever):
@@ -270,6 +270,7 @@ _WORKIQ_FAILURE_TYPES = frozenset({
     'nonzero_exit',
     'eula_failed',
     'server_error',
+    'calendar_lookup_failed',
     # parse_failed flavors, one per query_workiq() caller
     'parse_attendee_json',
     'parse_customer_json',

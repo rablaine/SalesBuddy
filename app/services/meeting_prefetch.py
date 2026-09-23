@@ -59,15 +59,22 @@ def _is_internal_domain(domain: Optional[str]) -> bool:
     d = domain.lower().strip()
     return d == INTERNAL_DOMAIN or d.endswith('.' + INTERNAL_DOMAIN)
 
-# Match a JSON array spanning the whole match. Non-greedy so we stop at the
-# first balanced ``]``. WorkIQ wraps the array with prose preamble + tail
-# offer-suggestions, so we can't just ``json.loads(response)``.
+# Match the legacy non-empty meeting array. A bare empty array is ambiguous:
+# WorkIQ also emits ``[]`` when its calendar lookup fails.
 _JSON_ARRAY_RE = re.compile(r'\[\s*\{[\s\S]*\}\s*\]')
+_JSON_CODE_BLOCK_RE = re.compile(
+    r'```(?:json)?\s*([\s\S]*?)\s*```',
+    re.IGNORECASE,
+)
 
 # Match the legacy X.500 / Exchange DN format WorkIQ sometimes returns for
 # self-organized events instead of a clean SMTP address. We treat these as
 # "unknown organizer" rather than trying to parse the CN out.
 _X500_RE = re.compile(r'^/O=', re.IGNORECASE)
+
+
+class CalendarLookupError(ValueError):
+    """WorkIQ could not confirm whether the requested day has meetings."""
 
 
 # Meeting subjects matching any of these patterns are internal / segment
@@ -106,9 +113,14 @@ def _is_blacklisted_subject(subject: Optional[str]) -> bool:
 
 def _build_prompt(date_str: str) -> str:
     return (
-        f"List every meeting on my calendar for {date_str}. Return one JSON "
-        f"array inside a single ```json code block. Each meeting object must "
-        f"contain: subject, "
+        f"List every meeting on my calendar for {date_str}. Return ONLY one "
+        f"JSON object inside a single ```json code block with exactly these "
+        f"top-level keys: calendar_query_status, meetings, and error. Set "
+        f"calendar_query_status to \"meetings_found\" when one or more meetings "
+        f"are found, or \"no_meetings\" only after successfully checking the "
+        f"calendar and confirming there are none. Set error to null for both "
+        f"successful statuses. meetings must always be an array. "
+        f"Each meeting object must contain: subject, "
         f"start_time (ISO 8601 with timezone), end_time, organizer_email, "
         f"is_recurring, and attendees. Return no more than "
         f"{MAX_MEETING_ATTENDEES} attendees per meeting. For meetings over "
@@ -118,7 +130,10 @@ def _build_prompt(date_str: str) -> str:
         f"attendee object must contain name and a non-null email address; do "
         f"not return attendee entries without an email address. Include "
         f"meetings with no qualifying attendees using an empty array. Do not "
-        f"omit any meeting. Do not include prose outside the code block."
+        f"omit any meeting. If the calendar lookup fails or cannot be "
+        f"completed, return calendar_query_status \"calendar_lookup_failed\", "
+        f"an empty meetings array, and a short error string explaining the "
+        f"failure. Do not include prose outside the code block."
     )
 
 
@@ -126,27 +141,63 @@ def _extract_json_array(response: str) -> List[Dict[str, Any]]:
     """Pull the JSON meeting array out of a WorkIQ prose response.
 
     Raises ``ValueError`` if no parseable array is found OR the JSON is
-    malformed. This is intentional: callers must distinguish "WorkIQ
-    failed / returned garbage" (preserve existing cached meetings, surface
-    error to UI) from "WorkIQ returned a valid but empty list" (wipe
-    cache). An empty list isn't a realistic WorkIQ response - it returns
-    prose like "No meetings found" - so any non-parseable response is
-    treated as a sync failure rather than silently wiping the day.
+    malformed. The explicit ``calendar_query_status`` distinguishes a
+    confirmed empty calendar from a failed lookup. Legacy non-empty arrays
+    remain supported, but bare ``[]`` is rejected because WorkIQ emits it
+    for both conditions.
     """
     if not response:
         raise ValueError("empty WorkIQ response")
     from app.services.workiq_service import repair_json_control_chars
-    match = _JSON_ARRAY_RE.search(response)
-    if not match:
-        raise ValueError("no JSON array found in WorkIQ response")
-    # WorkIQ sometimes emits raw newline bytes inside JSON string values
-    # (e.g. an attendee name split across lines). Escape them so json.loads
-    # doesn't fail with "Invalid control character".
-    raw = repair_json_control_chars(match.group(0))
-    try:
-        data = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        raise ValueError(f"JSON parse failed: {exc}") from exc
+
+    code_match = _JSON_CODE_BLOCK_RE.search(response)
+    candidate = code_match.group(1).strip() if code_match else response
+
+    if '"calendar_query_status"' in candidate:
+        try:
+            envelope = json.loads(repair_json_control_chars(candidate))
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"JSON envelope parse failed: {exc}") from exc
+        if not isinstance(envelope, dict):
+            raise ValueError("calendar response envelope is not an object")
+
+        status = envelope.get('calendar_query_status')
+        meetings = envelope.get('meetings')
+        if status == 'no_meetings':
+            if meetings != [] or envelope.get('error') is not None:
+                raise ValueError(
+                    "no_meetings response must contain an empty meetings array "
+                    "and a null error",
+                )
+            data = []
+        elif status == 'meetings_found':
+            if (
+                not isinstance(meetings, list)
+                or not meetings
+                or envelope.get('error') is not None
+            ):
+                raise ValueError(
+                    "meetings_found response must contain meetings and a null error",
+                )
+            data = meetings
+        else:
+            raise CalendarLookupError(
+                f"WorkIQ calendar lookup was not confirmed: {status or 'unknown'}",
+            )
+    else:
+        match = _JSON_ARRAY_RE.search(candidate)
+        if not match:
+            if re.search(r'\[\s*\]', candidate):
+                raise CalendarLookupError(
+                    "WorkIQ returned an ambiguous empty meeting array",
+                )
+            raise ValueError("no JSON meeting data found in WorkIQ response")
+        raw = repair_json_control_chars(match.group(0))
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"JSON parse failed: {exc}") from exc
+
     if not isinstance(data, list):
         raise ValueError("parsed JSON is not a list")
     aliases = {
@@ -880,6 +931,15 @@ def fetch_workiq_meetings_for_date(
 
     try:
         raw_meetings = _extract_json_array(response)
+    except CalendarLookupError as exc:
+        from app.services.telemetry_shipper import queue_workiq_call
+        queue_workiq_call(
+            'meeting_list',
+            'server_down',
+            failure_type='calendar_lookup_failed',
+        )
+        logger.error("Prefetch: WorkIQ lookup failed for %s: %s", date_str, exc)
+        return None, str(exc)
     except ValueError as exc:
         last_parse_error = str(exc)
         logger.warning(
