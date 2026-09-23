@@ -124,6 +124,44 @@ class TestExtractJsonArray:
         with pytest.raises(ValueError):
             meeting_prefetch._extract_json_array("")
 
+    def test_accepts_confirmed_no_meetings_envelope(self):
+        items = meeting_prefetch._extract_json_array(
+            '```json\n'
+            '{"calendar_query_status":"no_meetings","meetings":[],"error":null}\n'
+            '```',
+        )
+
+        assert items == []
+
+    def test_accepts_confirmed_meetings_envelope(self):
+        items = meeting_prefetch._extract_json_array(
+            '```json\n'
+            '{"calendar_query_status":"meetings_found","meetings":['
+            '{"subject":"Customer sync"}],"error":null}\n'
+            '```',
+        )
+
+        assert items == [{'subject': 'Customer sync'}]
+
+    def test_rejects_ambiguous_empty_array(self):
+        with pytest.raises(
+            meeting_prefetch.CalendarLookupError,
+            match='ambiguous empty meeting array',
+        ):
+            meeting_prefetch._extract_json_array("```json\n[]\n```")
+
+    def test_rejects_explicit_calendar_lookup_failure(self):
+        with pytest.raises(
+            meeting_prefetch.CalendarLookupError,
+            match='calendar_lookup_failed',
+        ):
+            meeting_prefetch._extract_json_array(
+                '```json\n'
+                '{"calendar_query_status":"calendar_lookup_failed",'
+                '"meetings":[],"error":"Calendar could not be read"}\n'
+                '```',
+            )
+
     def test_normalizes_collapsed_workiq_field_names(self):
         items = meeting_prefetch._extract_json_array(
             '[{"subject":"Customer sync","starttime":"2026-08-28T09:00:00-05:00",'
@@ -137,10 +175,54 @@ class TestExtractJsonArray:
         assert items[0]['is_recurring'] is False
 
 
+def test_empty_workiq_day_does_not_retry_or_emit_parse_failure():
+    with patch(
+        'app.services.workiq_service.query_workiq',
+        return_value=(
+            '```json\n'
+            '{"calendar_query_status":"no_meetings","meetings":[],"error":null}\n'
+            '```'
+        ),
+    ) as query_workiq, patch(
+        'app.services.telemetry_shipper.queue_workiq_call',
+    ) as queue_workiq_call:
+        meetings, error = meeting_prefetch.fetch_workiq_meetings_for_date(
+            '2026-09-20',
+        )
+
+    assert meetings == []
+    assert error is None
+    query_workiq.assert_called_once()
+    queue_workiq_call.assert_not_called()
+
+
+def test_ambiguous_empty_workiq_day_records_lookup_failure_without_retry():
+    with patch(
+        'app.services.workiq_service.query_workiq',
+        return_value='```json\n[]\n```',
+    ) as query_workiq, patch(
+        'app.services.telemetry_shipper.queue_workiq_call',
+    ) as queue_workiq_call:
+        meetings, error = meeting_prefetch.fetch_workiq_meetings_for_date(
+            '2026-09-20',
+        )
+
+    assert meetings is None
+    assert 'ambiguous empty meeting array' in error
+    query_workiq.assert_called_once()
+    queue_workiq_call.assert_called_once_with(
+        'meeting_list',
+        'server_down',
+        failure_type='calendar_lookup_failed',
+    )
+
+
 def test_meeting_prompt_caps_attendees_and_requires_email():
     prompt = meeting_prefetch._build_prompt('2026-08-28')
 
-    assert 'inside a single ```json code block' in prompt
+    assert 'calendar_query_status' in prompt
+    assert '"no_meetings" only after successfully checking' in prompt
+    assert 'calendar_lookup_failed' in prompt
     assert 'no more than 15 attendees per meeting' in prompt
     assert 'choose external attendees first' in prompt
     assert 'non-null email address' in prompt

@@ -28,9 +28,8 @@ def _stub_workiq(monkeypatch, raw_meetings: list[dict] | None = None) -> list[st
     """Patch query_workiq to return a meeting list and record dates called.
 
     When ``raw_meetings`` is None, returns a single placeholder meeting per
-    call so ``_extract_json_array`` finds a parseable array. (An empty
-    array string ``[]`` no longer parses as success -- see
-    ``meeting_prefetch._extract_json_array``.)
+    call so aura tests exercise meeting storage rather than the valid
+    no-meetings path.
     """
     called_with: list[str] = []
 

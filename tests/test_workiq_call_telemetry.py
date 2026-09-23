@@ -98,6 +98,20 @@ class TestQueueWorkiqCall:
                                                 failure_type='npx_missing')
             assert 'duration_ms' not in buf[0]['data']['baseData']['measurements']
 
+    def test_calendar_lookup_failure_is_preserved(self):
+        from app.services import telemetry_shipper
+
+        with patch.object(telemetry_shipper, 'is_telemetry_enabled', return_value=True), \
+             patch.object(telemetry_shipper, '_buffer', []) as buf:
+            telemetry_shipper.queue_workiq_call(
+                'meeting_list',
+                'server_down',
+                failure_type='calendar_lookup_failed',
+            )
+
+            properties = buf[0]['data']['baseData']['properties']
+            assert properties['failure_type'] == 'calendar_lookup_failed'
+
 
 # =============================================================================
 # query_workiq failure path coverage
