@@ -8,7 +8,7 @@ brought the change into `main`, so the admin Updates card can show
 Format: `## M/D/YYYY - <merge-short-sha>`. See
 `scripts/tag-changelog.ps1` for the helper that fills this in.
 
-## 9/23/2026
+## 9/23/2026 - fa8df50
 
 - Improve WorkIQ telemetry so failed calendar lookups are no longer reported as parse errors.
 
