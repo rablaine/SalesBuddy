@@ -8,7 +8,7 @@ brought the change into `main`, so the admin Updates card can show
 Format: `## M/D/YYYY - <merge-short-sha>`. See
 `scripts/tag-changelog.ps1` for the helper that fills this in.
 
-## 9/22/2026
+## 9/22/2026 - 4ab959a
 
 - Remove the redundant back-to-report button from seller 1:1 notes.
 
