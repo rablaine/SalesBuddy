@@ -8,6 +8,10 @@ brought the change into `main`, so the admin Updates card can show
 Format: `## M/D/YYYY - <merge-short-sha>`. See
 `scripts/tag-changelog.ps1` for the helper that fills this in.
 
+## 9/22/2026
+
+- Remove the redundant back-to-report button from seller 1:1 notes.
+
 ## 9/21/2026 - 99a26dd
 
 - Add Remaining U2C milestones and their linked engagements to seller 1:1 agendas with a custom discussion note.
