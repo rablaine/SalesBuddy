@@ -38,6 +38,7 @@ ACTIVE_MILESTONE_STATUSES = ('On Track', 'At Risk', 'Blocked')
 TEAM_COVERAGE_TARGET = 50.0
 HOK_COVERAGE_TARGET = 100.0
 U2C_TARGET = 40.0
+WHITESPACE_CONFIRMATION_MONTHS = 3
 VALIDATION_CATEGORIES = {
     606820007: 'Technical Workshop',
     861980002: 'Demo',
@@ -371,7 +372,7 @@ def _current_half(reference: date) -> tuple[date, date, str]:
 
 
 def get_whitespace_widget(reference: date | None = None) -> dict[str, Any]:
-    """Return rolling-three-month whitespace wins for the current fiscal half."""
+    """Return sustained whitespace wins and ramping candidates for the half."""
     reference = reference or date.today()
     half_start, half_end, half_label = _current_half(reference)
     buckets = FY27_DATA_SCOPE['revenue_buckets']
@@ -391,6 +392,7 @@ def get_whitespace_widget(reference: date | None = None) -> dict[str, Any]:
         revenue_by_key[(row.customer_id, row.bucket, row.month_date)] += row.revenue or 0.0
 
     wins: dict[str, list[dict[str, Any]]] = {bucket: [] for bucket in buckets}
+    ramping: dict[str, list[dict[str, Any]]] = {bucket: [] for bucket in buckets}
     customer_names = {row.customer_id: row.customer_name for row in rows}
     customer_favicons = {
         customer.id: customer.favicon_b64
@@ -417,6 +419,22 @@ def get_whitespace_widget(reference: date | None = None) -> dict[str, Any]:
                 for prior in prior_months
             )
             if current_revenue > 0 and has_complete_history and prior_is_zero:
+                positive_months = 0
+                positive_month = month
+                while (
+                    positive_month <= latest_allowed
+                    and revenue_by_key[
+                        (customer_id, bucket, positive_month)
+                    ] > 0
+                ):
+                    positive_months += 1
+                    positive_month = _month_offset(positive_month, 1)
+
+                still_consuming = positive_month > latest_allowed
+                if not still_consuming:
+                    month = positive_month
+                    continue
+
                 history = []
                 history_start, history_end = _whitespace_history_bounds(
                     month,
@@ -434,15 +452,42 @@ def get_whitespace_widget(reference: date | None = None) -> dict[str, Any]:
                         ),
                     })
                     history_month = _month_offset(history_month, 1)
-                wins[bucket].append({
+                confirmed = positive_months >= WHITESPACE_CONFIRMATION_MONTHS
+                result = {
                     'customer_id': customer_id,
                     'customer_name': customer_names[customer_id],
                     'favicon_b64': customer_favicons.get(customer_id),
                     'bucket': bucket,
-                    'first_positive_month': month.isoformat(),
-                    'revenue': round(current_revenue, 2),
+                    'activation_month': month.isoformat(),
+                    'confirmation_month': (
+                        _month_offset(
+                            month,
+                            WHITESPACE_CONFIRMATION_MONTHS - 1,
+                        ).isoformat()
+                        if confirmed else None
+                    ),
+                    'positive_months': positive_months,
+                    'state': 'confirmed' if confirmed else 'ramping',
+                    'state_label': (
+                        f'Sustained · {positive_months} consecutive months'
+                        if confirmed
+                        else (
+                            f'Ramping · {positive_months} of '
+                            f'{WHITESPACE_CONFIRMATION_MONTHS} months'
+                        )
+                    ),
+                    'revenue': round(
+                        revenue_by_key[
+                            (customer_id, bucket, latest_allowed)
+                        ],
+                        2,
+                    ),
                     'history': history,
-                })
+                }
+                if confirmed:
+                    wins[bucket].append(result)
+                else:
+                    ramping[bucket].append(result)
                 break
             month = _month_offset(month, 1)
 
@@ -451,10 +496,18 @@ def get_whitespace_widget(reference: date | None = None) -> dict[str, Any]:
         wins[bucket].sort(
             key=lambda item: (-item['revenue'], item['customer_name'].lower())
         )
+        ramping[bucket].sort(
+            key=lambda item: (
+                -item['positive_months'],
+                -item['revenue'],
+                item['customer_name'].lower(),
+            )
+        )
         count = len(wins[bucket])
         bucket_progress.append({
             'bucket': bucket,
             'wins': count,
+            'ramping': len(ramping[bucket]),
             'target': 1,
             'complete': count >= 1,
         })
@@ -472,14 +525,18 @@ def get_whitespace_widget(reference: date | None = None) -> dict[str, Any]:
         'available': bool(rows),
         'title': 'Fabric and database whitespace wins',
         'status_tone': 'success' if complete else 'warning',
-        'status_label': 'Goal reached' if complete else 'Wins still needed',
+        'status_label': 'Goal reached' if complete else 'Sustained wins still needed',
         'status_explanation': (
-            'A win is the first positive ACR month after three complete zero-ACR '
-            'months for the same customer and bucket.'
+            'A sustained win starts after three complete zero-ACR months and '
+            f'remains positive for at least {WHITESPACE_CONFIRMATION_MONTHS} '
+            'consecutive months through the latest available month. If usage '
+            'returns to $0, it no longer counts. Any positive ACR qualifies; '
+            'no minimum spend threshold applies.'
         ),
         'half_label': half_label,
         'bucket_progress': bucket_progress,
         'wins': wins,
+        'ramping': ramping,
         'freshness': status.get('completed_at') or latest_month,
         'data_through': latest_month,
         'source_state': status.get('state'),

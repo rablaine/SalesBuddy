@@ -593,23 +593,31 @@ Update the category definitions as follows:
 - Current-half wins against a target of at least one per bucket.
 - For the current FY27 Data selection, separate `Databases` and `Fabric`
   progress.
-- Newly detected wins for the current half.
+- Confirmed sustained wins and still-ramping activations for the current half.
 
 **Definition**
 
-A customer and bucket produce one qualifying win when:
+A customer and bucket produce one sustained win when:
 
 1. The first positive-ACR month occurs within the half being measured.
 2. The same customer and bucket had $0 total ACR in each of the three complete
    months immediately preceding that positive month.
-3. The bucket is `Databases` or `Fabric`.
+3. The same customer and bucket remain above $0 for at least three consecutive
+   months beginning with the activation month and remain above $0 through the
+   latest available month.
+4. The bucket is `Databases` or `Fabric`.
 
 Count each customer and bucket once per half. The target is at least one
 qualifying win in each prioritized bucket during each fiscal half.
 
-Use a rolling three-month lookback, not only a fixed start-of-half snapshot.
-For example, an October first-consumption month qualifies only when July,
-August, and September were all zero.
+Use a rolling three-month zero-ACR lookback, not only a fixed start-of-half
+snapshot. There is no minimum positive ACR threshold. Show one- and two-month
+positive sequences as ramping progress, but do not count them as wins. If
+consumption later returns to $0, the activation no longer qualifies, even when
+it previously completed three positive months.
+
+Attribute a confirmed win to the fiscal half containing its first positive
+month, even when the confirmation month falls later.
 
 Treat an absent customer/bucket/month row as zero only when a successful full
 revenue sync covers that customer and fiscal month. If any required month is
@@ -1264,8 +1272,8 @@ presentation:
    year.
 5. The qualifying HoK and technical-validation category lists are defined in
    the Milestone HoK Coverage section.
-6. A whitespace win uses a rolling three-complete-month zero-ACR lookback
-   before the first positive month in the fiscal half.
+6. A whitespace win uses a rolling three-complete-month zero-ACR lookback,
+   followed by three consecutive positive months with no minimum ACR threshold.
 
 Manager confirmation questions and answer space live in
 `docs/FY27_CONNECT_MANAGER_QUESTIONS.md`.

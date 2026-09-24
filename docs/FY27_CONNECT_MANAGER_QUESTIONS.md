@@ -104,26 +104,28 @@ technical-validation subset?
 
 ## 6. Fabric and database whitespace wins
 
-**Working definition**
+**Manager-confirmed definition - September 24, 2026**
 
 The target is:
 
 - At least one Fabric whitespace win per fiscal half.
 - At least one Databases whitespace win per fiscal half.
 
-A customer and bucket produce one qualifying win when:
+A customer and bucket produce one sustained win when:
 
 1. The first positive-ACR month occurs during the fiscal half.
 2. The same customer and bucket had $0 ACR in each of the three complete months
    immediately before that positive month.
-3. The bucket is Fabric or Databases.
+3. The customer and bucket remain above $0 for at least three consecutive
+   months beginning with the activation month and remain above $0 through the
+   latest available month.
+4. The bucket is Fabric or Databases.
 
-This is a rolling three-month lookback, not only a fixed snapshot at the start
-of the half.
+There is no minimum monthly ACR threshold. One or two consecutive positive
+months appear as ramping progress but do not count toward the goal. An
+activation that returns to $0 before or after confirmation no longer counts.
 
-**Question**
-
-Is this the intended qualification and counting rule?
+Attribute a confirmed win to the fiscal half containing its activation month.
 
 ## Deferred question: Unified Action Tracker
 
@@ -143,5 +145,7 @@ Use this section to record answers:
 3. HoK coverage population and activity period:
 4. Qualifying HoK categories:
 5. Technical-validation subset:
-6. Whitespace qualification:
+6. Whitespace qualification: Confirmed September 24, 2026. Three zero months
+   establish whitespace; three consecutive positive months confirm sustained
+   consumption, with no minimum ACR threshold.
 7. Deferred UAT categories:

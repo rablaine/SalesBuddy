@@ -224,8 +224,8 @@ def test_hok_coverage_and_validation_counts(app):
         assert widget['validation_counts']['Demo'] == 1
 
 
-def test_whitespace_win_uses_rolling_three_months(app, client):
-    """A first positive month qualifies after three complete zero months."""
+def test_whitespace_win_requires_sustained_consumption(app, client):
+    """Three positive months confirm a win after three complete zero months."""
     with app.app_context():
         customer = Customer(
             name='Whitespace Customer',
@@ -241,8 +241,8 @@ def test_whitespace_win_uses_rolling_three_months(app, client):
             (date(2026, 4, 1), 0),
             (date(2026, 5, 1), 0),
             (date(2026, 6, 1), 0),
-            (date(2026, 7, 1), 0),
-            (date(2026, 8, 1), 0),
+            (date(2026, 7, 1), 20),
+            (date(2026, 8, 1), 75),
             (date(2026, 9, 1), 250),
         ]
         for month, revenue in months:
@@ -277,13 +277,16 @@ def test_whitespace_win_uses_rolling_three_months(app, client):
         )
         assert fabric['wins'] == 1
         win = widget['wins']['Fabric'][0]
-        assert win['first_positive_month'] == '2026-09-01'
+        assert win['activation_month'] == '2026-07-01'
+        assert win['confirmation_month'] == '2026-09-01'
+        assert win['positive_months'] == 3
+        assert win['state'] == 'confirmed'
         assert [point['label'] for point in win['history']] == [
             'Feb26', 'Mar26', 'Apr26', 'May26',
             'Jun26', 'Jul26', 'Aug26', 'Sep26',
         ]
         assert [point['revenue'] for point in win['history']] == [
-            0, 0, 0, 0, 0, 0, 0, 250,
+            0, 0, 0, 0, 0, 20, 75, 250,
         ]
 
         response = client.get('/reports/connect-goals')
@@ -294,6 +297,55 @@ def test_whitespace_win_uses_rolling_three_months(app, client):
         assert b'Fabric monthly ACR' not in response.data
         assert b'Feb26' in response.data
         assert b'First positive' not in response.data
+        assert b'Sustained' in response.data
+
+
+def test_whitespace_tracks_ramping_and_excludes_lapsed_activation(app):
+    """Current activations ramp while a three-month run that stops does not count."""
+    with app.app_context():
+        ramping_customer = Customer(name='Ramping Customer', tpid='ramping-123')
+        lapsed_customer = Customer(name='Lapsed Customer', tpid='lapsed-123')
+        imported = RevenueImport(filename='ramping-whitespace-test')
+        db.session.add_all([ramping_customer, lapsed_customer, imported])
+        db.session.flush()
+
+        ramping_values = [0, 0, 0, 0, 0, 0, 125]
+        lapsed_values = [0, 0, 0, 50, 75, 100, 0]
+        months = [
+            date(2026, month, 1)
+            for month in range(4, 11)
+        ]
+        for customer, values in (
+            (ramping_customer, ramping_values),
+            (lapsed_customer, lapsed_values),
+        ):
+            for month, revenue in zip(months, values):
+                db.session.add(CustomerRevenueData(
+                    customer_name=customer.name,
+                    tpid=customer.tpid,
+                    customer_id=customer.id,
+                    bucket='Fabric',
+                    fiscal_month=month.strftime('FY27-%b'),
+                    month_date=month,
+                    revenue=revenue,
+                    last_import_id=imported.id,
+                ))
+        db.session.commit()
+
+        widget = connect_goals.get_whitespace_widget(date(2026, 10, 23))
+
+        fabric = next(
+            item for item in widget['bucket_progress']
+            if item['bucket'] == 'Fabric'
+        )
+        assert fabric['wins'] == 0
+        assert fabric['ramping'] == 1
+        assert widget['wins']['Fabric'] == []
+        assert len(widget['ramping']['Fabric']) == 1
+        candidate = widget['ramping']['Fabric'][0]
+        assert candidate['customer_name'] == 'Ramping Customer'
+        assert candidate['positive_months'] == 1
+        assert candidate['state_label'] == 'Ramping · 1 of 3 months'
 
 
 def test_whitespace_history_centers_or_shifts_eight_month_window():

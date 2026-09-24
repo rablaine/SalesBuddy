@@ -244,7 +244,7 @@ const PageHelp = (function () {
       <p><strong>Goal: 100%.</strong> Every active, on-team Data milestone due this or next fiscal year should have at least one qualifying HoK activity in the current fiscal year. Technical Workshop, Demo, L300+ Demo, Architecture Design Session, and PoC/Pilot counts provide additional technical-validation context.</p>
 
       <h6>Whitespace wins</h6>
-      <p><strong>Goal: one Databases win and one Fabric win per fiscal half.</strong> A win is the first positive ACR month for a customer and bucket after three complete zero-ACR months.</p>
+      <p><strong>Goal: one Databases win and one Fabric win per fiscal half.</strong> After three complete zero-ACR months, an activation appears as ramping until the same customer and bucket remain above $0 for three consecutive months. Consumption must remain positive through the latest available month, so a customer that later returns to $0 no longer counts. Any positive ACR qualifies; there is no minimum spend threshold.</p>
     `},
     { pattern: /^\/reports\/activity-coverage/, title: 'Activity Coverage', content: `
       <p>Review every stored fiscal-year meeting, find activities already logged in MSX, and prepare missing activities without leaving Sales Buddy.</p>

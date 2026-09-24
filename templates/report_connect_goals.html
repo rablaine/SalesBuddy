@@ -408,13 +408,20 @@
                     </span>
                 </div>
                 <p class="small text-muted mb-0">
-                    {{ 'Goal reached' if lane.complete else 'Qualifying win still needed' }}
+                    {{ 'Goal reached' if lane.complete else 'Sustained win still needed' }}
+                    {% if lane.ramping %}
+                    <span class="text-warning ms-2">
+                        {{ lane.ramping }} ramping
+                    </span>
+                    {% endif %}
                 </p>
                 {% set bucket_wins = whitespace.wins.get(lane.bucket, []) %}
-                {% if bucket_wins %}
+                {% set bucket_ramping = whitespace.ramping.get(lane.bucket, []) %}
+                {% set bucket_results = bucket_wins + bucket_ramping %}
+                {% if bucket_results %}
                 <ul class="list-group list-group-flush whitespace-win-list mt-3"
-                    aria-label="{{ lane.bucket }} whitespace wins">
-                    {% for win in bucket_wins %}
+                    aria-label="{{ lane.bucket }} whitespace progress">
+                    {% for win in bucket_results %}
                     <li class="list-group-item bg-transparent px-0 py-0">
                         <details class="whitespace-win">
                             <summary class="d-flex justify-content-between align-items-center gap-3 py-2">
@@ -428,8 +435,13 @@
                                         {{ win.customer_name }}
                                     </a>
                                 </span>
-                                <span class="small text-muted text-nowrap">
-                                    ${{ "{:,.0f}".format(win.revenue) }} ACR
+                                <span class="small text-end text-nowrap">
+                                    <span class="d-block fw-semibold text-{{ 'success' if win.state == 'confirmed' else 'warning' }}">
+                                        {{ win.state_label }}
+                                    </span>
+                                    <span class="text-muted">
+                                        ${{ "{:,.0f}".format(win.revenue) }} ACR
+                                    </span>
                                 </span>
                             </summary>
                             <div class="whitespace-history ms-4 pb-2 pt-2">
