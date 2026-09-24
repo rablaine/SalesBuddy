@@ -576,22 +576,46 @@ def _serialize_milestone_coverage(
 def get_milestone_coverage_data(
     include_covered: bool = False,
     include_inactive: bool = False,
+    workload_area: str | None = None,
+    due_start: date | datetime | None = None,
+    due_end: date | datetime | None = None,
 ) -> dict[str, Any]:
     """Return current-FY HoK coverage for locally cached on-team milestones."""
     today = date.today()
     fiscal_start, fiscal_end = fiscal_year_bounds(today)
-    milestones = (
+    due_start_value = (
+        datetime.combine(due_start, datetime.min.time())
+        if due_start and not isinstance(due_start, datetime)
+        else due_start
+    )
+    due_end_value = (
+        datetime.combine(due_end, datetime.max.time())
+        if due_end and not isinstance(due_end, datetime)
+        else due_end
+    )
+    milestones_query = (
         Milestone.query
         .filter(Milestone.on_my_team.is_(True))
         .filter(Milestone.msx_milestone_id.isnot(None))
         .filter(Milestone.customer_id.isnot(None))
-        .order_by(
-            Milestone.due_date.is_(None),
-            Milestone.due_date.asc(),
-            Milestone.title.asc(),
-        )
-        .all()
     )
+    if workload_area:
+        milestones_query = milestones_query.filter(
+            Milestone.workload.like(f'{workload_area}:%')
+        )
+    if due_start_value:
+        milestones_query = milestones_query.filter(
+            Milestone.due_date >= due_start_value
+        )
+    if due_end_value:
+        milestones_query = milestones_query.filter(
+            Milestone.due_date <= due_end_value
+        )
+    milestones = milestones_query.order_by(
+        Milestone.due_date.is_(None),
+        Milestone.due_date.asc(),
+        Milestone.title.asc(),
+    ).all()
     milestone_ids = [item.id for item in milestones]
     tasks_by_milestone: dict[int, list[MsxTask]] = defaultdict(list)
     for task in MsxTask.query.filter(MsxTask.milestone_id.in_(milestone_ids)).all():
@@ -649,6 +673,9 @@ def get_milestone_coverage_data(
         'fiscal_start': fiscal_start,
         'fiscal_end': fiscal_end,
         'fiscal_year_label': f'FY{fiscal_end.year % 100:02d}',
+        'workload_area': workload_area,
+        'due_scope_start': due_start,
+        'due_scope_end': due_end,
         'today': today,
     }
 

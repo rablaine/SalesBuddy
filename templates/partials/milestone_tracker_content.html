@@ -441,9 +441,12 @@
         try {
             var state = JSON.parse(raw);
             var currentQuarters = Array.from(qa('.quarter-checkbox')).map(function(cb) { return cb.value; });
-            if (state.allQuarters && JSON.stringify(state.allQuarters) === JSON.stringify(currentQuarters)) {
+            var savedQuarters = Array.isArray(state.quarters)
+                ? state.quarters.filter(function(value) { return currentQuarters.includes(value); })
+                : [];
+            if (savedQuarters.length > 0) {
                 qa('.quarter-checkbox').forEach(function(cb) {
-                    cb.checked = state.quarters.includes(cb.value);
+                    cb.checked = savedQuarters.includes(cb.value);
                 });
             }
             if (state.seller && sellerFilter) sellerFilter.value = state.seller;

@@ -181,6 +181,60 @@ def test_fy_hok_excludes_customerless_team_milestones(app):
         }
 
 
+def test_milestone_coverage_scope_includes_final_due_day(app, coverage_data):
+    """Data scope includes the full final day and excludes other workloads."""
+    with app.app_context():
+        fiscal_start, fiscal_end = activity_coverage.fiscal_year_bounds()
+        next_fiscal_end = date(fiscal_end.year + 1, 6, 30)
+        customer_id = coverage_data['customer_id']
+        final_day = Milestone(
+            msx_milestone_id='scope-final-day',
+            url='https://example.test/scope-final-day',
+            title='Final day Data milestone',
+            msx_status='On Track',
+            on_my_team=True,
+            customer_id=customer_id,
+            workload='Data: Fabric',
+            due_date=datetime.combine(next_fiscal_end, datetime.max.time()),
+        )
+        outside_window = Milestone(
+            msx_milestone_id='scope-outside-window',
+            url='https://example.test/scope-outside-window',
+            title='Outside window',
+            msx_status='On Track',
+            on_my_team=True,
+            customer_id=customer_id,
+            workload='Data: Fabric',
+            due_date=datetime.combine(
+                next_fiscal_end + timedelta(days=1), datetime.min.time()
+            ),
+        )
+        other_workload = Milestone(
+            msx_milestone_id='scope-other-workload',
+            url='https://example.test/scope-other-workload',
+            title='AI milestone',
+            msx_status='On Track',
+            on_my_team=True,
+            customer_id=customer_id,
+            workload='AI: Foundry',
+            due_date=datetime.combine(next_fiscal_end, datetime.min.time()),
+        )
+        db.session.add_all([final_day, outside_window, other_workload])
+        db.session.commit()
+
+        report = activity_coverage.get_milestone_coverage_data(
+            include_covered=True,
+            workload_area='Data',
+            due_start=fiscal_start,
+            due_end=next_fiscal_end,
+        )
+        result_ids = {row['id'] for row in report['milestone_rows']}
+
+        assert final_day.id in result_ids
+        assert outside_window.id not in result_ids
+        assert other_workload.id not in result_ids
+
+
 def test_caip_coverage_uses_category_denominator_and_strict_hok(app):
     """CAIP includes all team CAIP milestones and applies strict HoK evidence."""
     with app.app_context():
@@ -932,7 +986,9 @@ def test_enrichment_allows_off_team_fallback():
 
 @pytest.mark.parametrize(('text', 'expected'), [
     ('Fabric architecture design session', 861980004),
+    ('Complete customer readiness assessment', 861980014),
     ('Customer L300 demo', 606820009),
+    ('Review RFP response', 861980009),
     ('Resolve deployment blocker', 861980006),
     ('Azure adoption planning', 861980007),
     ('Build a rapid prototype', 606820006),
@@ -946,8 +1002,7 @@ def test_enrichment_prefers_hok_task_categories(text, expected):
 
 
 @pytest.mark.parametrize(('text', 'expected'), [
-    ('Complete customer readiness assessment', 861980014),
-    ('Review RFP response', 861980009),
+    ('Customer technical briefing', 861980008),
     ('Routine customer conversation', 861980000),
 ])
 def test_enrichment_uses_non_hok_fallback_when_needed(text, expected):

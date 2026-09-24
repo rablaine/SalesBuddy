@@ -347,6 +347,16 @@ def run_migrations(db):
                               'bucket_taxonomy_version', "INTEGER NOT NULL DEFAULT 0")
     _add_column_if_not_exists(db, inspector, 'user_preferences',
                               'bucket_taxonomy_notice', "TEXT")
+    _add_column_if_not_exists(db, inspector, 'user_preferences',
+                              'compensated_buckets_fiscal_year', "VARCHAR(10)")
+    _add_column_if_not_exists(
+        db,
+        inspector,
+        'user_preferences',
+        'compensated_buckets_confirmed_taxonomy_version',
+        "INTEGER",
+    )
+    _reconcile_msx_task_hok_flags(db, inspector)
 
     # Migration: Add activity coverage fields to meetings and MSX tasks
     _add_column_if_not_exists(db, inspector, 'prefetched_meetings',
@@ -1210,6 +1220,28 @@ def _drop_user_id_columns(db, inspector):
     # Re-enable FK enforcement
     db.session.execute(text('PRAGMA foreign_keys=ON'))
     db.session.commit()
+
+
+def _reconcile_msx_task_hok_flags(db, inspector):
+    """Keep persisted HoK flags aligned with the current task category policy."""
+    if 'msx_tasks' not in inspector.get_table_names():
+        return
+
+    from app.services.msx_api import HOK_TASK_CATEGORIES
+
+    category_values = ', '.join(
+        str(category) for category in sorted(HOK_TASK_CATEGORIES)
+    )
+    result = db.session.execute(text(
+        "UPDATE msx_tasks "
+        f"SET is_hok = CASE WHEN task_category IN ({category_values}) "
+        "THEN 1 ELSE 0 END "
+        f"WHERE is_hok != CASE WHEN task_category IN ({category_values}) "
+        "THEN 1 ELSE 0 END"
+    ))
+    db.session.commit()
+    if result.rowcount:
+        print(f"  Reconciled HoK classification for {result.rowcount} MSX tasks")
 
 
 def _migrate_customer_favicon_columns(db, inspector):

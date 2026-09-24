@@ -161,6 +161,17 @@ def reports_hub():
             'icon': 'bi-trophy',
             'reports': [
                 {
+                    'id': 'connect-goals',
+                    'name': 'Connect Goals',
+                    'description': (
+                        'Track FY27 Data U2C pace, milestone influence, HoK '
+                        'coverage, and whitespace wins, then open the reports '
+                        'that help close each gap.'
+                    ),
+                    'icon': 'bi-speedometer2',
+                    'url': url_for('reports.report_connect_goals'),
+                },
+                {
                     'id': 'connect-impact',
                     'name': 'Connect Impact',
                     'description': (
@@ -214,15 +225,26 @@ def report_activity_coverage():
     except ValueError:
         week_start = None
     lens = request.args.get('lens', 'meetings')
+    scope = request.args.get('scope', '')
     if lens == 'milestones':
         coverage_view = request.args.get('coverage', 'fy')
         if coverage_view == 'caip':
             data = get_caip_coverage_data()
         else:
             coverage_view = 'fy'
+            coverage_scope = {}
+            if scope == 'fy27-data':
+                from app.services.activity_coverage import fiscal_year_bounds
+                fiscal_start, fiscal_end = fiscal_year_bounds()
+                coverage_scope = {
+                    'workload_area': 'Data',
+                    'due_start': fiscal_start,
+                    'due_end': date(fiscal_end.year + 1, 6, 30),
+                }
             data = get_milestone_coverage_data(
                 include_covered=request.args.get('covered') == '1',
                 include_inactive=request.args.get('inactive') == '1',
+                **coverage_scope,
             )
         data['coverage_view'] = coverage_view
     else:
@@ -238,6 +260,7 @@ def report_activity_coverage():
             milestone_id=milestone_id,
         )
     data['lens'] = lens
+    data['scope'] = scope
     data['population'] = get_population_status()
     data['reconciliation'] = get_reconciliation_status()
     from app.services.activity_enrichment import get_enrichment_status
@@ -1730,6 +1753,33 @@ def report_marketing_insights():
         total_contacts=total_contacts,
         sync_status=sync_status,
     )
+
+
+# =============================================================================
+# Connect Goals Action Center
+# =============================================================================
+
+@bp.route('/reports/connect-goals')
+def report_connect_goals():
+    """Render the FY27 Data Connect Goals Action Center."""
+    from app.services.connect_goals import get_connect_goals
+
+    data = get_connect_goals()
+    widgets = {widget['key']: widget for widget in data['widgets']}
+    return render_template(
+        'report_connect_goals.html',
+        connect_data=data,
+        setup=data['setup'],
+        widgets=widgets,
+    )
+
+
+@bp.route('/api/reports/connect-goals')
+def api_connect_goals():
+    """Return the shared FY27 Data Connect Goals calculations."""
+    from app.services.connect_goals import get_connect_goals
+
+    return jsonify(get_connect_goals())
 
 
 # =============================================================================

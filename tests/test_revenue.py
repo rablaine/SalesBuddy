@@ -839,7 +839,7 @@ class TestCompensatedBucketsAPI:
     """Tests for compensated buckets save/get API."""
 
     def test_save_compensated_buckets(self, client, app):
-        """Should save compensated buckets to user preferences."""
+        """Should save filters without treating them as annual confirmation."""
         import json
         resp = client.post('/api/revenue/compensated-buckets',
                            data=json.dumps(['Analytics', 'Modern DBs']),
@@ -853,6 +853,28 @@ class TestCompensatedBucketsAPI:
             pref = UserPreference.query.first()
             saved = json.loads(pref.compensated_buckets)
             assert saved == ['Analytics', 'Modern DBs']
+            assert pref.compensated_buckets_fiscal_year is None
+            assert pref.compensated_buckets_confirmed_taxonomy_version is None
+
+    def test_confirm_compensated_buckets_for_fiscal_year(self, client, app):
+        """The Action Center can explicitly confirm the annual priority scope."""
+        resp = client.post(
+            '/api/revenue/compensated-buckets',
+            json={
+                'buckets': ['Databases', 'Fabric'],
+                'confirm_for_fiscal_year': True,
+            },
+        )
+
+        assert resp.status_code == 200
+        with app.app_context():
+            from app.models import UserPreference
+            pref = UserPreference.query.first()
+            assert pref.compensated_buckets_fiscal_year is not None
+            assert (
+                pref.compensated_buckets_confirmed_taxonomy_version
+                == pref.bucket_taxonomy_version
+            )
 
     def test_get_compensated_buckets(self, client, app):
         """Should return saved compensated buckets."""
@@ -883,8 +905,31 @@ class TestCompensatedBucketsAPI:
                            content_type='application/json')
         assert resp.status_code == 400
 
+    def test_clearing_buckets_clears_confirmation(self, client, app):
+        """An empty selection is not a confirmed annual priority scope."""
+        import json
+        with app.app_context():
+            from app.models import UserPreference
+            pref = UserPreference.query.first()
+            pref.compensated_buckets_fiscal_year = 'FY27'
+            pref.compensated_buckets_confirmed_taxonomy_version = 2
+            db.session.commit()
+
+        resp = client.post(
+            '/api/revenue/compensated-buckets',
+            data=json.dumps([]),
+            content_type='application/json',
+        )
+
+        assert resp.status_code == 200
+        with app.app_context():
+            from app.models import UserPreference
+            pref = UserPreference.query.first()
+            assert pref.compensated_buckets_fiscal_year is None
+            assert pref.compensated_buckets_confirmed_taxonomy_version is None
+
     def test_saving_buckets_clears_the_taxonomy_notice(self, client, app):
-        """Picking buckets is what the notice asks for, so it shouldn't linger."""
+        """Explicitly confirming buckets retires the taxonomy notice."""
         import json
         with app.app_context():
             from app.models import UserPreference
@@ -892,9 +937,13 @@ class TestCompensatedBucketsAPI:
             pref.bucket_taxonomy_notice = json.dumps({'status': 'reset', 'removed': ['Core DBs']})
             db.session.commit()
 
-        resp = client.post('/api/revenue/compensated-buckets',
-                           data=json.dumps(['Databases']),
-                           content_type='application/json')
+        resp = client.post(
+            '/api/revenue/compensated-buckets',
+            json={
+                'buckets': ['Databases'],
+                'confirm_for_fiscal_year': True,
+            },
+        )
         assert resp.status_code == 200
 
         with app.app_context():

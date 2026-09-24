@@ -139,6 +139,10 @@ class TestToolCoverage:
         names = self._tool_names()
         assert 'report_activity_coverage' in names
 
+    def test_connect_goals_report_tool_exists(self):
+        """Connect Goals should expose its shared calculations."""
+        assert 'report_connect_goals' in self._tool_names()
+
     def test_caip_coverage_report_tool_exists(self):
         """CAIP analytical view should be available to SalesIQ."""
         names = {item['name'] for item in get_mcp_tools()}
@@ -345,6 +349,14 @@ class TestToolExecution:
             assert 'milestone_summary' in result
             assert 'milestones_needing_hok' in result
             assert '/reports/activity-coverage' in result['url']
+
+    def test_report_connect_goals(self, app):
+        """Connect Goals should return setup state and an action-center URL."""
+        with app.app_context():
+            result = execute_tool('report_connect_goals', {})
+            assert 'setup' in result
+            assert 'widgets' in result
+            assert result['url'].endswith('/reports/connect-goals')
 
     def test_report_workload(self, app):
         """report_workload should return structured data."""

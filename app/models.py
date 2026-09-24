@@ -1562,6 +1562,8 @@ class UserPreference(db.Model):
     milestone_sync_minute = db.Column(db.Integer, nullable=True)  # Random minute (0-59) for sync time
     last_milestone_sync = db.Column(db.DateTime, nullable=True)  # Last time milestone sync ran (UTC)
     compensated_buckets = db.Column(db.Text, nullable=True)  # JSON array of selected ServiceCompGrouping buckets (fallback for localStorage)
+    compensated_buckets_fiscal_year = db.Column(db.String(10), nullable=True)  # FY when compensated buckets were last confirmed
+    compensated_buckets_confirmed_taxonomy_version = db.Column(db.Integer, nullable=True)  # Taxonomy version confirmed by the user
     bucket_taxonomy_version = db.Column(db.Integer, default=0, nullable=False, server_default='0')  # Bumped when MSXI renames/retires buckets so clients drop cached selections
     bucket_taxonomy_notice = db.Column(db.Text, nullable=True)  # JSON describing the last taxonomy change, shown once to the user
     alignment_override_active = db.Column(db.Boolean, default=False, nullable=False, server_default='0')  # When on, account sync uses declared territory alignment instead of msp_accountteams

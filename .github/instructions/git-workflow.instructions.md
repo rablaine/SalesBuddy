@@ -12,8 +12,11 @@ description: "Use when committing code, creating branches, merging branches, pus
 
 ## Branch Naming
 
-When attempting to commit to `main`, stop and prompt user for feature branch name.
-- Ask: "What should we call this feature branch?"
+- **Do not pause to ask the user for a feature branch name.**
+- When the user does not supply a name, choose a clear conventional branch name
+  from the task context and proceed autonomously.
+- This is especially important when the user says they are stepping away or
+  asks the agent to continue unattended.
 - Format: `feature/short-description` or `fix/bug-description`
 - Examples: `feature/export-import`, `fix/admin-permissions`, `feature/email-fields`
 
