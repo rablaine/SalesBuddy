@@ -185,9 +185,11 @@
                 </p>
             </div>
             {% if setup.ready %}
-            <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('revenue.revenue_import') }}">
-                <i class="bi bi-sliders"></i> Edit FY27 priorities
-            </a>
+            <button class="btn btn-sm btn-outline-secondary" type="button"
+                    data-bs-toggle="modal" data-bs-target="#connectBucketModal">
+                <i class="bi bi-sliders"></i>
+                Select {{ setup.fiscal_year }} Comp Buckets
+            </button>
             {% endif %}
         </div>
     </header>
@@ -211,8 +213,9 @@
         <form id="connectSetupForm">
             <div class="setup-buckets mb-4">
                 {% for bucket in setup.available_buckets %}
-                <label class="form-check border rounded px-3 py-2">
-                    <input class="form-check-input connect-bucket" type="checkbox"
+                <label class="form-check d-flex align-items-center gap-2 border rounded px-3 py-2">
+                    <input class="form-check-input connect-bucket ms-0 mt-0 flex-shrink-0"
+                           type="checkbox"
                            value="{{ bucket }}"
                            {% if bucket in setup.selected_buckets %}checked{% endif %}>
                     <span class="form-check-label">
@@ -378,6 +381,7 @@
             <p class="text-muted">No active, on-team FY27 Data milestones with matched customers are available.</p>
             {% endif %}
         </section>
+
     </div>
 
     {% set whitespace = widgets.get('whitespace') %}
@@ -472,9 +476,74 @@
         </p>
         {% endif %}
     </section>
+
+    {% set quota = widgets.get('quota_attainment') %}
+    <section class="goal-panel" aria-labelledby="quotaGoalTitle">
+        <div class="connect-kicker mb-2">Official MINT performance</div>
+        <h2 class="h4 mb-2" id="quotaGoalTitle">Quota attainment</h2>
+        <p class="text-muted mb-3">
+            {{ quota.message if quota else 'Official quota and attainment are available in MINT.' }}
+        </p>
+        <a class="goal-link" href="{{ quota.destination if quota else 'https://aka.ms/msxearnings' }}"
+           target="_blank" rel="noopener noreferrer">
+            Open MINT Earnings <i class="bi bi-box-arrow-up-right"></i>
+        </a>
+    </section>
     </div>
     {% endif %}
 </main>
+
+{% if setup.ready %}
+<div class="modal fade" id="connectBucketModal" tabindex="-1"
+     aria-labelledby="connectBucketModalTitle" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
+        <div class="modal-content">
+            <form id="connectBucketModalForm">
+                <div class="modal-header">
+                    <div>
+                        <div class="connect-kicker mb-1">{{ setup.fiscal_year }} compensation scope</div>
+                        <h2 class="modal-title fs-5" id="connectBucketModalTitle">
+                            Select Comp Buckets
+                        </h2>
+                    </div>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"
+                            aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="text-muted small">
+                        Choose the official MSXI revenue buckets used for your compensation
+                        scope. Databases and Fabric are required for this Data goals report.
+                    </p>
+                    <div class="d-grid gap-2">
+                        {% for bucket in setup.available_buckets %}
+                        <label class="form-check d-flex align-items-center gap-2 border rounded px-3 py-2">
+                            <input class="form-check-input connect-modal-bucket ms-0 mt-0 flex-shrink-0"
+                                   type="checkbox" value="{{ bucket }}"
+                                   {% if bucket in setup.selected_buckets %}checked{% endif %}>
+                            <span class="form-check-label">
+                                {{ bucket }}
+                                {% if bucket in setup.required_buckets %}
+                                <span class="badge bg-primary ms-1">Required</span>
+                                {% endif %}
+                            </span>
+                        </label>
+                        {% endfor %}
+                    </div>
+                    <div class="small mt-3" id="connectBucketModalStatus"
+                         aria-live="polite"></div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary"
+                            data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary">
+                        Save Comp Buckets
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endif %}
 {% endblock %}
 
 {% block extra_js %}
@@ -483,48 +552,87 @@
 {% endif %}
 <script>
 (function() {
+    function missingRequiredBuckets(selected) {
+        return ['Databases', 'Fabric'].filter(function(bucket) {
+            return !selected.includes(bucket);
+        });
+    }
+
+    function setBucketStatus(status, message, isError) {
+        status.classList.toggle('text-danger', Boolean(isError));
+        status.classList.toggle('text-muted', !isError);
+        status.textContent = message;
+    }
+
+    function saveCompBuckets(selected, status) {
+        setBucketStatus(status, 'Saving...', false);
+        fetch('/api/revenue/compensated-buckets', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                buckets: selected,
+                confirm_for_fiscal_year: true
+            })
+        })
+            .then(function(response) {
+                if (!response.ok) throw new Error('Could not save comp buckets.');
+                return response.json();
+            })
+            .then(function(data) {
+                localStorage.setItem(
+                    'salesbuddy_revenue_bucket_filter',
+                    JSON.stringify(selected)
+                );
+                localStorage.setItem(
+                    'salesbuddy_revenue_bucket_taxonomy_version',
+                    String(data.taxonomy_version || 0)
+                );
+                window.location.reload();
+            })
+            .catch(function(error) {
+                setBucketStatus(status, error.message, true);
+            });
+    }
+
     var setupForm = document.getElementById('connectSetupForm');
     if (setupForm) {
         setupForm.addEventListener('submit', function(event) {
             event.preventDefault();
             var selected = Array.from(document.querySelectorAll('.connect-bucket:checked'))
                 .map(function(input) { return input.value; });
-            var required = ['Databases', 'Fabric'];
-            var missing = required.filter(function(bucket) {
-                return !selected.includes(bucket);
-            });
+            var missing = missingRequiredBuckets(selected);
             var status = document.getElementById('connectSetupStatus');
             if (missing.length) {
-                status.textContent = 'Select ' + missing.join(' and ') + ' to continue.';
+                setBucketStatus(
+                    status,
+                    'Select ' + missing.join(' and ') + ' to continue.',
+                    true
+                );
                 return;
             }
-            status.textContent = 'Saving...';
-            fetch('/api/revenue/compensated-buckets', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({
-                    buckets: selected,
-                    confirm_for_fiscal_year: true
-                })
-            })
-                .then(function(response) {
-                    if (!response.ok) throw new Error('Could not save priorities.');
-                    return response.json();
-                })
-                .then(function(data) {
-                    localStorage.setItem(
-                        'salesbuddy_revenue_bucket_filter',
-                        JSON.stringify(selected)
-                    );
-                    localStorage.setItem(
-                        'salesbuddy_revenue_bucket_taxonomy_version',
-                        String(data.taxonomy_version || 0)
-                    );
-                    window.location.reload();
-                })
-                .catch(function(error) {
-                    status.textContent = error.message;
-                });
+            saveCompBuckets(selected, status);
+        });
+    }
+
+    var bucketModalForm = document.getElementById('connectBucketModalForm');
+    if (bucketModalForm) {
+        bucketModalForm.addEventListener('submit', function(event) {
+            event.preventDefault();
+            var selected = Array.from(
+                document.querySelectorAll('.connect-modal-bucket:checked')
+            ).map(function(input) { return input.value; });
+            var missing = missingRequiredBuckets(selected);
+            var status = document.getElementById('connectBucketModalStatus');
+            if (missing.length) {
+                setBucketStatus(
+                    status,
+                    'Select ' + missing.join(' and ')
+                        + ' to keep this report active.',
+                    true
+                );
+                return;
+            }
+            saveCompBuckets(selected, status);
         });
     }
 

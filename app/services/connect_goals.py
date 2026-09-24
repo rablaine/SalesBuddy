@@ -45,6 +45,7 @@ VALIDATION_CATEGORIES = {
     861980004: 'Architecture Design Session',
     861980005: 'PoC/Pilot',
 }
+MINT_EARNINGS_URL = 'https://aka.ms/msxearnings'
 
 
 def current_fiscal_year_label(reference: date | None = None) -> str:
@@ -486,6 +487,20 @@ def get_whitespace_widget(reference: date | None = None) -> dict[str, Any]:
     }
 
 
+def get_quota_attainment_widget() -> dict[str, Any]:
+    """Return the official MINT quota-attainment handoff."""
+    return {
+        'key': 'quota_attainment',
+        'available': False,
+        'title': 'Quota attainment',
+        'message': (
+            'Official quota and attainment remain in MINT while a supported '
+            'managed-device connection is unavailable.'
+        ),
+        'destination': MINT_EARNINGS_URL,
+    }
+
+
 def get_connect_goals(reference: date | None = None) -> dict[str, Any]:
     """Return setup state and all FY27 Data Action Center widgets."""
     setup = get_setup_state(reference)
@@ -496,6 +511,7 @@ def get_connect_goals(reference: date | None = None) -> dict[str, Any]:
             get_team_coverage_widget(reference),
             get_hok_coverage_widget(reference),
             get_whitespace_widget(reference),
+            get_quota_attainment_widget(),
         ]
     return {
         'setup': setup,

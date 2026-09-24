@@ -234,6 +234,9 @@ const PageHelp = (function () {
       <h6>Quarterly U2C progression</h6>
       <p><strong>Goal: 40% by quarter end.</strong> Committed Data milestone ACR is divided by the official quarter-start snapshot ACR. The status color compares actual progress with a linear expected pace for today.</p>
 
+      <h6>Quota attainment</h6>
+      <p><strong>Goal: 100% weighted attainment.</strong> Official quota, actuals, performance-goal weights, and weighted attainment remain in MINT. Use the dashboard link to open MINT Earnings directly; Sales Buddy does not estimate this metric.</p>
+
       <h6>Milestone team coverage</h6>
       <p><strong>Goal: 50%.</strong> Active Data milestones due this or next fiscal year are weighted by estimated monthly ACR. The metric compares ACR on milestones where you are on the team with all in-scope milestone ACR.</p>
 

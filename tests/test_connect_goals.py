@@ -2,6 +2,8 @@
 from datetime import date, datetime, timezone
 import json
 
+from bs4 import BeautifulSoup
+
 from app.models import (
     Customer,
     CustomerRevenueData,
@@ -99,8 +101,8 @@ def test_connect_goals_route_shows_setup_gate(client):
     assert b'Confirm your FY27 Data priorities' in response.data
 
 
-def test_connect_goals_route_renders_four_metrics(client, app):
-    """A confirmed FY27 scope renders the fixed v1 metric definitions."""
+def test_connect_goals_route_renders_action_metrics(client, app):
+    """A confirmed FY27 scope renders action metrics and MINT connection."""
     with app.app_context():
         _seed_required_buckets()
         _confirm_scope()
@@ -110,9 +112,24 @@ def test_connect_goals_route_renders_four_metrics(client, app):
 
     assert response.status_code == 200
     assert b'Quarterly U2C progression' in response.data
+    assert b'Quota attainment' in response.data
+    assert b'Open MINT Earnings' in response.data
+    assert b'https://aka.ms/msxearnings' in response.data
+    assert b'Connect to MINT' not in response.data
+    assert b'Select FY27 Comp Buckets' in response.data
+    assert b'data-bs-target="#connectBucketModal"' in response.data
+    assert b'Edit FY27 priorities' not in response.data
+    assert b'Save Comp Buckets' in response.data
+    assert b'connect-modal-bucket ms-0 mt-0 flex-shrink-0' in response.data
     assert b'Milestone team coverage' in response.data
     assert b'Milestone HoK coverage' in response.data
     assert b'Fabric and database whitespace wins' in response.data
+    page = BeautifulSoup(response.data, 'html.parser')
+    headings = [
+        heading.get_text(strip=True)
+        for heading in page.select('.connect-dashboard h2')
+    ]
+    assert headings[-1] == 'Quota attainment'
     assert b'No matched Databases or Fabric revenue history is available.' in response.data
 
 

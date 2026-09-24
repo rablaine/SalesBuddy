@@ -11,6 +11,7 @@ Format: `## M/D/YYYY - <merge-short-sha>`. See
 ## 9/23/2026
 
 - Add an FY27 Data Connect Goals action center for U2C pace, milestone influence, HoK coverage, technical validation, and whitespace wins.
+- Add a direct MINT Earnings handoff for official quota attainment and let users select FY27 compensation buckets without leaving Connect Goals.
 - Add Assessment and RFP/RFI as qualifying HoK activities and treat Briefing as a standard task.
 
 ## 9/23/2026 - fa8df50
