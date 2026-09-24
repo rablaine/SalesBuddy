@@ -228,6 +228,21 @@ const PageHelp = (function () {
         <li>Use the <strong>Milestone Tracker</strong> for a board view</li>
       </ul>
     `},
+    { pattern: /^\/reports\/connect-goals/, title: 'Connect Goals', content: `
+      <p>This FY27 Data action center tracks the goals Sales Buddy can measure and links each gap to the report where you can act on it. Definitions remain provisional until manager confirmation.</p>
+
+      <h6>Quarterly U2C progression</h6>
+      <p><strong>Goal: 40% by quarter end.</strong> Committed Data milestone ACR is divided by the official quarter-start snapshot ACR. The status color compares actual progress with a linear expected pace for today.</p>
+
+      <h6>Milestone team coverage</h6>
+      <p><strong>Goal: 50%.</strong> Active Data milestones due this or next fiscal year are weighted by estimated monthly ACR. The metric compares ACR on milestones where you are on the team with all in-scope milestone ACR.</p>
+
+      <h6>Milestone HoK coverage</h6>
+      <p><strong>Goal: 100%.</strong> Every active, on-team Data milestone due this or next fiscal year should have at least one qualifying HoK activity in the current fiscal year. Technical Workshop, Demo, L300+ Demo, Architecture Design Session, and PoC/Pilot counts provide additional technical-validation context.</p>
+
+      <h6>Whitespace wins</h6>
+      <p><strong>Goal: one Databases win and one Fabric win per fiscal half.</strong> A win is the first positive ACR month for a customer and bucket after three complete zero-ACR months.</p>
+    `},
     { pattern: /^\/reports\/activity-coverage/, title: 'Activity Coverage', content: `
       <p>Review every stored fiscal-year meeting, find activities already logged in MSX, and prepare missing activities without leaving Sales Buddy.</p>
 

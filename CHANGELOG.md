@@ -8,6 +8,11 @@ brought the change into `main`, so the admin Updates card can show
 Format: `## M/D/YYYY - <merge-short-sha>`. See
 `scripts/tag-changelog.ps1` for the helper that fills this in.
 
+## 9/23/2026
+
+- Add an FY27 Data Connect Goals action center for U2C pace, milestone influence, HoK coverage, technical validation, and whitespace wins.
+- Add Assessment and RFP/RFI as qualifying HoK activities and treat Briefing as a standard task.
+
 ## 9/23/2026 - fa8df50
 
 - Improve WorkIQ telemetry so failed calendar lookups are no longer reported as parse errors.

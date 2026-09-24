@@ -975,3 +975,11 @@ class TestConnectImpactReport:
             resp = client.get('/reports')
             assert b'Connect Impact' in resp.data
             assert b'/reports/connect-impact' in resp.data
+
+    def test_hub_and_navigation_include_connect_goals(self, client, app):
+        """Connect Goals should be discoverable from the hub and Reports menu."""
+        with app.app_context():
+            resp = client.get('/reports')
+            assert resp.status_code == 200
+            assert b'Connect Goals' in resp.data
+            assert b'/reports/connect-goals' in resp.data

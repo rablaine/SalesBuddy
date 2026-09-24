@@ -38,11 +38,11 @@ _CATEGORY_KEYWORDS = (
     (('demo',), 861980002),
     (('escalat', 'blocker'), 861980006),
     (('consumption', 'adoption'), 861980007),
-    (('briefing', 'discovery', 'overview', 'kickoff', 'update'), 861980008),
-)
-_FALLBACK_CATEGORY_KEYWORDS = (
     (('assessment',), 861980014),
     (('rfp', 'rfi'), 861980009),
+)
+_FALLBACK_CATEGORY_KEYWORDS = (
+    (('briefing', 'discovery', 'overview', 'kickoff', 'update'), 861980008),
     (('pricing', 'negotiate'), 861980003),
     (('support case', 'technical support', 'tech support'), 606820004),
     (('partner request',), 861980011),

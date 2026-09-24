@@ -1,0 +1,589 @@
+{% extends "base.html" %}
+{% from 'partials/customer_favicon.html' import customer_favicon %}
+
+{% block title %}Connect Goals - Sales Buddy{% endblock %}
+
+{% block content %}
+<style>
+    .connect-shell {
+        --connect-success: var(--bs-success);
+        --connect-warning: #b7791f;
+        --connect-orange: #a65300;
+        --connect-danger: var(--bs-danger);
+        --connect-neutral: var(--bs-secondary-color);
+        max-width: 1480px;
+        margin-inline: auto;
+    }
+    .connect-kicker {
+        color: var(--bs-secondary-color);
+        font-size: 0.72rem;
+        font-weight: 700;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+    }
+    .connect-title { max-width: 48rem; }
+    .connect-scope {
+        border-block: 1px solid var(--bs-border-color);
+        padding-block: 0.7rem;
+    }
+    .connect-dashboard {
+        display: grid;
+        gap: 1.5rem;
+    }
+    .goal-panel {
+        position: relative;
+        padding: clamp(1.25rem, 2vw, 1.75rem);
+        border: 1px solid var(--bs-border-color);
+        border-radius: var(--bs-border-radius-lg);
+        background: var(--bs-body-bg);
+        box-shadow: var(--bs-box-shadow-sm);
+    }
+    .goal-value {
+        color: var(--bs-body-color);
+        font-size: clamp(2rem, 4vw, 3.6rem);
+        font-variant-numeric: tabular-nums;
+        font-weight: 750;
+        letter-spacing: -0.055em;
+        line-height: 0.95;
+    }
+    .goal-value.is-success { color: var(--connect-success); }
+    .goal-value.is-warning { color: var(--connect-warning); }
+    .goal-value.is-orange { color: var(--connect-orange); }
+    .goal-value.is-danger { color: var(--connect-danger); }
+    .goal-value.is-neutral { color: var(--connect-neutral); }
+    .goal-measure {
+        color: var(--bs-secondary-color);
+        font-size: 0.78rem;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+    }
+    .goal-progress {
+        position: relative;
+        height: 0.62rem;
+        overflow: visible;
+        background: var(--bs-secondary-bg);
+        border-radius: 999px;
+    }
+    .goal-progress .progress-bar { border-radius: 999px; }
+    .goal-progress .progress-bar.is-success { background: var(--connect-success); }
+    .goal-progress .progress-bar.is-warning { background: var(--connect-warning); }
+    .goal-progress .progress-bar.is-orange { background: var(--connect-orange); }
+    .goal-progress .progress-bar.is-danger { background: var(--connect-danger); }
+    .goal-progress .progress-bar.is-neutral { background: var(--connect-neutral); }
+    .goal-target {
+        position: absolute;
+        inset-block: -0.28rem;
+        width: 3px;
+        background: var(--bs-body-bg);
+        border: 1px solid var(--bs-body-color);
+        border-radius: 2px;
+        transform: translateX(-50%);
+        z-index: 2;
+    }
+    .goal-status {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        font-size: 0.78rem;
+        font-weight: 700;
+    }
+    .goal-status.is-success { color: var(--connect-success); }
+    .goal-status.is-warning { color: var(--connect-warning); }
+    .goal-status.is-orange { color: var(--connect-orange); }
+    .goal-status.is-danger { color: var(--connect-danger); }
+    .goal-status.is-neutral { color: var(--connect-neutral); }
+    .goal-link {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        font-weight: 650;
+        text-decoration: none;
+    }
+    .goal-link:hover { text-decoration: underline; }
+    .u2c-layout {
+        display: grid;
+        grid-template-columns: minmax(15rem, 0.78fr) minmax(30rem, 1.7fr);
+        gap: clamp(1.5rem, 4vw, 4rem);
+        align-items: center;
+    }
+    .u2c-chart-wrap { height: 220px; }
+    .coverage-layout {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
+        gap: 1.5rem;
+    }
+    .validation-list {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 0.45rem 1.5rem;
+        margin: 0;
+    }
+    .validation-list div {
+        display: flex;
+        justify-content: space-between;
+        gap: 0.75rem;
+        padding-bottom: 0.35rem;
+        border-bottom: 1px dashed var(--bs-border-color);
+    }
+    .whitespace-lanes {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 1.5rem;
+    }
+    .whitespace-lane {
+        padding: 1rem 0;
+        border-top: 3px solid var(--bs-border-color);
+    }
+    .whitespace-lane.is-complete { border-color: var(--connect-success); }
+    .whitespace-win-list .list-group-item {
+        color: var(--bs-body-color);
+        border-color: var(--bs-border-color);
+    }
+    .whitespace-win summary {
+        cursor: pointer;
+        list-style: none;
+    }
+    .whitespace-win summary::-webkit-details-marker { display: none; }
+    .whitespace-win-name { min-width: 0; }
+    .whitespace-win-chevron { color: var(--bs-secondary-color); }
+    .whitespace-win[open] .whitespace-win-chevron {
+        transform: rotate(90deg);
+    }
+    .whitespace-history {
+        border-top: 1px dashed var(--bs-border-color);
+    }
+    .whitespace-history-table {
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+    }
+    .setup-panel {
+        max-width: 760px;
+        margin: 3rem auto;
+        padding: clamp(1.5rem, 4vw, 3rem);
+        border-block: 1px solid var(--bs-border-color);
+    }
+    .setup-buckets {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 0.75rem;
+    }
+    @media (max-width: 1050px) {
+        .u2c-layout, .coverage-layout { grid-template-columns: 1fr; }
+    }
+</style>
+
+<main class="connect-shell">
+    <header class="mb-4">
+        <div class="connect-kicker mb-2">FY27 Data execution brief</div>
+        <div class="d-flex justify-content-between align-items-start gap-4 flex-wrap">
+            <div class="connect-title">
+                <h1 class="h2 mb-2">Connect Goals</h1>
+                <p class="text-muted mb-0">
+                    See where the work stands, then open the report that helps move it.
+                    Press <span class="kbd">F1</span> for metric definitions.
+                </p>
+            </div>
+            {% if setup.ready %}
+            <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('revenue.revenue_import') }}">
+                <i class="bi bi-sliders"></i> Edit FY27 priorities
+            </a>
+            {% endif %}
+        </div>
+    </header>
+
+    {% if not setup.ready %}
+    <section class="setup-panel" aria-labelledby="connectSetupTitle">
+        <div class="connect-kicker mb-2">One-time annual setup</div>
+        <h2 class="h3 mb-3" id="connectSetupTitle">Confirm your FY27 Data priorities</h2>
+        <p class="text-muted">
+            This page uses the official Databases and Fabric revenue buckets.
+            Confirm both against the current MSXI taxonomy before calculations appear.
+        </p>
+        {% if setup.reasons %}
+        <div class="alert alert-warning" role="alert">
+            <ul class="mb-0">
+                {% for reason in setup.reasons %}<li>{{ reason }}</li>{% endfor %}
+            </ul>
+        </div>
+        {% endif %}
+        {% if setup.available_buckets %}
+        <form id="connectSetupForm">
+            <div class="setup-buckets mb-4">
+                {% for bucket in setup.available_buckets %}
+                <label class="form-check border rounded px-3 py-2">
+                    <input class="form-check-input connect-bucket" type="checkbox"
+                           value="{{ bucket }}"
+                           {% if bucket in setup.selected_buckets %}checked{% endif %}>
+                    <span class="form-check-label">
+                        {{ bucket }}
+                        {% if bucket in setup.required_buckets %}
+                        <span class="badge bg-primary ms-1">Required</span>
+                        {% endif %}
+                    </span>
+                </label>
+                {% endfor %}
+            </div>
+            <div class="d-flex align-items-center gap-3">
+                <button type="submit" class="btn btn-primary">
+                    Confirm FY27 priorities
+                </button>
+                <span class="small text-muted" id="connectSetupStatus" aria-live="polite"></span>
+            </div>
+        </form>
+        {% else %}
+        <a class="btn btn-primary" href="{{ url_for('revenue.revenue_import') }}">
+            Import revenue data
+        </a>
+        {% endif %}
+    </section>
+    {% else %}
+    <div class="connect-scope d-flex align-items-center gap-2 flex-wrap mb-3">
+        <span class="connect-kicker me-1">Active scope</span>
+        <span class="badge bg-info text-dark"><i class="bi bi-database"></i> Databases</span>
+        <span class="badge bg-info text-dark"><i class="bi bi-bar-chart"></i> Fabric</span>
+        <span class="small text-muted ms-auto">Provisional definitions pending manager confirmation</span>
+    </div>
+
+    <div class="connect-dashboard">
+    {% set u2c = widgets.get('u2c') %}
+    <section class="goal-panel" aria-labelledby="u2cGoalTitle">
+        {% if u2c and u2c.available %}
+        <div class="u2c-layout">
+            <div>
+                <div class="connect-kicker mb-2">{{ u2c.fiscal_quarter }}</div>
+                <h2 class="h4 mb-3" id="u2cGoalTitle">Quarterly U2C progression</h2>
+                <div class="goal-value is-{{ u2c.status_tone }}"
+                     aria-describedby="u2cExplanation"
+                     tabindex="0">{{ "%.1f"|format(u2c.value) }}%</div>
+                <div class="goal-measure mt-2">Committed snapshot ACR</div>
+                <div class="goal-status is-{{ u2c.status_tone }} mt-3">
+                    <i class="bi bi-{% if u2c.status_tone == 'success' %}check-circle-fill{% elif u2c.status_tone == 'neutral' %}circle{% else %}exclamation-circle-fill{% endif %}"></i>
+                    {{ u2c.status_label }}
+                </div>
+                <p class="small text-muted mt-2" id="u2cExplanation">{{ u2c.status_explanation }}</p>
+                <div class="goal-progress progress mt-3"
+                     role="progressbar" aria-label="Quarterly U2C progress"
+                     aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ u2c.value }}"
+                     aria-valuetext="{{ u2c.value }} percent committed; 40 percent target">
+                    <div class="progress-bar is-{{ u2c.status_tone }}"
+                         style="width: {{ [u2c.value, 100]|min }}%"></div>
+                    <span class="goal-target" style="left: {{ u2c.target }}%"
+                          title="{{ u2c.target }}% goal"></span>
+                </div>
+                <div class="d-flex justify-content-between small text-muted mt-2">
+                    <span>${{ "{:,.0f}".format(u2c.committed_acr) }} committed</span>
+                    <span>{{ u2c.remaining_count }} remaining</span>
+                </div>
+                <a class="goal-link mt-3" href="{{ u2c.destination }}">
+                    Audit remaining U2C <i class="bi bi-arrow-right"></i>
+                </a>
+                {% if u2c.freshness %}
+                <div class="small text-muted mt-2">
+                    Source refreshed {{ u2c.freshness.strftime('%b %d, %Y') }}
+                </div>
+                {% endif %}
+            </div>
+            <div>
+                <div class="u2c-chart-wrap">
+                    <canvas id="connectU2cChart"
+                            role="img"
+                            aria-label="Weekly Data U2C progression for {{ u2c.fiscal_quarter }}"></canvas>
+                </div>
+                <p class="visually-hidden" id="u2cChartSummary">
+                    Data U2C is {{ u2c.value }} percent against a 40 percent quarter target.
+                </p>
+            </div>
+        </div>
+        {% else %}
+        <h2 class="h4" id="u2cGoalTitle">Quarterly U2C progression</h2>
+        <p class="text-muted">{{ u2c.message if u2c else 'U2C data is unavailable.' }}</p>
+        <a class="goal-link" href="/reports/u2c">Open U2C Attainment <i class="bi bi-arrow-right"></i></a>
+        {% endif %}
+    </section>
+
+    <div class="coverage-layout">
+        {% set team = widgets.get('team_coverage') %}
+        <section class="goal-panel" aria-labelledby="teamGoalTitle">
+            <div class="connect-kicker mb-2">Influence</div>
+            <h2 class="h4 mb-3" id="teamGoalTitle">Milestone team coverage</h2>
+            {% if team and team.available %}
+            <div class="goal-value is-{{ team.status_tone }}"
+                 tabindex="0" aria-describedby="teamExplanation">{{ "%.1f"|format(team.value) }}%</div>
+            <div class="goal-measure mt-2">ACR-weighted coverage</div>
+            <p class="small text-muted mt-3" id="teamExplanation">{{ team.status_explanation }}</p>
+            <div class="goal-progress progress"
+                 role="progressbar" aria-label="Milestone team coverage"
+                 aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ team.value }}"
+                 aria-valuetext="{{ team.value }} percent; 50 percent target">
+                <div class="progress-bar is-{{ team.status_tone }}"
+                     style="width: {{ [team.value, 100]|min }}%"></div>
+                <span class="goal-target" style="left: {{ team.target }}%"
+                      title="{{ team.target }}% goal"></span>
+            </div>
+            <div class="small text-muted mt-2">
+                {{ team.on_team_count }} of {{ team.total_count }} milestones ·
+                ${{ "{:,.0f}".format(team.on_team_acr) }} of ${{ "{:,.0f}".format(team.total_acr) }} ACR
+            </div>
+            <button type="button" class="btn btn-link px-0 goal-link mt-2"
+                    onclick="openMilestoneCoverage()">
+                Review off-team milestones <i class="bi bi-arrow-right"></i>
+            </button>
+            {% if team.freshness %}
+            <div class="small text-muted mt-2">
+                Milestones synced {{ team.freshness.strftime('%b %d, %Y') }}
+            </div>
+            {% endif %}
+            {% else %}
+            <p class="text-muted">No active FY27 Data milestones with matched customers are available.</p>
+            {% endif %}
+        </section>
+
+        {% set hok = widgets.get('hok_coverage') %}
+        <section class="goal-panel" aria-labelledby="hokGoalTitle">
+            <div class="connect-kicker mb-2">Execution evidence</div>
+            <h2 class="h4 mb-3" id="hokGoalTitle">Milestone HoK coverage</h2>
+            {% if hok and hok.available %}
+            <div class="d-flex align-items-end gap-4 flex-wrap mb-3">
+                <div>
+                    <div class="goal-value is-{{ hok.status_tone }}"
+                         tabindex="0" aria-describedby="hokExplanation">{{ "%.1f"|format(hok.value) }}%</div>
+                    <div class="goal-measure mt-2">{{ hok.covered }} of {{ hok.total_count }} covered</div>
+                </div>
+                <p class="small text-muted flex-grow-1 mb-1" id="hokExplanation">{{ hok.status_explanation }}</p>
+            </div>
+            <div class="goal-progress progress mb-4"
+                 role="progressbar" aria-label="Milestone HoK coverage"
+                 aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ hok.value }}"
+                 aria-valuetext="{{ hok.value }} percent; 100 percent target">
+                <div class="progress-bar is-{{ hok.status_tone }}"
+                     style="width: {{ [hok.value, 100]|min }}%"></div>
+                <span class="goal-target" style="left: 100%" title="100% goal"></span>
+            </div>
+            <div class="goal-measure mb-2">Technical validation this fiscal year</div>
+            <dl class="validation-list small">
+                {% for label, count in hok.validation_counts.items() %}
+                <div><dt class="fw-normal">{{ label }}</dt><dd class="mb-0 fw-bold">{{ count }}</dd></div>
+                {% endfor %}
+            </dl>
+            <a class="goal-link mt-3" href="{{ hok.destination }}">
+                Cover milestone gaps <i class="bi bi-arrow-right"></i>
+            </a>
+            {% if hok.freshness %}
+            <div class="small text-muted mt-2">
+                Milestones and activities synced {{ hok.freshness.strftime('%b %d, %Y') }}
+            </div>
+            {% endif %}
+            {% else %}
+            <p class="text-muted">No active, on-team FY27 Data milestones with matched customers are available.</p>
+            {% endif %}
+        </section>
+    </div>
+
+    {% set whitespace = widgets.get('whitespace') %}
+    <section class="goal-panel" aria-labelledby="whitespaceGoalTitle">
+        <div class="d-flex justify-content-between gap-4 align-items-start flex-wrap">
+            <div>
+                <div class="connect-kicker mb-2">{{ whitespace.half_label if whitespace else 'Current half' }}</div>
+                <h2 class="h4 mb-2" id="whitespaceGoalTitle">Fabric and database whitespace wins</h2>
+                <p class="text-muted mb-0">One zero-to-consumption win in each priority bucket per half.</p>
+            </div>
+            <a class="goal-link" href="{{ whitespace.destination if whitespace else '/reports/whitespace' }}">
+                Find actionable whitespace <i class="bi bi-arrow-right"></i>
+            </a>
+        </div>
+        {% if whitespace and whitespace.available %}
+        <div class="whitespace-lanes mt-4">
+            {% for lane in whitespace.bucket_progress %}
+            <div class="whitespace-lane {% if lane.complete %}is-complete{% endif %}">
+                <div class="d-flex justify-content-between align-items-baseline">
+                    <h3 class="h5 mb-1">{{ lane.bucket }}</h3>
+                    <span class="goal-status text-{{ 'success' if lane.complete else 'warning' }}">
+                        <i class="bi bi-{{ 'check-circle-fill' if lane.complete else 'circle' }}"></i>
+                        {{ lane.wins }} / {{ lane.target }}
+                    </span>
+                </div>
+                <p class="small text-muted mb-0">
+                    {{ 'Goal reached' if lane.complete else 'Qualifying win still needed' }}
+                </p>
+                {% set bucket_wins = whitespace.wins.get(lane.bucket, []) %}
+                {% if bucket_wins %}
+                <ul class="list-group list-group-flush whitespace-win-list mt-3"
+                    aria-label="{{ lane.bucket }} whitespace wins">
+                    {% for win in bucket_wins %}
+                    <li class="list-group-item bg-transparent px-0 py-0">
+                        <details class="whitespace-win">
+                            <summary class="d-flex justify-content-between align-items-center gap-3 py-2">
+                                <span class="d-flex align-items-center whitespace-win-name">
+                                    <i class="bi bi-chevron-right whitespace-win-chevron me-2"
+                                       aria-hidden="true"></i>
+                                    <a href="{{ url_for('customers.customer_view', id=win.customer_id) }}"
+                                       class="text-decoration-none text-truncate"
+                                       onclick="event.stopPropagation()">
+                                        <span class="me-1">{{ customer_favicon(win) }}</span>
+                                        {{ win.customer_name }}
+                                    </a>
+                                </span>
+                                <span class="small text-muted text-nowrap">
+                                    ${{ "{:,.0f}".format(win.revenue) }} ACR
+                                </span>
+                            </summary>
+                            <div class="whitespace-history ms-4 pb-2 pt-2">
+                                <div class="table-responsive">
+                                    <table class="table table-sm align-middle mb-0 whitespace-history-table">
+                                        <thead>
+                                            <tr class="small text-muted">
+                                                <th scope="col">Metric</th>
+                                                {% for point in win.history %}
+                                                <th scope="col" class="text-end">{{ point.label }}</th>
+                                                {% endfor %}
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <tr>
+                                                <th scope="row" class="small fw-normal">ACR</th>
+                                                {% for point in win.history %}
+                                                <td class="text-end fw-semibold {% if point.revenue > 0 %}text-success{% else %}text-danger{% endif %}">
+                                                    ${{ "{:,.0f}".format(point.revenue) }}
+                                                </td>
+                                                {% endfor %}
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </details>
+                    </li>
+                    {% endfor %}
+                </ul>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+        <p class="small text-muted mt-3 mb-0">{{ whitespace.status_explanation }}</p>
+        {% if whitespace.data_through %}
+        <p class="small text-muted mt-1 mb-0">
+            Revenue data through {{ whitespace.data_through.strftime('%b %Y') }}
+        </p>
+        {% endif %}
+        {% else %}
+        <p class="text-muted mt-4 mb-0">
+            No matched Databases or Fabric revenue history is available.
+        </p>
+        {% endif %}
+    </section>
+    </div>
+    {% endif %}
+</main>
+{% endblock %}
+
+{% block extra_js %}
+{% if setup.ready and widgets.get('u2c') and widgets.get('u2c').available %}
+<script src="{{ url_for('static', filename='js/vendor/chart.umd.min.js') }}"></script>
+{% endif %}
+<script>
+(function() {
+    var setupForm = document.getElementById('connectSetupForm');
+    if (setupForm) {
+        setupForm.addEventListener('submit', function(event) {
+            event.preventDefault();
+            var selected = Array.from(document.querySelectorAll('.connect-bucket:checked'))
+                .map(function(input) { return input.value; });
+            var required = ['Databases', 'Fabric'];
+            var missing = required.filter(function(bucket) {
+                return !selected.includes(bucket);
+            });
+            var status = document.getElementById('connectSetupStatus');
+            if (missing.length) {
+                status.textContent = 'Select ' + missing.join(' and ') + ' to continue.';
+                return;
+            }
+            status.textContent = 'Saving...';
+            fetch('/api/revenue/compensated-buckets', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    buckets: selected,
+                    confirm_for_fiscal_year: true
+                })
+            })
+                .then(function(response) {
+                    if (!response.ok) throw new Error('Could not save priorities.');
+                    return response.json();
+                })
+                .then(function(data) {
+                    localStorage.setItem(
+                        'salesbuddy_revenue_bucket_filter',
+                        JSON.stringify(selected)
+                    );
+                    localStorage.setItem(
+                        'salesbuddy_revenue_bucket_taxonomy_version',
+                        String(data.taxonomy_version || 0)
+                    );
+                    window.location.reload();
+                })
+                .catch(function(error) {
+                    status.textContent = error.message;
+                });
+        });
+    }
+
+    window.openMilestoneCoverage = function() {
+        var destinationFilter = {{ (
+            widgets.get('team_coverage').destination_filter
+            if widgets.get('team_coverage') else {}
+        )|tojson }};
+        var key = 'salesbuddy_milestone_filters';
+        var state = Object.assign({}, destinationFilter);
+        state.allQuarters = state.quarters.slice();
+        localStorage.setItem(key, JSON.stringify(state));
+        window.location.href = '/reports/milestone-tracker';
+    };
+
+    {% if setup.ready and widgets.get('u2c') and widgets.get('u2c').available %}
+    var points = {{ widgets.get('u2c').trend|tojson }};
+    var canvas = document.getElementById('connectU2cChart');
+    if (canvas && points.length) {
+        new Chart(canvas, {
+            type: 'line',
+            data: {
+                labels: points.map(function(point) { return point.label; }),
+                datasets: [{
+                    label: 'Committed ACR %',
+                    data: points.map(function(point) { return point.u2c_pct; }),
+                    borderColor: '#198754',
+                    backgroundColor: 'rgba(25, 135, 84, 0.12)',
+                    fill: true,
+                    pointRadius: 3,
+                    pointHoverRadius: 5,
+                    tension: 0.18
+                }, {
+                    label: '40% goal',
+                    data: points.map(function() { return 40; }),
+                    borderColor: '#6c757d',
+                    borderDash: [6, 5],
+                    pointRadius: 0,
+                    fill: false
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                animation: false,
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        suggestedMax: Math.max(50, {{ widgets.get('u2c').value }} + 10),
+                        ticks: { callback: function(value) { return value + '%'; } }
+                    }
+                },
+                plugins: {
+                    legend: { position: 'bottom', align: 'start' }
+                }
+            }
+        });
+    }
+    {% endif %}
+})();
+</script>
+{% endblock %}

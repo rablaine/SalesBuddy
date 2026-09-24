@@ -6,6 +6,7 @@ Note: These tests mock the actual MSX API calls to avoid external dependencies.
 """
 import pytest
 from pathlib import Path
+from sqlalchemy import inspect
 from unittest.mock import patch, MagicMock
 from app.models import db, Milestone, MsxTask, Note, Customer
 from app.services.msx_api import (
@@ -82,6 +83,52 @@ class TestTaskCategories:
         # Verify HOK categories are in the main list
         hok_codes = [c['value'] for c in TASK_CATEGORIES if c['is_hok']]
         assert len(hok_codes) == len(HOK_TASK_CATEGORIES)
+
+    def test_fy27_hok_category_changes(self):
+        """FY27 HoK categories include assessments/RFPs but not briefings."""
+        assert 861980014 in HOK_TASK_CATEGORIES
+        assert 861980009 in HOK_TASK_CATEGORIES
+        assert 861980008 not in HOK_TASK_CATEGORIES
+
+    def test_hok_flag_migration_reconciles_existing_tasks(self, app):
+        """Existing task flags follow the current HoK category policy."""
+        from app.migrations import _reconcile_msx_task_hok_flags
+
+        with app.app_context():
+            customer = Customer(
+                name='HoK Migration Customer',
+                tpid='hok-migration-123',
+            )
+            milestone = Milestone(
+                title='HoK migration milestone',
+                url='https://example.test/hok-migration',
+                customer=customer,
+            )
+            db.session.add(milestone)
+            db.session.flush()
+            assessment = MsxTask(
+                msx_task_id='migration-assessment',
+                subject='Assessment',
+                task_category=861980014,
+                is_hok=False,
+                milestone_id=milestone.id,
+            )
+            briefing = MsxTask(
+                msx_task_id='migration-briefing',
+                subject='Briefing',
+                task_category=861980008,
+                is_hok=True,
+                milestone_id=milestone.id,
+            )
+            db.session.add_all([assessment, briefing])
+            db.session.commit()
+
+            _reconcile_msx_task_hok_flags(db, inspect(db.engine))
+            db.session.refresh(assessment)
+            db.session.refresh(briefing)
+
+            assert assessment.is_hok is True
+            assert briefing.is_hok is False
     
     def test_milestone_status_order(self):
         """Test that milestone statuses have sort order defined."""

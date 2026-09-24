@@ -748,22 +748,46 @@ def get_compensated_buckets():
 @revenue_bp.route('/api/revenue/compensated-buckets', methods=['POST'])
 def save_compensated_buckets():
     """Save the user's compensated buckets to preferences."""
+    from app.services.activity_coverage import fiscal_year_bounds
     from app.models import UserPreference
     import json as _json
     data = request.get_json(silent=True)
-    if not isinstance(data, list):
-        return jsonify(success=False, error='Expected a JSON array'), 400
+    confirm_for_fiscal_year = False
+    if isinstance(data, dict):
+        buckets = data.get('buckets')
+        confirm_for_fiscal_year = data.get('confirm_for_fiscal_year') is True
+    else:
+        buckets = data
+    if not isinstance(buckets, list):
+        return jsonify(
+            success=False,
+            error='Expected a JSON array or an object containing a buckets array',
+        ), 400
+    if any(not isinstance(bucket, str) for bucket in buckets):
+        return jsonify(success=False, error='Bucket names must be strings'), 400
 
     pref = UserPreference.query.first()
     if not pref:
         return jsonify(success=False, error='No preferences found'), 400
 
-    pref.compensated_buckets = _json.dumps(data)
-    # Picking buckets is the action the taxonomy notice asks for, so retire it
-    # here rather than making the user find the X.
-    pref.bucket_taxonomy_notice = None
+    pref.compensated_buckets = _json.dumps(buckets)
+    if buckets and confirm_for_fiscal_year:
+        _, fiscal_end = fiscal_year_bounds()
+        pref.compensated_buckets_fiscal_year = f'FY{fiscal_end.year % 100:02d}'
+        pref.compensated_buckets_confirmed_taxonomy_version = (
+            pref.bucket_taxonomy_version or 0
+        )
+    else:
+        pref.compensated_buckets_fiscal_year = None
+        pref.compensated_buckets_confirmed_taxonomy_version = None
+    if confirm_for_fiscal_year:
+        pref.bucket_taxonomy_notice = None
     db.session.commit()
-    return jsonify(success=True)
+    return jsonify(
+        success=True,
+        fiscal_year=pref.compensated_buckets_fiscal_year,
+        taxonomy_version=pref.compensated_buckets_confirmed_taxonomy_version,
+    )
 
 
 @revenue_bp.route('/revenue/config', methods=['GET', 'POST'])
@@ -1075,5 +1099,3 @@ def report_synapse_customers():
         lookback_months=lookback_months,
         product_name=product_name,
     )
-
-

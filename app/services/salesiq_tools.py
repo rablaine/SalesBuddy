@@ -886,6 +886,21 @@ def list_action_items(
 # ============================================================================
 
 @tool(
+    'report_connect_goals',
+    'Get the FY27 Data Connect Goals action center metrics, goals, status, and '
+    'drill-down destinations.',
+    {'type': 'object', 'properties': {}},
+)
+def report_connect_goals() -> dict:
+    """Return the shared Connect Goals calculations."""
+    from app.services.connect_goals import get_connect_goals
+
+    data = get_connect_goals()
+    data['url'] = f'{_BASE}/reports/connect-goals'
+    return data
+
+
+@tool(
     'report_activity_coverage',
     'Get fiscal-year meeting and on-team milestone HoK activity coverage.',
     {

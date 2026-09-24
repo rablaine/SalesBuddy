@@ -118,6 +118,8 @@ def apply_bucket_notice(notice: dict[str, Any]) -> None:
         return
     if notice["status"] == "reset":
         pref.compensated_buckets = None
+        pref.compensated_buckets_fiscal_year = None
+        pref.compensated_buckets_confirmed_taxonomy_version = None
     pref.bucket_taxonomy_version = (pref.bucket_taxonomy_version or 0) + 1
     pref.bucket_taxonomy_notice = json.dumps({
         **notice,

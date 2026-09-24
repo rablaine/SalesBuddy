@@ -763,6 +763,7 @@
                         <ul class="dropdown-menu">
                             <li><a class="dropdown-item" href="{{ url_for('reports.reports_hub') }}"><i class="bi bi-grid"></i> All Reports</a></li>
                             <li><hr class="dropdown-divider"></li>
+                            <li><a class="dropdown-item" href="{{ url_for('reports.report_connect_goals') }}"><i class="bi bi-speedometer2"></i> Connect Goals</a></li>
                             <li><a class="dropdown-item" href="{{ url_for('revenue.revenue_dashboard') }}"><i class="bi bi-graph-up"></i> Revenue Analyzer</a></li>
                             <li><a class="dropdown-item" href="{{ url_for('milestones.milestone_tracker') }}"><i class="bi bi-flag-fill"></i> Milestone Tracker</a></li>
                             <li><a class="dropdown-item" href="{{ url_for('reports.report_activity_coverage') }}"><i class="bi bi-calendar2-check"></i> Activity Coverage</a></li>
@@ -4101,7 +4102,6 @@
     {% endif %}
 </body>
 </html>
-
 
 
 

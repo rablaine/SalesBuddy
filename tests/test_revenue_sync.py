@@ -73,6 +73,8 @@ class TestBucketReconciliation:
         self._seed_stored(["Core DBs"])
         pref = UserPreference.query.first() or UserPreference()
         pref.compensated_buckets = json.dumps(["Core DBs"])
+        pref.compensated_buckets_fiscal_year = "FY26"
+        pref.compensated_buckets_confirmed_taxonomy_version = 3
         pref.bucket_taxonomy_version = 3
         db.session.add(pref)
         db.session.commit()
@@ -81,6 +83,8 @@ class TestBucketReconciliation:
 
         pref = UserPreference.query.first()
         assert pref.compensated_buckets is None
+        assert pref.compensated_buckets_fiscal_year is None
+        assert pref.compensated_buckets_confirmed_taxonomy_version is None
         assert pref.bucket_taxonomy_version == 4  # invalidates the localStorage copy
         assert json.loads(pref.bucket_taxonomy_notice)["status"] == "reset"
 

@@ -166,15 +166,18 @@
 </div>
 
 <div class="btn-group btn-group-sm mb-2" aria-label="Activity coverage lens">
-    <a class="btn btn-outline-primary coverage-lens-link{% if lens == 'meetings' %} active{% endif %}" data-lens="meetings" href="{{ url_for('reports.report_activity_coverage') }}"><i class="bi bi-calendar-event"></i> Meetings</a>
-    <a class="btn btn-outline-primary coverage-lens-link{% if lens == 'milestones' %} active{% endif %}" data-lens="milestones" href="{{ url_for('reports.report_activity_coverage', lens='milestones') }}"><i class="bi bi-flag"></i> Milestones</a>
+    <a class="btn btn-outline-primary coverage-lens-link{% if lens == 'meetings' %} active{% endif %}" data-lens="meetings" href="{{ url_for('reports.report_activity_coverage', scope=scope or None) }}"><i class="bi bi-calendar-event"></i> Meetings</a>
+    <a class="btn btn-outline-primary coverage-lens-link{% if lens == 'milestones' %} active{% endif %}" data-lens="milestones" href="{{ url_for('reports.report_activity_coverage', lens='milestones', scope=scope or None) }}"><i class="bi bi-flag"></i> Milestones</a>
 </div>
 
 {% if lens == 'milestones' %}
 <div class="btn-group btn-group-sm mb-2" aria-label="Milestone coverage methodology">
-    <a class="btn btn-outline-secondary{% if coverage_view == 'fy' %} active{% endif %}" href="{{ url_for('reports.report_activity_coverage', lens='milestones', coverage='fy') }}">FY HoK Coverage</a>
-    <a class="btn btn-outline-secondary{% if coverage_view == 'caip' %} active{% endif %}" href="{{ url_for('reports.report_activity_coverage', lens='milestones', coverage='caip') }}">CAIP Coverage</a>
+    <a class="btn btn-outline-secondary{% if coverage_view == 'fy' %} active{% endif %}" href="{{ url_for('reports.report_activity_coverage', lens='milestones', coverage='fy', scope=scope or None) }}">FY HoK Coverage</a>
+    <a class="btn btn-outline-secondary{% if coverage_view == 'caip' %} active{% endif %}" href="{{ url_for('reports.report_activity_coverage', lens='milestones', coverage='caip', scope=scope or None) }}">CAIP Coverage</a>
 </div>
+{% if scope == 'fy27-data' %}
+<span class="badge bg-info text-dark mb-2"><i class="bi bi-funnel"></i> FY27 Data · current + next FY due</span>
+{% endif %}
 {% endif %}
 
 <script>
