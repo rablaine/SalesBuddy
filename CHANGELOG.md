@@ -8,6 +8,10 @@ brought the change into `main`, so the admin Updates card can show
 Format: `## M/D/YYYY - <merge-short-sha>`. See
 `scripts/tag-changelog.ps1` for the helper that fills this in.
 
+## 9/24/2026
+
+- Sharpen the interface with tighter corners across cards, buttons, forms, modals, and other controls.
+
 ## 9/24/2026 - 0997de1
 
 - Update HoK tracking to the more relevant High-Value Activity (HVA) tracking throughout Sales Buddy.
