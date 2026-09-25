@@ -780,13 +780,23 @@ def get_archive_detail(label: str, item_type: str, item_id: int) -> dict:
                 'customer_id': row[8],
             }
             try:
+                task_columns = {
+                    column[1]
+                    for column in conn.execute(
+                        text("PRAGMA table_info(msx_tasks)")
+                    ).fetchall()
+                }
+                classification_column = (
+                    'is_hva' if 'is_hva' in task_columns else 'is_hok'
+                )
                 tasks = conn.execute(text(
-                    "SELECT subject, task_category, duration_minutes, is_hok "
+                    "SELECT subject, task_category, duration_minutes, "
+                    f"{classification_column} "
                     "FROM msx_tasks WHERE milestone_id = :mid"
                 ), {'mid': item_id}).fetchall()
                 detail['tasks'] = [{
                     'subject': t[0], 'category': t[1],
-                    'duration': t[2], 'is_hok': t[3],
+                    'duration': t[2], 'is_hva': t[3],
                 } for t in tasks]
             except Exception:
                 detail['tasks'] = []

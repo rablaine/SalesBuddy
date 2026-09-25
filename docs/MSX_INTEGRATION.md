@@ -10,7 +10,7 @@ Everything we know about integrating with the MSX CRM (Dynamics 365) API — aut
 4. [Milestones](#milestones)
 5. [Opportunities](#opportunities)
 6. [Creating Tasks](#creating-tasks)
-7. [HoK (Hands-on-Keyboard) Task Categories](#hok-hands-on-keyboard-task-categories)
+7. [HVA (High-Value Activity) Task Categories](#hva-high-value activity-task-categories)
 8. [Deal Team / Access Team Membership](#deal-team--access-team-membership)
 9. [Batch Requests](#batch-requests)
 10. [Key Constants](#key-constants)
@@ -422,7 +422,7 @@ def get_account_by_tpid(tpid, token):
 
 ### Overview
 
-Tasks are linked to milestones and credit the user for customer engagement. The task category determines whether it counts for HoK credit.
+Tasks are linked to milestones and credit the user for customer engagement. The task category determines whether it counts for HVA credit.
 
 ### Create a Task
 
@@ -443,7 +443,7 @@ Content-Type: application/json
 | Field | Description |
 |-------|-------------|
 | `subject` | Task title |
-| `msp_taskcategory` | Category code (see HoK section) |
+| `msp_taskcategory` | Category code (see HVA section) |
 | `scheduleddurationminutes` | Duration in minutes |
 | `prioritycode` | 0=Low, 1=Normal, 2=High |
 | `regardingobjectid_msp_engagementmilestone@odata.bind` | Links to milestone |
@@ -476,9 +476,9 @@ GET /api/data/v9.2/tasks
 
 ---
 
-## HoK (Hands-on-Keyboard) Task Categories
+## HVA (High-Value Activity) Task Categories
 
-These are the **only categories that count for HoK** credit:
+These are the **only categories that count for HVA** credit:
 
 | Category | Code | Description |
 |----------|------|-------------|
@@ -495,7 +495,7 @@ These are the **only categories that count for HoK** credit:
 | Technical Workshop | 606820007 | Hands-on technical workshops |
 | Workshop | 861980001 | Hands-on workshops |
 
-### Non-HoK Categories (for reference)
+### Non-HVA Categories (for reference)
 
 | Category | Code |
 |----------|------|

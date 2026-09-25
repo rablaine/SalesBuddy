@@ -540,8 +540,8 @@ MILESTONE_STATUS_ORDER = {
     'Hygiene/Duplicate': 7,
 }
 
-# HOK task categories (eligible for hands-on-keyboard credit)
-HOK_TASK_CATEGORIES = {
+# HVA task categories (eligible for high-value activity credit)
+HVA_TASK_CATEGORIES = {
     861980004,  # Architecture Design Session
     861980014,  # Assessment
     861980006,  # Blocker Escalation
@@ -559,33 +559,33 @@ HOK_TASK_CATEGORIES = {
 
 # All task categories
 TASK_CATEGORIES = [
-    # HOK categories (sorted first)
-    {"label": "Architecture Design Session", "value": 861980004, "is_hok": True},
-    {"label": "Assessment", "value": 861980014, "is_hok": True},
-    {"label": "Blocker Escalation", "value": 861980006, "is_hok": True},
-    {"label": "Consumption Plan", "value": 861980007, "is_hok": True},
-    {"label": "Demo", "value": 861980002, "is_hok": True},
-    {"label": "L300+ Demo", "value": 606820009, "is_hok": True},
-    {"label": "PoC/Pilot", "value": 861980005, "is_hok": True},
-    {"label": "Rapid Prototyping", "value": 606820006, "is_hok": True},
-    {"label": "RFP/RFI", "value": 861980009, "is_hok": True},
-    {"label": "Solution Whiteboarding", "value": 606820008, "is_hok": True},
-    {"label": "Technical Close/Win Plan", "value": 606820005, "is_hok": True},
-    {"label": "Technical Workshop", "value": 606820007, "is_hok": True},
-    {"label": "Workshop", "value": 861980001, "is_hok": True},
-    # Non-HOK categories
-    {"label": "ACE", "value": 606820000, "is_hok": False},
-    {"label": "Briefing", "value": 861980008, "is_hok": False},
-    {"label": "Call Back Requested", "value": 861980010, "is_hok": False},
-    {"label": "Cross Segment", "value": 606820001, "is_hok": False},
-    {"label": "Cross Workload", "value": 606820002, "is_hok": False},
-    {"label": "Customer Engagement", "value": 861980000, "is_hok": False},
-    {"label": "External (Co-creation of Value)", "value": 861980013, "is_hok": False},
-    {"label": "Internal", "value": 861980012, "is_hok": False},
-    {"label": "Negotiate Pricing", "value": 861980003, "is_hok": False},
-    {"label": "New Partner Request", "value": 861980011, "is_hok": False},
-    {"label": "Post Sales", "value": 606820003, "is_hok": False},
-    {"label": "Tech Support", "value": 606820004, "is_hok": False},
+    # HVA categories (sorted first)
+    {"label": "Architecture Design Session", "value": 861980004, "is_hva": True},
+    {"label": "Assessment", "value": 861980014, "is_hva": True},
+    {"label": "Blocker Escalation", "value": 861980006, "is_hva": True},
+    {"label": "Consumption Plan", "value": 861980007, "is_hva": True},
+    {"label": "Demo", "value": 861980002, "is_hva": True},
+    {"label": "L300+ Demo", "value": 606820009, "is_hva": True},
+    {"label": "PoC/Pilot", "value": 861980005, "is_hva": True},
+    {"label": "Rapid Prototyping", "value": 606820006, "is_hva": True},
+    {"label": "RFP/RFI", "value": 861980009, "is_hva": True},
+    {"label": "Solution Whiteboarding", "value": 606820008, "is_hva": True},
+    {"label": "Technical Close/Win Plan", "value": 606820005, "is_hva": True},
+    {"label": "Technical Workshop", "value": 606820007, "is_hva": True},
+    {"label": "Workshop", "value": 861980001, "is_hva": True},
+    # Non-HVA categories
+    {"label": "ACE", "value": 606820000, "is_hva": False},
+    {"label": "Briefing", "value": 861980008, "is_hva": False},
+    {"label": "Call Back Requested", "value": 861980010, "is_hva": False},
+    {"label": "Cross Segment", "value": 606820001, "is_hva": False},
+    {"label": "Cross Workload", "value": 606820002, "is_hva": False},
+    {"label": "Customer Engagement", "value": 861980000, "is_hva": False},
+    {"label": "External (Co-creation of Value)", "value": 861980013, "is_hva": False},
+    {"label": "Internal", "value": 861980012, "is_hva": False},
+    {"label": "Negotiate Pricing", "value": 861980003, "is_hva": False},
+    {"label": "New Partner Request", "value": 861980011, "is_hva": False},
+    {"label": "Post Sales", "value": 606820003, "is_hva": False},
+    {"label": "Tech Support", "value": 606820004, "is_hva": False},
 ]
 
 
@@ -2900,9 +2900,9 @@ def get_tasks_for_milestones(
     if not user_id:
         return {"success": False, "tasks": [], "error": "Could not determine current user."}
 
-    # Build a lookup from task_category value -> {name, is_hok}
+    # Build a lookup from task_category value -> {name, is_hva}
     cat_lookup = {
-        c["value"]: {"name": c["label"], "is_hok": c["is_hok"]}
+        c["value"]: {"name": c["label"], "is_hva": c["is_hva"]}
         for c in TASK_CATEGORIES
     }
 
@@ -2954,7 +2954,7 @@ def get_tasks_for_milestones(
                         "description": raw.get("description"),
                         "task_category": category_code,
                         "task_category_name": cat_info.get("name"),
-                        "is_hok": cat_info.get("is_hok", False),
+                        "is_hva": cat_info.get("is_hva", False),
                         "duration_minutes": raw.get("scheduleddurationminutes") or 60,
                         "due_date": due_date_str,
                         "created_on": raw.get("createdon"),
@@ -2985,7 +2985,7 @@ def get_tasks_for_milestones(
                                 "description": raw.get("description"),
                                 "task_category": category_code,
                                 "task_category_name": cat_info.get("name"),
-                                "is_hok": cat_info.get("is_hok", False),
+                                "is_hva": cat_info.get("is_hva", False),
                                 "duration_minutes": raw.get("scheduleddurationminutes") or 60,
                                 "due_date": raw.get("scheduledend"),
                                 "created_on": raw.get("createdon"),

@@ -902,7 +902,7 @@ def report_connect_goals() -> dict:
 
 @tool(
     'report_activity_coverage',
-    'Get fiscal-year meeting and on-team milestone HoK activity coverage.',
+    'Get fiscal-year meeting and on-team milestone HVA activity coverage.',
     {
         'type': 'object',
         'properties': {
@@ -914,7 +914,7 @@ def report_connect_goals() -> dict:
     },
 )
 def report_activity_coverage(week: str | None = None) -> dict:
-    """Return meeting coverage plus active milestones needing current-FY HoK."""
+    """Return meeting coverage plus active milestones needing current-FY HVA."""
     from app.services.activity_coverage import (
         get_milestone_coverage_data,
         get_report_data,
@@ -936,7 +936,7 @@ def report_activity_coverage(week: str | None = None) -> dict:
         },
         'summary': data['summary'],
         'milestone_summary': milestone_data['milestone_summary'],
-        'milestones_needing_hok': [
+        'milestones_needing_hva': [
             {
                 'id': row['id'],
                 'customer': (
@@ -949,7 +949,7 @@ def report_activity_coverage(week: str | None = None) -> dict:
                     row['milestone'].due_date.date().isoformat()
                     if row['milestone'].due_date else None
                 ),
-                'prior_hok_fiscal_year': row['prior_fiscal_year'],
+                'prior_hva_fiscal_year': row['prior_fiscal_year'],
                 'prepared_meetings': row['prepared_meeting_count'],
             }
             for row in milestone_data['milestone_rows']
@@ -973,7 +973,7 @@ def report_activity_coverage(week: str | None = None) -> dict:
 
 @tool(
     'report_caip_coverage',
-    'Get Activities Logged and current-FY HoK coverage for CAIP team milestones.',
+    'Get Activities Logged and current-FY HVA coverage for CAIP team milestones.',
     {'type': 'object', 'properties': {}},
 )
 def report_caip_coverage() -> dict:
@@ -1002,7 +1002,7 @@ def report_caip_coverage() -> dict:
                     else row['milestone'].opportunity_name
                 ),
                 'activity_logged': row['activity_logged'],
-                'hok_covered': row['hok_covered'],
+                'hva_covered': row['hva_covered'],
             }
             for group in data['caip_groups']
             for row in group['rows']

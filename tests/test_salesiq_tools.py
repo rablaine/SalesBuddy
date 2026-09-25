@@ -347,7 +347,7 @@ class TestToolExecution:
             assert 'summary' in result
             assert 'meetings' in result
             assert 'milestone_summary' in result
-            assert 'milestones_needing_hok' in result
+            assert 'milestones_needing_hva' in result
             assert '/reports/activity-coverage' in result['url']
 
     def test_report_connect_goals(self, app):

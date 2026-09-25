@@ -40,7 +40,7 @@ class TestMsxTaskNullableNote:
             task_category=861980004,
             task_category_name='Architecture Design Session',
             duration_minutes=60,
-            is_hok=True,
+            is_hva=True,
             note_id=None,
             milestone_id=milestone.id,
         )
@@ -52,7 +52,7 @@ class TestMsxTaskNullableNote:
         assert saved.note_id is None
         assert saved.milestone_id == milestone.id
         assert saved.subject == 'Standalone Task'
-        assert saved.is_hok is True
+        assert saved.is_hva is True
 
     def test_create_task_with_note_still_works(self, app, client, db_session, sample_user):
         """MsxTask with note_id should still work (backward compatibility)."""
@@ -84,7 +84,7 @@ class TestMsxTaskNullableNote:
             task_category=861980002,
             task_category_name='Demo',
             duration_minutes=30,
-            is_hok=True,
+            is_hva=True,
             note_id=note.id,
             milestone_id=milestone.id,
         )
@@ -133,7 +133,7 @@ class TestMilestoneViewTasks:
             task_category=861980004,
             task_category_name='Architecture Design Session',
             duration_minutes=90,
-            is_hok=True,
+            is_hva=True,
             note_id=None,
             milestone_id=milestone.id,
         )
@@ -145,7 +145,7 @@ class TestMilestoneViewTasks:
         html = response.data.decode()
         assert 'Display Me Task' in html
         assert 'Architecture Design Session' in html
-        assert 'HoK' in html
+        assert 'HVA' in html
 
     def test_milestone_view_shows_task_linked_note(self, app, client, db_session, sample_user):
         """Tasks linked to a note should show a link to that note."""
@@ -177,7 +177,7 @@ class TestMilestoneViewTasks:
             task_category=861980002,
             task_category_name='Demo',
             duration_minutes=60,
-            is_hok=True,
+            is_hva=True,
             note_id=note.id,
             milestone_id=milestone.id,
         )
@@ -269,7 +269,7 @@ class TestMilestoneCreateTask:
         assert task.subject == 'New Architecture Session'
         assert task.task_category == 861980004
         assert task.task_category_name == 'Architecture Design Session'
-        assert task.is_hok is True
+        assert task.is_hva is True
         assert task.duration_minutes == 60
         assert task.note_id is None
         assert task.milestone_id == milestone.id
@@ -277,18 +277,18 @@ class TestMilestoneCreateTask:
         assert task.due_date is not None
 
     @patch('app.services.msx_api.create_task')
-    def test_create_task_non_hok(self, mock_create, app, client, db_session, sample_user):
-        """Creating a non-HoK task should set is_hok=False."""
+    def test_create_task_non_hva(self, mock_create, app, client, db_session, sample_user):
+        """Creating a non-HVA task should set is_hva=False."""
         mock_create.return_value = {
             'success': True,
-            'task_id': 'msx-nonhok-guid',
-            'task_url': 'https://example.com/task/msx-nonhok-guid',
+            'task_id': 'msx-nonhva-guid',
+            'task_url': 'https://example.com/task/msx-nonhva-guid',
         }
 
         milestone = Milestone(
-            msx_milestone_id='ms-nonhok-task',
-            url='https://example.com/ms-nonhok',
-            title='NonHoK Milestone',
+            msx_milestone_id='ms-nonhva-task',
+            url='https://example.com/ms-nonhva',
+            title='NonHVA Milestone',
         )
         db_session.add(milestone)
         db_session.commit()
@@ -297,7 +297,7 @@ class TestMilestoneCreateTask:
             f'/milestone/{milestone.id}/tasks',
             json={
                 'subject': 'Internal Task',
-                'task_category': 861980012,  # Internal - non-HoK
+                'task_category': 861980012,  # Internal - non-HVA
                 'duration_minutes': 30,
             },
             content_type='application/json',
@@ -307,9 +307,9 @@ class TestMilestoneCreateTask:
         data = response.get_json()
         assert data['success'] is True
 
-        task = MsxTask.query.filter_by(msx_task_id='msx-nonhok-guid').first()
+        task = MsxTask.query.filter_by(msx_task_id='msx-nonhva-guid').first()
         assert task is not None
-        assert task.is_hok is False
+        assert task.is_hva is False
         assert task.task_category_name == 'Internal'
 
     def test_create_task_missing_subject(self, app, client, db_session, sample_user):
@@ -469,7 +469,7 @@ class TestMilestoneCreateTask:
             f'/milestone/{milestone.id}/tasks',
             json={
                 'subject': 'No Due Date Task',
-                'task_category': 861980001,  # Workshop - HoK
+                'task_category': 861980001,  # Workshop - HVA
                 'duration_minutes': 120,
             },
             content_type='application/json',
@@ -482,5 +482,5 @@ class TestMilestoneCreateTask:
         task = MsxTask.query.filter_by(msx_task_id='msx-no-due-guid').first()
         assert task is not None
         assert task.due_date is None
-        assert task.is_hok is True
+        assert task.is_hva is True
         assert task.task_category_name == 'Workshop'

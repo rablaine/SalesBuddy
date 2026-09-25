@@ -63,7 +63,7 @@ def reports_hub():
                     'name': 'MSX Workspace',
                     'description': (
                         'Browse opportunities, milestones, and tasks from MSX. '
-                        'Manage team membership, create HOK tasks, and edit '
+                        'Manage team membership, create HVA tasks, and edit '
                         'milestones - all without leaving Sales Buddy.'
                     ),
                     'icon': 'bi-grid-3x3',
@@ -164,7 +164,7 @@ def reports_hub():
                     'id': 'connect-goals',
                     'name': 'Connect Goals',
                     'description': (
-                        'Track FY27 Data U2C pace, milestone influence, HoK '
+                        'Track FY27 Data U2C pace, milestone influence, HVA '
                         'coverage, and whitespace wins, then open the reports '
                         'that help close each gap.'
                     ),
@@ -207,7 +207,7 @@ def reports_hub():
 
 @bp.route('/reports/activity-coverage')
 def report_activity_coverage():
-    """Review meeting and milestone HoK activity coverage."""
+    """Review meeting and milestone HVA activity coverage."""
     from app.services.activity_coverage import (
         get_caip_coverage_data,
         get_milestone_coverage_data,
@@ -273,7 +273,7 @@ def report_activity_coverage():
     methods=['PATCH'],
 )
 def api_activity_coverage_update_milestone_draft(milestone_id):
-    """Save one standalone milestone HoK activity draft."""
+    """Save one standalone milestone HVA activity draft."""
     from app.services.activity_coverage import update_milestone_coverage_draft
 
     try:
@@ -290,15 +290,15 @@ def api_activity_coverage_update_milestone_draft(milestone_id):
     '/api/reports/activity-coverage/milestones/<int:milestone_id>/create',
     methods=['POST'],
 )
-def api_activity_coverage_create_milestone_hok(milestone_id):
-    """Create one standalone current-FY HoK activity."""
+def api_activity_coverage_create_milestone_hva(milestone_id):
+    """Create one standalone current-FY HVA activity."""
     from app.services.activity_coverage import (
-        create_milestone_hok_activity,
+        create_milestone_hva_activity,
         get_milestone_coverage_data,
     )
 
     try:
-        task = create_milestone_hok_activity(milestone_id)
+        task = create_milestone_hva_activity(milestone_id)
     except ValueError as exc:
         return jsonify({'success': False, 'error': str(exc)}), 400
     except RuntimeError as exc:
@@ -1685,7 +1685,7 @@ def api_msx_workspace_tasks():
             'description': t.description,
             'task_category': t.task_category,
             'task_category_name': t.task_category_name,
-            'is_hok': t.is_hok,
+            'is_hva': t.is_hva,
             'due_date': t.due_date.isoformat() if t.due_date else None,
             'milestone_msx_id': ms.msx_milestone_id if ms else None,
             'milestone_title': ms.title if ms else None,

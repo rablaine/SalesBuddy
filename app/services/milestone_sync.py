@@ -36,7 +36,7 @@ from app.services.msx_api import (
     build_task_url,
     test_connection,
     TASK_CATEGORIES,
-    HOK_TASK_CATEGORIES,
+    HVA_TASK_CATEGORIES,
 )
 from app.services.msx_auth import is_vpn_blocked, set_vpn_blocked
 
@@ -1265,7 +1265,7 @@ def _sync_all_tasks() -> Generator[
             existing_tasks_map[task.msx_task_id] = task
 
     cat_lookup = {
-        c["value"]: {"name": c["label"], "is_hok": c["is_hok"]}
+        c["value"]: {"name": c["label"], "is_hva": c["is_hva"]}
         for c in TASK_CATEGORIES
     }
 
@@ -1345,7 +1345,7 @@ def _sync_all_tasks() -> Generator[
                     existing.task_category_name = (
                         cat_info.get("name") or existing.task_category_name
                     )
-                    existing.is_hok = cat_info.get("is_hok", existing.is_hok)
+                    existing.is_hva = cat_info.get("is_hva", existing.is_hva)
                     existing.duration_minutes = (
                         t.get("duration_minutes") or existing.duration_minutes
                     )
@@ -1368,7 +1368,7 @@ def _sync_all_tasks() -> Generator[
                         description=t.get("description"),
                         task_category=category_code or 0,
                         task_category_name=cat_info.get("name"),
-                        is_hok=cat_info.get("is_hok", False),
+                        is_hva=cat_info.get("is_hva", False),
                         duration_minutes=t.get("duration_minutes") or 60,
                         due_date=due_date,
                         msx_created_on=created_on,
@@ -1459,7 +1459,7 @@ def _sync_customer_tasks(
 
     # Category lookup for enrichment
     cat_lookup = {
-        c["value"]: {"name": c["label"], "is_hok": c["is_hok"]}
+        c["value"]: {"name": c["label"], "is_hva": c["is_hva"]}
         for c in TASK_CATEGORIES
     }
 
@@ -1483,7 +1483,7 @@ def _sync_customer_tasks(
             existing.description = t.get("description")
             existing.task_category = category_code or existing.task_category
             existing.task_category_name = cat_info.get("name") or existing.task_category_name
-            existing.is_hok = cat_info.get("is_hok", existing.is_hok)
+            existing.is_hva = cat_info.get("is_hva", existing.is_hva)
             existing.duration_minutes = t.get("duration_minutes") or existing.duration_minutes
             existing.due_date = due_date
             existing.msx_created_on = created_on
@@ -1501,7 +1501,7 @@ def _sync_customer_tasks(
                 description=t.get("description"),
                 task_category=category_code or 0,
                 task_category_name=cat_info.get("name"),
-                is_hok=cat_info.get("is_hok", False),
+                is_hva=cat_info.get("is_hva", False),
                 duration_minutes=t.get("duration_minutes") or 60,
                 due_date=due_date,
                 msx_created_on=created_on,

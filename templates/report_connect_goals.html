@@ -342,39 +342,39 @@
             {% endif %}
         </section>
 
-        {% set hok = widgets.get('hok_coverage') %}
-        <section class="goal-panel" aria-labelledby="hokGoalTitle">
+        {% set hva = widgets.get('hva_coverage') %}
+        <section class="goal-panel" aria-labelledby="hvaGoalTitle">
             <div class="connect-kicker mb-2">Execution evidence</div>
-            <h2 class="h4 mb-3" id="hokGoalTitle">Milestone HoK coverage</h2>
-            {% if hok and hok.available %}
+            <h2 class="h4 mb-3" id="hvaGoalTitle">Milestone HVA coverage</h2>
+            {% if hva and hva.available %}
             <div class="d-flex align-items-end gap-4 flex-wrap mb-3">
                 <div>
-                    <div class="goal-value is-{{ hok.status_tone }}"
-                         tabindex="0" aria-describedby="hokExplanation">{{ "%.1f"|format(hok.value) }}%</div>
-                    <div class="goal-measure mt-2">{{ hok.covered }} of {{ hok.total_count }} covered</div>
+                    <div class="goal-value is-{{ hva.status_tone }}"
+                         tabindex="0" aria-describedby="hvaExplanation">{{ "%.1f"|format(hva.value) }}%</div>
+                    <div class="goal-measure mt-2">{{ hva.covered }} of {{ hva.total_count }} covered</div>
                 </div>
-                <p class="small text-muted flex-grow-1 mb-1" id="hokExplanation">{{ hok.status_explanation }}</p>
+                <p class="small text-muted flex-grow-1 mb-1" id="hvaExplanation">{{ hva.status_explanation }}</p>
             </div>
             <div class="goal-progress progress mb-4"
-                 role="progressbar" aria-label="Milestone HoK coverage"
-                 aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ hok.value }}"
-                 aria-valuetext="{{ hok.value }} percent; 100 percent target">
-                <div class="progress-bar is-{{ hok.status_tone }}"
-                     style="width: {{ [hok.value, 100]|min }}%"></div>
+                 role="progressbar" aria-label="Milestone HVA coverage"
+                 aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ hva.value }}"
+                 aria-valuetext="{{ hva.value }} percent; 100 percent target">
+                <div class="progress-bar is-{{ hva.status_tone }}"
+                     style="width: {{ [hva.value, 100]|min }}%"></div>
                 <span class="goal-target" style="left: 100%" title="100% goal"></span>
             </div>
             <div class="goal-measure mb-2">Technical validation this fiscal year</div>
             <dl class="validation-list small">
-                {% for label, count in hok.validation_counts.items() %}
+                {% for label, count in hva.validation_counts.items() %}
                 <div><dt class="fw-normal">{{ label }}</dt><dd class="mb-0 fw-bold">{{ count }}</dd></div>
                 {% endfor %}
             </dl>
-            <a class="goal-link mt-3" href="{{ hok.destination }}">
+            <a class="goal-link mt-3" href="{{ hva.destination }}">
                 Cover milestone gaps <i class="bi bi-arrow-right"></i>
             </a>
-            {% if hok.freshness %}
+            {% if hva.freshness %}
             <div class="small text-muted mt-2">
-                Milestones and activities synced {{ hok.freshness.strftime('%b %d, %Y') }}
+                Milestones and activities synced {{ hva.freshness.strftime('%b %d, %Y') }}
             </div>
             {% endif %}
             {% else %}

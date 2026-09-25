@@ -284,7 +284,7 @@ The v1 widget set is limited to:
 
 1. Quarterly U2C progression.
 2. Milestone team coverage.
-3. Milestone HoK coverage, including a qualifying technical-validation activity
+3. Milestone HVA coverage, including a qualifying technical-validation activity
    breakdown.
 4. Fabric and database whitespace wins.
 
@@ -480,21 +480,21 @@ revenue buckets can be translated generically into MSX milestone workloads.
 - Keep the fiscal scope and weighting centralized so manager confirmation can
   adjust the calculation without rewriting the widget.
 
-### 3. Milestone HoK coverage
+### 3. Milestone HVA coverage
 
 **Connect alignment**
 
 - Maintain 100% milestone activity tracking with emphasis on high-value
-  activities currently labeled HoK in Sales Buddy.
+  activities currently labeled HVA in Sales Buddy.
 - Log demos and Technical Workshops in MSX.
 - Maintain consistent execution across active milestones.
 
 **Widget**
 
-- Percentage of in-scope, on-team milestones with at least one qualifying HoK
+- Percentage of in-scope, on-team milestones with at least one qualifying HVA
   in the relevant fiscal year.
 - Covered and uncovered milestone counts.
-- Counts for qualifying technical-validation HoKs, including demos, Technical
+- Counts for qualifying technical-validation HVAs, including demos, Technical
   Workshops, architecture work, prototypes, MVPs, and pilots where those values
   can be identified from official MSX activity categories.
 - Oldest or highest-ACR uncovered milestones.
@@ -511,14 +511,14 @@ revenue buckets can be translated generically into MSX milestone workloads.
 - Match relevant meetings to milestones.
 - Create or reconcile MSX activities.
 - Use the existing assisted activity draft and enrichment workflow.
-- Reopen the widget with the updated HoK coverage.
+- Reopen the widget with the updated HVA coverage.
 
 **Current implementation behavior**
 
 - Activity Coverage currently starts with locally cached, on-team milestones
   that have an MSX milestone ID and a linked customer.
 - It then limits its headline population to active milestones.
-- A milestone is covered when it has at least one task marked `is_hok` within
+- A milestone is covered when it has at least one task marked `is_hva` within
   the current fiscal year.
 - The current implementation does not filter the milestone population itself
   by milestone due date, even though the coverage activity must be in the
@@ -528,7 +528,7 @@ revenue buckets can be translated generically into MSX milestone workloads.
 
 - Population: active, on-team FY27 Data milestones due in the current or next
   Microsoft fiscal year.
-- Coverage: at least one qualifying HoK activity during the current fiscal
+- Coverage: at least one qualifying HVA activity during the current fiscal
   year.
 - Technical-validation subset:
   - Technical Workshop.
@@ -539,7 +539,7 @@ revenue buckets can be translated generically into MSX milestone workloads.
 - Report technical-validation activity counts without inventing an attainment
   percentage when the Connect goal supplies no numeric target.
 
-**Qualifying HoK categories**
+**Qualifying HVA categories**
 
 - Assessment.
 - RFP/RFI.
@@ -556,16 +556,16 @@ revenue buckets can be translated generically into MSX milestone workloads.
 - Consumption Plan.
 
 `Assessment` and `RFP/RFI` already exist in `TASK_CATEGORIES` but are currently
-marked non-HoK. `Briefing` currently qualifies as HoK but is not part of the
+marked non-HVA. `Briefing` currently qualifies as HVA but is not part of the
 approved FY27 list.
 
 Update the category definitions as follows:
 
 - Add the existing Assessment and RFP/RFI MSX category codes to
-  `HOK_TASK_CATEGORIES`.
-- Remove the Briefing category code from `HOK_TASK_CATEGORIES`.
-- Set Assessment and RFP/RFI `is_hok` flags to true.
-- Set the Briefing `is_hok` flag to false while leaving Briefing available as a
+  `HVA_TASK_CATEGORIES`.
+- Remove the Briefing category code from `HVA_TASK_CATEGORIES`.
+- Set Assessment and RFP/RFI `is_hva` flags to true.
+- Set the Briefing `is_hva` flag to false while leaving Briefing available as a
   normal MSX task category.
 - Update focused category and activity-enrichment tests for all three changes.
 
@@ -1117,7 +1117,7 @@ List:
    frozen quarterly starting cohort.
 2. **Milestone team coverage:** be on the team for at least 50% of the agreed
    in-scope milestone population.
-3. **Milestone HoK coverage:** maintain qualifying HoK coverage across 100% of
+3. **Milestone HVA coverage:** maintain qualifying HVA coverage across 100% of
    the agreed in-scope, on-team milestone population, with demos, Technical
    Workshops, and other qualifying validation activities called out.
 4. **Whitespace wins:** produce at least one qualifying Databases win and one
@@ -1126,7 +1126,7 @@ List:
 
 Also explain:
 
-- What U2C, HoK, ACR, and whitespace mean.
+- What U2C, HVA, ACR, and whitespace mean.
 - That the current prioritized buckets define workload scope.
 - Which report each widget opens.
 - That freshness differs by source and is shown on the widget.
@@ -1164,10 +1164,10 @@ Update the SalesIQ coverage test.
 6. Add the Milestone Tracker local-storage filter handoff and implement
    Milestone Team
    Coverage with its existing join-team action.
-7. Promote Assessment and RFP/RFI into the qualifying HoK category set, remove
+7. Promote Assessment and RFP/RFI into the qualifying HVA category set, remove
    Briefing from that set, and update focused tests.
-8. Implement Milestone HoK Coverage using Activity Coverage, including the
-   qualifying technical-validation HoK breakdown.
+8. Implement Milestone HVA Coverage using Activity Coverage, including the
+   qualifying technical-validation HVA breakdown.
 9. Add the half-year whitespace-win calculation and widget, linking to the
    existing Whitespace Analysis without changing that report.
 10. Build the fixed Action Center page with the four v1 widgets.
@@ -1266,12 +1266,12 @@ presentation:
 1. Milestone team coverage uses active FY27 Data milestones due in the current
    or next fiscal year.
 2. Milestone team coverage is ACR-weighted, not count-weighted.
-3. HoK coverage uses active, on-team FY27 Data milestones due in the current or
+3. HVA coverage uses active, on-team FY27 Data milestones due in the current or
    next fiscal year.
-4. HoK coverage requires a qualifying HoK activity during the current fiscal
+4. HVA coverage requires a qualifying HVA activity during the current fiscal
    year.
-5. The qualifying HoK and technical-validation category lists are defined in
-   the Milestone HoK Coverage section.
+5. The qualifying HVA and technical-validation category lists are defined in
+   the Milestone HVA Coverage section.
 6. A whitespace win uses a rolling three-complete-month zero-ACR lookback,
    followed by three consecutive positive months with no minimum ACR threshold.
 
@@ -1357,7 +1357,7 @@ The first release is complete when:
   or rendering goal widgets.
 - Revenue Import, onboarding, and Action Center use one shared bucket picker and
   persistence service.
-- U2C, Milestone Team Coverage, Activity / HoK Coverage, and Whitespace Wins are
+- U2C, Milestone Team Coverage, Activity / HVA Coverage, and Whitespace Wins are
   live.
 - Every widget has a backing report and a concrete action loop.
 - Widget values and backing reports use shared service calculations.

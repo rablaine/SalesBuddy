@@ -122,7 +122,7 @@ def test_connect_goals_route_renders_action_metrics(client, app):
     assert b'Save Comp Buckets' in response.data
     assert b'connect-modal-bucket ms-0 mt-0 flex-shrink-0' in response.data
     assert b'Milestone team coverage' in response.data
-    assert b'Milestone HoK coverage' in response.data
+    assert b'Milestone HVA coverage' in response.data
     assert b'Fabric and database whitespace wins' in response.data
     page = BeautifulSoup(response.data, 'html.parser')
     headings = [
@@ -191,10 +191,10 @@ def test_team_coverage_excludes_unmatched_milestones(app):
         assert widget['total_count'] == 1
 
 
-def test_hok_coverage_and_validation_counts(app):
-    """HoK coverage respects the scope and reports validation categories."""
+def test_hva_coverage_and_validation_counts(app):
+    """HVA coverage respects the scope and reports validation categories."""
     with app.app_context():
-        customer = Customer(name='HoK Customer', tpid='hok-123')
+        customer = Customer(name='HVA Customer', tpid='hva-123')
         db.session.add(customer)
         db.session.flush()
         covered = _milestone(
@@ -210,13 +210,13 @@ def test_hok_coverage_and_validation_counts(app):
             subject='Customer demo',
             task_category=861980002,
             task_category_name='Demo',
-            is_hok=True,
+            is_hva=True,
             due_date=datetime(2026, 8, 1),
             milestone_id=covered.id,
         ))
         db.session.commit()
 
-        widget = connect_goals.get_hok_coverage_widget(date(2026, 9, 23))
+        widget = connect_goals.get_hva_coverage_widget(date(2026, 9, 23))
 
         assert widget['value'] == 50.0
         assert widget['covered'] == 1

@@ -1363,7 +1363,7 @@ class MsxTask(db.Model):
     task_category = db.Column(db.Integer, nullable=False)  # Numeric code
     task_category_name = db.Column(db.String(100), nullable=True)  # Display name
     duration_minutes = db.Column(db.Integer, default=60, nullable=False)
-    is_hok = db.Column(db.Boolean, default=False, nullable=False)  # Is this a HOK task?
+    is_hva = db.Column(db.Boolean, default=False, nullable=False)  # Is this a HVA task?
     due_date = db.Column(db.DateTime, nullable=True)  # scheduledend from MSX
     msx_created_on = db.Column(db.DateTime, nullable=True)
     actual_end = db.Column(db.DateTime, nullable=True)
@@ -1415,7 +1415,7 @@ class CaipActivity(db.Model):
 
 
 class MilestoneCoverageDraft(db.Model):
-    """Persist an editable standalone HoK activity draft for one milestone."""
+    """Persist an editable standalone HVA activity draft for one milestone."""
     __tablename__ = 'milestone_coverage_drafts'
 
     id = db.Column(db.Integer, primary_key=True)

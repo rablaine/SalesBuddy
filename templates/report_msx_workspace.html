@@ -223,7 +223,7 @@
                     <label class="form-label">Category</label>
                     <select class="form-select form-select-sm" id="taskCategory">
                         {% for cat in task_categories %}
-                        <option value="{{ cat.value }}" data-hok="{{ cat.is_hok|lower }}">{{ cat.label }}{% if cat.is_hok %} (HOK){% endif %}</option>
+                        <option value="{{ cat.value }}" data-hva="{{ cat.is_hva|lower }}">{{ cat.label }}{% if cat.is_hva %} (HVA){% endif %}</option>
                         {% endfor %}
                     </select>
                 </div>
@@ -855,9 +855,9 @@
         let html = '';
         for (const t of tasksData) {
             const catLabel = t.task_category_name || 'Unknown';
-            const hokBadge = t.is_hok ? ' <span class="badge bg-info text-dark">HOK</span>' : '';
+            const hvaBadge = t.is_hva ? ' <span class="badge bg-info text-dark">HVA</span>' : '';
             html += `<tr data-task-id="${escHtml(t.task_id)}">
-                <td>${escHtml(t.subject)}${hokBadge}</td>
+                <td>${escHtml(t.subject)}${hvaBadge}</td>
                 <td>${escHtml(catLabel)}</td>
                 <td class="text-nowrap">${t.due_date ? escHtml(t.due_date.substring(0, 10)) : '-'}</td>
                 <td class="text-nowrap">${escHtml(t.milestone_title || findMilestoneTitle(t.milestone_msx_id))}</td>

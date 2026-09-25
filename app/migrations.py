@@ -73,6 +73,9 @@ def run_migrations(db):
     
     # Migration: Upgrade milestones table for MSX integration
     _migrate_milestones_for_msx(db, inspector)
+
+    # Migration: Rename the persisted task classification without losing data
+    _migrate_msx_task_hva_column(db, inspector)
     
     # Migration: Upgrade call_date from Date to DateTime for meeting timestamps
     _migrate_call_date_to_datetime(db, inspector)
@@ -356,7 +359,7 @@ def run_migrations(db):
         'compensated_buckets_confirmed_taxonomy_version',
         "INTEGER",
     )
-    _reconcile_msx_task_hok_flags(db, inspector)
+    _reconcile_msx_task_hva_flags(db, inspector)
 
     # Migration: Add activity coverage fields to meetings and MSX tasks
     _add_column_if_not_exists(db, inspector, 'prefetched_meetings',
@@ -637,7 +640,7 @@ def _migrate_milestones_for_msx(db, inspector):
                     task_category INTEGER NOT NULL,
                     task_category_name VARCHAR(100),
                     duration_minutes INTEGER DEFAULT 60 NOT NULL,
-                    is_hok BOOLEAN DEFAULT 0 NOT NULL,
+                    is_hva BOOLEAN DEFAULT 0 NOT NULL,
                     note_id INTEGER REFERENCES notes(id),
                     milestone_id INTEGER NOT NULL REFERENCES milestones(id),
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL
@@ -855,7 +858,7 @@ def _migrate_msx_tasks_nullable_note(db, inspector):
                     task_category INTEGER NOT NULL,
                     task_category_name VARCHAR(100),
                     duration_minutes INTEGER DEFAULT 60 NOT NULL,
-                    is_hok BOOLEAN DEFAULT 0 NOT NULL,
+                    is_hva BOOLEAN DEFAULT 0 NOT NULL,
                     due_date DATETIME,
                     note_id INTEGER REFERENCES notes(id),
                     milestone_id INTEGER NOT NULL REFERENCES milestones(id),
@@ -864,10 +867,10 @@ def _migrate_msx_tasks_nullable_note(db, inspector):
             """))
             conn.execute(text("""
                 INSERT INTO msx_tasks (id, msx_task_id, msx_task_url, subject, description,
-                    task_category, task_category_name, duration_minutes, is_hok, due_date,
+                    task_category, task_category_name, duration_minutes, is_hva, due_date,
                     note_id, milestone_id, created_at)
                 SELECT id, msx_task_id, msx_task_url, subject, description,
-                    task_category, task_category_name, duration_minutes, is_hok, due_date,
+                    task_category, task_category_name, duration_minutes, is_hva, due_date,
                     note_id, milestone_id, created_at
                 FROM msx_tasks_old
             """))
@@ -1222,26 +1225,50 @@ def _drop_user_id_columns(db, inspector):
     db.session.commit()
 
 
-def _reconcile_msx_task_hok_flags(db, inspector):
-    """Keep persisted HoK flags aligned with the current task category policy."""
+def _migrate_msx_task_hva_column(db, inspector):
+    """Add the HVA field and preserve values from the retired classification."""
     if 'msx_tasks' not in inspector.get_table_names():
         return
 
-    from app.services.msx_api import HOK_TASK_CATEGORIES
+    columns = {column['name'] for column in inspector.get_columns('msx_tasks')}
+    if 'is_hva' in columns:
+        return
+
+    _add_column_if_not_exists(
+        db,
+        inspector,
+        'msx_tasks',
+        'is_hva',
+        'BOOLEAN NOT NULL DEFAULT 0',
+    )
+    if 'is_hok' in columns:
+        db.session.execute(text(
+            "UPDATE msx_tasks SET is_hva = is_hok"
+        ))
+        db.session.commit()
+        print("  Migrated MSX task classification to HVA")
+
+
+def _reconcile_msx_task_hva_flags(db, inspector):
+    """Keep persisted HVA flags aligned with the current task category policy."""
+    if 'msx_tasks' not in inspector.get_table_names():
+        return
+
+    from app.services.msx_api import HVA_TASK_CATEGORIES
 
     category_values = ', '.join(
-        str(category) for category in sorted(HOK_TASK_CATEGORIES)
+        str(category) for category in sorted(HVA_TASK_CATEGORIES)
     )
     result = db.session.execute(text(
         "UPDATE msx_tasks "
-        f"SET is_hok = CASE WHEN task_category IN ({category_values}) "
+        f"SET is_hva = CASE WHEN task_category IN ({category_values}) "
         "THEN 1 ELSE 0 END "
-        f"WHERE is_hok != CASE WHEN task_category IN ({category_values}) "
+        f"WHERE is_hva != CASE WHEN task_category IN ({category_values}) "
         "THEN 1 ELSE 0 END"
     ))
     db.session.commit()
     if result.rowcount:
-        print(f"  Reconciled HoK classification for {result.rowcount} MSX tasks")
+        print(f"  Reconciled HVA classification for {result.rowcount} MSX tasks")
 
 
 def _migrate_customer_favicon_columns(db, inspector):

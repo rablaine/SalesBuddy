@@ -586,7 +586,7 @@ class TestArchiveExplorer:
                 );
                 CREATE TABLE IF NOT EXISTS msx_tasks (
                     id INTEGER PRIMARY KEY, milestone_id INTEGER, subject TEXT,
-                    task_category TEXT, duration_minutes INTEGER, is_hok INTEGER,
+                    task_category TEXT, duration_minutes INTEGER, is_hva INTEGER,
                     msx_task_id TEXT, msx_task_url TEXT, description TEXT, due_date TEXT, note_id INTEGER
                 );
                 CREATE TABLE IF NOT EXISTS topics (
@@ -734,6 +734,31 @@ class TestArchiveExplorer:
             assert len(data['tasks']) == 1
             assert data['tasks'][0]['subject'] == 'Review POC'
             assert len(data['linked_notes']) == 1
+        finally:
+            archive_path.unlink(missing_ok=True)
+
+    def test_archive_detail_milestone_reads_legacy_task_flag(self, client, app):
+        """Older immutable archives normalize the retired task flag to HVA."""
+        import sqlite3
+
+        archive_path = self._create_archive(app, 'FY25')
+        try:
+            connection = sqlite3.connect(str(archive_path))
+            try:
+                connection.execute(
+                    "ALTER TABLE msx_tasks RENAME COLUMN is_hva TO is_hok"
+                )
+                connection.execute(
+                    "UPDATE msx_tasks SET is_hok = 1 WHERE id = 1"
+                )
+                connection.commit()
+            finally:
+                connection.close()
+
+            resp = client.get('/api/admin/fy/archive/FY25/detail/milestone/1')
+            assert resp.status_code == 200
+            data = resp.get_json()
+            assert data['tasks'][0]['is_hva'] == 1
         finally:
             archive_path.unlink(missing_ok=True)
 

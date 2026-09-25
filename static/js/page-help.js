@@ -24,6 +24,20 @@ const PageHelp = (function () {
         <li><strong>X</strong> on a ghost dismisses it. For recurring meetings, hover the <i class="bi bi-arrow-repeat"></i> icon and click the red X to dismiss the whole series.</li>
       </ul>
 
+      <h6>Calendar icon legend</h6>
+      <table class="table table-sm align-middle">
+        <tbody>
+          <tr><td class="text-center"><i class="bi bi-star-fill text-warning"></i></td><td>High-Value Activity (HVA) attached</td></tr>
+          <tr><td class="text-center"><i class="bi bi-check2-square text-info"></i></td><td>Other MSX task attached</td></tr>
+          <tr><td class="text-center"><i class="bi bi-flag-fill text-success"></i></td><td>Milestone linked, with no task attached yet</td></tr>
+          <tr><td class="text-center"><i class="bi bi-diagram-3 text-primary"></i></td><td>Engagement linked</td></tr>
+          <tr><td class="text-center"><i class="bi bi-sticky text-secondary"></i></td><td>General note without a customer</td></tr>
+          <tr><td class="text-center"><i class="bi bi-calendar-event text-secondary"></i></td><td>Outlook meeting matched to a customer</td></tr>
+          <tr><td class="text-center"><i class="bi bi-question-circle text-warning"></i></td><td>Outlook meeting needs a customer match</td></tr>
+          <tr><td class="text-center"><i class="bi bi-arrow-repeat text-muted"></i></td><td>Recurring meeting</td></tr>
+        </tbody>
+      </table>
+
       <h6>Background meeting sync (the typing dots)</h6>
       <p>Sales Buddy quietly pulls today + the next 4 business days of meetings from WorkIQ each morning, plus a catch-up sweep whenever you start the app and any of those days are stale. While that's running, you'll see <strong>typing dots</strong> on each calendar day:</p>
       <ul>
@@ -240,8 +254,8 @@ const PageHelp = (function () {
       <h6>Milestone team coverage</h6>
       <p><strong>Goal: 50%.</strong> Active Data milestones due this or next fiscal year are weighted by estimated monthly ACR. The metric compares ACR on milestones where you are on the team with all in-scope milestone ACR.</p>
 
-      <h6>Milestone HoK coverage</h6>
-      <p><strong>Goal: 100%.</strong> Every active, on-team Data milestone due this or next fiscal year should have at least one qualifying HoK activity in the current fiscal year. Technical Workshop, Demo, L300+ Demo, Architecture Design Session, and PoC/Pilot counts provide additional technical-validation context.</p>
+      <h6>Milestone HVA coverage</h6>
+      <p><strong>Goal: 100%.</strong> Every active, on-team Data milestone due this or next fiscal year should have at least one qualifying HVA activity in the current fiscal year. Technical Workshop, Demo, L300+ Demo, Architecture Design Session, and PoC/Pilot counts provide additional technical-validation context.</p>
 
       <h6>Whitespace wins</h6>
       <p><strong>Goal: one Databases win and one Fabric win per fiscal half.</strong> After three complete zero-ACR months, an activation appears as ramping until the same customer and bucket remain above $0 for three consecutive months. Consumption must remain positive through the latest available month, so a customer that later returns to $0 no longer counts. Any positive ACR qualifies; there is no minimum spend threshold.</p>
@@ -250,12 +264,12 @@ const PageHelp = (function () {
       <p>Review every stored fiscal-year meeting, find activities already logged in MSX, and prepare missing activities without leaving Sales Buddy.</p>
 
       <h6>Meetings and milestones</h6>
-      <p><strong>Meetings</strong> covers calendar activity one meeting at a time. <strong>Milestones</strong> finds active milestones where you are on team but have no HoK task during the current fiscal year. A prepared meeting draft does not count until its MSX activity is created.</p>
+      <p><strong>Meetings</strong> covers calendar activity one meeting at a time. <strong>Milestones</strong> finds active milestones where you are on team but have no HVA task during the current fiscal year. A prepared meeting draft does not count until its MSX activity is created.</p>
       <ul>
-        <li><strong>Show covered</strong> adds milestones with a current-FY HoK task.</li>
+        <li><strong>Show covered</strong> adds milestones with a current-FY HVA task.</li>
         <li><strong>Show inactive</strong> adds completed, cancelled, and other inactive milestones.</li>
-        <li><strong>HoK in FYxx</strong> preserves prior-year evidence while leaving the milestone uncovered for current-year reporting.</li>
-        <li><strong>Create HoK Task</strong> creates a standalone open MSX task and never links it to a meeting.</li>
+        <li><strong>HVA in FYxx</strong> preserves prior-year evidence while leaving the milestone uncovered for current-year reporting.</li>
+        <li><strong>Create HVA Task</strong> creates a standalone open MSX task and never links it to a meeting.</li>
       </ul>
 
       <h6>Recommended workflow</h6>
@@ -282,7 +296,7 @@ const PageHelp = (function () {
       <ul>
         <li><strong>Customer</strong> searches name, nickname, and TPID.</li>
         <li><strong>Milestone</strong> searches milestone name/number, opportunity, and workload. <span class="badge bg-primary">On Team</span> identifies milestones where you are on the team.</li>
-        <li>A <strong>★</strong> beside an activity type means it qualifies for HoK credit. Preparation prefers a matching HoK type, then falls back to a more accurate non-HoK type when needed.</li>
+        <li>A <strong>★</strong> beside an activity type means it qualifies for HVA credit. Preparation prefers a matching HVA type, then falls back to a more accurate non-HVA type when needed.</li>
         <li><strong>Save</strong> stores your edits without creating anything in MSX.</li>
         <li><strong>Enrich</strong> refreshes draft text for one meeting. Use <strong>Re-run Matching</strong> when you need to replace preparation across the fiscal year.</li>
         <li><strong>Dismiss</strong> removes a meeting from coverage. Recurring meetings can be dismissed once or as a series.</li>

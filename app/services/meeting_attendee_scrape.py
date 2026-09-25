@@ -116,7 +116,7 @@ def _parse_response(raw: str) -> List[Dict[str, str]]:
 
     # WorkIQ sometimes wraps attendee names across lines, emitting raw
     # newline bytes inside JSON string values. Escape them so json.loads
-    # doesn't choke on "Invalid control character".
+    # doesn't chvae on "Invalid control character".
     text = repair_json_control_chars(text)
 
     try:

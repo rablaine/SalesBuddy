@@ -14,6 +14,8 @@ def test_home_page_loads(client):
     response = client.get('/')
     assert response.status_code == 200
     assert b'Welcome to Sales Buddy' in response.data
+    assert b'bi-star-fill text-warning' in response.data
+    assert b'bi-keyboard text-warning' not in response.data
 
 
 def test_home_page_with_data(client, sample_data):
@@ -21,6 +23,17 @@ def test_home_page_with_data(client, sample_data):
     response = client.get('/')
     assert response.status_code == 200
     assert b'Calendar' in response.data
+
+
+def test_home_help_explains_calendar_icons(client):
+    """Home F1 help explains each calendar note and meeting indicator."""
+    response = client.get('/static/js/page-help.js')
+
+    assert response.status_code == 200
+    assert b'Calendar icon legend' in response.data
+    assert b'High-Value Activity (HVA) attached' in response.data
+    assert b'Other MSX task attached' in response.data
+    assert b'Outlook meeting needs a customer match' in response.data
 
 
 def test_calendar_api_returns_json(client, sample_data):

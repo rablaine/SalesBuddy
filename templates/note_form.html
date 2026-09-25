@@ -492,7 +492,7 @@
                                     <input type="hidden" id="created_task_id" name="created_task_id" value="">
                                     <input type="hidden" id="created_task_url" name="created_task_url" value="">
                                     <input type="hidden" id="created_task_category_name" name="created_task_category_name" value="">
-                                    <input type="hidden" id="created_task_is_hok" name="created_task_is_hok" value="">
+                                    <input type="hidden" id="created_task_is_hva" name="created_task_is_hva" value="">
                                 </div>
                             </div>
                         </div>
@@ -4633,7 +4633,7 @@ function populateTaskCategories() {
         const option = document.createElement('option');
         option.value = cat.value;
         option.textContent = cat.label;
-        if (cat.is_hok) {
+        if (cat.is_hva) {
             option.style.fontWeight = 'bold';
             option.textContent = '★ ' + cat.label;
         }
@@ -5155,7 +5155,7 @@ function createTaskInMSX() {
     hideTaskError();
     
     // Get category info for storing
-    const categoryInfo = taskCategories.find(c => c.value == category) || {label: 'Unknown', is_hok: false};
+    const categoryInfo = taskCategories.find(c => c.value == category) || {label: 'Unknown', is_hva: false};
     
     // Call API
     fetch('/api/msx/tasks', {
@@ -5180,7 +5180,7 @@ function createTaskInMSX() {
             document.getElementById('created_task_id').value = result.task_id;
             document.getElementById('created_task_url').value = result.task_url || '';
             document.getElementById('created_task_category_name').value = categoryInfo.label;
-            document.getElementById('created_task_is_hok').value = categoryInfo.is_hok ? '1' : '0';
+            document.getElementById('created_task_is_hva').value = categoryInfo.is_hva ? '1' : '0';
             
             // Show success state
             document.getElementById('task_form_fields').style.display = 'none';
@@ -5209,7 +5209,7 @@ function clearCreatedTask() {
     document.getElementById('created_task_id').value = '';
     document.getElementById('created_task_url').value = '';
     document.getElementById('created_task_category_name').value = '';
-    document.getElementById('created_task_is_hok').value = '';
+    document.getElementById('created_task_is_hva').value = '';
     
     // Clear form fields
     document.getElementById('task_subject').value = '';
@@ -5827,7 +5827,7 @@ function saveDraft() {
         created_task_id: document.getElementById('created_task_id').value,
         created_task_url: document.getElementById('created_task_url').value,
         created_task_category_name: document.getElementById('created_task_category_name').value,
-        created_task_is_hok: document.getElementById('created_task_is_hok').value
+        created_task_is_hva: document.getElementById('created_task_is_hva').value
     } : {};
     
     const draftData = {
@@ -6085,7 +6085,11 @@ function restoreDraft() {
                 document.getElementById('created_task_id').value = draft.task.created_task_id;
                 document.getElementById('created_task_url').value = draft.task.created_task_url || '';
                 document.getElementById('created_task_category_name').value = draft.task.created_task_category_name || '';
-                document.getElementById('created_task_is_hok').value = draft.task.created_task_is_hok || '';
+                var createdTaskIsHva = draft.task.created_task_is_hva;
+                if (createdTaskIsHva === undefined) {
+                    createdTaskIsHva = draft.task.created_task_is_hok || '';
+                }
+                document.getElementById('created_task_is_hva').value = createdTaskIsHva;
                 
                 // Show the "task created" state
                 document.getElementById('task_form_fields').style.display = 'none';
@@ -6296,7 +6300,7 @@ document.getElementById('noteForm').addEventListener('submit', async function(e)
         
         const taskDescription = document.getElementById('task_description').value.trim();
         const taskDueDate = document.getElementById('task_due_date').value;
-        const categoryInfo = taskCategories.find(c => c.value == taskCategory) || {label: 'Unknown', is_hok: false};
+        const categoryInfo = taskCategories.find(c => c.value == taskCategory) || {label: 'Unknown', is_hva: false};
         
         try {
             const taskResponse = await fetch('/api/msx/tasks', {
@@ -6318,7 +6322,7 @@ document.getElementById('noteForm').addEventListener('submit', async function(e)
                 document.getElementById('created_task_id').value = taskResult.task_id;
                 document.getElementById('created_task_url').value = taskResult.task_url || '';
                 document.getElementById('created_task_category_name').value = categoryInfo.label;
-                document.getElementById('created_task_is_hok').value = categoryInfo.is_hok ? '1' : '0';
+                document.getElementById('created_task_is_hva').value = categoryInfo.is_hva ? '1' : '0';
                 console.log('Task auto-created before save:', taskResult.task_id);
             } else {
                 console.warn('Task auto-creation failed, will fall back to server-side:', taskResult.error || 'No task_id');
@@ -6412,7 +6416,7 @@ function discardDraft() {
         var createdTaskId = document.getElementById('created_task_id');
         var createdTaskUrl = document.getElementById('created_task_url');
         var createdTaskCatName = document.getElementById('created_task_category_name');
-        var createdTaskIsHok = document.getElementById('created_task_is_hok');
+        var createdTaskIsHva = document.getElementById('created_task_is_hva');
         
         if (taskSubject) taskSubject.value = '';
         if (taskCategory) taskCategory.value = '';
@@ -6420,7 +6424,7 @@ function discardDraft() {
         if (createdTaskId) createdTaskId.value = '';
         if (createdTaskUrl) createdTaskUrl.value = '';
         if (createdTaskCatName) createdTaskCatName.value = '';
-        if (createdTaskIsHok) createdTaskIsHok.value = '';
+        if (createdTaskIsHva) createdTaskIsHva.value = '';
         
         // Redirect back to home page
         window.location.href = '{{ url_for("main.index") }}';
@@ -8975,7 +8979,6 @@ function saveAllInlineEngagements() {
 var saveInlineEngagement = saveAllInlineEngagements;
 </script>
 {% endblock %}
-
 
 
 

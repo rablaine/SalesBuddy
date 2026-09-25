@@ -36,7 +36,7 @@ FY27_DATA_SCOPE = {
 }
 ACTIVE_MILESTONE_STATUSES = ('On Track', 'At Risk', 'Blocked')
 TEAM_COVERAGE_TARGET = 50.0
-HOK_COVERAGE_TARGET = 100.0
+HVA_COVERAGE_TARGET = 100.0
 U2C_TARGET = 40.0
 WHITESPACE_CONFIRMATION_MONTHS = 3
 VALIDATION_CATEGORIES = {
@@ -271,8 +271,8 @@ def _task_date(task: MsxTask) -> date:
     return (task.due_date or task.created_at).date()
 
 
-def get_hok_coverage_widget(reference: date | None = None) -> dict[str, Any]:
-    """Return current-FY HoK coverage for the provisional milestone scope."""
+def get_hva_coverage_widget(reference: date | None = None) -> dict[str, Any]:
+    """Return current-FY HVA coverage for the provisional milestone scope."""
     reference = reference or date.today()
     fiscal_start, fiscal_end = fiscal_year_bounds(reference)
     milestones = _milestone_scope(reference).filter(
@@ -282,7 +282,7 @@ def get_hok_coverage_widget(reference: date | None = None) -> dict[str, Any]:
     tasks = (
         MsxTask.query
         .filter(MsxTask.milestone_id.in_(milestone_ids))
-        .filter(MsxTask.is_hok.is_(True))
+        .filter(MsxTask.is_hva.is_(True))
         .all()
     ) if milestone_ids else []
     current_tasks = [
@@ -293,7 +293,7 @@ def get_hok_coverage_widget(reference: date | None = None) -> dict[str, Any]:
     covered = sum(milestone.id in covered_ids for milestone in milestones)
     total = len(milestones)
     coverage = round((covered / total) * 100, 1) if total else 0.0
-    tone, label, goal_ratio = _goal_status(coverage, HOK_COVERAGE_TARGET)
+    tone, label, goal_ratio = _goal_status(coverage, HVA_COVERAGE_TARGET)
     validation_counts = {
         label: sum(task.task_category == category for task in current_tasks)
         for category, label in VALIDATION_CATEGORIES.items()
@@ -301,19 +301,19 @@ def get_hok_coverage_widget(reference: date | None = None) -> dict[str, Any]:
     status = SyncStatus.get_status('milestones')
 
     return {
-        'key': 'hok_coverage',
+        'key': 'hva_coverage',
         'available': bool(milestones),
-        'title': 'Milestone HoK coverage',
+        'title': 'Milestone HVA coverage',
         'value': coverage,
         'unit': '%',
-        'target': HOK_COVERAGE_TARGET,
+        'target': HVA_COVERAGE_TARGET,
         'goal_ratio': round(goal_ratio, 2),
         'status_tone': tone,
         'status_label': label,
         'status_explanation': (
             f'{covered} of {total} active, on-team Data milestones due this or '
-            'next fiscal year have a qualifying HoK this fiscal year. '
-            f'That is {goal_ratio * 100:.0f}% of the {HOK_COVERAGE_TARGET:.0f}% goal.'
+            'next fiscal year have a qualifying HVA this fiscal year. '
+            f'That is {goal_ratio * 100:.0f}% of the {HVA_COVERAGE_TARGET:.0f}% goal.'
         ),
         'covered': covered,
         'uncovered': total - covered,
@@ -566,7 +566,7 @@ def get_connect_goals(reference: date | None = None) -> dict[str, Any]:
         widgets = [
             get_u2c_widget(reference),
             get_team_coverage_widget(reference),
-            get_hok_coverage_widget(reference),
+            get_hva_coverage_widget(reference),
             get_whitespace_widget(reference),
             get_quota_attainment_widget(),
         ]

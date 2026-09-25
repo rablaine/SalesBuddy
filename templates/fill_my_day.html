@@ -586,7 +586,7 @@ function createMeetingCard(idx, meeting, customer, data, dateStr, cardNum) {
     card.dataset.createdTaskId = '';
     card.dataset.createdTaskUrl = '';
     card.dataset.createdTaskCategoryName = '';
-    card.dataset.createdTaskIsHok = '';
+    card.dataset.createdTaskIsHva = '';
 
     return card;
 }
@@ -618,7 +618,7 @@ function populateCardTaskCategories(idx) {
             const opt = document.createElement('option');
             opt.value = cat.name;
             opt.textContent = cat.name;
-            if (cat.is_hok) opt.dataset.isHok = 'true';
+            if (cat.is_hva) opt.dataset.isHva = 'true';
             select.appendChild(opt);
         });
     });
@@ -732,7 +732,7 @@ async function createCardTask(idx) {
             const categorySelect = document.getElementById(`taskCategory-${idx}`);
             const selectedOpt = categorySelect.options[categorySelect.selectedIndex];
             card.dataset.createdTaskCategoryName = category;
-            card.dataset.createdTaskIsHok = selectedOpt?.dataset?.isHok || '';
+            card.dataset.createdTaskIsHva = selectedOpt?.dataset?.isHva || '';
         } else {
             throw new Error(result.error || 'Failed to create task');
         }
@@ -829,7 +829,7 @@ async function saveNote(idx, dateStr, callTime) {
                 created_task_id: card.dataset.createdTaskId || '',
                 created_task_url: card.dataset.createdTaskUrl || '',
                 created_task_category_name: card.dataset.createdTaskCategoryName || '',
-                created_task_is_hok: card.dataset.createdTaskIsHok || '',
+                created_task_is_hva: card.dataset.createdTaskIsHva || '',
                 task_due_date: document.getElementById(`taskDueDate-${idx}`)?.value || ''
             })
         });
