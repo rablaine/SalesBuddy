@@ -116,6 +116,16 @@ def test_note_create_with_customer_preselect(client, sample_data):
     # Territory may or may not be auto-selected depending on logic
 
 
+def test_note_form_restores_legacy_task_classification_drafts(client, sample_data):
+    """Persisted browser drafts map the retired task flag to HVA."""
+    customer_id = sample_data['customer1_id']
+    response = client.get(f'/note/new?customer_id={customer_id}')
+
+    assert response.status_code == 200
+    assert b'draft.task.created_task_is_hva' in response.data
+    assert b'draft.task.created_task_is_hok' in response.data
+
+
 def test_note_create_with_date_param(client, sample_data):
     """Test note form with date pre-filled from URL parameter."""
     customer_id = sample_data['customer1_id']

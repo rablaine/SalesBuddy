@@ -251,8 +251,8 @@
                         <div style="min-width: 0;">
                             <div class="fw-bold text-truncate" title="{{ task.subject }}">
                                 {{ task.subject }}
-                                {% if task.is_hok %}
-                                <span class="badge bg-warning text-dark" title="Hands-on-Keyboard">HoK</span>
+                                {% if task.is_hva %}
+                                <span class="badge bg-warning text-dark" title="High-Value Activity">HVA</span>
                                 {% endif %}
                             </div>
                             <small class="text-muted">
@@ -741,7 +741,7 @@ function populateTaskCategories() {
         const option = document.createElement('option');
         option.value = cat.value;
         option.textContent = cat.label;
-        if (cat.is_hok) {
+        if (cat.is_hva) {
             option.style.fontWeight = 'bold';
             option.textContent = '\u2605 ' + cat.label;
         }

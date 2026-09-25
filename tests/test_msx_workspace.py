@@ -83,7 +83,7 @@ def msx_data(app, sample_data):
             description='Demo the migration POC',
             task_category=861980002,
             task_category_name='Demo',
-            is_hok=True,
+            is_hva=True,
             due_date=datetime(2026, 5, 1, tzinfo=timezone.utc),
             milestone_id=ms1.id,
         )
@@ -93,7 +93,7 @@ def msx_data(app, sample_data):
             subject='Architecture review',
             task_category=861980004,
             task_category_name='Architecture Design Session',
-            is_hok=True,
+            is_hva=True,
             milestone_id=ms2.id,
         )
         db.session.add_all([task1, task2])
@@ -328,7 +328,7 @@ def test_tasks_api_returns_all_fields(client, msx_data):
     assert task['task_id'] == 'task-guid-001'
     assert task['subject'] == 'Run POC demo'
     assert task['task_category_name'] == 'Demo'
-    assert task['is_hok'] is True
+    assert task['is_hva'] is True
     assert task['due_date'] is not None
     assert task['milestone_msx_id'] == 'ccc-333-ms'
     assert task['milestone_title'] == 'Azure Migration POC'

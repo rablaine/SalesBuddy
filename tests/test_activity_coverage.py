@@ -80,17 +80,17 @@ def coverage_data(app):
         db.session.commit()
 
 
-def test_milestone_coverage_surfaces_prior_hok_and_meeting_draft(app, coverage_data):
-    """Prior-year HoK remains uncovered while prepared meeting overlap is shown."""
+def test_milestone_coverage_surfaces_prior_hva_and_meeting_draft(app, coverage_data):
+    """Prior-year HVA remains uncovered while prepared meeting overlap is shown."""
     with app.app_context():
         fiscal_start, _ = activity_coverage.fiscal_year_bounds()
         prior_task = MsxTask(
-            msx_task_id='prior-year-hok',
+            msx_task_id='prior-year-hva',
             subject='Prior architecture session',
             task_category=861980004,
             task_category_name='Architecture Design Session',
             duration_minutes=60,
-            is_hok=True,
+            is_hva=True,
             due_date=datetime.combine(fiscal_start - timedelta(days=1), datetime.min.time()),
             milestone_id=coverage_data['milestone_id'],
         )
@@ -116,20 +116,20 @@ def test_milestone_coverage_surfaces_prior_hok_and_meeting_draft(app, coverage_d
         assert prepared['meeting_subject'] == 'Fabric architecture workshop'
         assert prepared['activity_subject'] == 'Fabric architecture workshop'
         assert prepared['task_category_name'] == 'Architecture Design Session'
-        assert prepared['is_hok'] is True
+        assert prepared['is_hva'] is True
         assert prepared['duration_minutes'] == 45
 
 
-def test_current_fy_hok_controls_covered_filter(app, coverage_data):
-    """Current-FY HoK hides milestone by default and appears with covered filter."""
+def test_current_fy_hva_controls_covered_filter(app, coverage_data):
+    """Current-FY HVA hides milestone by default and appears with covered filter."""
     with app.app_context():
         task = MsxTask(
-            msx_task_id='current-year-hok',
+            msx_task_id='current-year-hva',
             subject='Current workshop',
             task_category=861980001,
             task_category_name='Workshop',
             duration_minutes=60,
-            is_hok=True,
+            is_hva=True,
             due_date=datetime.combine(date.today(), datetime.min.time()),
             milestone_id=coverage_data['milestone_id'],
         )
@@ -151,8 +151,8 @@ def test_current_fy_hok_controls_covered_filter(app, coverage_data):
         assert row['current_task'].id == task.id
 
 
-def test_fy_hok_excludes_customerless_team_milestones(app):
-    """FY HoK stays scoped to milestones attached to the current book."""
+def test_fy_hva_excludes_customerless_team_milestones(app):
+    """FY HVA stays scoped to milestones attached to the current book."""
     with app.app_context():
         milestone = Milestone(
             msx_milestone_id='fy-customerless',
@@ -235,8 +235,8 @@ def test_milestone_coverage_scope_includes_final_due_day(app, coverage_data):
         assert other_workload.id not in result_ids
 
 
-def test_caip_coverage_uses_category_denominator_and_strict_hok(app):
-    """CAIP includes all team CAIP milestones and applies strict HoK evidence."""
+def test_caip_coverage_uses_category_denominator_and_strict_hva(app):
+    """CAIP includes all team CAIP milestones and applies strict HVA evidence."""
     with app.app_context():
         included = Milestone(
             msx_milestone_id='caip-included',
@@ -264,12 +264,12 @@ def test_caip_coverage_uses_category_denominator_and_strict_hok(app):
             milestone_id=included.id,
         ))
         db.session.add(MsxTask(
-            msx_task_id='caip-hok',
+            msx_task_id='caip-hva',
             subject='Completed workshop',
             task_category=861980001,
             task_category_name='Workshop',
             duration_minutes=60,
-            is_hok=True,
+            is_hva=True,
             due_date=datetime.combine(date.today(), datetime.min.time()),
             actual_end=datetime.combine(date.today(), datetime.min.time()),
             statecode=1,
@@ -284,13 +284,13 @@ def test_caip_coverage_uses_category_denominator_and_strict_hok(app):
             'total': 1,
             'activities_logged': 1,
             'activities_percent': 100,
-            'hok_covered': 1,
-            'hok_percent': 100,
+            'hva_covered': 1,
+            'hva_percent': 100,
         }
         row = report['caip_groups'][0]['rows'][0]
         assert row['milestone'].customer is None
         assert row['activity_logged'] is True
-        assert row['hok_covered'] is True
+        assert row['hva_covered'] is True
 
 
 def test_caip_lens_renders_separate_methodology(app, client):
@@ -311,11 +311,11 @@ def test_caip_lens_renders_separate_methodology(app, client):
     )
     html = response.data.decode('utf-8')
     assert response.status_code == 200
-    assert 'FY HoK Coverage' in html
+    assert 'FY HVA Coverage' in html
     assert 'CAIP Coverage' in html
     assert 'Render CAIP milestone' in html
     assert 'activities logged' in html
-    assert 'HoK coverage' in html
+    assert 'HVA coverage' in html
     assert 'Show covered' not in html
     soup = BeautifulSoup(response.data, 'html.parser')
     fiscal_year_toggle = soup.select_one('[data-caip-group-toggle]')
@@ -376,8 +376,8 @@ def test_caip_coverage_sorts_most_recent_targets_first(app):
         ] == ['Newest', 'Same FY Older']
 
 
-def test_create_standalone_milestone_hok_is_idempotent(app, coverage_data):
-    """Saved standalone draft creates one unlinked HoK task and retries return it."""
+def test_create_standalone_milestone_hva_is_idempotent(app, coverage_data):
+    """Saved standalone draft creates one unlinked HVA task and retries return it."""
     with app.app_context():
         scheduled_start = datetime.combine(
             date.today(),
@@ -397,7 +397,7 @@ def test_create_standalone_milestone_hok_is_idempotent(app, coverage_data):
         assert draft.id is not None
         result = {
             'success': True,
-            'task_id': 'standalone-hok-guid',
+            'task_id': 'standalone-hva-guid',
             'task_url': 'https://example.test/standalone-task',
         }
         with (
@@ -407,15 +407,15 @@ def test_create_standalone_milestone_hok_is_idempotent(app, coverage_data):
                 return_value={'success': True},
             ) as close,
         ):
-            first = activity_coverage.create_milestone_hok_activity(
+            first = activity_coverage.create_milestone_hva_activity(
                 coverage_data['milestone_id'],
             )
-            second = activity_coverage.create_milestone_hok_activity(
+            second = activity_coverage.create_milestone_hva_activity(
                 coverage_data['milestone_id'],
             )
 
         assert first.id == second.id
-        assert first.is_hok is True
+        assert first.is_hva is True
         assert first.statecode == 1
         assert first.statuscode == 5
         assert first.meeting_id is None
@@ -425,14 +425,14 @@ def test_create_standalone_milestone_hok_is_idempotent(app, coverage_data):
         ).first() is None
         create.assert_called_once()
         assert close.call_count == 2
-        close.assert_called_with('standalone-hok-guid')
+        close.assert_called_with('standalone-hva-guid')
 
 
-def test_milestone_draft_rejects_non_hok_category(app, coverage_data):
-    """Standalone milestone coverage accepts HoK task categories only."""
+def test_milestone_draft_rejects_non_hva_category(app, coverage_data):
+    """Standalone milestone coverage accepts HVA task categories only."""
     with app.app_context(), pytest.raises(
         ValueError,
-        match='Hands-on-Keyboard',
+        match='High-Value Activity',
     ):
         activity_coverage.update_milestone_coverage_draft(
             coverage_data['milestone_id'],
@@ -450,12 +450,12 @@ def test_milestone_draft_rejects_non_hok_category(app, coverage_data):
         )
 
 
-def test_milestone_coverage_lens_renders_filters_and_hok_form(
+def test_milestone_coverage_lens_renders_filters_and_hva_form(
     app,
     client,
     coverage_data,
 ):
-    """Milestone lens defaults to active uncovered rows with HoK controls."""
+    """Milestone lens defaults to active uncovered rows with HVA controls."""
     with app.app_context():
         meeting = db.session.get(PrefetchedMeeting, coverage_data['meeting_id'])
         meeting.milestone_id = coverage_data['milestone_id']
@@ -467,8 +467,8 @@ def test_milestone_coverage_lens_renders_filters_and_hok_form(
     html = response.data.decode('utf-8')
     assert 'Show covered' in html
     assert 'Show inactive' in html
-    assert 'No HoK activity' in html
-    assert 'Create HoK Task' in html
+    assert 'No HVA activity' in html
+    assert 'Create HVA Task' in html
     assert '1 prepared meeting' in html
     assert '1 prepared / 1 linked' not in html
     assert 'Prepared meeting activities' in html
@@ -479,17 +479,17 @@ def test_milestone_coverage_lens_renders_filters_and_hok_form(
     assert 'name="duration_minutes"' in html
     assert 'save-prepared-meeting-draft' in html
     assert 'Create Activity' in html
-    assert 'Or create a standalone HoK activity' in html
+    assert 'Or create a standalone HVA activity' in html
     assert 'savePreparedMeeting' in html
     assert "'/api/reports/activity-coverage/meetings/'" in html
     assert 'Architecture Design Session' in html
     soup = BeautifulSoup(response.data, 'html.parser')
-    standalone_category = soup.select_one('[id^="milestone-hok-category-"]')
+    standalone_category = soup.select_one('[id^="milestone-hva-category-"]')
     standalone_options = [option.get_text(strip=True) for option in standalone_category.select('option')]
     assert 'Customer Engagement' not in standalone_options
 
 
-def test_milestone_coverage_draft_api_rejects_non_hok(
+def test_milestone_coverage_draft_api_rejects_non_hva(
     app,
     client,
     coverage_data,
@@ -512,15 +512,15 @@ def test_milestone_coverage_draft_api_rejects_non_hok(
     )
 
     assert response.status_code == 400
-    assert 'Hands-on-Keyboard' in response.get_json()['error']
+    assert 'High-Value Activity' in response.get_json()['error']
 
 
-def test_milestone_coverage_create_api_creates_unlinked_hok(
+def test_milestone_coverage_create_api_creates_unlinked_hva(
     app,
     client,
     coverage_data,
 ):
-    """Create endpoint turns saved draft into an unlinked current-FY HoK task."""
+    """Create endpoint turns saved draft into an unlinked current-FY HVA task."""
     with app.app_context():
         activity_coverage.update_milestone_coverage_draft(
             coverage_data['milestone_id'],
@@ -539,8 +539,8 @@ def test_milestone_coverage_create_api_creates_unlinked_hok(
 
     result = {
         'success': True,
-        'task_id': 'route-standalone-hok-guid',
-        'task_url': 'https://example.test/route-hok',
+        'task_id': 'route-standalone-hva-guid',
+        'task_url': 'https://example.test/route-hva',
     }
     with (
         patch('app.services.msx_api.create_task', return_value=result),
@@ -559,10 +559,10 @@ def test_milestone_coverage_create_api_creates_unlinked_hok(
     assert payload['category'] == 'Technical Workshop'
     assert payload['summary']['covered'] == 1
     assert payload['summary']['uncovered'] == 0
-    close.assert_called_once_with('route-standalone-hok-guid')
+    close.assert_called_once_with('route-standalone-hva-guid')
     with app.app_context():
-        task = MsxTask.query.filter_by(msx_task_id='route-standalone-hok-guid').one()
-        assert task.is_hok is True
+        task = MsxTask.query.filter_by(msx_task_id='route-standalone-hva-guid').one()
+        assert task.is_hva is True
         assert task.meeting_id is None
 
 
@@ -742,7 +742,7 @@ def test_link_existing_activity(app, client, coverage_data):
             task_category=861980000,
             task_category_name='Customer Engagement',
             duration_minutes=60,
-            is_hok=False,
+            is_hva=False,
             due_date=datetime.combine(date.today(), datetime.min.time()),
             milestone_id=coverage_data['milestone_id'],
             created_at=created_at,
@@ -793,7 +793,7 @@ def test_link_activity_endpoint_returns_inline_render_fields(
             task_category=861980004,
             task_category_name='Architecture Design Session',
             duration_minutes=60,
-            is_hok=True,
+            is_hva=True,
             due_date=datetime.combine(date.today(), datetime.min.time()),
             milestone_id=coverage_data['milestone_id'],
         )
@@ -837,7 +837,7 @@ def test_reconcile_uses_note_call_date(app, coverage_data):
             task_category=861980000,
             task_category_name='Customer Engagement',
             duration_minutes=60,
-            is_hok=False,
+            is_hva=False,
             due_date=datetime.combine(
                 date.today() + timedelta(days=1), datetime.min.time(),
             ),
@@ -881,7 +881,7 @@ def test_reconcile_leaves_ambiguous_note_activity_unlinked(app, coverage_data):
             subject='Customer follow-up',
             task_category=861980000,
             duration_minutes=60,
-            is_hok=False,
+            is_hva=False,
             due_date=datetime.combine(date.today(), datetime.min.time()),
             note_id=note.id,
             milestone_id=coverage_data['milestone_id'],
@@ -993,24 +993,24 @@ def test_enrichment_allows_off_team_fallback():
     ('Azure adoption planning', 861980007),
     ('Build a rapid prototype', 606820006),
 ])
-def test_enrichment_prefers_hok_task_categories(text, expected):
-    """Prepared activity types always prefer an HoK-credit category."""
+def test_enrichment_prefers_hva_task_categories(text, expected):
+    """Prepared activity types always prefer an HVA-credit category."""
     category = activity_enrichment._category_for_text(text)
 
     assert category == expected
-    assert category in activity_enrichment.HOK_TASK_CATEGORIES
+    assert category in activity_enrichment.HVA_TASK_CATEGORIES
 
 
 @pytest.mark.parametrize(('text', 'expected'), [
     ('Customer technical briefing', 861980008),
     ('Routine customer conversation', 861980000),
 ])
-def test_enrichment_uses_non_hok_fallback_when_needed(text, expected):
-    """Unmatched intent keeps an accurate non-HoK category."""
+def test_enrichment_uses_non_hva_fallback_when_needed(text, expected):
+    """Unmatched intent keeps an accurate non-HVA category."""
     category = activity_enrichment._category_for_text(text)
 
     assert category == expected
-    assert category not in activity_enrichment.HOK_TASK_CATEGORIES
+    assert category not in activity_enrichment.HVA_TASK_CATEGORIES
 
 
 def test_enrichment_refreshes_local_milestones_before_matching():
@@ -1667,7 +1667,7 @@ def test_calendar_resync_preserves_logged_meeting(app, coverage_data):
             task_category=861980000,
             task_category_name='Customer Engagement',
             duration_minutes=60,
-            is_hok=False,
+            is_hva=False,
             due_date=datetime.combine(date.today(), datetime.min.time()),
             meeting_id=coverage_data['meeting_id'],
             milestone_id=coverage_data['milestone_id'],
@@ -1800,17 +1800,17 @@ def test_dismiss_updates_meeting_rows_inline_without_page_reload(
     assert 'window.location.reload()' not in handler
 
 
-def test_standalone_hok_updates_milestone_row_without_page_reload(
+def test_standalone_hva_updates_milestone_row_without_page_reload(
     client, coverage_data,
 ):
-    """Standalone HoK creation renders covered state without navigation."""
+    """Standalone HVA creation renders covered state without navigation."""
     response = client.get('/reports/activity-coverage?lens=milestones')
     html = response.get_data(as_text=True)
-    create_path = html[html.index('function renderStandaloneHok'):
-                       html.index("document.querySelectorAll('.save-milestone-hok')")]
+    create_path = html[html.index('function renderStandaloneHva'):
+                       html.index("document.querySelectorAll('.save-milestone-hva')")]
 
     assert 'setMilestoneCoverageSummary(task.summary)' in create_path
-    assert 'renderStandaloneHok(form, task)' in create_path
+    assert 'renderStandaloneHva(form, task)' in create_path
     assert 'row.remove()' in create_path
     assert 'if (createAfter)' in create_path
 
@@ -1896,7 +1896,7 @@ def test_f1_help_explains_activity_coverage_workflow():
     assert '<strong>Re-run Matching</strong>' in help_script
     assert '<strong>Catch Up Calendar</strong>' in help_script
     assert '<strong>Full FY</strong>' in help_script
-    assert 'qualifies for HoK credit' in help_script
+    assert 'qualifies for HVA credit' in help_script
     assert 'Nothing is created until you click it' in help_script
 
 

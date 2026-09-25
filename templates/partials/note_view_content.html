@@ -227,8 +227,8 @@
                             <i class="bi bi-check2-circle"></i> {{ task.subject[:30] }}{% if task.subject|length > 30 %}...{% endif %}
                         </span>
                         {% endif %}
-                        {% if task.is_hok %}
-                        <span class="badge bg-warning text-dark" title="Hands-On Keyboard">★ HOK</span>
+                        {% if task.is_hva %}
+                        <span class="badge bg-warning text-dark" title="High-Value Activity">★ HVA</span>
                         {% endif %}
                         <br>
                         <small class="text-muted">{{ task.task_category_name }}</small>

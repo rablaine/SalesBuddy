@@ -27,7 +27,7 @@ from app.models import (
     db,
 )
 from app.services.job_queue import enqueue, job_handler
-from app.services.msx_api import HOK_TASK_CATEGORIES, TASK_CATEGORIES
+from app.services.msx_api import HVA_TASK_CATEGORIES, TASK_CATEGORIES
 
 logger = logging.getLogger(__name__)
 
@@ -487,9 +487,9 @@ def _task_coverage_date(task: MsxTask) -> date:
 
 
 def _default_milestone_draft(milestone: Milestone) -> dict[str, Any]:
-    """Return editable defaults for a standalone milestone HoK activity."""
+    """Return editable defaults for a standalone milestone HVA activity."""
     return {
-        'subject': f'{milestone.display_text} - HoK activity',
+        'subject': f'{milestone.display_text} - HVA activity',
         'description': '',
         'task_category': 861980004,
         'duration_minutes': 60,
@@ -505,18 +505,18 @@ def _serialize_milestone_coverage(
     meeting_drafts: list[PrefetchedMeeting],
     draft: MilestoneCoverageDraft | None,
 ) -> dict[str, Any]:
-    """Serialize one on-team milestone with current and prior HoK evidence."""
-    hok_tasks = sorted(
-        (task for task in tasks if task.is_hok),
+    """Serialize one on-team milestone with current and prior HVA evidence."""
+    hva_tasks = sorted(
+        (task for task in tasks if task.is_hva),
         key=_task_coverage_date,
         reverse=True,
     )
     current_tasks = [
-        task for task in hok_tasks
+        task for task in hva_tasks
         if fiscal_start <= _task_coverage_date(task) <= fiscal_end
     ]
     prior_task = next(
-        (task for task in hok_tasks if _task_coverage_date(task) < fiscal_start),
+        (task for task in hva_tasks if _task_coverage_date(task) < fiscal_start),
         None,
     )
     draft_data = {
@@ -544,9 +544,9 @@ def _serialize_milestone_coverage(
             'task_category_name': _CATEGORY_NAMES[
                 meeting.draft_task_category or _default_category(meeting)
             ],
-            'is_hok': (
+            'is_hva': (
                 meeting.draft_task_category or _default_category(meeting)
-            ) in HOK_TASK_CATEGORIES,
+            ) in HVA_TASK_CATEGORIES,
             'duration_minutes': (
                 meeting.draft_duration_minutes or _default_duration(meeting)
             ),
@@ -580,7 +580,7 @@ def get_milestone_coverage_data(
     due_start: date | datetime | None = None,
     due_end: date | datetime | None = None,
 ) -> dict[str, Any]:
-    """Return current-FY HoK coverage for locally cached on-team milestones."""
+    """Return current-FY HVA coverage for locally cached on-team milestones."""
     today = date.today()
     fiscal_start, fiscal_end = fiscal_year_bounds(today)
     due_start_value = (
@@ -666,8 +666,8 @@ def get_milestone_coverage_data(
                 if active_rows else 0
             ),
         },
-        'hok_task_categories': [
-            item for item in TASK_CATEGORIES if item['value'] in HOK_TASK_CATEGORIES
+        'hva_task_categories': [
+            item for item in TASK_CATEGORIES if item['value'] in HVA_TASK_CATEGORIES
         ],
         'task_categories': TASK_CATEGORIES,
         'fiscal_start': fiscal_start,
@@ -689,7 +689,7 @@ def _target_fiscal_year(due_date: datetime | None) -> str:
 
 
 def get_caip_coverage_data() -> dict[str, Any]:
-    """Return CAIP activity and HoK coverage for all qualifying team milestones."""
+    """Return CAIP activity and HVA coverage for all qualifying team milestones."""
     today = date.today()
     fiscal_start, fiscal_end = fiscal_year_bounds(today)
     milestones = (
@@ -717,7 +717,7 @@ def get_caip_coverage_data() -> dict[str, Any]:
     tasks_by_milestone: dict[int, list[MsxTask]] = defaultdict(list)
     for task in MsxTask.query.filter(
         MsxTask.milestone_id.in_(milestone_ids),
-        MsxTask.is_hok.is_(True),
+        MsxTask.is_hva.is_(True),
         MsxTask.statecode == 1,
         MsxTask.due_date.isnot(None),
         MsxTask.actual_end.isnot(None),
@@ -728,7 +728,7 @@ def get_caip_coverage_data() -> dict[str, Any]:
     groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
     rows = []
     for milestone in milestones:
-        hok_tasks = sorted(
+        hva_tasks = sorted(
             tasks_by_milestone[milestone.id],
             key=lambda task: task.actual_end,
             reverse=True,
@@ -738,8 +738,8 @@ def get_caip_coverage_data() -> dict[str, Any]:
             'milestone': milestone,
             'target_fy': _target_fiscal_year(milestone.due_date),
             'activity_logged': milestone.id in activity_ids,
-            'hok_covered': bool(hok_tasks),
-            'hok_task': hok_tasks[0] if hok_tasks else None,
+            'hva_covered': bool(hva_tasks),
+            'hva_task': hva_tasks[0] if hva_tasks else None,
         }
         rows.append(row)
         groups[row['target_fy']].append(row)
@@ -751,7 +751,7 @@ def get_caip_coverage_data() -> dict[str, Any]:
     if 'No target FY' in groups:
         ordered_labels.append('No target FY')
     activity_count = sum(row['activity_logged'] for row in rows)
-    hok_count = sum(row['hok_covered'] for row in rows)
+    hva_count = sum(row['hva_covered'] for row in rows)
     total = len(rows)
     return {
         'caip_groups': [
@@ -761,8 +761,8 @@ def get_caip_coverage_data() -> dict[str, Any]:
             'total': total,
             'activities_logged': activity_count,
             'activities_percent': round(activity_count / total * 100) if total else 0,
-            'hok_covered': hok_count,
-            'hok_percent': round(hok_count / total * 100) if total else 0,
+            'hva_covered': hva_count,
+            'hva_percent': round(hva_count / total * 100) if total else 0,
         },
         'fiscal_start': fiscal_start,
         'fiscal_end': fiscal_end,
@@ -775,7 +775,7 @@ def update_milestone_coverage_draft(
     milestone_id: int,
     data: dict[str, Any],
 ) -> MilestoneCoverageDraft:
-    """Validate and persist one standalone milestone HoK draft."""
+    """Validate and persist one standalone milestone HVA draft."""
     milestone = db.session.get(Milestone, milestone_id)
     if milestone is None or not milestone.on_my_team:
         raise ValueError('On-team milestone not found')
@@ -784,10 +784,10 @@ def update_milestone_coverage_draft(
     if not subject:
         raise ValueError('Activity subject is required')
     if not description:
-        raise ValueError('Describe the hands-on work performed')
+        raise ValueError('Describe the high-value activity performed')
     category = int(data.get('task_category') or 0)
-    if category not in HOK_TASK_CATEGORIES:
-        raise ValueError('Select a Hands-on-Keyboard activity type')
+    if category not in HVA_TASK_CATEGORIES:
+        raise ValueError('Select a High-Value Activity type')
     duration = int(data.get('duration_minutes') or 0)
     if duration < 1 or duration > 1440:
         raise ValueError('Duration must be between 1 and 1440 minutes')
@@ -828,8 +828,8 @@ def _complete_activity(task: MsxTask) -> MsxTask:
     return task
 
 
-def create_milestone_hok_activity(milestone_id: int) -> MsxTask:
-    """Create and complete one standalone current-FY HoK activity."""
+def create_milestone_hva_activity(milestone_id: int) -> MsxTask:
+    """Create and complete one standalone current-FY HVA activity."""
     from app.services.msx_api import create_task
 
     with _milestone_create_lock:
@@ -839,14 +839,14 @@ def create_milestone_hok_activity(milestone_id: int) -> MsxTask:
         fiscal_start, fiscal_end = fiscal_year_bounds()
         existing = next((
             task for task in milestone.tasks
-            if task.is_hok
+            if task.is_hva
             and fiscal_start <= _task_coverage_date(task) <= fiscal_end
         ), None)
         if existing:
             return _complete_activity(existing)
         draft = milestone.coverage_draft
         if draft is None:
-            raise ValueError('Save the HoK activity draft before creating it')
+            raise ValueError('Save the HVA activity draft before creating it')
 
         scheduled_start = draft.scheduled_start.replace(tzinfo=timezone.utc)
         scheduled_end = scheduled_start + timedelta(minutes=draft.duration_minutes)
@@ -869,7 +869,7 @@ def create_milestone_hok_activity(milestone_id: int) -> MsxTask:
             task_category=draft.task_category,
             task_category_name=_CATEGORY_NAMES[draft.task_category],
             duration_minutes=draft.duration_minutes,
-            is_hok=True,
+            is_hva=True,
             due_date=scheduled_end.replace(tzinfo=None),
             msx_created_on=datetime.now(timezone.utc),
             milestone_id=milestone.id,
@@ -984,7 +984,7 @@ def create_meeting_activity(meeting_id: int) -> MsxTask:
             task_category=category,
             task_category_name=_CATEGORY_NAMES[category],
             duration_minutes=duration,
-            is_hok=category in HOK_TASK_CATEGORIES,
+            is_hva=category in HVA_TASK_CATEGORIES,
             due_date=scheduled_end,
             msx_created_on=datetime.now(timezone.utc),
             note_id=meeting.note_id,

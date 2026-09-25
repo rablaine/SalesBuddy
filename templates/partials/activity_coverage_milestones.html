@@ -34,7 +34,7 @@
         grid-template-columns: minmax(16rem, 1fr) 13rem 8rem 13rem;
         gap: 0.65rem;
     }
-    .milestone-hok-description { min-height: 5rem; resize: vertical; }
+    .milestone-hva-description { min-height: 5rem; resize: vertical; }
     .prepared-meeting-list { border-top: 1px solid var(--bs-border-color); }
     .prepared-meeting-task {
         display: grid;
@@ -73,7 +73,7 @@
                 <label class="form-check-label" for="showInactiveMilestones">Show inactive</label>
             </div>
         </div>
-        <button class="btn btn-sm btn-outline-secondary" id="milestoneRefreshButton" {% if reconciliation.running %}disabled{% endif %} title="Refresh MSX activities before recalculating milestone HoK coverage">
+        <button class="btn btn-sm btn-outline-secondary" id="milestoneRefreshButton" {% if reconciliation.running %}disabled{% endif %} title="Refresh MSX activities before recalculating milestone HVA coverage">
             <span class="spinner-border spinner-border-sm{% if not reconciliation.running %} d-none{% endif %}" id="milestoneRefreshSpinner" aria-hidden="true"></span>
             <i class="bi bi-arrow-repeat{% if reconciliation.running %} d-none{% endif %}" id="milestoneRefreshIcon"></i>
             <span id="milestoneRefreshLabel">{% if reconciliation.running %}Refreshing MSX{% else %}Refresh MSX Activities{% endif %}</span>
@@ -92,7 +92,7 @@
         <span>Milestone</span>
         <span>Due</span>
         <span>Meeting overlap</span>
-        <span>HoK coverage</span>
+        <span>HVA coverage</span>
         <span></span>
     </div>
     {% for row in milestone_rows %}
@@ -113,7 +113,7 @@
             <div class="milestone-coverage-cell text-muted">
                 {% if milestone.due_date %}{{ milestone.due_date.strftime('%b %d, %Y') }}{% else %}No date{% endif %}
             </div>
-            <div class="milestone-coverage-cell milestone-hok-coverage">
+            <div class="milestone-coverage-cell milestone-hva-coverage">
                 {% if row.meeting_draft_count %}
                 <a href="{{ url_for('reports.report_activity_coverage', view='all', milestone=milestone.id) }}" class="text-decoration-none" onclick="event.stopPropagation();" title="Open unlogged meeting drafts targeting this milestone">
                     {% if row.prepared_meeting_count == row.meeting_draft_count %}
@@ -130,14 +130,14 @@
                 {% if row.covered %}
                 <span class="badge bg-success">Covered {{ fiscal_year_label }}</span>
                 {% elif row.prior_task %}
-                <span class="badge bg-warning text-dark">HoK in FY{{ '%02d'|format(row.prior_fiscal_year) }}</span>
+                <span class="badge bg-warning text-dark">HVA in FY{{ '%02d'|format(row.prior_fiscal_year) }}</span>
                 {% else %}
-                <span class="text-warning"><i class="bi bi-exclamation-circle"></i> No HoK activity</span>
+                <span class="text-warning"><i class="bi bi-exclamation-circle"></i> No HVA activity</span>
                 {% endif %}
             </div>
-            <div class="d-flex justify-content-end milestone-hok-actions" onclick="event.stopPropagation();">
+            <div class="d-flex justify-content-end milestone-hva-actions" onclick="event.stopPropagation();">
                 {% if row.current_task and row.current_task.msx_task_url %}
-                <a class="btn btn-sm btn-outline-success" href="{{ row.current_task.msx_task_url }}" target="_blank" rel="noopener" title="Open HoK activity in MSX"><i class="bi bi-box-arrow-up-right"></i></a>
+                <a class="btn btn-sm btn-outline-success" href="{{ row.current_task.msx_task_url }}" target="_blank" rel="noopener" title="Open HVA activity in MSX"><i class="bi bi-box-arrow-up-right"></i></a>
                 {% endif %}
             </div>
         </div>
@@ -169,7 +169,7 @@
                             <label class="form-label small text-muted" for="prepared-category-{{ prepared.id }}">Activity type</label>
                             <select class="form-select" id="prepared-category-{{ prepared.id }}" name="task_category">
                                 {% for category in task_categories %}
-                                <option value="{{ category.value }}" {% if category.value == prepared.task_category %}selected{% endif %}>{% if category.is_hok %}★ {% endif %}{{ category.label }}</option>
+                                <option value="{{ category.value }}" {% if category.value == prepared.task_category %}selected{% endif %}>{% if category.is_hva %}★ {% endif %}{{ category.label }}</option>
                                 {% endfor %}
                             </select>
                         </div>
@@ -203,45 +203,45 @@
             {% if row.prepared_meetings %}
             <div class="d-flex align-items-center gap-2 mb-3 text-muted small">
                 <span class="flex-grow-1 border-top"></span>
-                <span>Or create a standalone HoK activity</span>
+                <span>Or create a standalone HVA activity</span>
                 <span class="flex-grow-1 border-top"></span>
             </div>
             {% endif %}
             {% if row.prior_task %}
             <div class="small text-muted mb-3">
-                <i class="bi bi-clock-history"></i> Prior HoK: <strong>{{ row.prior_task.subject }}</strong> · {{ row.prior_task.task_category_name }} · {{ row.prior_task.due_date.strftime('%b %d, %Y') if row.prior_task.due_date else 'date unavailable' }}
+                <i class="bi bi-clock-history"></i> Prior HVA: <strong>{{ row.prior_task.subject }}</strong> · {{ row.prior_task.task_category_name }} · {{ row.prior_task.due_date.strftime('%b %d, %Y') if row.prior_task.due_date else 'date unavailable' }}
             </div>
             {% endif %}
-            <form class="milestone-hok-form" data-id="{{ milestone.id }}">
+            <form class="milestone-hva-form" data-id="{{ milestone.id }}">
                 <div class="milestone-coverage-fields mb-3">
                     <div>
-                        <label class="form-label small" for="milestone-hok-subject-{{ milestone.id }}">Activity subject</label>
-                        <input class="form-control" id="milestone-hok-subject-{{ milestone.id }}" name="subject" maxlength="500" value="{{ row.draft.subject }}" required>
+                        <label class="form-label small" for="milestone-hva-subject-{{ milestone.id }}">Activity subject</label>
+                        <input class="form-control" id="milestone-hva-subject-{{ milestone.id }}" name="subject" maxlength="500" value="{{ row.draft.subject }}" required>
                     </div>
                     <div>
-                        <label class="form-label small" for="milestone-hok-category-{{ milestone.id }}">HoK activity type</label>
-                        <select class="form-select" id="milestone-hok-category-{{ milestone.id }}" name="task_category">
-                            {% for category in hok_task_categories %}
+                        <label class="form-label small" for="milestone-hva-category-{{ milestone.id }}">HVA activity type</label>
+                        <select class="form-select" id="milestone-hva-category-{{ milestone.id }}" name="task_category">
+                            {% for category in hva_task_categories %}
                             <option value="{{ category.value }}" {% if category.value == row.draft.task_category %}selected{% endif %}>★ {{ category.label }}</option>
                             {% endfor %}
                         </select>
                     </div>
                     <div>
-                        <label class="form-label small" for="milestone-hok-duration-{{ milestone.id }}">Minutes</label>
-                        <input class="form-control" id="milestone-hok-duration-{{ milestone.id }}" name="duration_minutes" type="number" min="1" max="1440" value="{{ row.draft.duration_minutes }}" required>
+                        <label class="form-label small" for="milestone-hva-duration-{{ milestone.id }}">Minutes</label>
+                        <input class="form-control" id="milestone-hva-duration-{{ milestone.id }}" name="duration_minutes" type="number" min="1" max="1440" value="{{ row.draft.duration_minutes }}" required>
                     </div>
                     <div>
-                        <label class="form-label small" for="milestone-hok-date-{{ milestone.id }}">Work date and time</label>
-                        <input class="form-control milestone-hok-date" id="milestone-hok-date-{{ milestone.id }}" name="scheduled_start" type="datetime-local" data-utc="{{ row.draft.scheduled_start.strftime('%Y-%m-%dT%H:%M:%SZ') }}" max="{{ today.isoformat() }}T23:59" required>
+                        <label class="form-label small" for="milestone-hva-date-{{ milestone.id }}">Work date and time</label>
+                        <input class="form-control milestone-hva-date" id="milestone-hva-date-{{ milestone.id }}" name="scheduled_start" type="datetime-local" data-utc="{{ row.draft.scheduled_start.strftime('%Y-%m-%dT%H:%M:%SZ') }}" max="{{ today.isoformat() }}T23:59" required>
                     </div>
                 </div>
                 <div class="mb-3">
-                    <label class="form-label small" for="milestone-hok-description-{{ milestone.id }}">Hands-on work performed</label>
-                    <textarea class="form-control milestone-hok-description" id="milestone-hok-description-{{ milestone.id }}" name="description" placeholder="Describe the architecture, prototype, workshop, demo, or technical work completed." required>{{ row.draft.description }}</textarea>
+                    <label class="form-label small" for="milestone-hva-description-{{ milestone.id }}">Hands-on work performed</label>
+                    <textarea class="form-control milestone-hva-description" id="milestone-hva-description-{{ milestone.id }}" name="description" placeholder="Describe the architecture, prototype, workshop, demo, or technical work completed." required>{{ row.draft.description }}</textarea>
                 </div>
                 <div class="d-flex justify-content-end gap-2">
-                    <button class="btn btn-outline-secondary save-milestone-hok" type="button"><i class="bi bi-floppy"></i> Save Draft</button>
-                    <button class="btn btn-success create-milestone-hok" type="button"><i class="bi bi-plus-circle"></i> Create HoK Task</button>
+                    <button class="btn btn-outline-secondary save-milestone-hva" type="button"><i class="bi bi-floppy"></i> Save Draft</button>
+                    <button class="btn btn-success create-milestone-hva" type="button"><i class="bi bi-plus-circle"></i> Create HVA Task</button>
                 </div>
             </form>
             {% endif %}
@@ -297,7 +297,7 @@
         });
     });
 
-    document.querySelectorAll('.milestone-hok-date').forEach(function(input) {
+    document.querySelectorAll('.milestone-hva-date').forEach(function(input) {
         var instant = new Date(input.dataset.utc);
         if (Number.isNaN(instant.getTime())) return;
         var local = new Date(instant.getTime() - instant.getTimezoneOffset() * 60000);
@@ -322,7 +322,7 @@
         document.getElementById('milestoneCoverageUncovered').textContent = summary.uncovered;
     }
 
-    function renderStandaloneHok(form, task) {
+    function renderStandaloneHva(form, task) {
         var row = form.closest('.milestone-coverage-row');
         setMilestoneCoverageSummary(task.summary);
         if (!document.getElementById('showCoveredMilestones').checked) {
@@ -330,8 +330,8 @@
             return;
         }
 
-        row.querySelector('.milestone-hok-coverage').innerHTML = '<span class="badge bg-success">Covered {{ fiscal_year_label }}</span>';
-        var actions = row.querySelector('.milestone-hok-actions');
+        row.querySelector('.milestone-hva-coverage').innerHTML = '<span class="badge bg-success">Covered {{ fiscal_year_label }}</span>';
+        var actions = row.querySelector('.milestone-hva-actions');
         actions.replaceChildren();
         if (task.task_url) {
             var link = document.createElement('a');
@@ -339,8 +339,8 @@
             link.href = task.task_url;
             link.target = '_blank';
             link.rel = 'noopener';
-            link.title = 'Open HoK activity in MSX';
-            link.setAttribute('aria-label', 'Open HoK activity in MSX');
+            link.title = 'Open HVA activity in MSX';
+            link.setAttribute('aria-label', 'Open HVA activity in MSX');
             link.innerHTML = '<i class="bi bi-box-arrow-up-right"></i>';
             actions.appendChild(link);
         }
@@ -382,7 +382,7 @@
             });
         }).then(function(task) {
             if (createAfter) {
-                renderStandaloneHok(form, task);
+                renderStandaloneHva(form, task);
                 return;
             }
             window.location.reload();
@@ -392,12 +392,12 @@
         });
     }
 
-    document.querySelectorAll('.save-milestone-hok').forEach(function(button) {
+    document.querySelectorAll('.save-milestone-hva').forEach(function(button) {
         button.addEventListener('click', function() {
             saveMilestoneForm(button.closest('form'), false);
         });
     });
-    document.querySelectorAll('.create-milestone-hok').forEach(function(button) {
+    document.querySelectorAll('.create-milestone-hva').forEach(function(button) {
         button.addEventListener('click', function() {
             saveMilestoneForm(button.closest('form'), true);
         });

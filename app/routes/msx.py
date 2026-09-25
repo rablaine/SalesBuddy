@@ -513,7 +513,7 @@ def get_task_categories():
     """
     Get all available task categories.
     
-    Returns categories with HOK flags for UI highlighting.
+    Returns categories with HVA flags for UI highlighting.
     """
     return jsonify({
         "success": True,
@@ -570,7 +570,7 @@ def create_msx_task():
         # Save the task locally so it shows in the workspace immediately
         local_task = None
         try:
-            from app.services.msx_api import TASK_CATEGORIES, HOK_TASK_CATEGORIES
+            from app.services.msx_api import TASK_CATEGORIES, HVA_TASK_CATEGORIES
             local_ms = Milestone.query.filter_by(msx_milestone_id=milestone_id).first()
             if local_ms and result.get('task_id'):
                 cat_name = next(
@@ -584,7 +584,7 @@ def create_msx_task():
                     description=description,
                     task_category=task_category,
                     task_category_name=cat_name,
-                    is_hok=task_category in HOK_TASK_CATEGORIES,
+                    is_hva=task_category in HVA_TASK_CATEGORIES,
                     milestone_id=local_ms.id,
                 )
                 if due_date:

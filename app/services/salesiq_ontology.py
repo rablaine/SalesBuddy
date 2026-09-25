@@ -45,7 +45,7 @@ A POD (Practice Operating Division) is a working group of territories, sellers, 
 
 ### What Each Role Focuses On
 
-SEs focus on milestones: Attachment Rate (on_my_team), HOK tasks (MsxTask), \
+SEs focus on milestones: Attachment Rate (on_my_team), HVA tasks (MsxTask), \
 and U2C (uncommitted to committed). They create Engagements to group work \
 before milestones exist in MSX.
 
@@ -89,7 +89,7 @@ build a solution, partners are brought in to implement.
 ### MSX Domain
 - Opportunity belongs to Customer, has many Milestones
 - Milestone belongs to Customer and Opportunity
-- Milestone has many: MsxTasks (HOK), MilestoneComments, MilestoneAudits
+- Milestone has many: MsxTasks (HVA), MilestoneComments, MilestoneAudits
 - Key fields: on_my_team, workload, monthly_usage, customer_commitment
 
 ### Notes Domain
@@ -115,17 +115,17 @@ build a solution, partners are brought in to implement.
 
 | Term | Definition |
 |------|-----------|
-| SE | Solution Engineer - technical specialist. Metrics: Attachment Rate, HOK, U2C. |
+| SE | Solution Engineer - technical specialist. Metrics: Attachment Rate, HVA, U2C. |
 | Seller / DSS | Digital Solution Specialist - the sales rep. Growth (1 territory, >$10k) or Acquisition (many territories, <$10k). |
 | POD | Practice Operating Division - working group of territories, sellers, and SEs. |
 | Territory | A grouping of customers. Belongs to a POD. |
-| Milestone | MSX sales milestone. SEs join teams for Attachment Rate credit and create HOK tasks. |
+| Milestone | MSX sales milestone. SEs join teams for Attachment Rate credit and create HVA tasks. |
 | Opportunity | MSX sales opportunity. Created by sellers, contains milestones. |
 | Engagement | SE's grouping of work on a customer topic. Groups notes, action items, milestones. |
 | Project | Same as Engagement but for non-customer work (app dev, training, webinars). |
 | Partner | Consulting firm for the build phase. Tracked with specialties and ratings. |
 | Attachment Rate | SE metric - % of milestones where on_my_team = true. |
-| HOK | Hands On Keyboard - SE metric from creating MsxTasks on team milestones. |
+| HVA | High-Value Activity - SE metric from creating MsxTasks on team milestones. |
 | U2C | Uncommitted to Committed - SE metric for moving milestones to committed status. |
 | ACR | Azure Consumed Revenue - monthly Azure spend in dollars. |
 | Note | Record of a call, internal chat, research, or work done. Rich text with attendees. |

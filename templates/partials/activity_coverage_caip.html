@@ -45,7 +45,7 @@
 </style>
 
 <div class="caip-note py-2 mb-2 d-flex flex-wrap justify-content-between align-items-center gap-2">
-    <span class="small text-muted">CAIP denominator includes every POC/Pilot and Production milestone where you are on the Milestone Team. HoK uses completed, due-dated tasks completed in {{ fiscal_year_label }}.</span>
+    <span class="small text-muted">CAIP denominator includes every POC/Pilot and Production milestone where you are on the Milestone Team. HVA uses completed, due-dated tasks completed in {{ fiscal_year_label }}.</span>
     <button class="btn btn-sm btn-outline-secondary" id="caipRefreshButton" {% if reconciliation.running %}disabled{% endif %}>
         <span class="spinner-border spinner-border-sm{% if not reconciliation.running %} d-none{% endif %}" id="caipRefreshSpinner" aria-hidden="true"></span>
         <i class="bi bi-arrow-repeat{% if reconciliation.running %} d-none{% endif %}" id="caipRefreshIcon"></i>
@@ -62,7 +62,7 @@
     <span>Category</span>
     <span>Status</span>
     <span>Activities logged</span>
-    <span>HoK coverage</span>
+    <span>HVA coverage</span>
     <span></span>
 </div>
 
@@ -85,8 +85,8 @@
         <div class="caip-cell">
             {% if row.activity_logged %}<span class="text-success"><i class="bi bi-check-circle-fill"></i> Logged</span>{% else %}<span class="text-warning"><i class="bi bi-exclamation-circle"></i> Missing</span>{% endif %}
         </div>
-        <div class="caip-cell"{% if row.hok_task %} title="{{ row.hok_task.subject }} · {{ row.hok_task.actual_end.strftime('%b %d, %Y') }}"{% endif %}>
-            {% if row.hok_covered %}<span class="text-success"><i class="bi bi-check-circle-fill"></i> Covered</span>{% else %}<span class="text-warning"><i class="bi bi-exclamation-circle"></i> Missing</span>{% endif %}
+        <div class="caip-cell"{% if row.hva_task %} title="{{ row.hva_task.subject }} · {{ row.hva_task.actual_end.strftime('%b %d, %Y') }}"{% endif %}>
+            {% if row.hva_covered %}<span class="text-success"><i class="bi bi-check-circle-fill"></i> Covered</span>{% else %}<span class="text-warning"><i class="bi bi-exclamation-circle"></i> Missing</span>{% endif %}
         </div>
         <div class="text-end">
             {% if milestone.url %}<a class="btn btn-sm btn-link text-secondary" href="{{ milestone.url }}" target="_blank" rel="noopener" title="Open milestone in MSX" aria-label="Open milestone in MSX"><i class="bi bi-box-arrow-up-right"></i></a>{% endif %}

@@ -6,7 +6,9 @@ Note: These tests mock the actual MSX API calls to avoid external dependencies.
 """
 import pytest
 from pathlib import Path
-from sqlalchemy import inspect
+from types import SimpleNamespace
+from sqlalchemy import create_engine, inspect, text
+from sqlalchemy.orm import sessionmaker
 from unittest.mock import patch, MagicMock
 from app.models import db, Milestone, MsxTask, Note, Customer
 from app.services.msx_api import (
@@ -14,7 +16,7 @@ from app.services.msx_api import (
     build_milestone_url,
     build_task_url,
     TASK_CATEGORIES,
-    HOK_TASK_CATEGORIES,
+    HVA_TASK_CATEGORIES,
     MILESTONE_STATUS_ORDER,
 )
 
@@ -71,37 +73,37 @@ class TestTaskCategories:
         for cat in TASK_CATEGORIES:
             assert 'value' in cat
             assert 'label' in cat
-            assert 'is_hok' in cat
+            assert 'is_hva' in cat
             assert isinstance(cat['value'], int)
             assert isinstance(cat['label'], str)
-            assert isinstance(cat['is_hok'], bool)
+            assert isinstance(cat['is_hva'], bool)
     
-    def test_hok_categories_exist(self):
-        """Test that HOK categories are defined."""
-        assert len(HOK_TASK_CATEGORIES) > 0
+    def test_hva_categories_exist(self):
+        """Test that HVA categories are defined."""
+        assert len(HVA_TASK_CATEGORIES) > 0
         
-        # Verify HOK categories are in the main list
-        hok_codes = [c['value'] for c in TASK_CATEGORIES if c['is_hok']]
-        assert len(hok_codes) == len(HOK_TASK_CATEGORIES)
+        # Verify HVA categories are in the main list
+        hva_codes = [c['value'] for c in TASK_CATEGORIES if c['is_hva']]
+        assert len(hva_codes) == len(HVA_TASK_CATEGORIES)
 
-    def test_fy27_hok_category_changes(self):
-        """FY27 HoK categories include assessments/RFPs but not briefings."""
-        assert 861980014 in HOK_TASK_CATEGORIES
-        assert 861980009 in HOK_TASK_CATEGORIES
-        assert 861980008 not in HOK_TASK_CATEGORIES
+    def test_fy27_hva_category_changes(self):
+        """FY27 HVA categories include assessments/RFPs but not briefings."""
+        assert 861980014 in HVA_TASK_CATEGORIES
+        assert 861980009 in HVA_TASK_CATEGORIES
+        assert 861980008 not in HVA_TASK_CATEGORIES
 
-    def test_hok_flag_migration_reconciles_existing_tasks(self, app):
-        """Existing task flags follow the current HoK category policy."""
-        from app.migrations import _reconcile_msx_task_hok_flags
+    def test_hva_flag_migration_reconciles_existing_tasks(self, app):
+        """Existing task flags follow the current HVA category policy."""
+        from app.migrations import _reconcile_msx_task_hva_flags
 
         with app.app_context():
             customer = Customer(
-                name='HoK Migration Customer',
-                tpid='hok-migration-123',
+                name='HVA Migration Customer',
+                tpid='hva-migration-123',
             )
             milestone = Milestone(
-                title='HoK migration milestone',
-                url='https://example.test/hok-migration',
+                title='HVA migration milestone',
+                url='https://example.test/hva-migration',
                 customer=customer,
             )
             db.session.add(milestone)
@@ -110,25 +112,61 @@ class TestTaskCategories:
                 msx_task_id='migration-assessment',
                 subject='Assessment',
                 task_category=861980014,
-                is_hok=False,
+                is_hva=False,
                 milestone_id=milestone.id,
             )
             briefing = MsxTask(
                 msx_task_id='migration-briefing',
                 subject='Briefing',
                 task_category=861980008,
-                is_hok=True,
+                is_hva=True,
                 milestone_id=milestone.id,
             )
             db.session.add_all([assessment, briefing])
             db.session.commit()
 
-            _reconcile_msx_task_hok_flags(db, inspect(db.engine))
+            _reconcile_msx_task_hva_flags(db, inspect(db.engine))
             db.session.refresh(assessment)
             db.session.refresh(briefing)
 
-            assert assessment.is_hok is True
-            assert briefing.is_hok is False
+            assert assessment.is_hva is True
+            assert briefing.is_hva is False
+
+    def test_hva_column_migration_preserves_legacy_values(self, tmp_path):
+        """Existing classification values populate the new HVA column."""
+        from app.migrations import _migrate_msx_task_hva_column
+
+        engine = create_engine(f"sqlite:///{tmp_path / 'legacy-tasks.db'}")
+        session_factory = sessionmaker(bind=engine)
+        session = session_factory()
+        legacy_db = SimpleNamespace(engine=engine, session=session)
+        try:
+            with engine.begin() as connection:
+                connection.execute(text(
+                    "CREATE TABLE msx_tasks ("
+                    "id INTEGER PRIMARY KEY, "
+                    "is_hok BOOLEAN NOT NULL DEFAULT 0"
+                    ")"
+                ))
+                connection.execute(text(
+                    "INSERT INTO msx_tasks (id, is_hok) VALUES (1, 1), (2, 0)"
+                ))
+
+            _migrate_msx_task_hva_column(legacy_db, inspect(engine))
+            rows = session.execute(text(
+                "SELECT id, is_hva FROM msx_tasks ORDER BY id"
+            )).all()
+
+            assert rows == [(1, 1), (2, 0)]
+
+            _migrate_msx_task_hva_column(legacy_db, inspect(engine))
+            columns = {
+                column['name'] for column in inspect(engine).get_columns('msx_tasks')
+            }
+            assert columns == {'id', 'is_hok', 'is_hva'}
+        finally:
+            session.close()
+            engine.dispose()
     
     def test_milestone_status_order(self):
         """Test that milestone statuses have sort order defined."""
@@ -175,7 +213,7 @@ class TestMsxTaskModel:
                 task_category=861980004,
                 task_category_name='Azure Workshop',
                 duration_minutes=60,
-                is_hok=True,
+                is_hva=True,
                 note_id=note.id,
                 milestone_id=milestone.id
             )
@@ -184,7 +222,7 @@ class TestMsxTaskModel:
             
             assert task.id is not None
             assert task.msx_task_id == 'task-456'
-            assert task.is_hok is True
+            assert task.is_hva is True
             assert task.milestone == milestone
             assert task.note == note
     
@@ -242,16 +280,16 @@ class TestMsxRoutes:
         assert 'categories' in data
         assert len(data['categories']) > 0
     
-    def test_task_categories_have_hok_flags(self, client, app):
-        """Test that task categories include HOK flags."""
+    def test_task_categories_have_hva_flags(self, client, app):
+        """Test that task categories include HVA flags."""
         response = client.get('/api/msx/task-categories')
         data = response.get_json()
         
-        hok_categories = [c for c in data['categories'] if c['is_hok']]
-        non_hok_categories = [c for c in data['categories'] if not c['is_hok']]
+        hva_categories = [c for c in data['categories'] if c['is_hva']]
+        non_hva_categories = [c for c in data['categories'] if not c['is_hva']]
         
-        assert len(hok_categories) > 0
-        assert len(non_hok_categories) > 0
+        assert len(hva_categories) > 0
+        assert len(non_hva_categories) > 0
     
     def test_milestones_for_customer_no_tpid(self, client, app, db_session, sample_customer):
         """Test milestones endpoint when customer has no TPID URL."""

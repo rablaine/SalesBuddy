@@ -11,7 +11,7 @@ from app.gateway_client import gateway_call
 from app.models import Job, Milestone, PrefetchedMeeting, SyncStatus, UserPreference, db
 from app.services.activity_coverage import fiscal_year_bounds
 from app.services.job_queue import enqueue, job_handler
-from app.services.msx_api import HOK_TASK_CATEGORIES
+from app.services.msx_api import HVA_TASK_CATEGORIES
 from app.services.workiq_service import get_meeting_summary
 
 logger = logging.getLogger(__name__)
@@ -53,11 +53,11 @@ _DEFAULT_CATEGORY = 861980000
 
 
 def _category_for_text(text: str) -> int:
-    """Prefer an HoK category, then use the closest non-HoK fallback."""
+    """Prefer an HVA category, then use the closest non-HVA fallback."""
     lowered = text.lower()
     for keywords, category in _CATEGORY_KEYWORDS:
         if any(keyword in lowered for keyword in keywords):
-            assert category in HOK_TASK_CATEGORIES
+            assert category in HVA_TASK_CATEGORIES
             return category
     for keywords, category in _FALLBACK_CATEGORY_KEYWORDS:
         if any(keyword in lowered for keyword in keywords):

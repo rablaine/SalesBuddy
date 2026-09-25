@@ -687,7 +687,7 @@ class TestMilestoneSyncService:
                     "description": "Architecture Design Session for SQL migration",
                     "task_category": 861980004,
                     "task_category_name": "Architecture Design Session",
-                    "is_hok": True,
+                    "is_hva": True,
                     "duration_minutes": 120,
                     "due_date": "2026-03-20T00:00:00Z",
                     "created_on": "2026-03-18T16:45:00Z",
@@ -718,7 +718,7 @@ class TestMilestoneSyncService:
             assert task.description == "Architecture Design Session for SQL migration"
             assert task.task_category == 861980004
             assert task.task_category_name == "Architecture Design Session"
-            assert task.is_hok is True
+            assert task.is_hva is True
             assert task.duration_minutes == 120
             assert task.msx_task_url == "https://example.com/task-001"
             assert task.note_id is None  # Synced tasks aren't linked to notes
@@ -761,7 +761,7 @@ class TestMilestoneSyncService:
                 description="Old description",
                 task_category=861980002,
                 task_category_name="Demo",
-                is_hok=True,
+                is_hva=True,
                 duration_minutes=30,
                 milestone_id=ms.id,
             )
@@ -799,7 +799,7 @@ class TestMilestoneSyncService:
                     "description": "Updated description",
                     "task_category": 861980004,
                     "task_category_name": "Architecture Design Session",
-                    "is_hok": True,
+                    "is_hva": True,
                     "duration_minutes": 90,
                     "due_date": "2026-04-15T00:00:00Z",
                     "created_on": "2026-04-12T19:30:00Z",
@@ -986,7 +986,7 @@ class TestMilestoneSyncService:
                     "description": None,
                     "task_category": 861980002,
                     "task_category_name": "Demo",
-                    "is_hok": True,
+                    "is_hva": True,
                     "duration_minutes": 60,
                     "due_date": "2026-08-15T00:00:00Z",
                     "milestone_msx_id": "ms-guid-link-a",
@@ -998,7 +998,7 @@ class TestMilestoneSyncService:
                     "description": None,
                     "task_category": 861980004,
                     "task_category_name": "Architecture Design Session",
-                    "is_hok": True,
+                    "is_hva": True,
                     "duration_minutes": 120,
                     "due_date": "2026-09-15T00:00:00Z",
                     "milestone_msx_id": "ms-guid-link-b",

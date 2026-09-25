@@ -159,7 +159,7 @@ def _handle_milestone_and_task(note):
         task_due_date_str = request.form.get('task_due_date', '').strip()
         created_task_url = request.form.get('created_task_url', '').strip()
         created_task_category_name = request.form.get('created_task_category_name', '').strip()
-        created_task_is_hok = request.form.get('created_task_is_hok', '').strip() == '1'
+        created_task_is_hva = request.form.get('created_task_is_hva', '').strip() == '1'
         
         try:
             duration_minutes = int(task_duration)
@@ -196,7 +196,7 @@ def _handle_milestone_and_task(note):
                 task_category=task_category_int,
                 task_category_name=created_task_category_name or 'Unknown',
                 duration_minutes=duration_minutes,
-                is_hok=created_task_is_hok,
+                is_hva=created_task_is_hva,
                 due_date=task_due_date,
                 note=note,
                 milestone=first_milestone
@@ -1544,7 +1544,7 @@ def api_fill_my_day_save():
     created_task_id = data.get('created_task_id', '').strip()
     created_task_url = data.get('created_task_url', '').strip()
     created_task_category_name = data.get('created_task_category_name', '').strip()
-    created_task_is_hok = data.get('created_task_is_hok', '').strip() == '1'
+    created_task_is_hva = data.get('created_task_is_hva', '').strip() == '1'
     task_due_date_str = data.get('task_due_date', '').strip()
     
     # Validation
@@ -1644,7 +1644,7 @@ def api_fill_my_day_save():
                     task_category=0,  # Category code not passed from fill-my-day
                     task_category_name=created_task_category_name or 'Unknown',
                     duration_minutes=60,
-                    is_hok=created_task_is_hok,
+                    is_hva=created_task_is_hva,
                     due_date=task_due_date,
                     note=note,
                     milestone=milestone

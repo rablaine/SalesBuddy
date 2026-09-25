@@ -167,7 +167,7 @@ def milestone_create_task(id):
         return jsonify({"success": False, "error": "Milestone has no MSX ID — cannot create task"}), 400
     
     # Import here to avoid circular imports
-    from app.services.msx_api import create_task, TASK_CATEGORIES, HOK_TASK_CATEGORIES
+    from app.services.msx_api import create_task, TASK_CATEGORIES, HVA_TASK_CATEGORIES
     
     # Create the task in MSX
     result = create_task(
@@ -185,7 +185,7 @@ def milestone_create_task(id):
     # Look up category display name
     cat_info = next(
         (c for c in TASK_CATEGORIES if c["value"] == int(task_category)),
-        {"label": "Unknown", "is_hok": False}
+        {"label": "Unknown", "is_hva": False}
     )
     
     # Parse due date for local storage
@@ -205,7 +205,7 @@ def milestone_create_task(id):
         task_category=int(task_category),
         task_category_name=cat_info["label"],
         duration_minutes=int(duration_minutes),
-        is_hok=int(task_category) in HOK_TASK_CATEGORIES,
+        is_hva=int(task_category) in HVA_TASK_CATEGORIES,
         due_date=task_due_date,
         note_id=None,
         milestone_id=milestone.id,

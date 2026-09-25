@@ -39,26 +39,26 @@ official percentage.
 Is ACR weighting the official calculation? If so, which MSX ACR or milestone
 value field is the authoritative weight?
 
-## 3. HoK coverage milestone population
+## 3. HVA coverage milestone population
 
 **Working definition**
 
-The HoK coverage denominator is every active, on-team FY27 Data milestone due
+The HVA coverage denominator is every active, on-team FY27 Data milestone due
 in the current or next Microsoft fiscal year.
 
-A milestone is covered when it has at least one qualifying HoK activity during
+A milestone is covered when it has at least one qualifying HVA activity during
 the current fiscal year.
 
 **Question**
 
-Is this the correct milestone population, and should the HoK activity itself
+Is this the correct milestone population, and should the HVA activity itself
 have to occur during the current fiscal year?
 
-## 4. Qualifying HoK activity categories
+## 4. Qualifying HVA activity categories
 
 **Working definition**
 
-All of the following MSX task categories count as HoK:
+All of the following MSX task categories count as HVA:
 
 - Assessment
 - RFP/RFI
@@ -74,12 +74,12 @@ All of the following MSX task categories count as HoK:
 - Blocker Escalation
 - Consumption Plan
 
-`Assessment` and `RFP/RFI` are newly included in the qualifying HoK set.
-`Briefing` remains an available MSX task category but does not count as HoK.
+`Assessment` and `RFP/RFI` are newly included in the qualifying HVA set.
+`Briefing` remains an available MSX task category but does not count as HVA.
 
 **Question**
 
-Does this complete list match the FY27 definition of qualifying HoK activity?
+Does this complete list match the FY27 definition of qualifying HVA activity?
 
 ## 5. Technical-validation activity subset
 
@@ -142,8 +142,8 @@ Use this section to record answers:
 
 1. Milestone team coverage population:
 2. Milestone team coverage weighting:
-3. HoK coverage population and activity period:
-4. Qualifying HoK categories:
+3. HVA coverage population and activity period:
+4. Qualifying HVA categories:
 5. Technical-validation subset:
 6. Whitespace qualification: Confirmed September 24, 2026. Three zero months
    establish whitespace; three consecutive positive months confirm sustained

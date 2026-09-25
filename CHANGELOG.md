@@ -8,10 +8,14 @@ brought the change into `main`, so the admin Updates card can show
 Format: `## M/D/YYYY - <merge-short-sha>`. See
 `scripts/tag-changelog.ps1` for the helper that fills this in.
 
+## 9/24/2026
+
+- Update HoK tracking to the more relevant High-Value Activity (HVA) tracking throughout Sales Buddy.
+
 ## 9/24/2026 - df23519
 
-- Add an FY27 Data Connect Goals action center with best-effort calculations for U2C pace, milestone and HoK coverage, technical validation, and sustained whitespace. Official results may differ.
-- Add direct MINT Earnings access, in-page FY27 compensation bucket selection, and updated HoK categories including Assessment and RFP/RFI while excluding Briefing.
+- Add an FY27 Data Connect Goals action center with best-effort calculations for U2C pace, milestone and HVA coverage, technical validation, and sustained whitespace. Official results may differ.
+- Add direct MINT Earnings access, in-page FY27 compensation bucket selection, and updated HVA categories including Assessment and RFP/RFI while excluding Briefing.
 
 ## 9/23/2026 - fa8df50
 
@@ -63,11 +67,11 @@ Format: `## M/D/YYYY - <merge-short-sha>`. See
 
 ## 9/1/2026 - 8160d1e
 
-- Keep FY HoK Coverage focused on your current book by excluding milestones without an attached customer.
+- Keep FY HVA Coverage focused on your current book by excluding milestones without an attached customer.
 
 ## 9/1/2026 - 6fb1b11
 
-- Add CAIP Coverage to Activity Coverage with milestone-team Activities Logged and HoK metrics, automatic MSX evidence sync, and collapsible newest-first fiscal-year groups.
+- Add CAIP Coverage to Activity Coverage with milestone-team Activities Logged and HVA metrics, automatic MSX evidence sync, and collapsible newest-first fiscal-year groups.
 
 ## 8/31/2026 - 16ca58f
 
@@ -75,7 +79,7 @@ Format: `## M/D/YYYY - <merge-short-sha>`. See
 
 ## 8/31/2026 - c7a2857
 
-- Keep your place in Activity Coverage when dismissing meetings or creating standalone HoK tasks by updating affected rows without reloading the page.
+- Keep your place in Activity Coverage when dismissing meetings or creating standalone HVA tasks by updating affected rows without reloading the page.
 
 ## 8/31/2026 - d59b8e6
 
@@ -128,9 +132,9 @@ Format: `## M/D/YYYY - <merge-short-sha>`. See
 
 - Add Activity Coverage to populate fiscal-year calendar history with resumable catch-up, refresh existing MSX activities, and create editable activities without leaving Sales Buddy.
 - Add durable five-worker meeting preparation that stores WorkIQ summaries, drafts task details, prefers on-team milestone matches, and supports expand-all auditing with manual milestone overrides.
-- Prefer HoK-credit activity types during meeting preparation, support safe preparation reruns, add Weekly and Full FY review modes, clarify calendar and MSX actions with contextual F1 guidance, and add searchable customer and milestone pickers with richer matching context.
+- Prefer HVA-credit activity types during meeting preparation, support safe preparation reruns, add Weekly and Full FY review modes, clarify calendar and MSX actions with contextual F1 guidance, and add searchable customer and milestone pickers with richer matching context.
 - Prefer canonical Top accounts when duplicate MSX accounts share a TPID, repair stale customer account links during account sync, and refresh the local opportunity and milestone cache before Activity Coverage matching.
-- Add milestone HoK coverage for active on-team milestones, with current-fiscal-year metrics, prior-year HoK context, covered/inactive filters, prepared-meeting handoff, and standalone HoK task creation.
+- Add milestone HVA coverage for active on-team milestones, with current-fiscal-year metrics, prior-year HVA context, covered/inactive filters, prepared-meeting handoff, and standalone HVA task creation.
 - Automatically run the improved account sync once before Activity Coverage milestone matching when needed, ensuring the milestone refresh starts from current account assignments.
 
 ## 8/21/2026 - b3ab7f4
@@ -212,7 +216,7 @@ Format: `## M/D/YYYY - <merge-short-sha>`. See
 
 ## 7/26/2026 - 5badb46
 
-- Added new Hands On Keyboard task types for FY27 (L300+ Demo, Rapid Prototyping, Solution Whiteboarding, and Technical Workshop). These now appear when creating MSX tasks and count toward your HoK credit. Also added the Assessment task category.
+- Added new High-Value Activity task types for FY27 (L300+ Demo, Rapid Prototyping, Solution Whiteboarding, and Technical Workshop). These now appear when creating MSX tasks and count toward your HVA credit. Also added the Assessment task category.
 
 ## 7/26/2026 - 0991553
 
