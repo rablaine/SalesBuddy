@@ -8,7 +8,7 @@ brought the change into `main`, so the admin Updates card can show
 Format: `## M/D/YYYY - <merge-short-sha>`. See
 `scripts/tag-changelog.ps1` for the helper that fills this in.
 
-## 9/30/2026
+## 9/30/2026 - a2ea9be
 
 - Add Initiative Tracker with editable initiatives, hand-picked engagements and milestones grouped by seller, and automatically saved talking points.
 - Open engagement notes and milestone comments from Initiative Tracker without leaving the report, and keep dated discussion history through the Points editor.
