@@ -70,6 +70,10 @@ def run_migrations(db):
     # =========================================================================
     # Add new migrations below this line
     # =========================================================================
+
+    _add_column_if_not_exists(
+        db, inspector, 'manager_initiative_items', 'points_created_at', 'DATETIME',
+    )
     
     # Migration: Upgrade milestones table for MSX integration
     _migrate_milestones_for_msx(db, inspector)
@@ -407,6 +411,8 @@ def run_migrations(db):
             conn.commit()
 
     # =========================================================================
+    # manager_initiative_sections and manager_initiative_items are new tables,
+    # created idempotently by db.create_all(); no existing columns are changed.
     # End migrations
     # =========================================================================
     

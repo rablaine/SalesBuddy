@@ -217,10 +217,9 @@ cp .env.example .env
 
 **Running Locally:**
 ```powershell
-.\venv\Scripts\Activate.ps1
-python app.py
-# or
-flask run
+.\scripts\dev.ps1 start
+# When the dev server needs to reload backend changes:
+.\scripts\dev.ps1 restart
 ```
 
 **IMPORTANT - Virtual Environment:**
@@ -265,6 +264,19 @@ pytest --cov=app tests/  # with coverage
 - Environment: `FLASK_ENV=development`, `FLASK_DEBUG=True`
 - Used for developing and testing new features
 - Safe to experiment and break things
+- **Use the live dev environment for all development, browser validation, and
+  demonstrations to the user.** Use its existing database and actual engagements,
+  milestones, and other records. The dev environment exists for this purpose.
+- **Do not create sample-only previews, cloned databases, or separate demo servers**
+  unless the user explicitly requests one. Do not substitute fake data for the
+  live development data as a safety precaution.
+- Start or restart the dev server with `scripts\dev.ps1`. The normal dev URL is
+  `http://127.0.0.1:5000`; port 5151 belongs to the installed production app.
+- Before showing a feature, verify it works in the live dev server with its
+  existing data, not just in an isolated Flask instance.
+- **Automated pytest tests are the exception:** they must continue to use the
+  isolated test database configured by `tests/conftest.py`, never the live dev
+  or production database.
 
 **Production Environment:**
 - Sales Buddy Flask app runs locally via `flask run` or `start.bat`

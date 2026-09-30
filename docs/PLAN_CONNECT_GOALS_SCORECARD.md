@@ -89,7 +89,7 @@ This new page will not replace:
 - U2C Attainment.
 - Activity Coverage.
 - Connect Impact.
-- 1:1 Manager / SE Report.
+- 1:1 Report.
 - Persistent 1:1 workspaces.
 - Connect Export.
 - Whitespace Analysis.
@@ -1203,7 +1203,7 @@ Users will create pages from the same proven widget catalog:
 - Configure supported filters.
 - Arrange and resize widgets.
 - Save named layouts.
-- Start from templates such as Connect Goals, Manager 1:1, Quarter Execution,
+- Start from templates such as Connect Goals, Initiative Tracker, Quarter Execution,
   and Workload Expansion.
 
 The custom system changes placement and selection. It does not create a second

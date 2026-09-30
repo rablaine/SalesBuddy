@@ -4,11 +4,9 @@ from datetime import datetime, timezone
 
 from flask import Blueprint, jsonify, redirect, render_template, request, url_for
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy import or_
 from sqlalchemy.orm import joinedload
 
 from app.models import (
-    Customer,
     Engagement,
     Milestone,
     Note,
@@ -18,6 +16,7 @@ from app.models import (
     db,
 )
 from app.services.backup import schedule_customer_backup
+from app.services.agenda_candidates import get_agenda_candidates
 from app.services.milestone_tracking import track_note_on_milestones
 from app.services.one_on_one import (
     add_milestone_context_to_seller_agenda,
@@ -137,6 +136,13 @@ def workspace_create():
 @one_on_one_bp.route('/one-on-one/<int:workspace_id>')
 def workspace_view(workspace_id: int):
     """Render one person's persistent notes and agenda."""
+    return render_template(
+        'one_on_one_workspace.html', **_workspace_view_context(workspace_id),
+    )
+
+
+def _workspace_view_context(workspace_id: int) -> dict:
+    """Share the exact workspace and agenda context between page and fragment renders."""
     workspace = (
         OneOnOneWorkspace.query
         .options(
@@ -157,11 +163,30 @@ def workspace_view(workspace_id: int):
         key=lambda item: item.discussed_at or item.updated_at,
         reverse=True,
     )
+    return {
+        'workspace': workspace,
+        'active_items': active_items,
+        'discussed_items': discussed_items,
+    }
+
+
+@one_on_one_bp.route('/api/seller/<int:seller_id>/one-on-one/detail')
+def seller_workspace_fragment(seller_id: int) -> str | tuple[str, int]:
+    """Render the complete existing seller workspace for modal embedding."""
+    seller = db.session.get(Seller, seller_id)
+    if not seller:
+        return 'Seller not found', 404
+    try:
+        workspace = get_or_create_seller_workspace(seller)
+        db.session.commit()
+    except SQLAlchemyError:
+        db.session.rollback()
+        logger.exception('Failed to open seller %s 1:1 workspace', seller_id)
+        return 'The seller 1:1 notes could not be opened. Please try again.', 500
     return render_template(
-        'one_on_one_workspace.html',
-        workspace=workspace,
-        active_items=active_items,
-        discussed_items=discussed_items,
+        'partials/one_on_one_workspace_content.html',
+        **_workspace_view_context(workspace.id),
+        parent_modal_id='managerWorkModal',
     )
 
 
@@ -200,79 +225,7 @@ def workspace_candidates(workspace_id: int):
         for item in active_items
     }
 
-    if item_type == 'milestone':
-        query = (
-            Milestone.query
-            .join(Customer, Milestone.customer_id == Customer.id)
-            .filter(Milestone.msx_status.in_(['On Track', 'At Risk', 'Blocked']))
-            .options(joinedload(Milestone.customer))
-        )
-        if workspace.seller_id:
-            query = query.filter(Customer.seller_id == workspace.seller_id)
-        if search:
-            pattern = f'%{search}%'
-            query = query.filter(or_(
-                Milestone.title.ilike(pattern),
-                Milestone.workload.ilike(pattern),
-                Customer.name.ilike(pattern),
-                Customer.nickname.ilike(pattern),
-            ))
-        entities = query.order_by(
-            Milestone.on_my_team.desc(),
-            Milestone.monthly_usage.desc(),
-            Customer.name,
-            Milestone.title,
-        ).limit(75).all()
-        results = [
-            {
-                'id': entity.id,
-                'title': entity.display_text,
-                'customer_name': entity.customer.get_display_name(),
-                'status': entity.msx_status or '',
-                'acr': entity.monthly_usage,
-                'due_date': entity.due_date.date().isoformat() if entity.due_date else None,
-                'detail': entity.workload or entity.milestone_number or '',
-                'on_my_team': entity.on_my_team,
-            }
-            for entity in entities
-            if entity.id not in active_ids
-        ]
-    else:
-        query = (
-            Engagement.query
-            .join(Customer, Engagement.customer_id == Customer.id)
-            .filter(Engagement.status.in_(['Active', 'On Hold']))
-            .options(joinedload(Engagement.customer))
-        )
-        if workspace.seller_id:
-            query = query.filter(Customer.seller_id == workspace.seller_id)
-        if search:
-            pattern = f'%{search}%'
-            query = query.filter(or_(
-                Engagement.title.ilike(pattern),
-                Customer.name.ilike(pattern),
-                Customer.nickname.ilike(pattern),
-            ))
-        entities = query.order_by(
-            Engagement.estimated_acr.desc(),
-            Customer.name,
-            Engagement.title,
-        ).limit(75).all()
-        results = [
-            {
-                'id': entity.id,
-                'title': entity.title,
-                'customer_name': entity.customer.get_display_name(),
-                'status': entity.status,
-                'acr': entity.estimated_acr,
-                'due_date': entity.target_date.isoformat() if entity.target_date else None,
-                'detail': '',
-                'on_my_team': None,
-            }
-            for entity in entities
-            if entity.id not in active_ids
-        ]
-
+    results = get_agenda_candidates(item_type, search, workspace.seller_id, active_ids)
     return jsonify({'success': True, 'results': results})
 
 

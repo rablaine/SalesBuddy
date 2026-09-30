@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}1:1 Manager / SE Report - Sales Buddy{% endblock %}
+{% block title %}1:1 Report - Sales Buddy{% endblock %}
 
 {% block content %}
 <style>
@@ -9,10 +9,14 @@
 <div class="container-fluid mt-4">
     <div class="d-flex justify-content-between align-items-start mb-3">
         <div>
-            <h2><i class="bi bi-chat-left-text"></i> 1:1 Manager / SE Report</h2>
+            <h2><i class="bi bi-chat-left-text"></i> 1:1 Report</h2>
             <p class="text-muted mb-0">Meeting prep view showing active engagements and recent activity.</p>
         </div>
         <div class="d-flex gap-2">
+            <a href="{{ url_for('reports.report_manager_one_on_one') }}"
+               class="btn btn-outline-primary">
+                <i class="bi bi-layout-text-window"></i> Initiative Tracker
+            </a>
             <button type="button" class="btn btn-primary" data-bs-toggle="modal"
                     data-bs-target="#oneOnOneWorkspaceLauncher">
                 <i class="bi bi-journal-text"></i> Open 1:1 Notes

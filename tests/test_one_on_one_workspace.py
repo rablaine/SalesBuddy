@@ -1,5 +1,9 @@
 """Tests for persistent one-on-one notes and agenda workspaces."""
+from unittest.mock import patch
+
 import pytest
+from bs4 import BeautifulSoup
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.models import (
     Customer,
@@ -119,6 +123,81 @@ class TestOneOnOneWorkspaceNavigation:
             workspaces = OneOnOneWorkspace.query.filter_by(seller_id=seller_id).all()
             assert len(workspaces) == 1
             assert workspaces[0].person_name == 'Workspace Seller'
+
+    def test_seller_fragment_reuses_complete_page_content(self, client, app, one_on_one_data):
+        """The modal receives the same workspace, agenda, styles, dependencies, and scripts."""
+        seller_id = one_on_one_data['seller_id']
+        page_url = client.get(f'/seller/{seller_id}/one-on-one').location
+        with app.app_context():
+            workspace = OneOnOneWorkspace.query.filter_by(seller_id=seller_id).one()
+            workspace.notes = '<p>Standing coaching context</p>'
+            db.session.add_all([
+                OneOnOneAgendaItem(
+                    workspace=workspace, item_type='engagement',
+                    engagement_id=one_on_one_data['engagement_id'],
+                    title_snapshot='Architecture', customer_snapshot='Workspace Customer',
+                    talking_points='Plan for next meeting',
+                ),
+                OneOnOneAgendaItem(
+                    workspace=workspace, item_type='milestone',
+                    milestone_id=one_on_one_data['milestone_id'],
+                    title_snapshot='Migration', customer_snapshot='Workspace Customer',
+                    status='discussed', talking_points='Earlier discussion',
+                ),
+            ])
+            db.session.commit()
+        full = BeautifulSoup(client.get(page_url).data, 'html.parser')
+        response = client.get(f'/api/seller/{seller_id}/one-on-one/detail')
+        assert response.status_code == 200
+        fragment = BeautifulSoup(response.data, 'html.parser')
+        assert fragment.select_one('html, body, nav.navbar, iframe') is None
+        for selector in ['.one-on-one-shell', '#addAgendaModal', '#editEngagementModal']:
+            assert str(fragment.select_one(selector)) == str(full.select_one(selector))
+        assert 'Standing coaching context' in fragment.get_text()
+        assert 'Plan for next meeting' in fragment.get_text()
+        assert 'Earlier discussion' in fragment.get_text()
+        assert 'new Quill(workspaceNotes' in response.data.decode()
+        assert "loadCandidates" in response.data.decode()
+        assert "data-workspace-parent-modal" not in response.data.decode()
+        assert 'workspaceParentModal' in response.data.decode()
+        assert 'workspaceParentModal' not in client.get(page_url).data.decode()
+        for src in [
+            'https://cdnjs.cloudflare.com/ajax/libs/quill/2.0.0-dev.3/quill.min.js',
+            'https://cdn.jsdelivr.net/npm/quill-better-table@1.2.10/dist/quill-better-table.min.js',
+        ]:
+            assert fragment.select_one(f'script[src="{src}"]') is not None
+
+    def test_seller_fragment_creates_once_and_updates_seller_name(
+        self, client, app, one_on_one_data,
+    ):
+        """Modal entry matches the existing seller entry's get-or-create behavior."""
+        seller_id = one_on_one_data['seller_id']
+        url = f'/api/seller/{seller_id}/one-on-one/detail'
+        assert client.get(url).status_code == 200
+        with app.app_context():
+            db.session.get(Seller, seller_id).name = 'Renamed Workspace Seller'
+            db.session.commit()
+        assert b'Renamed Workspace Seller' in client.get(url).data
+        with app.app_context():
+            assert OneOnOneWorkspace.query.filter_by(seller_id=seller_id).count() == 1
+
+    def test_seller_fragment_missing_and_database_errors(
+        self, client, app, one_on_one_data,
+    ):
+        """Fragment failures are explicit and a failed workspace creation is rolled back."""
+        assert client.get('/api/seller/999999/one-on-one/detail').status_code == 404
+        with app.app_context(), patch.object(
+            db.session, 'commit', side_effect=SQLAlchemyError('fragment save failure'),
+        ):
+            response = client.get(
+                f"/api/seller/{one_on_one_data['seller_id']}/one-on-one/detail",
+            )
+        assert response.status_code == 500
+        assert b'could not be opened' in response.data
+        with app.app_context():
+            assert OneOnOneWorkspace.query.filter_by(
+                seller_id=one_on_one_data['seller_id'],
+            ).count() == 0
 
     def test_create_standalone_manager_workspace(self, client, app):
         """People absent from Seller should get standalone workspaces."""
