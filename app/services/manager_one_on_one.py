@@ -20,6 +20,7 @@ def get_manager_one_on_one_report() -> dict:
         selectinload(ManagerInitiativeSection.items)
         .joinedload(ManagerInitiativeItem.milestone).joinedload(Milestone.customer)
         .joinedload(Customer.seller),
+        selectinload(ManagerInitiativeSection.items).joinedload(ManagerInitiativeItem.project),
         selectinload(ManagerInitiativeSection.items)
         .selectinload(ManagerInitiativeItem.discussed_points),
     ).order_by(ManagerInitiativeSection.id).all()
@@ -58,9 +59,10 @@ def get_manager_section_payload(section: ManagerInitiativeSection) -> dict:
 
 def get_manager_item_payload(item: ManagerInitiativeItem) -> dict:
     """Use live entity values and retain snapshots when a linked record is deleted."""
-    entity = item.milestone if item.item_type == 'milestone' else item.engagement
-    live = bool(entity and entity.customer)
-    seller = entity.customer.seller if live else None
+    entity = getattr(item, item.item_type)
+    is_project = item.item_type == 'project'
+    live = bool(entity and (is_project or entity.customer))
+    seller = entity.customer.seller if live and not is_project else None
     payload = candidate_payload(entity, item.item_type) if live else {
         'id': None,
         'title': item.title_snapshot,

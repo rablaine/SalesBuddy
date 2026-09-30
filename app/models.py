@@ -380,15 +380,17 @@ class ManagerInitiativeSection(db.Model):
 
 
 class ManagerInitiativeItem(db.Model):
-    """A linked engagement or milestone, not a copy of the underlying work."""
+    """Linked work or an internal project, not a copy of the underlying record."""
     __tablename__ = 'manager_initiative_items'
     __table_args__ = (
         db.UniqueConstraint('section_id', 'milestone_id'),
         db.UniqueConstraint('section_id', 'engagement_id'),
-        db.CheckConstraint("item_type IN ('milestone', 'engagement')"),
+        db.UniqueConstraint('section_id', 'project_id'),
+        db.CheckConstraint("item_type IN ('milestone', 'engagement', 'project')"),
         db.CheckConstraint(
-            "(item_type = 'milestone' AND engagement_id IS NULL) OR "
-            "(item_type = 'engagement' AND milestone_id IS NULL)"
+            "(item_type = 'milestone' AND engagement_id IS NULL AND project_id IS NULL) OR "
+            "(item_type = 'engagement' AND milestone_id IS NULL AND project_id IS NULL) OR "
+            "(item_type = 'project' AND milestone_id IS NULL AND engagement_id IS NULL)"
         ),
     )
 
@@ -403,6 +405,9 @@ class ManagerInitiativeItem(db.Model):
     engagement_id = db.Column(
         db.Integer, db.ForeignKey('engagements.id', ondelete='SET NULL'), nullable=True,
     )
+    project_id = db.Column(
+        db.Integer, db.ForeignKey('projects.id', ondelete='SET NULL'), nullable=True,
+    )
     title_snapshot = db.Column(db.String(500), nullable=False)
     customer_snapshot = db.Column(db.String(300), nullable=False)
     talking_points = db.Column(db.Text, nullable=False, default='')
@@ -411,6 +416,7 @@ class ManagerInitiativeItem(db.Model):
     section = db.relationship('ManagerInitiativeSection', back_populates='items')
     milestone = db.relationship('Milestone')
     engagement = db.relationship('Engagement')
+    project = db.relationship('Project')
     discussed_points = db.relationship(
         'ManagerDiscussedPoint',
         back_populates='item',

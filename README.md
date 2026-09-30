@@ -31,8 +31,18 @@ The MSI installer handles everything: prerequisites (Git, Python, Azure CLI, Nod
 - **Connect Export** - structured self-eval summaries over date ranges with per-customer breakdowns
 - **Global Search** - full-text across notes, customers, sellers, topics, and territories
 - **Analytics Dashboard** - activity heatmap, engagement trends, top topics and customers
+- **Reports Navigation** - divider-separated groups for planning and reviews, execution
+  and coverage, pipeline health, and account insights. Connect Goals' action reports
+  stay together, separate from planning and review pages. All Reports uses the same
+  groups and report order.
 - **Initiative Tracker** - create named initiatives, select engagements and milestones,
   grouped by their current seller, with live status, commitment, dates, and ACR.
+  When user-facing internal projects exist, **Add work** also offers **Projects**, with
+  all statuses available. The system-only Copilot Saved Tasks type is excluded from the
+  picker and does not enable this option. Projects have no customer or seller and open
+  their full existing project
+  content in the same detail modal. Their current points and discussion history stay
+  with the initiative, even if the source project is later deleted.
   Click a work row to open its existing detail page in a modal, including engagement
   notes or milestone comments. The **(1:1 notes)** link beside a seller opens their
   full existing 1:1 workspace, including standing notes and the next conversation's

@@ -1,9 +1,16 @@
-"""Shared live milestone and engagement search for 1:1 item pickers."""
+"""Shared live work search for agenda and Initiative Tracker item pickers."""
 
 from sqlalchemy import or_
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import Query, joinedload
 
-from app.models import Customer, Engagement, Milestone
+from app.models import Customer, Engagement, Milestone, Project
+
+WORK_MODELS = {'milestone': Milestone, 'engagement': Engagement, 'project': Project}
+
+
+def get_selectable_projects_query() -> Query[Project]:
+    """Include user-facing project types, excluding the system's saved Copilot tasks."""
+    return Project.query.filter(Project.project_type != 'copilot_saved')
 
 
 def get_agenda_candidates(
@@ -12,10 +19,27 @@ def get_agenda_candidates(
     seller_id: int | None = None,
     excluded_ids: set[int] | None = None,
 ) -> list[dict]:
-    """Find up to 75 active candidates, preserving the seller agenda ordering."""
-    if item_type not in {'milestone', 'engagement'}:
+    """Find up to 75 candidates; internal projects are available in every status."""
+    if item_type not in WORK_MODELS:
         raise ValueError('Invalid item type')
-    model = Milestone if item_type == 'milestone' else Engagement
+    if item_type == 'project':
+        if seller_id is not None:
+            raise ValueError('Internal projects are not scoped to a seller')
+        query = get_selectable_projects_query()
+        if excluded_ids:
+            query = query.filter(~Project.id.in_([
+                entity_id for entity_id in excluded_ids if entity_id is not None
+            ]))
+        if search:
+            query = query.filter(or_(*(
+                field.ilike(f'%{search}%')
+                for field in (Project.title, Project.description, Project.project_type)
+            )))
+        return [
+            candidate_payload(project, item_type)
+            for project in query.order_by(Project.title, Project.id).limit(75).all()
+        ]
+    model = WORK_MODELS[item_type]
     query = model.query.join(Customer, model.customer_id == Customer.id).options(
         joinedload(model.customer)
     )
@@ -45,8 +69,17 @@ def get_agenda_candidates(
     ).limit(75).all()]
 
 
-def candidate_payload(entity: Milestone | Engagement, item_type: str) -> dict:
-    """Serialize current details consistently for both 1:1 report pickers."""
+def candidate_payload(entity: Milestone | Engagement | Project, item_type: str) -> dict:
+    """Serialize current details consistently for all supported work types."""
+    if isinstance(entity, Project):
+        return {
+            'id': entity.id, 'title': entity.title,
+            'customer_name': 'Internal project', 'customer_id': None,
+            'status': entity.status, 'acr': None,
+            'due_date': entity.due_date.isoformat() if entity.due_date else None,
+            'detail': entity.project_type.replace('_', ' ').title(),
+            'on_my_team': None, 'commitment': '',
+        }
     is_milestone = item_type == 'milestone'
     due = entity.due_date if is_milestone else entity.target_date
     return {

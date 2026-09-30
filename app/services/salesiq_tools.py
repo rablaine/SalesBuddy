@@ -118,7 +118,7 @@ def execute_tool(name: str, params: dict) -> Any:
 @tool(
     'report_manager_one_on_one',
     'Read Initiative Tracker, including named initiatives, '
-    'seller-grouped engagements and milestones, live status, commitment, dates, '
+    'seller-grouped engagements and milestones, internal projects, live status, commitment, dates, '
     'current points, and discussion history with creation and discussion timestamps.',
     {'type': 'object', 'properties': {}},
 )
