@@ -31,6 +31,16 @@ The MSI installer handles everything: prerequisites (Git, Python, Azure CLI, Nod
 - **Connect Export** - structured self-eval summaries over date ranges with per-customer breakdowns
 - **Global Search** - full-text across notes, customers, sellers, topics, and territories
 - **Analytics Dashboard** - activity heatmap, engagement trends, top topics and customers
+- **Manager 1:1** - create named initiative sections, select engagements and milestones,
+  grouped by their current seller, with live status, commitment, dates, and ACR.
+  Click a work row to open its existing detail page in a modal, including engagement
+  notes or milestone comments. The **Points** icon opens an autosaved agenda block
+  and dated discussion history. **Mark discussed** stores a separate history record
+  and starts a fresh block for the next conversation. History stays with its initiative
+  item; existing blocks created before date tracking show that instead of an invented
+  creation timestamp. Find it under
+  Reports. Sections persist between meetings; removing a section or item never deletes
+  the linked work. The previous meeting-prep report remains available as **1:1 Report (old)**.
 - **Automatic Updates** - `update.bat` pulls latest code, migrates the database, and restarts
 - **Daily Backups** - automatic OneDrive backup with daily/weekly/monthly retention
 
@@ -143,6 +153,23 @@ cd installer
 ```
 
 See [installer/README.md](installer/README.md) for details.
+
+## Local Development
+
+Start the live development server with the repository's launcher:
+
+```powershell
+.\scripts\dev.ps1 start
+# Reload the server when needed:
+.\scripts\dev.ps1 restart
+```
+
+Use `http://127.0.0.1:5000` and the existing `data/salesbuddy.db` for development,
+browser validation, and feature demonstrations. Do not substitute sample-only
+preview servers or copied databases unless explicitly requested. The installed
+production app on port 5151 is separate.
+
+Automated pytest tests still use their isolated database, not the live dev database.
 
 ## Running Tests
 

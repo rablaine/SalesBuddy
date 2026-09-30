@@ -1,0 +1,327 @@
+{% extends "base.html" %}
+{% block title %}Manager 1:1 - Sales Buddy{% endblock %}
+
+{% block extra_css %}
+<style>
+    .manager-work-table { table-layout: fixed; width: 100%; }
+    .manager-work-table th { white-space: nowrap; font-weight: 500; }
+    .manager-work-table th, .manager-work-table td {
+        padding-left: 0.5rem;
+        padding-right: 0.5rem;
+    }
+    .manager-work-table td { padding-top: 0.5rem; padding-bottom: 0.5rem; }
+    .manager-work-row[data-entity-id] { cursor: pointer; }
+    .manager-work-row[data-entity-id]:hover { --bs-table-bg-state: var(--bs-tertiary-bg); }
+    .manager-work-table .remove-work { color: var(--bs-secondary-color); }
+    .manager-work-table .remove-work:hover { color: var(--bs-danger); }
+    .manager-work-table .seller-group th {
+        background: transparent;
+        padding-top: 0.75rem;
+        padding-bottom: 0;
+        border-bottom: 0;
+        font-size: 0.75rem;
+        font-weight: 600;
+    }
+    .manager-work-table tbody:first-of-type .seller-group th { padding-top: 0.5rem; }
+    .manager-work-table .seller-group + .manager-work-row td { padding-top: 0.125rem; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div id="managerReport" class="container-fluid mt-4">
+    <div class="d-flex justify-content-between align-items-start mb-4">
+        <div>
+            <h2 class="mb-1"><i class="bi bi-layout-text-window"></i> Manager 1:1</h2>
+            <p class="text-muted mb-0">Initiatives and work for your next conversation.</p>
+        </div>
+        <div class="d-flex align-items-center gap-3">
+            <span id="talkingPointsState" class="small text-muted" role="status" aria-live="polite"></span>
+            <button class="btn btn-primary" type="button" data-bs-toggle="collapse"
+                    data-bs-target="#newSection" aria-expanded="false" aria-controls="newSection">
+                <i class="bi bi-plus-lg"></i> New section
+            </button>
+        </div>
+    </div>
+
+    <div id="reportError" class="alert alert-danger d-none" role="alert" tabindex="-1">
+        <span id="reportErrorMessage"></span>
+        <button type="button" id="retryTalkingPoints" class="btn btn-sm btn-outline-danger ms-2 d-none"
+                data-action="retry-points">Retry saving</button>
+    </div>
+    <div class="collapse mb-4" id="newSection">
+        <form class="section-form border rounded p-3 bg-body-tertiary">
+            <h5>Create an initiative section</h5>
+            <label for="newSectionName" class="form-label">Section name</label>
+            <input id="newSectionName" name="name" class="form-control mb-3" required
+                   maxlength="200" placeholder="e.g. SQL Renewals">
+            <label for="newSectionDescription" class="form-label">Context <span class="text-muted">(optional)</span></label>
+            <textarea id="newSectionDescription" name="description" class="form-control mb-3"
+                      rows="2" maxlength="10000" placeholder="What are you working toward?"></textarea>
+            <button type="submit" class="btn btn-primary">Create section</button>
+            <button type="button" class="btn btn-outline-secondary" data-bs-toggle="collapse"
+                    data-bs-target="#newSection">Cancel</button>
+        </form>
+    </div>
+
+    {% if sections %}
+    <nav class="d-flex align-items-center gap-3 border-bottom pb-3 mb-4"
+         aria-label="Initiative sections">
+        {% for section in sections %}
+        <a href="#section-{{ section.id }}" class="text-decoration-none">
+            {{ section.name }} <span class="text-muted ms-1">{{ section['items']|length }}</span>
+        </a>
+        {% endfor %}
+        <span class="small text-muted ms-auto">Click work for details. Open Points for your meeting notes.</span>
+    </nav>
+            {% for section in sections %}
+            <section id="section-{{ section.id }}" class="mb-5" aria-labelledby="section-title-{{ section.id }}">
+                <div class="d-flex justify-content-between align-items-start gap-3 mb-3">
+                    <div>
+                        <h4 id="section-title-{{ section.id }}" class="mb-1 text-break">{{ section.name }}
+                            <span class="text-muted fw-normal fs-6 ms-2">{{ section['items']|length }} items</span>
+                        </h4>
+                        {% if section.description %}
+                        <p class="text-muted mb-0 text-break" style="white-space: pre-wrap;">{{ section.description }}</p>
+                        {% endif %}
+                    </div>
+                    <div class="d-flex gap-2 flex-shrink-0">
+                        <button type="button" class="btn btn-sm btn-outline-primary"
+                                data-action="open-picker" data-section-id="{{ section.id }}"
+                                aria-expanded="false" aria-controls="picker-{{ section.id }}">
+                            <i class="bi bi-plus-lg"></i> Add work
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary"
+                                data-bs-toggle="collapse" data-bs-target="#edit-{{ section.id }}"
+                                aria-expanded="false" aria-controls="edit-{{ section.id }}">
+                            <i class="bi bi-pencil"></i> Edit
+                        </button>
+                    </div>
+                </div>
+
+                <div class="collapse mb-3" id="edit-{{ section.id }}">
+                    <form class="section-form border rounded p-3 bg-body-tertiary" data-section-id="{{ section.id }}">
+                        <label for="section-name-{{ section.id }}" class="form-label">Section name</label>
+                        <input id="section-name-{{ section.id }}" name="name" value="{{ section.name }}"
+                               class="form-control mb-3" maxlength="200" required>
+                        <label for="section-description-{{ section.id }}" class="form-label">Context (optional)</label>
+                        <textarea id="section-description-{{ section.id }}" name="description"
+                                  class="form-control mb-3" rows="2" maxlength="10000">{{ section.description }}</textarea>
+                        <div class="d-flex gap-2">
+                            <button type="submit" class="btn btn-sm btn-primary">Save section</button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="collapse"
+                                    data-bs-target="#edit-{{ section.id }}">Cancel</button>
+                            <button type="button" class="btn btn-sm btn-outline-danger ms-auto"
+                                    data-action="delete-section" data-section-id="{{ section.id }}">
+                                Delete section
+                            </button>
+                        </div>
+                    </form>
+                </div>
+
+                <div class="d-none border rounded p-3 bg-body-tertiary mb-3 work-picker"
+                     id="picker-{{ section.id }}" data-section-id="{{ section.id }}">
+                    <form class="candidate-search d-flex align-items-end gap-2 mb-3">
+                        <div>
+                            <label class="form-label small" for="type-{{ section.id }}">Work type</label>
+                            <select id="type-{{ section.id }}" name="type" class="form-select">
+                                <option value="engagement">Engagements</option>
+                                <option value="milestone">Milestones</option>
+                            </select>
+                        </div>
+                        <div class="flex-grow-1">
+                            <label class="form-label small" for="search-{{ section.id }}">Find work</label>
+                            <input id="search-{{ section.id }}" name="q" class="form-control"
+                                   placeholder="Search title, customer, or milestone workload">
+                        </div>
+                        <button type="submit" class="btn btn-outline-primary">Search</button>
+                        <button type="button" class="btn btn-outline-secondary" data-action="close-picker">Close</button>
+                    </form>
+                    <div class="picker-status small mb-2" role="status" aria-live="polite"></div>
+                    <div class="candidate-results" style="max-height: 360px; overflow: auto;"></div>
+                    <div class="d-flex align-items-center gap-3 mt-3">
+                        <button type="button" class="btn btn-primary" data-action="add-items" disabled>Add selected</button>
+                        <span class="selected-count small text-muted">0 selected</span>
+                    </div>
+                </div>
+
+                {% if section['items'] %}
+                <div>
+                    <table class="table table-sm align-middle mb-0 manager-work-table">
+                        <caption class="visually-hidden">{{ section.name }} engagements and milestones</caption>
+                        <colgroup>
+                            <col style="width: 35%;">
+                            <col style="width: 22%;">
+                            <col style="width: 16%;">
+                            <col style="width: 10%;">
+                            <col style="width: 9%;">
+                            <col style="width: 5%;">
+                            <col style="width: 3%;">
+                        </colgroup>
+                        <thead class="small text-muted">
+                            <tr>
+                                <th scope="col">Work</th>
+                                <th scope="col">Customer</th>
+                                <th scope="col">Status</th>
+                                <th scope="col">Due</th>
+                                <th scope="col" class="text-end" title="Estimated monthly Azure consumption revenue">ACR</th>
+                                <th scope="col" class="text-center">Points</th>
+                                <th scope="col"><span class="visually-hidden">Actions</span></th>
+                            </tr>
+                        </thead>
+                        {% for group in section.seller_groups %}
+                        <tbody aria-labelledby="seller-group-{{ section.id }}-{{ group.seller_id if group.seller_id is not none else 'none' }}"
+                               data-seller-id="{{ group.seller_id if group.seller_id is not none else 'none' }}">
+                            <tr class="seller-group">
+                                <th colspan="7" scope="rowgroup"
+                                    id="seller-group-{{ section.id }}-{{ group.seller_id if group.seller_id is not none else 'none' }}">
+                                    {% if group.seller_id is not none %}
+                                    <a class="seller-group-link text-body fw-semibold text-decoration-none"
+                                       href="{{ url_for('sellers.seller_view', id=group.seller_id) }}">
+                                        <i class="bi bi-person"></i> {{ group.seller_name }}
+                                    </a>
+                                    {% else %}
+                                    <span class="text-body fw-semibold"><i class="bi bi-person"></i> No seller</span>
+                                    {% endif %}
+                                </th>
+                            </tr>
+                            {% for item in group['items'] %}
+                            <tr class="manager-work-row" data-item-id="{{ item.id }}"
+                                {% if item.available %}data-entity-id="{{ item.entity_id }}"
+                                data-item-type="{{ item.item_type }}" data-title="{{ item.title }}"{% endif %}>
+                                <td>
+                                    {% if item.available %}
+                                    <a class="work-detail-link d-block fw-semibold text-decoration-none text-truncate"
+                                       title="{{ item.title }}"
+                                       href="{{ url_for('milestones.milestone_view' if item.item_type == 'milestone' else 'engagements.engagement_view', id=item.entity_id) }}">{{ item.title }}</a>
+                                    {% else %}
+                                    <strong class="d-block text-truncate" title="{{ item.title }}">{{ item.title }}</strong>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if item.available %}
+                                    <a class="d-block text-decoration-none text-truncate text-body"
+                                       title="{{ item.customer_name }}"
+                                       href="{{ url_for('customers.customer_view', id=item.customer_id) }}">{{ item.customer_name }}</a>
+                                    {% else %}
+                                    <span class="d-block text-muted text-truncate" title="{{ item.customer_name }}">{{ item.customer_name }}</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <div class="d-flex align-items-center gap-1 flex-wrap">
+                                        <span class="badge bg-secondary">{{ item.status or 'Not set' }}</span>
+                                        {% if item.commitment %}<span class="small text-muted">{{ item.commitment }}</span>{% endif %}
+                                    </div>
+                                </td>
+                                <td class="small text-nowrap">{{ item.due_date or 'Not set' }}</td>
+                                <td class="text-end text-nowrap">{{ '${:,.0f}'.format(item.acr) if item.acr is not none else 'Not set' }}</td>
+                                <td class="text-center">
+                                    <button type="button" class="btn btn-sm btn-link text-decoration-none px-1 points-button {{ 'text-primary' if item.talking_points|trim else 'text-secondary' }}"
+                                            data-action="open-points" data-item-id="{{ item.id }}"
+                                            aria-label="Points for {{ item.title }}"
+                                            title="{{ 'Current points' if item.talking_points|trim else 'Add points' }}{% if item.discussed_points %}; {{ item.discussed_points|length }} discussed{% endif %}">
+                                        <i class="bi {{ 'bi-chat-left-text-fill' if item.talking_points|trim else 'bi-chat-left-text' }}"></i>
+                                        {% if item.discussed_points %}<span class="small points-count">{{ item.discussed_points|length }}</span>{% endif %}
+                                    </button>
+                                </td>
+                                <td>
+                                    <button type="button" class="btn btn-sm btn-link text-decoration-none remove-work px-1"
+                                            data-action="remove-item" data-item-id="{{ item.id }}"
+                                            aria-label="Remove {{ item.title }} from this section" title="Remove from section">
+                                        <i class="bi bi-x-lg"></i>
+                                    </button>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                        {% endfor %}
+                    </table>
+                </div>
+                {% else %}
+                <div class="border-top border-bottom py-4 text-muted">
+                    Add engagements or milestones to shape this initiative. Only the work you choose appears here.
+                </div>
+                {% endif %}
+            </section>
+            {% endfor %}
+    {% else %}
+    <div class="border-top border-bottom py-5">
+        <div class="mx-auto" style="max-width: 640px;">
+            <div class="small text-muted text-uppercase mb-2">Start with an initiative</div>
+            <h3 class="mb-3">Make room for the work that matters.</h3>
+            <p class="text-muted">Create a section like <strong>SQL Renewals</strong> or
+                <strong>Commit this quarter</strong>, then select the engagements and milestones
+                you want to walk through with your manager.</p>
+            <p class="text-muted mb-4">Rename, edit, or remove sections as priorities change.
+                Your report stays here between meetings.</p>
+            <button type="button" class="btn btn-primary" data-bs-toggle="collapse"
+                    data-bs-target="#newSection" aria-expanded="false" aria-controls="newSection">
+                <i class="bi bi-plus-lg"></i> Create your first section
+            </button>
+        </div>
+    </div>
+    {% endif %}
+
+    <div class="modal fade" id="managerWorkModal" tabindex="-1"
+         aria-labelledby="managerWorkTitle" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-scrollable"
+             style="max-width: min(1100px, calc(100vw - 3rem)); width: calc(100vw - 3rem);">
+            <div class="modal-content" style="max-height: 90vh;">
+                <div class="modal-header py-2">
+                    <h5 class="modal-title mb-0" id="managerWorkTitle">Work details</h5>
+                    <div class="d-flex align-items-center gap-2">
+                        <a id="managerWorkFullLink" class="btn btn-sm btn-outline-secondary" href="#">
+                            <i class="bi bi-arrows-fullscreen"></i> Full Page
+                        </a>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                </div>
+                <div class="modal-body p-3" id="managerWorkBody"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="managerPointsModal" tabindex="-1"
+         aria-labelledby="managerPointsTitle" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-scrollable">
+            <div class="modal-content">
+                <div class="modal-header py-2">
+                    <h5 class="modal-title" id="managerPointsTitle">Points</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <p id="managerPointsContext" class="small text-muted mb-3"></p>
+                    <div id="pointsModalError" class="alert alert-danger d-none" role="alert">
+                        <span></span>
+                        <button type="button" class="btn btn-sm btn-outline-danger ms-2"
+                                data-action="retry-points">Retry saving</button>
+                    </div>
+                    <div class="talking-points-field" id="managerPointsField">
+                        <label for="managerPointsText" class="form-label">For your next conversation</label>
+                        <textarea id="managerPointsText" class="form-control talking-points"
+                                  name="talking_points" rows="5" maxlength="10000"
+                                  placeholder="What do you want to discuss?"></textarea>
+                    </div>
+                    <div class="d-flex align-items-center justify-content-between gap-3 mt-2 mb-4">
+                        <span id="pointsCreatedAt" class="small text-muted"></span>
+                        <button type="button" class="btn btn-sm btn-outline-success"
+                                data-action="discuss-points" id="discussPoints">
+                            <i class="bi bi-check2"></i> Mark discussed
+                        </button>
+                    </div>
+                    <h6 class="mb-3">Previously discussed <span id="pointsHistoryCount" class="text-muted"></span></h6>
+                    <div id="pointsHistory"></div>
+                </div>
+                <div class="modal-footer py-2">
+                    <span id="pointsModalState" class="small text-muted me-auto" role="status" aria-live="polite"></span>
+                    <span class="small text-muted">Points save automatically</span>
+                    <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Done</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/manager_one_on_one.js') }}"></script>
+{% endblock %}

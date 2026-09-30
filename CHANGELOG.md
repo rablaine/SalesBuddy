@@ -8,6 +8,12 @@ brought the change into `main`, so the admin Updates card can show
 Format: `## M/D/YYYY - <merge-short-sha>`. See
 `scripts/tag-changelog.ps1` for the helper that fills this in.
 
+## 9/30/2026
+
+- Add Manager 1:1 with editable initiative sections, hand-picked engagements and milestones grouped by seller, and automatically saved talking points.
+- Open engagement notes and milestone comments from Manager 1:1 without leaving the report, and keep dated discussion history through the Points editor.
+- Keep the previous manager meeting-prep view available as 1:1 Report (old).
+
 ## 9/24/2026 - 0c4a3b0
 
 - Sharpen the interface with tighter corners across cards, buttons, forms, modals, and other controls.

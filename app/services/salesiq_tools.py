@@ -116,6 +116,20 @@ def execute_tool(name: str, params: dict) -> Any:
 # -- 1:1 workspaces ----------------------------------------------------------
 
 @tool(
+    'report_manager_one_on_one',
+    'Read the curated Manager 1:1 report, including named initiative sections, '
+    'seller-grouped engagements and milestones, live status, commitment, dates, '
+    'current points, and discussion history with creation and discussion timestamps.',
+    {'type': 'object', 'properties': {}},
+)
+def report_manager_one_on_one() -> dict:
+    """Return the manager initiative report using the page's shared query service."""
+    from app.services.manager_one_on_one import get_manager_one_on_one_report
+
+    return get_manager_one_on_one_report()
+
+
+@tool(
     'get_one_on_one_workspaces',
     'Get persistent 1:1 notes and agenda items for sellers, managers, and other people.',
     {

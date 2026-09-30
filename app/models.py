@@ -363,6 +363,76 @@ class Seller(db.Model):
         return None
 
 
+class ManagerInitiativeSection(db.Model):
+    """A user-named initiative in the persistent manager 1:1 report."""
+    __tablename__ = 'manager_initiative_sections'
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(200), nullable=False)
+    description = db.Column(db.Text, nullable=False, default='')
+    created_at = db.Column(db.DateTime, default=utc_now, nullable=False)
+    items = db.relationship(
+        'ManagerInitiativeItem',
+        back_populates='section',
+        cascade='all, delete-orphan',
+        order_by='ManagerInitiativeItem.id',
+    )
+
+
+class ManagerInitiativeItem(db.Model):
+    """A linked engagement or milestone, not a copy of the underlying work."""
+    __tablename__ = 'manager_initiative_items'
+    __table_args__ = (
+        db.UniqueConstraint('section_id', 'milestone_id'),
+        db.UniqueConstraint('section_id', 'engagement_id'),
+        db.CheckConstraint("item_type IN ('milestone', 'engagement')"),
+        db.CheckConstraint(
+            "(item_type = 'milestone' AND engagement_id IS NULL) OR "
+            "(item_type = 'engagement' AND milestone_id IS NULL)"
+        ),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    section_id = db.Column(
+        db.Integer, db.ForeignKey('manager_initiative_sections.id'), nullable=False, index=True,
+    )
+    item_type = db.Column(db.String(20), nullable=False)
+    milestone_id = db.Column(
+        db.Integer, db.ForeignKey('milestones.id', ondelete='SET NULL'), nullable=True,
+    )
+    engagement_id = db.Column(
+        db.Integer, db.ForeignKey('engagements.id', ondelete='SET NULL'), nullable=True,
+    )
+    title_snapshot = db.Column(db.String(500), nullable=False)
+    customer_snapshot = db.Column(db.String(300), nullable=False)
+    talking_points = db.Column(db.Text, nullable=False, default='')
+    points_created_at = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(db.DateTime, default=utc_now, nullable=False)
+    section = db.relationship('ManagerInitiativeSection', back_populates='items')
+    milestone = db.relationship('Milestone')
+    engagement = db.relationship('Engagement')
+    discussed_points = db.relationship(
+        'ManagerDiscussedPoint',
+        back_populates='item',
+        cascade='all, delete-orphan',
+        order_by='ManagerDiscussedPoint.discussed_at.desc(), ManagerDiscussedPoint.id.desc()',
+    )
+
+
+class ManagerDiscussedPoint(db.Model):
+    """An immutable meeting agenda block discussed for one initiative item."""
+    __tablename__ = 'manager_discussed_points'
+
+    id = db.Column(db.Integer, primary_key=True)
+    item_id = db.Column(
+        db.Integer, db.ForeignKey('manager_initiative_items.id'), nullable=False, index=True,
+    )
+    text = db.Column(db.Text, nullable=False)
+    created_at = db.Column(db.DateTime, nullable=True)
+    discussed_at = db.Column(db.DateTime, default=utc_now, nullable=False)
+    item = db.relationship('ManagerInitiativeItem', back_populates='discussed_points')
+
+
 class OneOnOneWorkspace(db.Model):
     """Persistent notes and agenda for one person's recurring 1:1 meetings."""
     __tablename__ = 'one_on_one_workspaces'

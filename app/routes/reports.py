@@ -2,7 +2,7 @@
 import json
 import logging
 from datetime import datetime, timedelta, timezone, date
-from flask import Blueprint, current_app, render_template, url_for, jsonify, request
+from flask import Blueprint, Response, current_app, render_template, url_for, jsonify, request
 from app.models import (
     db, Customer, Engagement, Note, Milestone, MilestoneAudit, Opportunity, Seller,
     SolutionEngineer, SyncStatus, MsxTask, PrefetchedMeeting,
@@ -13,10 +13,220 @@ from app.models import (
     OneOnOneWorkspace, Territory,
 )
 from sqlalchemy import func, desc, or_
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 logger = logging.getLogger(__name__)
 
 bp = Blueprint('reports', __name__)
+
+
+def _save_manager_report_changes() -> tuple:
+    """Commit report edits with explicit rollback and user-visible failure messages."""
+    try:
+        db.session.commit()
+    except IntegrityError:
+        db.session.rollback()
+        logger.exception('Conflicting manager 1:1 report edit')
+        return jsonify(success=False, error='An item is already in this section.'), 409
+    except SQLAlchemyError:
+        db.session.rollback()
+        logger.exception('Failed to save manager 1:1 report')
+        return jsonify(
+            success=False, error='Your changes could not be saved. Please try again.',
+        ), 500
+    return jsonify(success=True), 200
+
+
+@bp.route('/reports/manager-one-on-one')
+def report_manager_one_on_one():
+    """Render the persistent, user-curated manager initiative report."""
+    from app.services.manager_one_on_one import get_manager_one_on_one_report
+
+    return render_template('report_manager_one_on_one.html', **get_manager_one_on_one_report())
+
+
+@bp.route('/api/reports/manager-one-on-one')
+def manager_one_on_one_data():
+    """Read the same live report data used by the page and SalesIQ."""
+    from app.services.manager_one_on_one import get_manager_one_on_one_report
+
+    return jsonify(success=True, **get_manager_one_on_one_report())
+
+
+@bp.route('/api/reports/manager-one-on-one/sections', methods=['POST'])
+@bp.route(
+    '/api/reports/manager-one-on-one/sections/<int:section_id>',
+    methods=['PATCH', 'DELETE'],
+)
+def manager_one_on_one_section(section_id: int | None = None):
+    """Create, rename, describe, or remove a section without changing linked work."""
+    from app.models import ManagerInitiativeSection
+
+    section = (
+        db.session.get(ManagerInitiativeSection, section_id)
+        if section_id is not None else None
+    )
+    if section_id is not None and section is None:
+        return jsonify(success=False, error='Section not found.'), 404
+    if request.method == 'DELETE':
+        db.session.delete(section)
+        return _save_manager_report_changes()
+
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify(success=False, error='A section name and description are required.'), 400
+    name = data.get('name')
+    description = data.get('description', '')
+    if not isinstance(name, str) or not 1 <= len(name.strip()) <= 200:
+        return jsonify(success=False, error='Enter a section name of 1 to 200 characters.'), 400
+    if not isinstance(description, str) or len(description) > 10000:
+        return jsonify(success=False, error='Description must be at most 10,000 characters.'), 400
+    if section is None:
+        section = ManagerInitiativeSection()
+        db.session.add(section)
+    section.name = name.strip()
+    section.description = description.strip()
+    return _save_manager_report_changes()
+
+
+@bp.route('/api/reports/manager-one-on-one/sections/<int:section_id>/candidates')
+def manager_one_on_one_candidates(section_id: int):
+    """Search current work, excluding only items already in the selected section."""
+    from app.models import ManagerInitiativeSection
+    from app.services.agenda_candidates import get_agenda_candidates
+
+    section = db.session.get(ManagerInitiativeSection, section_id)
+    if section is None:
+        return jsonify(success=False, error='Section not found.'), 404
+    item_type = request.args.get('type', 'engagement')
+    if item_type not in {'engagement', 'milestone'}:
+        return jsonify(success=False, error='Choose engagements or milestones.'), 400
+    excluded = {
+        item.milestone_id if item_type == 'milestone' else item.engagement_id
+        for item in section.items if item.item_type == item_type
+    }
+    return jsonify(success=True, results=get_agenda_candidates(
+        item_type, request.args.get('q', '').strip(), excluded_ids=excluded,
+    ))
+
+
+@bp.route(
+    '/api/reports/manager-one-on-one/sections/<int:section_id>/items', methods=['POST'],
+)
+def manager_one_on_one_add_items(section_id: int):
+    """Add a validated selection atomically, permitting reuse in other initiatives."""
+    from app.models import ManagerInitiativeItem, ManagerInitiativeSection
+    from app.services.agenda_candidates import candidate_payload
+
+    section = db.session.get(ManagerInitiativeSection, section_id)
+    if section is None:
+        return jsonify(success=False, error='Section not found.'), 404
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify(success=False, error='Choose items to add.'), 400
+    item_type = data.get('item_type')
+    ids = data.get('entity_ids')
+    if (
+        not isinstance(item_type, str) or item_type not in {'engagement', 'milestone'}
+        or not isinstance(ids, list) or not 1 <= len(ids) <= 75
+        or any(type(entity_id) is not int or entity_id <= 0 for entity_id in ids)
+        or len(set(ids)) != len(ids)
+    ):
+        return jsonify(success=False, error='Choose 1 to 75 distinct, valid items.'), 400
+    model = Milestone if item_type == 'milestone' else Engagement
+    entities = model.query.options(db.joinedload(model.customer)).filter(model.id.in_(ids)).all()
+    if len(entities) != len(ids) or any(not entity.customer for entity in entities):
+        return jsonify(success=False, error='A selected item is no longer available.'), 404
+    existing = {
+        item.milestone_id if item_type == 'milestone' else item.engagement_id
+        for item in section.items if item.item_type == item_type
+    }
+    if existing.intersection(ids):
+        return jsonify(success=False, error='An item is already in this section.'), 409
+    by_id = {entity.id: entity for entity in entities}
+    for entity_id in ids:
+        payload = candidate_payload(by_id[entity_id], item_type)
+        section.items.append(ManagerInitiativeItem(
+            item_type=item_type,
+            milestone_id=entity_id if item_type == 'milestone' else None,
+            engagement_id=entity_id if item_type == 'engagement' else None,
+            title_snapshot=payload['title'],
+            customer_snapshot=payload['customer_name'],
+        ))
+    return _save_manager_report_changes()
+
+
+@bp.route(
+    '/api/reports/manager-one-on-one/items/<int:item_id>', methods=['GET', 'PATCH', 'DELETE'],
+)
+def manager_one_on_one_item(item_id: int):
+    """Save talking points or remove a report link, never the source entity."""
+    from app.models import ManagerInitiativeItem
+    from app.services.manager_one_on_one import get_manager_item_payload
+
+    item = db.session.get(ManagerInitiativeItem, item_id)
+    if item is None:
+        return jsonify(success=False, error='Report item not found.'), 404
+    if request.method == 'GET':
+        return jsonify(success=True, item=get_manager_item_payload(item))
+    if request.method == 'DELETE':
+        db.session.delete(item)
+    else:
+        data = request.get_json(silent=True)
+        points = data.get('talking_points') if isinstance(data, dict) else None
+        if not isinstance(points, str) or len(points) > 10000:
+            return jsonify(
+                success=False, error='Talking points must be at most 10,000 characters.',
+            ), 400
+        if points.strip() and not item.talking_points.strip():
+            item.points_created_at = datetime.now(timezone.utc)
+        elif not points.strip():
+            item.points_created_at = None
+        item.talking_points = points
+    response, status = _save_manager_report_changes()
+    if status == 200 and request.method == 'PATCH':
+        return jsonify(success=True, item=get_manager_item_payload(item)), 200
+    return response, status
+
+
+@bp.route(
+    '/api/reports/manager-one-on-one/items/<int:item_id>/discuss', methods=['POST'],
+)
+def manager_one_on_one_discuss(item_id: int) -> Response | tuple[Response, int]:
+    """Archive a saved agenda block once, retaining timestamps and starting fresh."""
+    from app.models import ManagerDiscussedPoint, ManagerInitiativeItem
+    from app.services.manager_one_on_one import get_manager_item_payload
+
+    item = db.session.get(ManagerInitiativeItem, item_id)
+    if item is None:
+        return jsonify(success=False, error='Report item not found.'), 404
+    data = request.get_json(silent=True)
+    points = data.get('talking_points') if isinstance(data, dict) else None
+    if not isinstance(points, str) or not points.strip() or len(points) > 10000:
+        return jsonify(success=False, error='Add points before marking them discussed.'), 400
+    created_at = item.points_created_at
+    try:
+        updated = ManagerInitiativeItem.query.filter_by(
+            id=item_id, talking_points=points, points_created_at=created_at,
+        ).update({'talking_points': '', 'points_created_at': None})
+        if updated != 1:
+            db.session.rollback()
+            return jsonify(
+                success=False,
+                error='These points changed or were already discussed. Reopen Points to refresh.',
+            ), 409
+        db.session.add(ManagerDiscussedPoint(
+            item=item, text=points, created_at=created_at,
+            discussed_at=datetime.now(timezone.utc),
+        ))
+        db.session.commit()
+    except SQLAlchemyError:
+        db.session.rollback()
+        logger.exception('Failed to archive manager 1:1 points for item %s', item_id)
+        return jsonify(
+            success=False, error='Points could not be marked discussed. Please try again.',
+        ), 500
+    return jsonify(success=True, item=get_manager_item_payload(item))
 
 
 @bp.route('/reports')
@@ -145,8 +355,18 @@ def reports_hub():
                     'url': url_for('reports.report_marketing_insights'),
                 },
                 {
+                    'id': 'manager-one-on-one',
+                    'name': 'Manager 1:1',
+                    'description': (
+                        'Build your own initiative sections and hand-pick engagements '
+                        'and milestones for your manager conversations.'
+                    ),
+                    'icon': 'bi-layout-text-window',
+                    'url': url_for('reports.report_manager_one_on_one'),
+                },
+                {
                     'id': 'one-on-one',
-                    'name': '1:1 Manager / SE Report',
+                    'name': '1:1 Report (old)',
                     'description': (
                         'Active engagements and recent notes for 1:1 meeting prep. '
                         'Shows what you have been working on and where milestones stand.'

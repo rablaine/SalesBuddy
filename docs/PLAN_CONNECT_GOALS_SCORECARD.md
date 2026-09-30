@@ -89,7 +89,7 @@ This new page will not replace:
 - U2C Attainment.
 - Activity Coverage.
 - Connect Impact.
-- 1:1 Manager / SE Report.
+- 1:1 Report (old).
 - Persistent 1:1 workspaces.
 - Connect Export.
 - Whitespace Analysis.
