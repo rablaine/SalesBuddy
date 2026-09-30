@@ -1,4 +1,4 @@
-/* Persistent manager initiatives, work detail modals, and dated discussion points. */
+/* Persistent initiative tracking, work detail modals, and dated discussion points. */
 (() => {
     'use strict';
     const root = document.getElementById('managerReport');
@@ -270,18 +270,38 @@
     }
 
     async function openWork(row) {
+        await openDetail(
+            row.dataset.title,
+            row.querySelector('.work-detail-link').href,
+            `/api/${row.dataset.itemType}/${row.dataset.entityId}/detail`,
+        );
+    }
+
+    async function openSellerNotes(link) {
+        await openDetail(
+            `1:1 notes: ${link.dataset.sellerName}`,
+            link.href,
+            `/api/seller/${link.dataset.sellerId}/one-on-one/detail`,
+        );
+    }
+
+    async function openDetail(title, fullUrl, fragmentUrl) {
         detailRequest?.abort();
+        for (const modal of document.querySelectorAll('[data-workspace-parent-modal]')) {
+            bootstrap.Modal.getInstance(modal)?.dispose();
+            modal.remove();
+        }
         const controller = new AbortController();
         detailRequest = controller;
         contextBeforeWork = window.copilotContext;
         workContext = undefined;
         const body = document.getElementById('managerWorkBody');
-        document.getElementById('managerWorkTitle').textContent = row.dataset.title;
-        document.getElementById('managerWorkFullLink').href = row.querySelector('.work-detail-link').href;
+        document.getElementById('managerWorkTitle').textContent = title;
+        document.getElementById('managerWorkFullLink').href = fullUrl;
         body.innerHTML = '<div class="text-center py-5"><div class="spinner-border text-primary" role="status"><span class="visually-hidden">Loading...</span></div></div>';
         bootstrap.Modal.getOrCreateInstance(document.getElementById('managerWorkModal')).show();
         try {
-            const response = await fetch(`/api/${row.dataset.itemType}/${row.dataset.entityId}/detail`, {
+            const response = await fetch(fragmentUrl, {
                 signal: controller.signal,
             });
             if (!response.ok) throw new Error('Work details could not be loaded. Reopen the row to retry.');
@@ -333,9 +353,42 @@
     }
 
     function updateSelection(picker) {
-        const count = picker.querySelectorAll('input[type="checkbox"]:checked').length;
-        picker.querySelector('.selected-count').textContent = `${count} selected`;
-        picker.querySelector('[data-action="add-items"]').disabled = count === 0;
+        const count = picker.querySelectorAll('input[type="checkbox"]:checked:not(:disabled)').length;
+        picker.querySelector('.selected-count').textContent = count > 75
+            ? `${count} selected. Add up to 75 at a time.` : `${count} selected`;
+        picker.querySelector('[data-action="add-items"]').disabled = count === 0 || count > 75;
+    }
+
+    function updatePickerSource(picker, type, source) {
+        picker.querySelector('.milestone-source').classList.toggle('d-none', type !== 'milestone');
+        for (const button of picker.querySelectorAll('[data-action="picker-source"]')) {
+            const active = button.dataset.source === source;
+            button.classList.toggle('active', active);
+            button.setAttribute('aria-pressed', String(active));
+        }
+    }
+
+    function candidateStatus(payload, source) {
+        if (source !== 'u2c') {
+            return payload.results.length
+                ? `${payload.results.length} available. Search to narrow the list (up to 75 shown).`
+                : 'No matching work. Try another search. Work already in this initiative is excluded.';
+        }
+        if (!payload.snapshot) return payload.message;
+        const snapshot = payload.snapshot;
+        const date = snapshot.version_date
+            ? `Snapshot ${snapshot.version_date}` : `Imported ${localTime(snapshot.snapshot_date)}`;
+        const available = payload.results.filter(item => item.selectable).length;
+        const added = payload.results.filter(item => item.already_added).length;
+        const missing = payload.results.filter(item => !item.available).length;
+        return [
+            snapshot.fiscal_quarter, date,
+            payload.workload_prefix ? `${payload.workload_prefix} workloads (U2C filter)` : 'All workloads',
+            'Live details; quarter based on snapshot dates',
+            payload.results.length ? `${available} available` : 'No matching uncommitted milestones',
+            added ? `${added} already added` : '',
+            missing ? `${missing} not synced locally. Sync these milestones before adding them.` : '',
+        ].filter(Boolean).join(' · ');
     }
 
     async function search(picker) {
@@ -346,19 +399,25 @@
         const status = picker.querySelector('.picker-status');
         const results = picker.querySelector('.candidate-results');
         const type = form.elements.type.value;
+        const source = type === 'milestone' && picker.dataset.source === 'u2c' ? 'u2c' : 'search';
+        updatePickerSource(picker, type, source);
         results.replaceChildren();
         updateSelection(picker);
         status.textContent = 'Loading work...';
         status.classList.remove('text-danger');
         try {
-            const params = new URLSearchParams({type, q: form.elements.q.value.trim()});
+            const params = new URLSearchParams({type, source, q: form.elements.q.value.trim()});
+            if (source === 'u2c') {
+                const workload = localStorage.getItem('u2c_workload_filter');
+                if (workload) params.set('workload_prefix', workload);
+            }
             const payload = await request(
                 `${api}/sections/${picker.dataset.sectionId}/candidates?${params}`,
                 'GET', undefined, controller.signal,
             );
-            status.textContent = payload.results.length
-                ? `${payload.results.length} available. Select work to add. Showing up to 75 results; search to narrow the list.`
-                : 'No matching work available. Try another search or work type. Items already in this section are excluded.';
+            if (controller.signal.aborted) return;
+            status.textContent = candidateStatus(payload, source);
+            if (!payload.results.length) return;
             const table = document.createElement('table');
             table.className = 'table table-sm align-middle mb-0';
             const caption = table.createCaption();
@@ -379,8 +438,17 @@
                 checkbox.type = 'checkbox';
                 checkbox.className = 'form-check-input';
                 checkbox.value = item.id;
+                checkbox.disabled = item.selectable === false;
                 checkbox.setAttribute('aria-label', `Select ${item.title} for ${item.customer_name}`);
-                cell(row, '').append(checkbox);
+                const selection = cell(row, '');
+                selection.append(checkbox);
+                if (item.reason) {
+                    checkbox.setAttribute('title', item.reason);
+                    const reason = document.createElement('span');
+                    reason.className = 'small text-muted d-block text-nowrap mt-1';
+                    reason.textContent = item.reason;
+                    selection.append(reason);
+                }
                 const work = cell(row, '');
                 const title = document.createElement('div');
                 title.className = 'fw-semibold text-break';
@@ -432,7 +500,10 @@
     root.addEventListener('change', event => {
         const picker = event.target.closest('.work-picker');
         if (!picker) return;
-        if (event.target.name === 'type') search(picker);
+        if (event.target.name === 'type') {
+            picker.dataset.source = 'search';
+            search(picker);
+        }
         else updateSelection(picker);
     });
 
@@ -454,7 +525,18 @@
 
     root.addEventListener('click', event => {
         const button = event.target.closest('[data-action]');
+        if (button?.dataset.action === 'open-seller-notes'
+            && (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey)) return;
         if (!button) {
+            const candidate = event.target.closest('.candidate-results tbody tr');
+            if (candidate && !event.target.closest('input, a, button')) {
+                const checkbox = candidate.querySelector('input[type="checkbox"]');
+                if (!checkbox.disabled) {
+                    checkbox.checked = !checkbox.checked;
+                    updateSelection(candidate.closest('.work-picker'));
+                }
+                return;
+            }
             const row = event.target.closest('.manager-work-row[data-entity-id]');
             if (!row || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
             const interactive = event.target.closest('a, button, input, textarea, select');
@@ -467,6 +549,14 @@
         const picker = button.closest('.work-picker');
         const sectionId = button.dataset.sectionId;
         switch (button.dataset.action) {
+        case 'picker-source':
+            picker.dataset.source = button.dataset.source;
+            search(picker);
+            break;
+        case 'open-seller-notes':
+            event.preventDefault();
+            openSellerNotes(button);
+            break;
         case 'open-points':
             openPoints(button);
             break;
@@ -498,7 +588,7 @@
                 .setAttribute('aria-expanded', 'false');
             break;
         case 'delete-section':
-            if (confirm('Delete this section and its report links? The engagements and milestones will not be deleted.')) {
+            if (confirm('Delete this initiative and its report links? The engagements and milestones will not be deleted.')) {
                 mutate(button, () => request(`${api}/sections/${sectionId}`, 'DELETE'));
             }
             break;
@@ -506,7 +596,7 @@
             mutate(button, () => request(`${api}/items/${button.dataset.itemId}`, 'DELETE'));
             break;
         case 'add-items': {
-            const ids = Array.from(picker.querySelectorAll('input[type="checkbox"]:checked'),
+            const ids = Array.from(picker.querySelectorAll('input[type="checkbox"]:checked:not(:disabled)'),
                 checkbox => Number(checkbox.value));
             mutate(button, () => request(`${api}/sections/${picker.dataset.sectionId}/items`, 'POST', {
                 item_type: picker.querySelector('select[name="type"]').value,
@@ -533,5 +623,12 @@
         if (!root.querySelector('.talking-points-field[data-dirty="true"]')) return;
         event.preventDefault();
         event.returnValue = '';
+    });
+
+    window.addEventListener('storage', event => {
+        if (event.key !== 'u2c_workload_filter' && event.key !== null) return;
+        for (const picker of root.querySelectorAll('.work-picker:not(.d-none)')) {
+            if (picker.dataset.source === 'u2c') search(picker);
+        }
     });
 })();

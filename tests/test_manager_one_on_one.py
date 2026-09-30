@@ -1,4 +1,4 @@
-"""Manager initiative report persistence, validation, navigation, and live data tests."""
+"""Initiative Tracker persistence, validation, navigation, and live data tests."""
 
 from datetime import datetime, timezone
 from types import SimpleNamespace
@@ -10,7 +10,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from app.models import (
     Customer, Engagement, ManagerDiscussedPoint, ManagerInitiativeItem,
-    ManagerInitiativeSection, Milestone, Seller, db,
+    ManagerInitiativeSection, Milestone, Seller, U2CSnapshot, U2CSnapshotItem, db,
 )
 from app.services.salesiq_tools import execute_tool
 
@@ -49,17 +49,54 @@ def add_work(client, section_id: int, item_type: str, entity_ids: list[int]):
     })
 
 
-def test_empty_report_and_navigation(client):
-    """Both reports remain accessible; the new report starts without sample sections."""
-    page = client.get('/reports/manager-one-on-one')
+@pytest.mark.parametrize('page_url', [
+    '/reports/initiative-tracker', '/reports/manager-one-on-one',
+])
+def test_empty_report_and_navigation(client, page_url):
+    """Use the new report name and URL while retaining saved links and the 1:1 report."""
+    page = client.get(page_url)
     assert page.status_code == 200
-    assert b'Create your first section' in page.data
-    assert b'1:1 Report (old)' in page.data
+    soup = BeautifulSoup(page.data, 'html.parser')
+    assert soup.title.get_text(strip=True) == 'Initiative Tracker - Sales Buddy'
+    assert soup.select_one('h2').get_text(strip=True) == 'Initiative Tracker'
+    assert b'Create your first initiative' in page.data
+    assert b'Track priorities, related work, and discussion points.' in page.data
     assert client.get(API).json['sections'] == []
     hub = client.get('/reports')
-    assert b'/reports/manager-one-on-one' in hub.data
+    assert b'/reports/initiative-tracker' in hub.data
     assert b'/reports/one-on-one' in hub.data
-    assert b'1:1 Report (old)' in client.get('/reports/one-on-one').data
+    tracker_nav = soup.select_one('#navReports a[href="/reports/initiative-tracker"]')
+    assert tracker_nav.get_text(strip=True) == 'Initiative Tracker'
+    meeting = BeautifulSoup(client.get('/reports/one-on-one').data, 'html.parser')
+    assert meeting.title.get_text(strip=True) == '1:1 Report - Sales Buddy'
+    assert meeting.select_one('h2').get_text(strip=True) == '1:1 Report'
+    link = meeting.select_one('main a.btn[href="/reports/initiative-tracker"]')
+    assert link is not None
+    assert link.get_text(strip=True) == 'Initiative Tracker'
+
+
+def test_initiative_labels_are_consistent(client):
+    """Use initiative wording in creation, editing, navigation, and API errors."""
+    create_section(client)
+    soup = BeautifulSoup(client.get('/reports/initiative-tracker').data, 'html.parser')
+    for panel in soup.select('.section-form'):
+        assert panel.select_one('label').get_text(strip=True) == 'Initiative name'
+    assert soup.select_one('#newSection [type="submit"]').get_text(strip=True) == (
+        'Create initiative'
+    )
+    assert soup.select_one('[data-section-id] [type="submit"]').get_text(strip=True) == (
+        'Save initiative'
+    )
+    assert soup.select_one('[data-action="delete-section"]').get_text(strip=True) == (
+        'Delete initiative'
+    )
+    assert soup.select_one('[aria-label="Close initiative editor"]') is not None
+    assert client.post(f'{API}/sections', json={}).json['error'] == (
+        'Enter an initiative name of 1 to 200 characters.'
+    )
+    assert client.get(f'{API}/sections/999999/candidates').json['error'] == (
+        'Initiative not found.'
+    )
 
 
 def test_section_create_edit_and_persist(client, app):
@@ -134,7 +171,7 @@ def test_compact_report_columns_and_autosave_fields(client, initiative_data):
         'Work', 'Customer', 'Status', 'Due', 'ACR', 'Points', 'Actions',
     ]
     assert soup.select_one('aside') is None
-    assert soup.select_one('nav[aria-label="Initiative sections"]') is not None
+    assert soup.select_one('nav[aria-label="Initiatives"]') is not None
     for row, customer in zip(table.select('tr.manager-work-row'), ['SQL Alias', 'Other Customer']):
         cells = row.select('td')
         assert len(cells) == 7
@@ -188,6 +225,14 @@ def test_each_section_groups_mixed_work_by_current_seller(client, app, initiativ
     assert len(report_section['items']) == sum(len(group['items']) for group in groups) == 4
     soup = BeautifulSoup(client.get('/reports/manager-one-on-one').data, 'html.parser')
     bodies = soup.select('.manager-work-table tbody')
+    for body in bodies:
+        link = body.select_one('.seller-notes-link')
+        if body['data-seller-id'] == 'none':
+            assert link is None
+        else:
+            assert link.get_text(strip=True) == '(1:1 notes)'
+            assert link['data-seller-id'] == body['data-seller-id']
+            assert link['href'] == f"/seller/{body['data-seller-id']}/one-on-one"
     assert [body['data-seller-id'] for body in bodies] == [str(alpha_id), str(zulu_id), 'none']
     for body, seller_id in zip(bodies[:2], [alpha_id, zulu_id]):
         heading_link = body.select_one('th[scope="rowgroup"] a.seller-group-link')
@@ -196,7 +241,7 @@ def test_each_section_groups_mixed_work_by_current_seller(client, app, initiativ
         assert 'fw-semibold' in heading_link['class']
         assert 'badge' not in heading_link['class']
         assert body.select_one('th[scope="rowgroup"]').get_text(strip=True) == (
-            heading_link.get_text(strip=True)
+            heading_link.get_text(strip=True) + '(1:1 notes)'
         )
     assert bodies[-1].select_one('th[scope="rowgroup"]').get_text(strip=True) == 'No seller'
     assert [len(body.select('tr.manager-work-row')) for body in bodies] == [2, 1, 1]
@@ -567,3 +612,323 @@ def test_clearing_current_points_resets_creation_time(client, initiative_data):
     fresh = client.patch(url, json={'talking_points': 'New block'}).json['item']
     assert fresh['points_created_at'] != first['points_created_at']
     assert fresh['discussed_points'] == []
+
+
+@pytest.fixture
+def manager_u2c_data(app, monkeypatch) -> dict:
+    """Build a current baseline with live, converted, missing, and out-of-quarter records."""
+    monkeypatch.setattr(
+        'app.services.u2c_snapshot.current_fiscal_quarter', lambda: 'FY27 Q1',
+    )
+    with app.app_context():
+        customer = Customer(name='Snapshot Customer', nickname='Snapshot Alias', tpid=987700)
+        snapshot = U2CSnapshot(
+            fiscal_quarter='FY27 Q1', snapshot_date=datetime(2026, 9, 29, tzinfo=timezone.utc),
+            msxi_version='20260922',
+        )
+        db.session.add_all([customer, snapshot])
+        db.session.flush()
+        ids = {}
+        for name, commitment, status, baseline_due in [
+            ('remaining', 'Uncommitted', 'On Track', datetime(2026, 9, 30, 23, 59, 59)),
+            ('blocked', 'Uncommitted', 'Blocked', datetime(2026, 7, 1)),
+            ('committed', 'Committed', 'On Track', datetime(2026, 9, 15)),
+            ('completed', 'Uncommitted', 'Completed', datetime(2026, 9, 15)),
+            ('cancelled', 'Uncommitted', 'Cancelled', datetime(2026, 9, 15)),
+            ('hygiene', 'Uncommitted', 'Hygiene/Duplicate', datetime(2026, 9, 15)),
+            ('outside', 'Uncommitted', 'On Track', datetime(2026, 10, 1)),
+        ]:
+            milestone = Milestone(
+                customer=customer, title=f'Live {name}', url=f'https://example.com/{name}',
+                msx_status=status, customer_commitment=commitment, monthly_usage=1000,
+                due_date=datetime(2026, 12, 1), workload='Data: SQL',
+            )
+            db.session.add(milestone)
+            db.session.flush()
+            ids[name] = milestone.id
+            db.session.add(U2CSnapshotItem(
+                snapshot=snapshot, milestone=milestone, customer=customer,
+                customer_name='Frozen Customer', milestone_title=f'Frozen {name}',
+                due_date=baseline_due, monthly_acr=2000, msx_status='On Track',
+                msxi_commitment='Uncommitted', workload='Data: SQL',
+            ))
+        db.session.add(U2CSnapshotItem(
+            snapshot=snapshot, milestone_id=ids['remaining'], customer=customer,
+            customer_name='Frozen Customer', milestone_title='Duplicate remaining',
+            due_date=datetime(2026, 9, 15), monthly_acr=3000, msx_status='On Track',
+            workload='Data: SQL',
+        ))
+        for name, commitment in [('Missing locally', 'Uncommitted'), ('Converted missing', 'Committed')]:
+            db.session.add(U2CSnapshotItem(
+                snapshot=snapshot, customer_name='Not Synced Corp', milestone_title=name,
+                milestone_number=name, due_date=datetime(2026, 9, 15),
+                monthly_acr=4000, msx_status='On Track',
+                msxi_status='On Track', msxi_commitment=commitment,
+                workload='Data: SQL',
+            ))
+        unrelated = Milestone(
+            customer=customer, title='Not in snapshot', url='https://example.com/unrelated',
+            msx_status='On Track', customer_commitment='Uncommitted',
+        )
+        db.session.add(unrelated)
+        db.session.commit()
+        return {**ids, 'snapshot_id': snapshot.id, 'unrelated': unrelated.id}
+
+
+def test_u2c_candidates_reuse_current_quarter_baseline_and_live_details(client, manager_u2c_data):
+    """Use baseline quarter eligibility and live commitment, without inventing local records."""
+    section = create_section(client)
+    response = client.get(
+        f"{API}/sections/{section['id']}/candidates?type=milestone&source=u2c",
+    )
+    assert response.status_code == 200
+    payload = response.json
+    assert payload['snapshot']['fiscal_quarter'] == 'FY27 Q1'
+    assert payload['snapshot']['version_date'] == '2026-09-22'
+    assert payload['snapshot']['snapshot_date'].endswith('+00:00')
+    local = [row for row in payload['results'] if row['available']]
+    assert {row['id'] for row in local} == {
+        manager_u2c_data['remaining'], manager_u2c_data['blocked'],
+        manager_u2c_data['cancelled'], manager_u2c_data['hygiene'],
+    }
+    assert len(local) == 4
+    assert all(row['selectable'] and not row['already_added'] for row in local)
+    assert all(row['customer_name'] == 'Snapshot Alias' for row in local)
+    assert all(row['due_date'] == '2026-12-01' for row in local)
+    assert all(row['acr'] == 1000 for row in local)
+    missing = [row for row in payload['results'] if not row['available']]
+    assert len(missing) == 1
+    assert missing[0]['id'] is None
+    assert not missing[0]['selectable']
+    assert missing[0]['reason'] == 'Not synced locally'
+    assert missing[0]['title'] == 'Missing locally'
+
+
+def test_u2c_picker_marks_existing_links_and_keeps_sections_curated(
+    client, app, manager_u2c_data,
+):
+    """Show already-added rows, allow reuse elsewhere, and never auto-remove snapshot links."""
+    first = create_section(client)
+    second = create_section(client, 'Another focus')
+    entity_id = manager_u2c_data['remaining']
+    add_work(client, first['id'], 'milestone', [entity_id])
+    item = client.get(API).json['sections'][0]['items'][0]
+    client.patch(f"{API}/items/{item['id']}", json={'talking_points': 'Keep this agenda'})
+    for section, added in [(first, True), (second, False)]:
+        rows = client.get(
+            f"{API}/sections/{section['id']}/candidates?type=milestone&source=u2c",
+        ).json['results']
+        row = next(row for row in rows if row['id'] == entity_id)
+        assert row['already_added'] is added
+        assert row['selectable'] is not added
+    with app.app_context():
+        db.session.delete(db.session.get(U2CSnapshot, manager_u2c_data['snapshot_id']))
+        db.session.commit()
+    saved = client.get(API).json['sections'][0]['items'][0]
+    assert saved['entity_id'] == entity_id
+    assert saved['talking_points'] == 'Keep this agenda'
+    assert client.get(API).json['sections'][1]['items'] == []
+
+
+@pytest.mark.parametrize('search, expected', [
+    ('snapshot alias', {'Live remaining', 'Live blocked', 'Live cancelled', 'Live hygiene'}),
+    ('data: sql', {'Live remaining', 'Live blocked', 'Live cancelled', 'Live hygiene', 'Missing locally'}),
+    ('frozen remaining', {'Live remaining'}),
+    ('Not Synced', {'Missing locally'}),
+    ('no matching work', set()),
+])
+def test_u2c_candidates_search_live_and_frozen_context(
+    client, manager_u2c_data, search, expected,
+):
+    """Search works within the assisted source, including not-yet-synced baseline rows."""
+    section = create_section(client)
+    response = client.get(f"{API}/sections/{section['id']}/candidates", query_string={
+        'type': 'milestone', 'source': 'u2c', 'q': search,
+    })
+    assert {row['title'] for row in response.json['results']} == expected
+
+
+def test_missing_current_u2c_snapshot_does_not_fall_back_to_an_old_quarter(
+    client, app, monkeypatch,
+):
+    """A missing snapshot is an explicit empty state, not an old-quarter substitution."""
+    monkeypatch.setattr('app.services.u2c_snapshot.current_fiscal_quarter', lambda: 'FY27 Q2')
+    with app.app_context():
+        db.session.add(U2CSnapshot(fiscal_quarter='FY27 Q1'))
+        db.session.commit()
+    section = create_section(client)
+    payload = client.get(
+        f"{API}/sections/{section['id']}/candidates?type=milestone&source=u2c",
+    ).json
+    assert payload['snapshot'] is None
+    assert payload['results'] == []
+    assert payload['fiscal_quarter'] == 'FY27 Q2'
+    assert 'No FY27 Q2 U2C snapshot' in payload['message']
+
+
+def test_u2c_source_validation_and_normal_search_are_independent(client, manager_u2c_data):
+    """U2C is milestone-only and cannot change the existing normal candidate search."""
+    section = create_section(client)
+    url = f"{API}/sections/{section['id']}/candidates"
+    assert client.get(f'{url}?type=engagement&source=u2c').status_code == 400
+    assert client.get(f'{url}?type=milestone&source=unknown').status_code == 400
+    assert client.get(
+        f'{API}/sections/999999/candidates?type=milestone&source=u2c',
+    ).status_code == 404
+    ids = {row['id'] for row in client.get(f'{url}?type=milestone').json['results']}
+    assert manager_u2c_data['unrelated'] in ids
+
+
+def test_u2c_read_tool_uses_the_same_candidate_service(client, app, manager_u2c_data):
+    """SalesIQ can discover the same snapshot selections without duplicate business logic."""
+    section = create_section(client)
+    expected = client.get(
+        f"{API}/sections/{section['id']}/candidates?type=milestone&source=u2c&q=blocked",
+    ).json
+    with app.test_request_context():
+        tool_data = execute_tool('get_manager_u2c_candidates', {'search': 'blocked'})
+    assert tool_data == {key: value for key, value in expected.items() if key != 'success'}
+
+
+def test_section_forms_are_unfilled_and_u2c_controls_are_milestone_specific(
+    client, initiative_data,
+):
+    """Outline unfilled forms and keep the assisted source inside the milestone picker."""
+    section = create_section(client)
+    add_work(client, section['id'], 'engagement', [initiative_data['engagement']])
+    soup = BeautifulSoup(client.get('/reports/manager-one-on-one').data, 'html.parser')
+    for panel in soup.select('.section-form, .work-picker'):
+        assert 'bg-body-tertiary' not in panel['class']
+        assert 'rounded' not in panel['class']
+        assert 'border' in panel['class']
+        assert 'p-3' in panel['class']
+    assert soup.select_one('#newSection .col-5 [name="name"]') is not None
+    source = soup.select_one('.work-picker .milestone-source')
+    assert 'd-none' in source['class']
+    assert source.select_one('[data-source="u2c"]').get_text(strip=True) == 'From U2C'
+    assert source.select_one('[href="/reports/u2c"]') is not None
+
+
+def test_section_panels_have_consistent_header_close_controls(client):
+    """Use a labelled non-submit close button in each panel header, not footer Cancel."""
+    section = create_section(client)
+    soup = BeautifulSoup(client.get('/reports/manager-one-on-one').data, 'html.parser')
+    panels = soup.select('.section-form, .work-picker')
+    assert len(panels) == 3
+    for panel in panels:
+        header = panel.select_one('div')
+        assert header.select_one('h6') is not None
+        close = header.select_one('button.btn-close')
+        assert close is not None
+        assert close['type'] == 'button'
+        assert close['aria-label'].startswith('Close ')
+        assert len(panel.select('.btn-close')) == 1
+        assert all(button.get_text(strip=True) != 'Cancel' for button in panel.select('button'))
+    for target in ('newSection', f"edit-{section['id']}"):
+        close = soup.select_one(f'#{target} .btn-close')
+        assert close['data-bs-toggle'] == 'collapse'
+        assert close['data-bs-target'] == f'#{target}'
+        assert close['aria-controls'] == target
+    assert soup.select_one('.work-picker .btn-close')['data-action'] == 'close-picker'
+
+
+def test_u2c_source_is_not_truncated_by_normal_search_limit(client, app, manager_u2c_data):
+    """All snapshot candidates stay discoverable, even when adding in 75-item batches."""
+    with app.app_context():
+        snapshot = db.session.get(U2CSnapshot, manager_u2c_data['snapshot_id'])
+        customer = Milestone.query.first().customer
+        for number in range(80):
+            milestone = Milestone(
+                customer=customer, title=f'Bulk snapshot {number}',
+                url=f'https://example.com/bulk-{number}', msx_status='On Track',
+                customer_commitment='Uncommitted',
+            )
+            db.session.add(U2CSnapshotItem(
+                snapshot=snapshot, milestone=milestone, customer=customer,
+                customer_name=customer.name, milestone_title=milestone.title,
+                due_date=datetime(2026, 9, 15), monthly_acr=1000, msx_status='On Track',
+            ))
+        db.session.commit()
+    section = create_section(client)
+    url = f"{API}/sections/{section['id']}/candidates?type=milestone&source=u2c&q=Bulk"
+    rows = client.get(url).json['results']
+    assert len(rows) == 80
+    assert add_work(
+        client, section['id'], 'milestone', [row['id'] for row in rows[:75]],
+    ).status_code == 200
+    updated = client.get(url).json['results']
+    assert len(updated) == 80
+    assert sum(row['already_added'] for row in updated) == 75
+    assert sum(row['selectable'] for row in updated) == 5
+
+
+def test_u2c_picker_workload_scope_matches_baseline_not_changed_live_workload(
+    client, app, manager_u2c_data,
+):
+    """The picker applies the U2C page's delimiter-aware filter to snapshot workloads."""
+    with app.app_context():
+        blocked = U2CSnapshotItem.query.filter_by(
+            milestone_id=manager_u2c_data['blocked'],
+        ).one()
+        blocked.workload = 'Infra: Virtual Machines'
+        db.session.get(Milestone, manager_u2c_data['remaining']).workload = 'AI: Changed locally'
+        db.session.add(U2CSnapshotItem(
+            snapshot_id=manager_u2c_data['snapshot_id'],
+            customer_name='Prefix edge case', milestone_title='Not a Data workload',
+            workload='Database: Unrelated', due_date=datetime(2026, 9, 15),
+            monthly_acr=1000, msxi_status='On Track', msxi_commitment='Uncommitted',
+        ))
+        db.session.commit()
+    section = create_section(client)
+    url = f"{API}/sections/{section['id']}/candidates"
+    payload = client.get(url, query_string={
+        'type': 'milestone', 'source': 'u2c', 'workload_prefix': 'Data',
+    }).json
+    assert payload['workload_prefix'] == 'Data'
+    assert {row['title'] for row in payload['results']} == {
+        'Live remaining', 'Live cancelled', 'Live hygiene', 'Missing locally',
+    }
+    assert next(row for row in payload['results'] if row['available'])['detail'] == 'AI: Changed locally'
+    infra = client.get(url, query_string={
+        'type': 'milestone', 'source': 'u2c', 'workload_prefix': 'Infra',
+    }).json
+    assert {row['title'] for row in infra['results']} == {'Live blocked'}
+    all_workloads = client.get(f'{url}?type=milestone&source=u2c').json
+    assert all_workloads['workload_prefix'] == ''
+    assert len(all_workloads['results']) == 6
+    with app.test_request_context():
+        tool_data = execute_tool('get_manager_u2c_candidates', {'workload_prefix': 'Data'})
+    assert tool_data == {key: value for key, value in payload.items() if key != 'success'}
+
+
+def test_u2c_picker_offers_hygiene_and_cancelled_rows_from_remaining_list(
+    client, app, manager_u2c_data,
+):
+    """Do not silently exclude remaining U2C work by applying normal search status rules."""
+    section = create_section(client)
+    with app.app_context():
+        milestone = db.session.get(Milestone, manager_u2c_data['hygiene'])
+        milestone.milestone_number = '7-503838749'
+        U2CSnapshotItem.query.filter_by(milestone_id=milestone.id).one().milestone_number = (
+            '7-503838749'
+        )
+        db.session.commit()
+    url = f"{API}/sections/{section['id']}/candidates"
+    response = client.get(url, query_string={
+        'type': 'milestone', 'source': 'u2c', 'workload_prefix': 'Data', 'q': '7-503838749',
+    })
+    assert response.status_code == 200
+    rows = response.json['results']
+    assert len(rows) == 1
+    assert rows[0]['status'] == 'Hygiene/Duplicate'
+    assert rows[0]['selectable']
+    assert rows[0]['id'] == manager_u2c_data['hygiene']
+    assert add_work(client, section['id'], 'milestone', [
+        manager_u2c_data['hygiene'], manager_u2c_data['cancelled'],
+    ]).status_code == 200
+    selected = client.get(API).json['sections'][0]['items']
+    assert {item['status'] for item in selected} == {'Hygiene/Duplicate', 'Cancelled'}
+    normal = client.get(f'{url}?type=milestone').json['results']
+    assert not {manager_u2c_data['hygiene'], manager_u2c_data['cancelled']}.intersection(
+        row['id'] for row in normal
+    )

@@ -10,9 +10,10 @@ Format: `## M/D/YYYY - <merge-short-sha>`. See
 
 ## 9/30/2026
 
-- Add Manager 1:1 with editable initiative sections, hand-picked engagements and milestones grouped by seller, and automatically saved talking points.
-- Open engagement notes and milestone comments from Manager 1:1 without leaving the report, and keep dated discussion history through the Points editor.
-- Keep the previous manager meeting-prep view available as 1:1 Report (old).
+- Add Initiative Tracker with editable initiatives, hand-picked engagements and milestones grouped by seller, and automatically saved talking points.
+- Open engagement notes and milestone comments from Initiative Tracker without leaving the report, and keep dated discussion history through the Points editor.
+- Open each seller's existing 1:1 notes and agenda beside their name in Initiative Tracker.
+- Add a From U2C milestone picker to Initiative Tracker so you can select this quarter's remaining snapshot work using your U2C workload filter, including Hygiene/Duplicate milestones.
 
 ## 9/24/2026 - 0c4a3b0
 

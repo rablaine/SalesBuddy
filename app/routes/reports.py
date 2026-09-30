@@ -26,11 +26,11 @@ def _save_manager_report_changes() -> tuple:
         db.session.commit()
     except IntegrityError:
         db.session.rollback()
-        logger.exception('Conflicting manager 1:1 report edit')
-        return jsonify(success=False, error='An item is already in this section.'), 409
+        logger.exception('Conflicting Initiative Tracker edit')
+        return jsonify(success=False, error='An item is already in this initiative.'), 409
     except SQLAlchemyError:
         db.session.rollback()
-        logger.exception('Failed to save manager 1:1 report')
+        logger.exception('Failed to save Initiative Tracker')
         return jsonify(
             success=False, error='Your changes could not be saved. Please try again.',
         ), 500
@@ -38,8 +38,9 @@ def _save_manager_report_changes() -> tuple:
 
 
 @bp.route('/reports/manager-one-on-one')
+@bp.route('/reports/initiative-tracker')
 def report_manager_one_on_one():
-    """Render the persistent, user-curated manager initiative report."""
+    """Render Initiative Tracker, retaining the original page URL for saved links."""
     from app.services.manager_one_on_one import get_manager_one_on_one_report
 
     return render_template('report_manager_one_on_one.html', **get_manager_one_on_one_report())
@@ -67,18 +68,18 @@ def manager_one_on_one_section(section_id: int | None = None):
         if section_id is not None else None
     )
     if section_id is not None and section is None:
-        return jsonify(success=False, error='Section not found.'), 404
+        return jsonify(success=False, error='Initiative not found.'), 404
     if request.method == 'DELETE':
         db.session.delete(section)
         return _save_manager_report_changes()
 
     data = request.get_json(silent=True)
     if not isinstance(data, dict):
-        return jsonify(success=False, error='A section name and description are required.'), 400
+        return jsonify(success=False, error='An initiative name and description are required.'), 400
     name = data.get('name')
     description = data.get('description', '')
     if not isinstance(name, str) or not 1 <= len(name.strip()) <= 200:
-        return jsonify(success=False, error='Enter a section name of 1 to 200 characters.'), 400
+        return jsonify(success=False, error='Enter an initiative name of 1 to 200 characters.'), 400
     if not isinstance(description, str) or len(description) > 10000:
         return jsonify(success=False, error='Description must be at most 10,000 characters.'), 400
     if section is None:
@@ -97,14 +98,24 @@ def manager_one_on_one_candidates(section_id: int):
 
     section = db.session.get(ManagerInitiativeSection, section_id)
     if section is None:
-        return jsonify(success=False, error='Section not found.'), 404
+        return jsonify(success=False, error='Initiative not found.'), 404
     item_type = request.args.get('type', 'engagement')
     if item_type not in {'engagement', 'milestone'}:
         return jsonify(success=False, error='Choose engagements or milestones.'), 400
+    source = request.args.get('source', 'search')
+    if source not in {'search', 'u2c'} or (source == 'u2c' and item_type != 'milestone'):
+        return jsonify(success=False, error='U2C is available for milestones only.'), 400
     excluded = {
         item.milestone_id if item_type == 'milestone' else item.engagement_id
         for item in section.items if item.item_type == item_type
     }
+    if source == 'u2c':
+        from app.services.manager_one_on_one import get_manager_u2c_candidates
+
+        return jsonify(success=True, **get_manager_u2c_candidates(
+            request.args.get('q', '').strip(), existing_ids=excluded,
+            workload_prefix=request.args.get('workload_prefix', '').strip(),
+        ))
     return jsonify(success=True, results=get_agenda_candidates(
         item_type, request.args.get('q', '').strip(), excluded_ids=excluded,
     ))
@@ -120,7 +131,7 @@ def manager_one_on_one_add_items(section_id: int):
 
     section = db.session.get(ManagerInitiativeSection, section_id)
     if section is None:
-        return jsonify(success=False, error='Section not found.'), 404
+        return jsonify(success=False, error='Initiative not found.'), 404
     data = request.get_json(silent=True)
     if not isinstance(data, dict):
         return jsonify(success=False, error='Choose items to add.'), 400
@@ -142,7 +153,7 @@ def manager_one_on_one_add_items(section_id: int):
         for item in section.items if item.item_type == item_type
     }
     if existing.intersection(ids):
-        return jsonify(success=False, error='An item is already in this section.'), 409
+        return jsonify(success=False, error='An item is already in this initiative.'), 409
     by_id = {entity.id: entity for entity in entities}
     for entity_id in ids:
         payload = candidate_payload(by_id[entity_id], item_type)
@@ -222,7 +233,7 @@ def manager_one_on_one_discuss(item_id: int) -> Response | tuple[Response, int]:
         db.session.commit()
     except SQLAlchemyError:
         db.session.rollback()
-        logger.exception('Failed to archive manager 1:1 points for item %s', item_id)
+        logger.exception('Failed to archive Initiative Tracker points for item %s', item_id)
         return jsonify(
             success=False, error='Points could not be marked discussed. Please try again.',
         ), 500
@@ -355,18 +366,18 @@ def reports_hub():
                     'url': url_for('reports.report_marketing_insights'),
                 },
                 {
-                    'id': 'manager-one-on-one',
-                    'name': 'Manager 1:1',
+                    'id': 'initiative-tracker',
+                    'name': 'Initiative Tracker',
                     'description': (
-                        'Build your own initiative sections and hand-pick engagements '
-                        'and milestones for your manager conversations.'
+                        'Track priorities with named initiatives, hand-picked engagements '
+                        'and milestones, and discussion points for your conversations.'
                     ),
                     'icon': 'bi-layout-text-window',
                     'url': url_for('reports.report_manager_one_on_one'),
                 },
                 {
                     'id': 'one-on-one',
-                    'name': '1:1 Report (old)',
+                    'name': '1:1 Report',
                     'description': (
                         'Active engagements and recent notes for 1:1 meeting prep. '
                         'Shows what you have been working on and where milestones stand.'

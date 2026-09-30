@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Manager 1:1 - Sales Buddy{% endblock %}
+{% block title %}Initiative Tracker - Sales Buddy{% endblock %}
 
 {% block extra_css %}
 <style>
@@ -24,6 +24,17 @@
     }
     .manager-work-table tbody:first-of-type .seller-group th { padding-top: 0.5rem; }
     .manager-work-table .seller-group + .manager-work-row td { padding-top: 0.125rem; }
+    .section-form .form-control, .work-picker .form-control, .work-picker .form-select {
+        background-color: var(--bs-body-bg);
+    }
+    .candidate-results { max-height: 360px; overflow: auto; }
+    .candidate-results thead th {
+        position: sticky;
+        top: 0;
+        z-index: 1;
+        background: var(--bs-body-bg);
+    }
+    .candidate-results tbody tr:has(input:not(:disabled)) { cursor: pointer; }
 </style>
 {% endblock %}
 
@@ -31,14 +42,14 @@
 <div id="managerReport" class="container-fluid mt-4">
     <div class="d-flex justify-content-between align-items-start mb-4">
         <div>
-            <h2 class="mb-1"><i class="bi bi-layout-text-window"></i> Manager 1:1</h2>
-            <p class="text-muted mb-0">Initiatives and work for your next conversation.</p>
+            <h2 class="mb-1"><i class="bi bi-layout-text-window"></i> Initiative Tracker</h2>
+            <p class="text-muted mb-0">Track priorities, related work, and discussion points.</p>
         </div>
         <div class="d-flex align-items-center gap-3">
             <span id="talkingPointsState" class="small text-muted" role="status" aria-live="polite"></span>
             <button class="btn btn-primary" type="button" data-bs-toggle="collapse"
                     data-bs-target="#newSection" aria-expanded="false" aria-controls="newSection">
-                <i class="bi bi-plus-lg"></i> New section
+                <i class="bi bi-plus-lg"></i> New initiative
             </button>
         </div>
     </div>
@@ -49,23 +60,34 @@
                 data-action="retry-points">Retry saving</button>
     </div>
     <div class="collapse mb-4" id="newSection">
-        <form class="section-form border rounded p-3 bg-body-tertiary">
-            <h5>Create an initiative section</h5>
-            <label for="newSectionName" class="form-label">Section name</label>
-            <input id="newSectionName" name="name" class="form-control mb-3" required
-                   maxlength="200" placeholder="e.g. SQL Renewals">
-            <label for="newSectionDescription" class="form-label">Context <span class="text-muted">(optional)</span></label>
-            <textarea id="newSectionDescription" name="description" class="form-control mb-3"
-                      rows="2" maxlength="10000" placeholder="What are you working toward?"></textarea>
-            <button type="submit" class="btn btn-primary">Create section</button>
-            <button type="button" class="btn btn-outline-secondary" data-bs-toggle="collapse"
-                    data-bs-target="#newSection">Cancel</button>
+        <form class="section-form border p-3">
+            <div class="d-flex align-items-center justify-content-between mb-3">
+                <h6 class="mb-0">New initiative</h6>
+                <button type="button" class="btn-close" data-bs-toggle="collapse"
+                        data-bs-target="#newSection" aria-controls="newSection"
+                        aria-label="Close new initiative"></button>
+            </div>
+            <div class="row g-3 mb-3">
+                <div class="col-5">
+                    <label for="newSectionName" class="form-label small">Initiative name</label>
+                    <input id="newSectionName" name="name" class="form-control" required
+                           maxlength="200" placeholder="e.g. SQL Renewals">
+                </div>
+                <div class="col-7">
+                    <label for="newSectionDescription" class="form-label small">Context <span class="text-muted">(optional)</span></label>
+                    <textarea id="newSectionDescription" name="description" class="form-control"
+                              rows="1" maxlength="10000" placeholder="What are you working toward?"></textarea>
+                </div>
+            </div>
+            <div class="d-flex align-items-center gap-2">
+                <button type="submit" class="btn btn-sm btn-primary">Create initiative</button>
+            </div>
         </form>
     </div>
 
     {% if sections %}
     <nav class="d-flex align-items-center gap-3 border-bottom pb-3 mb-4"
-         aria-label="Initiative sections">
+         aria-label="Initiatives">
         {% for section in sections %}
         <a href="#section-{{ section.id }}" class="text-decoration-none">
             {{ section.name }} <span class="text-muted ms-1">{{ section['items']|length }}</span>
@@ -99,27 +121,42 @@
                 </div>
 
                 <div class="collapse mb-3" id="edit-{{ section.id }}">
-                    <form class="section-form border rounded p-3 bg-body-tertiary" data-section-id="{{ section.id }}">
-                        <label for="section-name-{{ section.id }}" class="form-label">Section name</label>
-                        <input id="section-name-{{ section.id }}" name="name" value="{{ section.name }}"
-                               class="form-control mb-3" maxlength="200" required>
-                        <label for="section-description-{{ section.id }}" class="form-label">Context (optional)</label>
-                        <textarea id="section-description-{{ section.id }}" name="description"
-                                  class="form-control mb-3" rows="2" maxlength="10000">{{ section.description }}</textarea>
+                    <form class="section-form border p-3" data-section-id="{{ section.id }}">
+                        <div class="d-flex align-items-center justify-content-between mb-3">
+                            <h6 class="mb-0">Edit {{ section.name }}</h6>
+                            <button type="button" class="btn-close" data-bs-toggle="collapse"
+                                    data-bs-target="#edit-{{ section.id }}"
+                                    aria-controls="edit-{{ section.id }}"
+                                    aria-label="Close initiative editor"></button>
+                        </div>
+                        <div class="row g-3 mb-3">
+                            <div class="col-5">
+                                <label for="section-name-{{ section.id }}" class="form-label small">Initiative name</label>
+                                <input id="section-name-{{ section.id }}" name="name" value="{{ section.name }}"
+                                       class="form-control" maxlength="200" required>
+                            </div>
+                            <div class="col-7">
+                                <label for="section-description-{{ section.id }}" class="form-label small">Context (optional)</label>
+                                <textarea id="section-description-{{ section.id }}" name="description"
+                                          class="form-control" rows="2" maxlength="10000">{{ section.description }}</textarea>
+                            </div>
+                        </div>
                         <div class="d-flex gap-2">
-                            <button type="submit" class="btn btn-sm btn-primary">Save section</button>
-                            <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="collapse"
-                                    data-bs-target="#edit-{{ section.id }}">Cancel</button>
+                            <button type="submit" class="btn btn-sm btn-primary">Save initiative</button>
                             <button type="button" class="btn btn-sm btn-outline-danger ms-auto"
                                     data-action="delete-section" data-section-id="{{ section.id }}">
-                                Delete section
+                                Delete initiative
                             </button>
                         </div>
                     </form>
                 </div>
 
-                <div class="d-none border rounded p-3 bg-body-tertiary mb-3 work-picker"
+                <div class="d-none border p-3 mb-3 work-picker"
                      id="picker-{{ section.id }}" data-section-id="{{ section.id }}">
+                    <div class="d-flex align-items-center justify-content-between mb-3">
+                        <h6 class="mb-0">Add to {{ section.name }}</h6>
+                        <button type="button" class="btn-close" data-action="close-picker" aria-label="Close work picker"></button>
+                    </div>
                     <form class="candidate-search d-flex align-items-end gap-2 mb-3">
                         <div>
                             <label class="form-label small" for="type-{{ section.id }}">Work type</label>
@@ -134,12 +171,21 @@
                                    placeholder="Search title, customer, or milestone workload">
                         </div>
                         <button type="submit" class="btn btn-outline-primary">Search</button>
-                        <button type="button" class="btn btn-outline-secondary" data-action="close-picker">Close</button>
                     </form>
-                    <div class="picker-status small mb-2" role="status" aria-live="polite"></div>
-                    <div class="candidate-results" style="max-height: 360px; overflow: auto;"></div>
+                    <div class="milestone-source d-none d-flex align-items-center gap-3 mb-3">
+                        <div class="btn-group btn-group-sm" role="group" aria-label="Milestone source">
+                            <button type="button" class="btn btn-outline-primary active" data-action="picker-source"
+                                    data-source="search" aria-pressed="true">Search all</button>
+                            <button type="button" class="btn btn-outline-primary" data-action="picker-source"
+                                    data-source="u2c" aria-pressed="false"><i class="bi bi-arrow-up-right"></i> From U2C</button>
+                        </div>
+                        <span class="small text-muted">This quarter's uncommitted snapshot milestones</span>
+                        <a class="small text-decoration-none ms-auto" href="{{ url_for('reports.report_u2c') }}">Open U2C <i class="bi bi-box-arrow-up-right"></i></a>
+                    </div>
+                    <div class="picker-status small text-muted mb-2" role="status" aria-live="polite"></div>
+                    <div class="candidate-results"></div>
                     <div class="d-flex align-items-center gap-3 mt-3">
-                        <button type="button" class="btn btn-primary" data-action="add-items" disabled>Add selected</button>
+                        <button type="button" class="btn btn-sm btn-primary" data-action="add-items" disabled>Add selected</button>
                         <span class="selected-count small text-muted">0 selected</span>
                     </div>
                 </div>
@@ -179,6 +225,11 @@
                                        href="{{ url_for('sellers.seller_view', id=group.seller_id) }}">
                                         <i class="bi bi-person"></i> {{ group.seller_name }}
                                     </a>
+                                    <a class="seller-notes-link text-muted fw-normal text-decoration-none ms-2"
+                                       href="{{ url_for('one_on_one.seller_workspace', seller_id=group.seller_id) }}"
+                                       data-action="open-seller-notes" data-seller-id="{{ group.seller_id }}"
+                                       data-seller-name="{{ group.seller_name }}"
+                                       aria-label="1:1 notes for {{ group.seller_name }}">(1:1 notes)</a>
                                     {% else %}
                                     <span class="text-body fw-semibold"><i class="bi bi-person"></i> No seller</span>
                                     {% endif %}
@@ -226,7 +277,7 @@
                                 <td>
                                     <button type="button" class="btn btn-sm btn-link text-decoration-none remove-work px-1"
                                             data-action="remove-item" data-item-id="{{ item.id }}"
-                                            aria-label="Remove {{ item.title }} from this section" title="Remove from section">
+                                            aria-label="Remove {{ item.title }} from this initiative" title="Remove from initiative">
                                         <i class="bi bi-x-lg"></i>
                                     </button>
                                 </td>
@@ -248,14 +299,14 @@
         <div class="mx-auto" style="max-width: 640px;">
             <div class="small text-muted text-uppercase mb-2">Start with an initiative</div>
             <h3 class="mb-3">Make room for the work that matters.</h3>
-            <p class="text-muted">Create a section like <strong>SQL Renewals</strong> or
+            <p class="text-muted">Create an initiative like <strong>SQL Renewals</strong> or
                 <strong>Commit this quarter</strong>, then select the engagements and milestones
-                you want to walk through with your manager.</p>
-            <p class="text-muted mb-4">Rename, edit, or remove sections as priorities change.
-                Your report stays here between meetings.</p>
+                you want to track together.</p>
+            <p class="text-muted mb-4">Rename, edit, or remove initiatives as priorities change.
+                Your initiatives stay here as you work on them.</p>
             <button type="button" class="btn btn-primary" data-bs-toggle="collapse"
                     data-bs-target="#newSection" aria-expanded="false" aria-controls="newSection">
-                <i class="bi bi-plus-lg"></i> Create your first section
+                <i class="bi bi-plus-lg"></i> Create your first initiative
             </button>
         </div>
     </div>

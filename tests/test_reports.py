@@ -23,9 +23,9 @@ class TestReportsHub:
         """Reports hub should link to the 1:1 report."""
         with app.app_context():
             resp = client.get('/reports')
-            assert b'Manager 1:1' in resp.data
-            assert b'1:1 Report (old)' in resp.data
-            assert b'/reports/manager-one-on-one' in resp.data
+            assert b'Initiative Tracker' in resp.data
+            assert b'1:1 Report' in resp.data
+            assert b'/reports/initiative-tracker' in resp.data
             assert b'/reports/one-on-one' in resp.data
 
     def test_hub_has_revenue_reports_link(self, client, app):
@@ -43,7 +43,7 @@ class TestOneOnOneReport:
         with app.app_context():
             resp = client.get('/reports/one-on-one')
             assert resp.status_code == 200
-            assert b'1:1 Report (old)' in resp.data
+            assert b'1:1 Report' in resp.data
 
     def test_engagement_with_recent_note_shows(self, client, app, sample_data):
         """Engagement linked to a note with recent call_date appears in Last 2 Weeks."""

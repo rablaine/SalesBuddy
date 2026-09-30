@@ -136,6 +136,13 @@ def workspace_create():
 @one_on_one_bp.route('/one-on-one/<int:workspace_id>')
 def workspace_view(workspace_id: int):
     """Render one person's persistent notes and agenda."""
+    return render_template(
+        'one_on_one_workspace.html', **_workspace_view_context(workspace_id),
+    )
+
+
+def _workspace_view_context(workspace_id: int) -> dict:
+    """Share the exact workspace and agenda context between page and fragment renders."""
     workspace = (
         OneOnOneWorkspace.query
         .options(
@@ -156,11 +163,30 @@ def workspace_view(workspace_id: int):
         key=lambda item: item.discussed_at or item.updated_at,
         reverse=True,
     )
+    return {
+        'workspace': workspace,
+        'active_items': active_items,
+        'discussed_items': discussed_items,
+    }
+
+
+@one_on_one_bp.route('/api/seller/<int:seller_id>/one-on-one/detail')
+def seller_workspace_fragment(seller_id: int) -> str | tuple[str, int]:
+    """Render the complete existing seller workspace for modal embedding."""
+    seller = db.session.get(Seller, seller_id)
+    if not seller:
+        return 'Seller not found', 404
+    try:
+        workspace = get_or_create_seller_workspace(seller)
+        db.session.commit()
+    except SQLAlchemyError:
+        db.session.rollback()
+        logger.exception('Failed to open seller %s 1:1 workspace', seller_id)
+        return 'The seller 1:1 notes could not be opened. Please try again.', 500
     return render_template(
-        'one_on_one_workspace.html',
-        workspace=workspace,
-        active_items=active_items,
-        discussed_items=discussed_items,
+        'partials/one_on_one_workspace_content.html',
+        **_workspace_view_context(workspace.id),
+        parent_modal_id='managerWorkModal',
     )
 
 

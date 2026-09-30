@@ -364,7 +364,7 @@ class Seller(db.Model):
 
 
 class ManagerInitiativeSection(db.Model):
-    """A user-named initiative in the persistent manager 1:1 report."""
+    """A user-named initiative in the persistent Initiative Tracker."""
     __tablename__ = 'manager_initiative_sections'
 
     id = db.Column(db.Integer, primary_key=True)

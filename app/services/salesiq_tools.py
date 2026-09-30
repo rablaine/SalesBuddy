@@ -117,16 +117,36 @@ def execute_tool(name: str, params: dict) -> Any:
 
 @tool(
     'report_manager_one_on_one',
-    'Read the curated Manager 1:1 report, including named initiative sections, '
+    'Read Initiative Tracker, including named initiatives, '
     'seller-grouped engagements and milestones, live status, commitment, dates, '
     'current points, and discussion history with creation and discussion timestamps.',
     {'type': 'object', 'properties': {}},
 )
 def report_manager_one_on_one() -> dict:
-    """Return the manager initiative report using the page's shared query service."""
+    """Return Initiative Tracker using the page's shared query service."""
     from app.services.manager_one_on_one import get_manager_one_on_one_report
 
     return get_manager_one_on_one_report()
+
+
+@tool(
+    'get_manager_u2c_candidates',
+    'Read this quarter\'s remaining U2C snapshot milestones for Initiative Tracker. '
+    'Includes locally available milestones and explicitly marks records not yet synced. '
+    'Does not add anything to the report.',
+    {'type': 'object', 'properties': {
+        'search': {'type': 'string', 'description': 'Filter by milestone, customer, or workload.'},
+        'workload_prefix': {
+            'type': 'string',
+            'description': 'U2C workload group, such as Data or Infra. Empty means all workloads.',
+        },
+    }},
+)
+def get_manager_u2c_candidates(search: str = '', workload_prefix: str = '') -> dict:
+    """Use Initiative Tracker's shared U2C-assisted selection service."""
+    from app.services.manager_one_on_one import get_manager_u2c_candidates as get_candidates
+
+    return get_candidates(search, workload_prefix=workload_prefix)
 
 
 @tool(

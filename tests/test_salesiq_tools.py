@@ -216,6 +216,7 @@ class TestToolCoverage:
     def test_manager_initiative_tool_exists(self):
         """Manager initiatives, items, and discussed agenda blocks share a report read tool."""
         assert 'report_manager_one_on_one' in self._tool_names()
+        assert 'get_manager_u2c_candidates' in self._tool_names()
 
     def test_contact_tool_exists(self):
         """Contacts should have a search tool."""

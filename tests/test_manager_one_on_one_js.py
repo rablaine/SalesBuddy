@@ -1,4 +1,4 @@
-"""Run dependency-free manager report autosave and discussion modal regressions."""
+"""Run dependency-free manager report autosave, modal, and assisted picker regressions."""
 
 import shutil
 import subprocess
@@ -9,7 +9,7 @@ import pytest
 
 @pytest.mark.skipif(shutil.which('node') is None, reason='Node.js is required for JS tests')
 def test_manager_report_autosave() -> None:
-    """Verify autosave, failure recovery, safe modal closure, and dated discussion history."""
+    """Verify autosave, modal behavior, source switching, and assisted selection limits."""
     test_file = Path(__file__).parent / 'js' / 'manager_one_on_one.test.cjs'
     result = subprocess.run(
         ['node', '--test', str(test_file)],

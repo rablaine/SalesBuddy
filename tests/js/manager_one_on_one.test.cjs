@@ -17,8 +17,24 @@ function classes(initial = []) {
     };
 }
 
-function harness() {
+function node(tag) {
+    return {
+        tag, classList: classes(), style: {}, textContent: '', children: [], attributes: {},
+        append(...children) { this.children.push(...children); },
+        replaceChildren() { this.children = []; },
+        setAttribute(name, value) { this.attributes[name] = value; },
+        insertCell() { const child = node('td'); this.append(child); return child; },
+        insertRow() { const child = node('tr'); this.append(child); return child; },
+        createCaption() { const child = node('caption'); this.append(child); return child; },
+        createTHead() { const child = node('thead'); this.append(child); return child; },
+        createTBody() { const child = node('tbody'); this.append(child); return child; },
+    };
+}
+
+function harness(workloadFilter = null) {
     const events = {};
+    const windowEvents = {};
+    const activePickers = [];
     const timers = new Map();
     const requests = [];
     let nextTimer = 0;
@@ -39,7 +55,8 @@ function harness() {
         'reportError', 'reportErrorMessage', 'retryTalkingPoints', 'talkingPointsState',
         'pointsModalError', 'pointsModalState', 'discussPoints', 'pointsCreatedAt',
         'managerPointsTitle', 'managerPointsContext', 'pointsHistory', 'pointsHistoryCount',
-        'managerPointsModal', 'managerWorkModal',
+        'managerPointsModal', 'managerWorkModal', 'managerWorkTitle', 'managerWorkFullLink',
+        'managerWorkBody',
     ]) {
         elements[name] = {
             dataset: {}, classList: classes(['d-none']), textContent: '', focus() {},
@@ -47,6 +64,7 @@ function harness() {
             replaceChildren() { this.children = []; },
             append(...children) { this.children.push(...children); },
             addEventListener(name, callback) { this[name] = callback; },
+            querySelectorAll: () => [],
         };
     }
     const errorText = {textContent: ''};
@@ -80,20 +98,25 @@ function harness() {
             }
             return field.dataset.dirty === 'true' ? field : null;
         },
-        querySelectorAll: () => field.dataset.dirty === 'true' ? [field] : [],
+        querySelectorAll: selector => selector === '.work-picker:not(.d-none)'
+            ? activePickers : field.dataset.dirty === 'true' ? [field] : [],
     };
     const context = {
         document: {
             getElementById: name => name === 'managerReport' ? root : elements[name],
+            querySelectorAll: () => [],
             createElement(tag) {
-                return {
-                    tag, classList: classes(), style: {}, textContent: '', children: [],
-                    append(...children) { this.children.push(...children); },
-                };
+                return node(tag);
             },
         },
         bootstrap: {Modal: {getOrCreateInstance: () => ({show() {}, hide() {}})}},
-        window: {addEventListener() {}},
+        AbortController,
+        URLSearchParams,
+        Intl,
+        window: {addEventListener(name, callback) { windowEvents[name] = callback; }},
+        localStorage: {
+            getItem(key) { return key === 'u2c_workload_filter' ? workloadFilter : null; },
+        },
         setTimeout(callback) { timers.set(++nextTimer, callback); return nextTimer; },
         clearTimeout: id => timers.delete(id),
         fetch(url, options) {
@@ -101,13 +124,15 @@ function harness() {
             const promise = new Promise(done => { resolve = done; });
             requests.push({
                 url, options,
-                finish(ok = true, item) {
+                finish(ok = true, item, extra = {}) {
                     resolve({
                         ok,
                         json: async () => ({
                             success: ok, error: ok ? undefined : 'Database unavailable',
                             item,
+                            ...extra,
                         }),
+                        text: async () => '<div>Complete seller workspace</div>',
                     });
                 },
             });
@@ -150,6 +175,57 @@ function harness() {
             return event;
         },
         window: context.window,
+        changeSavedWorkload(value) {
+            workloadFilter = value;
+            windowEvents.storage({key: 'u2c_workload_filter'});
+        },
+        picker() {
+            const parts = {
+                '.candidate-search': {elements: {type: {value: 'milestone'}, q: {value: ''}}},
+                '.picker-status': node('div'), '.candidate-results': node('div'),
+                '.milestone-source': node('div'), '.selected-count': node('span'),
+                '[data-action="add-items"]': node('button'),
+            };
+            let checked = [];
+            const picker = {
+                dataset: {sectionId: '2'},
+                querySelector: selector => parts[selector],
+                querySelectorAll: selector => selector.includes('picker-source') ? buttons : checked,
+            };
+            activePickers.push(picker);
+            const buttons = ['search', 'u2c'].map(source => {
+                const button = node('button');
+                button.dataset = {action: 'picker-source', source};
+                button.closest = selector => selector === '[data-action]' ? button
+                    : selector === '.work-picker' ? picker : null;
+                return button;
+            });
+            return {
+                parts, buttons, dataset: picker.dataset,
+                source(source) { events.click({target: buttons.find(b=>b.dataset.source===source)}); },
+                type(type) {
+                    parts['.candidate-search'].elements.type.value = type;
+                    events.change({target: {name: 'type', closest: () => picker}});
+                },
+                selection(count) {
+                    checked = Array.from({length: count}, () => node('input'));
+                    events.change({target: {name: 'selection', closest: () => picker}});
+                },
+            };
+        },
+        sellerNotes(modified = false) {
+            const link = {
+                dataset: {action: 'open-seller-notes', sellerId: '12', sellerName: 'Seller Name'},
+                href: '/seller/12/one-on-one',
+                closest: selector => selector === '[data-action]' ? link : null,
+            };
+            const event = {
+                target: link, ctrlKey: modified, prevented: false,
+                preventDefault() { this.prevented = true; },
+            };
+            events.click(event);
+            return event;
+        },
         workModalEvent(name, targetId) {
             elements.managerWorkModal[name]({target: {id: targetId}});
         },
@@ -314,4 +390,125 @@ test('a nested work modal closing does not reset the visible detail context', ()
     ui.window.copilotContext = {page: 'engagement_view'};
     ui.workModalEvent('hidden.bs.modal', 'taskEditModal');
     assert.equal(ui.window.copilotContext.page, 'engagement_view');
+});
+
+test('seller notes fetch the shared workspace fragment without navigation', async () => {
+    const ui = harness();
+    const click = ui.sellerNotes();
+    assert.equal(click.prevented, true);
+    assert.equal(ui.requests[0].url, '/api/seller/12/one-on-one/detail');
+    assert.equal(ui.elements.managerWorkTitle.textContent, '1:1 notes: Seller Name');
+    assert.equal(ui.elements.managerWorkFullLink.href, '/seller/12/one-on-one');
+    ui.requests[0].finish();
+    await settle();
+    assert.equal(ui.elements.managerWorkBody.innerHTML, '<div>Complete seller workspace</div>');
+});
+
+test('modified seller notes clicks keep the original link behavior', () => {
+    const ui = harness();
+    const click = ui.sellerNotes(true);
+    assert.equal(click.prevented, false);
+    assert.equal(ui.requests.length, 0);
+});
+
+function u2cPayload(results = []) {
+    return {
+        snapshot: {
+            fiscal_quarter: 'FY27 Q1', version_date: '2026-09-22',
+            snapshot_date: '2026-09-29T00:00:00+00:00',
+        },
+        results,
+    };
+}
+
+test('From U2C shows provenance and disables already-added and unsynced rows', async () => {
+    const ui = harness();
+    const picker = ui.picker();
+    picker.source('u2c');
+    assert.match(ui.requests[0].url, /type=milestone&source=u2c/);
+    const base = {
+        id: 1, title: 'SQL milestone', customer_name: 'Customer', status: 'On Track',
+        commitment: 'Uncommitted', due_date: '2026-09-30', acr: 1000, detail: 'SQL',
+    };
+    ui.requests[0].finish(true, undefined, u2cPayload([
+        {...base, available: true, selectable: true, already_added: false},
+        {...base, id: 2, available: true, selectable: false, already_added: true, reason: 'Already added'},
+        {...base, id: null, available: false, selectable: false, already_added: false, reason: 'Not synced locally'},
+    ]));
+    await settle();
+    const status = picker.parts['.picker-status'].textContent;
+    assert.match(status, /FY27 Q1.*Snapshot 2026-09-22.*1 available.*1 already added.*1 not synced/);
+    const body = picker.parts['.candidate-results'].children[0].children.find(n=>n.tag==='tbody');
+    assert.deepEqual(body.children.map(row=>row.children[0].children[0].disabled), [false, true, true]);
+    assert.equal(picker.buttons[1].attributes['aria-pressed'], 'true');
+});
+
+test('a late assisted response cannot overwrite a subsequent engagement search', async () => {
+    const ui = harness();
+    const picker = ui.picker();
+    picker.source('u2c');
+    picker.type('engagement');
+    assert.equal(picker.dataset.source, 'search');
+    assert.match(ui.requests[1].url, /type=engagement&source=search/);
+    ui.requests[1].finish(true, undefined, {results: []});
+    await settle();
+    const message = picker.parts['.picker-status'].textContent;
+    ui.requests[0].finish(true, undefined, u2cPayload());
+    await settle();
+    assert.equal(picker.parts['.picker-status'].textContent, message);
+    assert.equal(picker.parts['.milestone-source'].classList.contains('d-none'), true);
+});
+
+test('missing snapshots show their explicit message, without a results table', async () => {
+    const ui = harness();
+    const picker = ui.picker();
+    picker.source('u2c');
+    ui.requests[0].finish(true, undefined, {
+        snapshot: null, results: [], message: 'No FY27 Q1 U2C snapshot is available.',
+    });
+    await settle();
+    assert.equal(picker.parts['.picker-status'].textContent, 'No FY27 Q1 U2C snapshot is available.');
+    assert.equal(picker.parts['.candidate-results'].children.length, 0);
+});
+
+test('the picker enforces the exact 75-item selection limit', () => {
+    const ui = harness();
+    const picker = ui.picker();
+    for (const [count, disabled] of [[0, true], [1, false], [75, false], [76, true]]) {
+        picker.selection(count);
+        assert.equal(picker.parts['[data-action="add-items"]'].disabled, disabled);
+    }
+    assert.match(picker.parts['.selected-count'].textContent, /76 selected.*75/);
+});
+
+test('From U2C sends the workload saved by the U2C page and names that scope', async () => {
+    const ui = harness('Data');
+    const picker = ui.picker();
+    picker.source('u2c');
+    assert.match(ui.requests[0].url, /workload_prefix=Data/);
+    ui.requests[0].finish(true, undefined, {...u2cPayload(), workload_prefix: 'Data'});
+    await settle();
+    assert.match(picker.parts['.picker-status'].textContent, /Data workloads \(U2C filter\)/);
+});
+
+test('All workloads stays unfiltered, and regular search ignores the U2C selection', () => {
+    const ui = harness('Data');
+    const picker = ui.picker();
+    picker.source('search');
+    assert.doesNotMatch(ui.requests[0].url, /workload_prefix/);
+    picker.source('u2c');
+    assert.match(ui.requests[1].url, /workload_prefix=Data/);
+    ui.changeSavedWorkload(null);
+    assert.doesNotMatch(ui.requests[2].url, /workload_prefix/);
+    assert.match(ui.requests[2].url, /source=u2c/);
+});
+
+test('changing the U2C filter in another tab refreshes an open assisted picker', () => {
+    const ui = harness('Data');
+    const picker = ui.picker();
+    picker.source('u2c');
+    ui.changeSavedWorkload('Infra');
+    assert.equal(ui.requests.length, 2);
+    assert.match(ui.requests[1].url, /workload_prefix=Infra/);
+    assert.equal(ui.requests[0].options.signal.aborted, true);
 });
