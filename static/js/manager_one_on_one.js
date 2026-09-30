@@ -248,6 +248,7 @@
             'toggleMilestoneEdit', 'saveMilestoneLinks', 'joinMilestoneTeam', 'leaveMilestoneTeam',
             'viewActionItem', 'switchToEditMode', 'switchToViewMode', 'saveActionItemEdits',
             'saveCopilotTask', 'dismissCopilotTask', 'notUsefulCopilotTask',
+            'addProjectTask',
         ];
         const exports = handlers.map(name =>
             `if (typeof ${name} === 'function') window.${name} = ${name};`,
@@ -361,6 +362,9 @@
 
     function updatePickerSource(picker, type, source) {
         picker.querySelector('.milestone-source').classList.toggle('d-none', type !== 'milestone');
+        picker.querySelector('.candidate-search').elements.q.placeholder = type === 'project'
+            ? 'Search title, description, or project type'
+            : 'Search title, customer, or milestone workload';
         for (const button of picker.querySelectorAll('[data-action="picker-source"]')) {
             const active = button.dataset.source === source;
             button.classList.toggle('active', active);
@@ -461,7 +465,7 @@
                 cell(row, item.customer_name, 'small');
                 cell(row, [item.status, item.commitment].filter(Boolean).join(' / '), 'small');
                 cell(row, item.due_date || 'Not set', 'small text-nowrap');
-                cell(row, item.acr === null ? 'Not set' : new Intl.NumberFormat(
+                cell(row, item.acr === null ? (type === 'project' ? '-' : 'Not set') : new Intl.NumberFormat(
                     'en-US', {style: 'currency', currency: 'USD', maximumFractionDigits: 0},
                 ).format(item.acr), 'text-end text-nowrap');
             }

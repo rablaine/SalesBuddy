@@ -163,6 +163,7 @@
                             <select id="type-{{ section.id }}" name="type" class="form-select">
                                 <option value="engagement">Engagements</option>
                                 <option value="milestone">Milestones</option>
+                                {% if has_projects %}<option value="project">Projects</option>{% endif %}
                             </select>
                         </div>
                         <div class="flex-grow-1">
@@ -193,7 +194,7 @@
                 {% if section['items'] %}
                 <div>
                     <table class="table table-sm align-middle mb-0 manager-work-table">
-                        <caption class="visually-hidden">{{ section.name }} engagements and milestones</caption>
+                        <caption class="visually-hidden">{{ section.name }} work</caption>
                         <colgroup>
                             <col style="width: 35%;">
                             <col style="width: 22%;">
@@ -243,13 +244,13 @@
                                     {% if item.available %}
                                     <a class="work-detail-link d-block fw-semibold text-decoration-none text-truncate"
                                        title="{{ item.title }}"
-                                       href="{{ url_for('milestones.milestone_view' if item.item_type == 'milestone' else 'engagements.engagement_view', id=item.entity_id) }}">{{ item.title }}</a>
+                                       href="{{ url_for('projects.project_view' if item.item_type == 'project' else 'milestones.milestone_view' if item.item_type == 'milestone' else 'engagements.engagement_view', id=item.entity_id) }}">{{ item.title }}</a>
                                     {% else %}
                                     <strong class="d-block text-truncate" title="{{ item.title }}">{{ item.title }}</strong>
                                     {% endif %}
                                 </td>
                                 <td>
-                                    {% if item.available %}
+                                    {% if item.available and item.customer_id is not none %}
                                     <a class="d-block text-decoration-none text-truncate text-body"
                                        title="{{ item.customer_name }}"
                                        href="{{ url_for('customers.customer_view', id=item.customer_id) }}">{{ item.customer_name }}</a>
@@ -264,7 +265,7 @@
                                     </div>
                                 </td>
                                 <td class="small text-nowrap">{{ item.due_date or 'Not set' }}</td>
-                                <td class="text-end text-nowrap">{{ '${:,.0f}'.format(item.acr) if item.acr is not none else 'Not set' }}</td>
+                                <td class="text-end text-nowrap">{{ '${:,.0f}'.format(item.acr) if item.acr is not none else '-' if item.item_type == 'project' else 'Not set' }}</td>
                                 <td class="text-center">
                                     <button type="button" class="btn btn-sm btn-link text-decoration-none px-1 points-button {{ 'text-primary' if item.talking_points|trim else 'text-secondary' }}"
                                             data-action="open-points" data-item-id="{{ item.id }}"
@@ -289,7 +290,8 @@
                 </div>
                 {% else %}
                 <div class="border-top border-bottom py-4 text-muted">
-                    Add engagements or milestones to shape this initiative. Only the work you choose appears here.
+                    Add engagements{% if has_projects %}, milestones, or projects{% else %} or milestones{% endif %}
+                    to shape this initiative. Only the work you choose appears here.
                 </div>
                 {% endif %}
             </section>
@@ -300,7 +302,8 @@
             <div class="small text-muted text-uppercase mb-2">Start with an initiative</div>
             <h3 class="mb-3">Make room for the work that matters.</h3>
             <p class="text-muted">Create an initiative like <strong>SQL Renewals</strong> or
-                <strong>Commit this quarter</strong>, then select the engagements and milestones
+                <strong>Commit this quarter</strong>, then select the engagements{% if has_projects %},
+                milestones, or projects{% else %} and milestones{% endif %}
                 you want to track together.</p>
             <p class="text-muted mb-4">Rename, edit, or remove initiatives as priorities change.
                 Your initiatives stay here as you work on them.</p>

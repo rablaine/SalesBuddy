@@ -1,6 +1,7 @@
 """Tests for the reports blueprint."""
 import json
 import pytest
+from bs4 import BeautifulSoup
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 from app.models import (
@@ -33,6 +34,44 @@ class TestReportsHub:
         with app.app_context():
             resp = client.get('/reports')
             assert b'Synapse Customers' in resp.data
+
+    def test_reports_dropdown_groups_planning_and_backing_reports(self, client):
+        """Keep hub sections and Browse-style menu groups aligned, without duplicate links."""
+        soup = BeautifulSoup(client.get('/reports').data, 'html.parser')
+        menu = soup.select_one('#navReports .dropdown-menu')
+        groups = [[]]
+        grouped_links = [[]]
+        links = []
+        for item in menu.find_all('li', recursive=False):
+            if item.select_one('.dropdown-divider'):
+                assert groups[-1]
+                groups.append([])
+                grouped_links.append([])
+            else:
+                link = item.select_one('a.dropdown-item')
+                assert link is not None
+                groups[-1].append(link.get_text(strip=True))
+                grouped_links[-1].append(link['href'])
+                links.append(link['href'])
+        assert groups == [
+            ['All Reports'],
+            ['Connect Goals', 'Initiative Tracker', '1:1 Report', 'Connect Impact'],
+            ['U2C Attainment', 'Milestone Tracker', 'Activity Coverage', 'Whitespace Analysis'],
+            ['Hygiene Report', 'MSX Workspace', "What's New"],
+            ['Revenue Analyzer', 'Workload Report', 'Marketing Insights', 'Synapse Customers'],
+        ]
+        assert len(links) == len(set(links)) == 16
+        hub_links = {link['href'] for link in soup.select('main a[href]')}
+        assert set(links[1:]).issubset(hub_links)
+        assert menu.select('.dropdown-header') == []
+        headings = soup.select('main .container-fluid > h5')
+        assert [heading.get_text(strip=True) for heading in headings] == [
+            'Planning & Reviews', 'Execution & Coverage', 'Pipeline Health', 'Account Insights',
+        ]
+        for heading, expected in zip(headings, grouped_links[1:]):
+            row = heading.find_next_sibling('div')
+            assert [link['href'] for link in row.select('.card-footer a')] == expected
+            assert f'row-cols-{len(expected)}' in row['class']
 
 
 class TestOneOnOneReport:

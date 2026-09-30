@@ -71,6 +71,16 @@ def project_view(id):
     return render_template('project_view.html', project=project)
 
 
+@projects_bp.route('/api/project/<int:id>/detail')
+def project_detail(id: int) -> str:
+    """Render the complete project page content for the Initiative Tracker detail modal."""
+    project = Project.query.get_or_404(id)
+    return render_template(
+        'partials/project_view_content.html', project=project,
+        parent_modal_id='managerWorkModal',
+    )
+
+
 @projects_bp.route('/project/<int:id>/edit', methods=['GET', 'POST'])
 def project_edit(id):
     """Edit an existing project."""

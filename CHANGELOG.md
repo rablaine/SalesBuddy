@@ -8,6 +8,11 @@ brought the change into `main`, so the admin Updates card can show
 Format: `## M/D/YYYY - <merge-short-sha>`. See
 `scripts/tag-changelog.ps1` for the helper that fills this in.
 
+## 9/30/2026
+
+- Add internal projects to Initiative Tracker's work picker when user-facing projects exist, excluding system-only Copilot Saved Tasks, with project notes and action items in the same detail modal.
+- Group the Reports menu and All Reports page into matching sections for planning and reviews, Connect Goals action reports, pipeline health, and account insights.
+
 ## 9/30/2026 - a2ea9be
 
 - Add Initiative Tracker with editable initiatives, hand-picked engagements and milestones grouped by seller, and automatically saved talking points.

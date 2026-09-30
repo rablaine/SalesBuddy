@@ -10,7 +10,7 @@ from app.models import (
     notes_engagements, notes_milestones, notes_topics,
     MarketingSummary, MarketingInteraction, MarketingContact,
     U2CSnapshot, U2CSnapshotItem,
-    OneOnOneWorkspace, Territory,
+    OneOnOneWorkspace, Territory, Project,
 )
 from sqlalchemy import func, desc, or_
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
@@ -42,8 +42,12 @@ def _save_manager_report_changes() -> tuple:
 def report_manager_one_on_one():
     """Render Initiative Tracker, retaining the original page URL for saved links."""
     from app.services.manager_one_on_one import get_manager_one_on_one_report
+    from app.services.agenda_candidates import get_selectable_projects_query
 
-    return render_template('report_manager_one_on_one.html', **get_manager_one_on_one_report())
+    return render_template(
+        'report_manager_one_on_one.html', **get_manager_one_on_one_report(),
+        has_projects=get_selectable_projects_query().with_entities(Project.id).first() is not None,
+    )
 
 
 @bp.route('/api/reports/manager-one-on-one')
@@ -94,19 +98,19 @@ def manager_one_on_one_section(section_id: int | None = None):
 def manager_one_on_one_candidates(section_id: int):
     """Search current work, excluding only items already in the selected section."""
     from app.models import ManagerInitiativeSection
-    from app.services.agenda_candidates import get_agenda_candidates
+    from app.services.agenda_candidates import WORK_MODELS, get_agenda_candidates
 
     section = db.session.get(ManagerInitiativeSection, section_id)
     if section is None:
         return jsonify(success=False, error='Initiative not found.'), 404
     item_type = request.args.get('type', 'engagement')
-    if item_type not in {'engagement', 'milestone'}:
-        return jsonify(success=False, error='Choose engagements or milestones.'), 400
+    if item_type not in WORK_MODELS:
+        return jsonify(success=False, error='Choose engagements, milestones, or projects.'), 400
     source = request.args.get('source', 'search')
     if source not in {'search', 'u2c'} or (source == 'u2c' and item_type != 'milestone'):
         return jsonify(success=False, error='U2C is available for milestones only.'), 400
     excluded = {
-        item.milestone_id if item_type == 'milestone' else item.engagement_id
+        getattr(item, f'{item_type}_id')
         for item in section.items if item.item_type == item_type
     }
     if source == 'u2c':
@@ -127,7 +131,9 @@ def manager_one_on_one_candidates(section_id: int):
 def manager_one_on_one_add_items(section_id: int):
     """Add a validated selection atomically, permitting reuse in other initiatives."""
     from app.models import ManagerInitiativeItem, ManagerInitiativeSection
-    from app.services.agenda_candidates import candidate_payload
+    from app.services.agenda_candidates import (
+        WORK_MODELS, candidate_payload, get_selectable_projects_query,
+    )
 
     section = db.session.get(ManagerInitiativeSection, section_id)
     if section is None:
@@ -138,18 +144,25 @@ def manager_one_on_one_add_items(section_id: int):
     item_type = data.get('item_type')
     ids = data.get('entity_ids')
     if (
-        not isinstance(item_type, str) or item_type not in {'engagement', 'milestone'}
+        not isinstance(item_type, str) or item_type not in WORK_MODELS
         or not isinstance(ids, list) or not 1 <= len(ids) <= 75
         or any(type(entity_id) is not int or entity_id <= 0 for entity_id in ids)
         or len(set(ids)) != len(ids)
     ):
         return jsonify(success=False, error='Choose 1 to 75 distinct, valid items.'), 400
-    model = Milestone if item_type == 'milestone' else Engagement
-    entities = model.query.options(db.joinedload(model.customer)).filter(model.id.in_(ids)).all()
-    if len(entities) != len(ids) or any(not entity.customer for entity in entities):
+    model = WORK_MODELS[item_type]
+    query = (
+        get_selectable_projects_query() if item_type == 'project' else model.query
+    ).filter(model.id.in_(ids))
+    if item_type != 'project':
+        query = query.options(db.joinedload(model.customer))
+    entities = query.all()
+    if len(entities) != len(ids) or (
+        item_type != 'project' and any(not entity.customer for entity in entities)
+    ):
         return jsonify(success=False, error='A selected item is no longer available.'), 404
     existing = {
-        item.milestone_id if item_type == 'milestone' else item.engagement_id
+        getattr(item, f'{item_type}_id')
         for item in section.items if item.item_type == item_type
     }
     if existing.intersection(ids):
@@ -161,6 +174,7 @@ def manager_one_on_one_add_items(section_id: int):
             item_type=item_type,
             milestone_id=entity_id if item_type == 'milestone' else None,
             engagement_id=entity_id if item_type == 'engagement' else None,
+            project_id=entity_id if item_type == 'project' else None,
             title_snapshot=payload['title'],
             customer_snapshot=payload['customer_name'],
         ))
@@ -242,11 +256,59 @@ def manager_one_on_one_discuss(item_id: int) -> Response | tuple[Response, int]:
 
 @bp.route('/reports')
 def reports_hub():
-    """Reports hub - lists all available reports grouped by goal."""
+    """List available reports in the same groups and order as the Reports menu."""
     report_groups = [
         {
-            'title': 'Data Hygiene',
-            'icon': 'bi-clipboard-check',
+            'title': 'Planning & Reviews',
+            'icon': 'bi-people',
+            'reports': [
+                {
+                    'id': 'connect-goals',
+                    'name': 'Connect Goals',
+                    'description': (
+                        'Track FY27 Data U2C pace, milestone influence, HVA '
+                        'coverage, and whitespace wins, then open the reports '
+                        'that help close each gap.'
+                    ),
+                    'icon': 'bi-speedometer2',
+                    'url': url_for('reports.report_connect_goals'),
+                },
+                {
+                    'id': 'initiative-tracker',
+                    'name': 'Initiative Tracker',
+                    'description': (
+                        'Track priorities with named initiatives, hand-picked engagements '
+                        'and milestones, and discussion points for your conversations.'
+                    ),
+                    'icon': 'bi-layout-text-window',
+                    'url': url_for('reports.report_manager_one_on_one'),
+                },
+                {
+                    'id': 'one-on-one',
+                    'name': '1:1 Report',
+                    'description': (
+                        'Active engagements and recent notes for 1:1 meeting prep. '
+                        'Shows what you have been working on and where milestones stand.'
+                    ),
+                    'icon': 'bi-chat-left-text',
+                    'url': url_for('reports.report_one_on_one'),
+                },
+                {
+                    'id': 'connect-impact',
+                    'name': 'Connect Impact',
+                    'description': (
+                        'Customers ranked by total estimated ACR/mo from '
+                        'committed milestones you are on the team for this '
+                        'quarter. Know your highest-impact accounts for Connect.'
+                    ),
+                    'icon': 'bi-trophy',
+                    'url': url_for('reports.report_connect_impact'),
+                },
+            ],
+        },
+        {
+            'title': 'Execution & Coverage',
+            'icon': 'bi-bullseye',
             'reports': [
                 {
                     'id': 'u2c-attainment',
@@ -280,6 +342,34 @@ def reports_hub():
                     'url': url_for('reports.report_activity_coverage'),
                 },
                 {
+                    'id': 'whitespace',
+                    'name': 'Whitespace Analysis',
+                    'description': (
+                        'Find gaps in customer technology adoption. See which '
+                        'customers are missing spend in key buckets and identify '
+                        'outreach opportunities.'
+                    ),
+                    'icon': 'bi-grid-3x3-gap',
+                    'url': url_for('reports.report_whitespace'),
+                },
+            ],
+        },
+        {
+            'title': 'Pipeline Health',
+            'icon': 'bi-clipboard-check',
+            'reports': [
+                {
+                    'id': 'hygiene-report',
+                    'name': 'Engagement / Milestone Hygiene',
+                    'description': (
+                        'Engagements without milestones and milestones without '
+                        'engagements. Add notes explaining why so you can report '
+                        'on gaps quickly.'
+                    ),
+                    'icon': 'bi-link-45deg',
+                    'url': url_for('reports.report_hygiene'),
+                },
+                {
                     'id': 'msx-workspace',
                     'name': 'MSX Workspace',
                     'description': (
@@ -300,22 +390,11 @@ def reports_hub():
                     'icon': 'bi-megaphone',
                     'url': url_for('reports.report_whats_new'),
                 },
-                {
-                    'id': 'hygiene-report',
-                    'name': 'Engagement / Milestone Hygiene',
-                    'description': (
-                        'Engagements without milestones and milestones without '
-                        'engagements. Add notes explaining why so you can report '
-                        'on gaps quickly.'
-                    ),
-                    'icon': 'bi-link-45deg',
-                    'url': url_for('reports.report_hygiene'),
-                },
             ],
         },
         {
-            'title': 'Revenue Analysis',
-            'icon': 'bi-currency-dollar',
+            'title': 'Account Insights',
+            'icon': 'bi-graph-up',
             'reports': [
                 {
                     'id': 'revenue-analyzer',
@@ -328,32 +407,15 @@ def reports_hub():
                     'url': url_for('revenue.revenue_dashboard'),
                 },
                 {
-                    'id': 'whitespace',
-                    'name': 'Whitespace Analysis',
+                    'id': 'workload-report',
+                    'name': 'Workload Report',
                     'description': (
-                        'Find gaps in customer technology adoption. See which '
-                        'customers are missing spend in key buckets and identify '
-                        'outreach opportunities.'
+                        'Customers grouped by workload topic. Quickly find who is '
+                        'working on a specific technology for workshop targeting.'
                     ),
-                    'icon': 'bi-grid-3x3-gap',
-                    'url': url_for('reports.report_whitespace'),
+                    'icon': 'bi-tag',
+                    'url': url_for('reports.report_workload'),
                 },
-                {
-                    'id': 'synapse-customers',
-                    'name': 'Synapse Customers',
-                    'description': (
-                        'New and current customers using Azure Synapse Analytics, '
-                        'grouped by seller.'
-                    ),
-                    'icon': 'bi-database-gear',
-                    'url': url_for('revenue.report_synapse_customers'),
-                },
-            ],
-        },
-        {
-            'title': 'Meeting Prep',
-            'icon': 'bi-people',
-            'reports': [
                 {
                     'id': 'marketing-insights',
                     'name': 'Marketing Insights',
@@ -366,68 +428,14 @@ def reports_hub():
                     'url': url_for('reports.report_marketing_insights'),
                 },
                 {
-                    'id': 'initiative-tracker',
-                    'name': 'Initiative Tracker',
+                    'id': 'synapse-customers',
+                    'name': 'Synapse Customers',
                     'description': (
-                        'Track priorities with named initiatives, hand-picked engagements '
-                        'and milestones, and discussion points for your conversations.'
+                        'New and current customers using Azure Synapse Analytics, '
+                        'grouped by seller.'
                     ),
-                    'icon': 'bi-layout-text-window',
-                    'url': url_for('reports.report_manager_one_on_one'),
-                },
-                {
-                    'id': 'one-on-one',
-                    'name': '1:1 Report',
-                    'description': (
-                        'Active engagements and recent notes for 1:1 meeting prep. '
-                        'Shows what you have been working on and where milestones stand.'
-                    ),
-                    'icon': 'bi-chat-left-text',
-                    'url': url_for('reports.report_one_on_one'),
-                },
-            ],
-        },
-        {
-            'title': 'Connect Prep',
-            'icon': 'bi-trophy',
-            'reports': [
-                {
-                    'id': 'connect-goals',
-                    'name': 'Connect Goals',
-                    'description': (
-                        'Track FY27 Data U2C pace, milestone influence, HVA '
-                        'coverage, and whitespace wins, then open the reports '
-                        'that help close each gap.'
-                    ),
-                    'icon': 'bi-speedometer2',
-                    'url': url_for('reports.report_connect_goals'),
-                },
-                {
-                    'id': 'connect-impact',
-                    'name': 'Connect Impact',
-                    'description': (
-                        'Customers ranked by total estimated ACR/mo from '
-                        'committed milestones you are on the team for this '
-                        'quarter. Know your highest-impact accounts for Connect.'
-                    ),
-                    'icon': 'bi-trophy',
-                    'url': url_for('reports.report_connect_impact'),
-                },
-            ],
-        },
-        {
-            'title': 'Workload Coverage',
-            'icon': 'bi-diagram-3',
-            'reports': [
-                {
-                    'id': 'workload-report',
-                    'name': 'Workload Report',
-                    'description': (
-                        'Customers grouped by workload topic. Quickly find who is '
-                        'working on a specific technology for workshop targeting.'
-                    ),
-                    'icon': 'bi-tag',
-                    'url': url_for('reports.report_workload'),
+                    'icon': 'bi-database-gear',
+                    'url': url_for('revenue.report_synapse_customers'),
                 },
             ],
         },

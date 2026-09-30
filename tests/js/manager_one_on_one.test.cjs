@@ -113,7 +113,10 @@ function harness(workloadFilter = null) {
         AbortController,
         URLSearchParams,
         Intl,
-        window: {addEventListener(name, callback) { windowEvents[name] = callback; }},
+        window: {
+            addEventListener(name, callback) { windowEvents[name] = callback; },
+            getSelection: () => ({toString: () => ''}),
+        },
         localStorage: {
             getItem(key) { return key === 'u2c_workload_filter' ? workloadFilter : null; },
         },
@@ -225,6 +228,17 @@ function harness(workloadFilter = null) {
             };
             events.click(event);
             return event;
+        },
+        projectRow() {
+            const row = {
+                dataset: {itemType: 'project', entityId: '3', title: 'Certification plan'},
+                querySelector: () => ({href: '/project/3'}),
+            };
+            const target = {
+                closest: selector => selector === '.manager-work-row[data-entity-id]' ? row : null,
+            };
+            const event = {target, preventDefault() {}};
+            events.click(event);
         },
         workModalEvent(name, targetId) {
             elements.managerWorkModal[name]({target: {id: targetId}});
@@ -409,6 +423,106 @@ test('modified seller notes clicks keep the original link behavior', () => {
     const click = ui.sellerNotes(true);
     assert.equal(click.prevented, false);
     assert.equal(ui.requests.length, 0);
+});
+
+test('project rows open the shared work modal using the project fragment', async () => {
+    const ui = harness();
+    ui.projectRow();
+    assert.equal(ui.requests[0].url, '/api/project/3/detail');
+    assert.equal(ui.elements.managerWorkTitle.textContent, 'Certification plan');
+    assert.equal(ui.elements.managerWorkFullLink.href, '/project/3');
+    ui.requests[0].finish();
+    await settle();
+    assert.equal(ui.elements.managerWorkBody.innerHTML, '<div>Complete seller workspace</div>');
+});
+
+test('project task dialogs wait for the parent transition and restore the project modal', () => {
+    function modal(initialClasses) {
+        const listeners = new Map();
+        return {
+            classList: classes(initialClasses), isConnected: true, dataset: {},
+            addEventListener(name, callback, options = {}) {
+                const entries = listeners.get(name) || [];
+                listeners.set(name, [...entries, {callback, once: options.once}]);
+            },
+            removeEventListener(name, callback) {
+                listeners.set(name, (listeners.get(name) || []).filter(
+                    entry => entry.callback !== callback,
+                ));
+            },
+            emit(name, event = {}) {
+                for (const entry of [...(listeners.get(name) || [])]) {
+                    if (entry.once) this.removeEventListener(name, entry.callback);
+                    entry.callback(event);
+                }
+            },
+        };
+    }
+    const parent = modal(['show']);
+    parent.id = 'managerWorkModal';
+    const task = modal([]);
+    let transitioning = true;
+    let hideCount = 0;
+    let taskShowCount = 0;
+    let disposeCount = 0;
+    const source = fs.readFileSync(path.join(
+        __dirname, '..', '..', 'templates', 'partials', 'project_view_content.html',
+    ), 'utf8').split('{% if parent_modal_id is defined %}')[1].split('{% endif %}')[0]
+        .replace('{{ parent_modal_id|tojson }}', '"managerWorkModal"');
+    vm.runInNewContext(source, {
+        document: {
+            getElementById: id => id === parent.id ? parent : task,
+            body: {appendChild() {}},
+        },
+        bootstrap: {Modal: {
+            getInstance: () => ({dispose() { disposeCount++; }}),
+            getOrCreateInstance: element => element === parent ? {
+                hide() { hideCount++; if (!transitioning) parent.classList.remove('show'); },
+                show() { parent.classList.add('show'); },
+            } : {show() { taskShowCount++; task.classList.add('show'); }},
+        }},
+    });
+    let prevented = false;
+    task.emit('show.bs.modal', {preventDefault() { prevented = true; }});
+    assert.equal(prevented, true);
+    assert.equal(taskShowCount, 0);
+    transitioning = false;
+    parent.emit('shown.bs.modal');
+    assert.equal(hideCount, 2);
+    assert.equal(parent.classList.contains('show'), false);
+    parent.emit('hidden.bs.modal');
+    assert.equal(taskShowCount, 1);
+    assert.equal(disposeCount, 1);
+    task.classList.remove('show');
+    task.emit('hidden.bs.modal');
+    parent.emit('shown.bs.modal');
+    assert.equal(parent.classList.contains('show'), true);
+    assert.equal(hideCount, 2);
+});
+
+test('project selection resets U2C source and displays projects without customer or ACR', async () => {
+    const ui = harness();
+    const picker = ui.picker();
+    picker.source('u2c');
+    picker.type('project');
+    assert.equal(picker.dataset.source, 'search');
+    assert.equal(picker.parts['.milestone-source'].classList.contains('d-none'), true);
+    assert.match(ui.requests[1].url, /type=project&source=search/);
+    assert.equal(
+        picker.parts['.candidate-search'].elements.q.placeholder,
+        'Search title, description, or project type',
+    );
+    ui.requests[1].finish(true, undefined, {results: [{
+        id: 3, title: 'Certification plan', customer_name: 'Internal project',
+        customer_id: null, status: 'Completed', due_date: null, acr: null, detail: 'Training',
+    }]});
+    await settle();
+    const table = picker.parts['.candidate-results'].children[0];
+    assert.equal(table.children.find(child => child.tag === 'caption').textContent, 'Available projects');
+    const row = table.children.find(child => child.tag === 'tbody').children[0];
+    assert.equal(row.children[0].children[0].disabled, false);
+    assert.equal(row.children[2].textContent, 'Internal project');
+    assert.equal(row.children[5].textContent, '-');
 });
 
 function u2cPayload(results = []) {

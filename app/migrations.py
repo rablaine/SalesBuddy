@@ -74,6 +74,7 @@ def run_migrations(db):
     _add_column_if_not_exists(
         db, inspector, 'manager_initiative_items', 'points_created_at', 'DATETIME',
     )
+    _migrate_initiative_project_links(db)
     
     # Migration: Upgrade milestones table for MSX integration
     _migrate_milestones_for_msx(db, inspector)
@@ -411,12 +412,213 @@ def run_migrations(db):
             conn.commit()
 
     # =========================================================================
-    # manager_initiative_sections and manager_initiative_items are new tables,
-    # created idempotently by db.create_all(); no existing columns are changed.
     # End migrations
     # =========================================================================
     
     print("Database schema up to date.")
+
+
+def _sqlite_table_definitions(create_sql: str) -> list[str]:
+    """Split SQLite table definitions without splitting expressions or quoted text."""
+    import re
+
+    body = create_sql[create_sql.index('(') + 1:create_sql.rindex(')')]
+    tokens = r"""'(?:''|[^'])*'|"(?:""|[^"])*"|`[^`]*`|\[[^\]]*\]|[(),]"""
+    depth = 0
+    start = 0
+    definitions = []
+    for match in re.finditer(tokens, body):
+        token = match.group()
+        if token == '(':
+            depth += 1
+        elif token == ')':
+            depth -= 1
+        elif token == ',' and depth == 0:
+            definitions.append(body[start:match.start()].strip())
+            start = match.end()
+    definitions.append(body[start:].strip())
+    return definitions
+
+
+def _initiative_project_schema_sql(create_sql: str, inspector) -> str:
+    """Extend the original DDL, retaining unrelated columns and table constraints."""
+    import re
+
+    table = 'manager_initiative_items'
+    definitions = _sqlite_table_definitions(create_sql)
+    checks = [
+        definition for definition in definitions
+        if re.search(r'\bCHECK\s*\(', definition, re.IGNORECASE)
+        and re.search(r'\bitem_type\b', definition, re.IGNORECASE)
+    ]
+    if len(checks) != 2 or any(
+        re.match(r'item_type\b', definition, re.IGNORECASE) for definition in checks
+    ):
+        raise RuntimeError('Unexpected initiative item CHECK constraints; migration aborted')
+    definitions = [definition for definition in definitions if definition not in checks]
+    columns = {column['name'] for column in inspector.get_columns(table)}
+    if 'project_id' not in columns:
+        definitions.insert(0, 'project_id INTEGER')
+        definitions.append('FOREIGN KEY (project_id) REFERENCES projects (id) ON DELETE SET NULL')
+    else:
+        project_fks = [
+            fk for fk in inspector.get_foreign_keys(table)
+            if fk['constrained_columns'] == ['project_id']
+        ]
+        if not project_fks:
+            definitions.append(
+                'FOREIGN KEY (project_id) REFERENCES projects (id) ON DELETE SET NULL'
+            )
+        elif any(
+            fk['referred_table'] != 'projects' or fk['referred_columns'] != ['id']
+            or fk['options'].get('ondelete', '').upper() != 'SET NULL'
+            for fk in project_fks
+        ):
+            raise RuntimeError('Unexpected project foreign key; migration aborted')
+    uniques = inspector.get_unique_constraints(table) + inspector.get_indexes(table)
+    if not any(
+        unique.get('unique', True) and unique['column_names'] == ['section_id', 'project_id']
+        for unique in uniques
+    ):
+        definitions.append('UNIQUE (section_id, project_id)')
+    definitions.extend([
+        "CHECK (item_type IN ('milestone', 'engagement', 'project'))",
+        "CHECK ((item_type = 'milestone' AND engagement_id IS NULL AND project_id IS NULL) "
+        "OR (item_type = 'engagement' AND milestone_id IS NULL AND project_id IS NULL) "
+        "OR (item_type = 'project' AND milestone_id IS NULL AND engagement_id IS NULL))",
+    ])
+    suffix = create_sql[create_sql.rindex(')') + 1:]
+    return (
+        'CREATE TABLE "_initiative_items_project_new" (\n'
+        + ',\n'.join(definitions) + ')' + suffix
+    )
+
+
+def _migrate_initiative_project_links(db) -> None:
+    """Atomically rebuild legacy initiative links after a WAL-aware SQLite backup.
+
+    The original table is never renamed, so immutable discussed-point foreign
+    keys keep referencing its stable name and IDs. Disk backups remain beside
+    the database; in-memory databases retain an in-memory backup until completion.
+    """
+    import re
+    import sqlite3
+    from datetime import datetime, timezone
+    from pathlib import Path
+    from uuid import uuid4
+
+    table = 'manager_initiative_items'
+    inspector = inspect(db.engine)
+    if table not in inspector.get_table_names():
+        return
+    if db.engine.dialect.name != 'sqlite':
+        raise RuntimeError('Initiative project migration requires SQLite')
+    columns = inspector.get_columns(table)
+    checks = inspector.get_check_constraints(table)
+    normalized = [
+        re.sub(r'[\s"()\[\]]', '', check['sqltext']).lower() for check in checks
+    ]
+    expected_checks = [
+        "item_typein'milestone','engagement','project'",
+        "item_type='milestone'andengagement_idisnullandproject_idisnull"
+        "oritem_type='engagement'andmilestone_idisnullandproject_idisnull"
+        "oritem_type='project'andmilestone_idisnullandengagement_idisnull",
+    ]
+    project_column = next((column for column in columns if column['name'] == 'project_id'), None)
+    project_fk = any(
+        fk['constrained_columns'] == ['project_id'] and fk['referred_table'] == 'projects'
+        and fk['referred_columns'] == ['id']
+        and fk['options'].get('ondelete', '').upper() == 'SET NULL'
+        for fk in inspector.get_foreign_keys(table)
+    )
+    project_uniques = inspector.get_unique_constraints(table) + inspector.get_indexes(table)
+    project_unique = any(
+        unique.get('unique', True) and unique['column_names'] == ['section_id', 'project_id']
+        for unique in project_uniques
+    )
+    if (project_column and project_column['nullable'] and project_fk and project_unique
+            and all(check in normalized for check in expected_checks)):
+        return
+
+    db.session.commit()
+    connection = db.engine.raw_connection()
+    raw = connection.driver_connection
+    foreign_keys = raw.execute('PRAGMA foreign_keys').fetchone()[0]
+    backup = None
+    backup_path = None
+    try:
+        create_sql = raw.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name=?", (table,),
+        ).fetchone()[0]
+        new_sql = _initiative_project_schema_sql(create_sql, inspector)
+        database_path = next(
+            row[2] for row in raw.execute('PRAGMA database_list') if row[1] == 'main'
+        )
+        if database_path:
+            timestamp = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')
+            backup_path = Path(database_path).with_name(
+                f'{Path(database_path).name}.initiative-projects-{timestamp}-{uuid4().hex}.bak'
+            )
+            backup_path.touch(exist_ok=False)
+            backup = sqlite3.connect(str(backup_path))
+        else:
+            backup = sqlite3.connect(':memory:')
+        raw.backup(backup)
+        if backup.execute('PRAGMA integrity_check').fetchone()[0] != 'ok':
+            raise RuntimeError('Initiative migration backup failed integrity verification')
+        print(f"  Initiative project migration backup: {backup_path or 'isolated in-memory copy'}")
+
+        raw.execute('PRAGMA foreign_keys=OFF')
+        if raw.execute('PRAGMA foreign_keys').fetchone()[0]:
+            raise RuntimeError('Could not disable foreign keys for initiative migration')
+        raw.execute('BEGIN IMMEDIATE')
+        objects = raw.execute(
+            "SELECT sql FROM sqlite_master WHERE tbl_name=? "
+            "AND type IN ('index', 'trigger') AND sql IS NOT NULL", (table,),
+        ).fetchall()
+        raw.execute(new_sql)
+        names = ', '.join('"' + column['name'].replace('"', '""') + '"' for column in columns)
+        raw.execute(
+            f'INSERT INTO "_initiative_items_project_new" ({names}) SELECT {names} FROM "{table}"'
+        )
+        raw.execute(f'DROP TABLE "{table}"')
+        raw.execute(f'ALTER TABLE "_initiative_items_project_new" RENAME TO "{table}"')
+        for (object_sql,) in objects:
+            raw.execute(object_sql)
+        # Older migrations left unrelated dangling FKs in some deployed databases.
+        # Only this table and its inbound references can change in this rebuild.
+        affected_tables = {table}
+        for (candidate,) in raw.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+        ).fetchall():
+            quoted_candidate = '"' + candidate.replace('"', '""') + '"'
+            if any(
+                fk[2] == table
+                for fk in raw.execute(f'PRAGMA foreign_key_list({quoted_candidate})')
+            ):
+                affected_tables.add(candidate)
+        violations = []
+        for affected_table in sorted(affected_tables):
+            quoted_table = '"' + affected_table.replace('"', '""') + '"'
+            violations.extend(raw.execute(f'PRAGMA foreign_key_check({quoted_table})').fetchall())
+        if violations:
+            raise RuntimeError(f'Initiative migration foreign key violations: {violations!r}')
+        raw.commit()
+        print("  Added project links to initiative items, preserving discussion history")
+    except Exception as error:
+        raw.rollback()
+        raise RuntimeError(
+            f'Initiative project migration failed; rolled back. Backup: {backup_path or "memory"}'
+        ) from error
+    finally:
+        try:
+            raw.execute(f'PRAGMA foreign_keys={foreign_keys}')
+            if raw.execute('PRAGMA foreign_keys').fetchone()[0] != foreign_keys:
+                raise RuntimeError('Could not restore initiative migration foreign key state')
+        finally:
+            if backup is not None:
+                backup.close()
+            connection.close()
 
 
 def _add_column_if_not_exists(db, inspector, table: str, column: str, column_def: str):
