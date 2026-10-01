@@ -8,7 +8,7 @@ brought the change into `main`, so the admin Updates card can show
 Format: `## M/D/YYYY - <merge-short-sha>`. See
 `scripts/tag-changelog.ps1` for the helper that fills this in.
 
-## 9/30/2026
+## 9/30/2026 - c041318
 
 - Show current U2C progress as a labeled live endpoint in both U2C Attainment and Connect Goals graphs, while preserving weekly snapshot history.
 - Distinguish total pipeline from the 40% goal on the U2C graph, and turn U2C progress green when the goal is reached.
