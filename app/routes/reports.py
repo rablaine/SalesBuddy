@@ -2029,6 +2029,7 @@ def api_connect_goals():
 def report_u2c():
     """U2C Attainment report - quarterly milestone commitment tracking."""
     from app.services.u2c_snapshot import (
+        U2C_TARGET,
         current_fiscal_quarter, fiscal_quarter_date_range, get_attainment,
         get_attainment_trend_by_workload, get_workload_prefixes,
     )
@@ -2064,7 +2065,7 @@ def report_u2c():
         workload_prefixes = get_workload_prefixes(snapshot.id)
         attainment = get_attainment(snapshot.id)
         add_agenda_state_to_milestone_rows(attainment['remaining_items'])
-        trend = get_attainment_trend_by_workload(snapshot.id)
+        trend = get_attainment_trend_by_workload(snapshot.id, include_live=True)
         quarter_start, quarter_end = fiscal_quarter_date_range(
             snapshot.fiscal_quarter)
         trend_bounds = {
@@ -2101,6 +2102,7 @@ def report_u2c():
         u2c_sync_error=u2c_sync_error,
         trend=trend,
         trend_bounds=trend_bounds,
+        u2c_goal=U2C_TARGET,
     )
 
 

@@ -35,6 +35,12 @@ The MSI installer handles everything: prerequisites (Git, Python, Azure CLI, Nod
   and coverage, pipeline health, and account insights. Connect Goals' action reports
   stay together, separate from planning and review pages. All Reports uses the same
   groups and report order.
+- **U2C Trends** - U2C Attainment and Connect Goals preserve weekly MSXi history
+  and add a labeled live endpoint for the current, non-final quarter, using the
+  same latest synced milestone status and snapshot ACR basis as the U2C percentage
+  card. The U2C Attainment graph distinguishes total pipeline from the 40% goal,
+  and its U2C percentage turns green at that goal. Historical and finalized
+  quarters keep their stored weekly points.
 - **Initiative Tracker** - create named initiatives, select engagements and milestones,
   grouped by their current seller, with live status, commitment, dates, and ACR.
   When user-facing internal projects exist, **Add work** also offers **Projects**, with

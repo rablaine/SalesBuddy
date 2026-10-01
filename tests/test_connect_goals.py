@@ -446,8 +446,8 @@ def test_u2c_widget_uses_data_snapshot(app):
             version_date=date(2026, 8, 11),
             total_items=1,
             total_starting_acr=100,
-            total_committed_acr=100,
-            total_converted_acr=100,
+            total_committed_acr=0,
+            total_converted_acr=0,
         )
         db.session.add(version)
         db.session.flush()
@@ -456,8 +456,8 @@ def test_u2c_widget_uses_data_snapshot(app):
             milestone_number=milestone.milestone_number,
             workload=milestone.workload,
             starting_acr=100,
-            converted_acr=100,
-            commitment='Committed',
+            converted_acr=0,
+            commitment='Uncommitted',
             status='On Track',
         ))
         db.session.commit()
@@ -467,4 +467,9 @@ def test_u2c_widget_uses_data_snapshot(app):
         assert widget['available'] is True
         assert widget['value'] == 100.0
         assert widget['starting_acr'] == 100
-        assert widget['trend'][0]['u2c_pct'] == 100.0
+        assert widget['trend'][0]['u2c_pct'] == 0.0
+        assert widget['trend'][-1]['u2c_pct'] == widget['value'] == 100.0
+        assert widget['trend'][-1]['date'] == '2026-08-15'
+        assert widget['trend'][-1]['source'] == 'live'
+        assert widget['trend'][-1]['label'] == 'Aug 15 (live)'
+        assert version.total_committed_acr == 0
