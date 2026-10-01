@@ -2167,8 +2167,10 @@ def get_u2c_attainment(
 @tool(
     'get_u2c_attainment_trend',
     'Get the week-by-week U2C attainment history for a fiscal quarter. Each '
-    'point is one MSX Insights weekly publish, showing committed ACR against '
-    'the frozen starting target. Useful for "how has attainment progressed?" '
+    'historical point is one MSX Insights weekly publish, showing committed ACR '
+    'against the starting target. The current, non-final quarter also includes '
+    'a labeled live endpoint matching the current attainment totals. '
+    'Useful for "how has attainment progressed?" '
     'questions. Note the series can go down - MSXi restates conversions.',
     {
         'type': 'object',
@@ -2181,7 +2183,7 @@ def get_u2c_attainment(
     },
 )
 def get_u2c_attainment_trend(fiscal_quarter: str | None = None) -> dict:
-    """Return the stored weekly attainment series for a fiscal quarter."""
+    """Return weekly history plus the current quarter's live endpoint."""
     from app.models import U2CSnapshot
     from app.services.u2c_snapshot import (
         current_fiscal_quarter, get_attainment_trend,
@@ -2192,7 +2194,7 @@ def get_u2c_attainment_trend(fiscal_quarter: str | None = None) -> dict:
     if not snapshot:
         return {'fiscal_quarter': fq, 'message': f'No U2C snapshot exists for {fq}.'}
 
-    points = get_attainment_trend(snapshot.id)
+    points = get_attainment_trend(snapshot.id, include_live=True)
     if not points:
         return {
             'fiscal_quarter': fq,

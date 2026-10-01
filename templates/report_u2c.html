@@ -82,7 +82,7 @@
         <div class="card text-center h-100">
             <div class="card-body">
                 <h3 class="mb-1" id="cardTarget">${{ "{:,.0f}".format(attainment.target_total) }}</h3>
-                <small class="text-muted">Target Monthly ACR</small>
+                <small class="text-muted">Total Pipeline ACR</small>
                 <div class="small text-muted mt-1" id="cardTargetSub">{{ attainment.total_in_scope }} milestones in scope</div>
             </div>
         </div>
@@ -99,13 +99,14 @@
     <div class="col">
         <div class="card text-center h-100">
             <div class="card-body">
-                <h3 class="mb-1" id="cardU2cPct">{{ attainment.u2c_pct }}%</h3>
+                {% set u2c_tone = 'success' if attainment.u2c_pct >= u2c_goal else 'warning' %}
+                <h3 class="mb-1 text-{{ u2c_tone }}" id="cardU2cPct">{{ attainment.u2c_pct }}%</h3>
                 <small class="text-muted">U2C %</small>
                 <div class="progress mt-2" style="height: 8px;">
-                    <div id="cardU2cPctBar" class="progress-bar"
+                    <div id="cardU2cPctBar" class="progress-bar bg-{{ u2c_tone }}"
                          style="width: {{ [attainment.u2c_pct, 100]|min }}%"></div>
                 </div>
-                <div class="small text-muted mt-1">Snapshot ACR basis</div>
+                <div class="small text-muted mt-1">Snapshot ACR basis, {{ u2c_goal|int }}% goal</div>
             </div>
         </div>
     </div>
@@ -141,7 +142,9 @@
             <i class="bi bi-graph-up-arrow"></i> Attainment Over the Quarter
             <span id="trendScope" class="badge bg-secondary ms-2 d-none"></span>
         </h5>
-        <small class="text-muted">One point per MSXi weekly publish - cards may be fresher</small>
+        <small class="text-muted">
+            Weekly MSXi history{% if trend.get('', []) and trend[''][-1].get('source') == 'live' %} + latest synced milestones (live){% endif %}
+        </small>
     </div>
     <div class="card-body">
         <div style="position: relative; height: 240px;">
@@ -469,6 +472,12 @@ function u2cTrendPoints(points, field) {
     return points.map(p => ({ x: Date.parse(p.date), y: p[field] }));
 }
 
+function u2cGoalPoints(points) {
+    return points.map(p => ({
+        x: Date.parse(p.date), y: p.starting_acr * U2C_GOAL / 100,
+    }));
+}
+
 function u2cTrendDate(value) {
     return new Date(value).toLocaleDateString(undefined, {
         month: 'short',
@@ -507,6 +516,7 @@ function renderU2cTrend(prefix) {
             points, 'committed_acr');
         u2cTrendChart.data.datasets[1].data = u2cTrendPoints(
             points, 'starting_acr');
+        u2cTrendChart.data.datasets[2].data = u2cGoalPoints(points);
         u2cTrendChart.update();
         return;
     }
@@ -525,10 +535,18 @@ function renderU2cTrend(prefix) {
                     pointRadius: 3,
                 },
                 {
-                    label: 'Target (starting uncommitted)',
+                    label: 'Total pipeline (starting uncommitted)',
                     data: u2cTrendPoints(points, 'starting_acr'),
                     borderColor: colors.muted,
                     borderDash: [6, 4],
+                    pointRadius: 0,
+                    fill: false,
+                },
+                {
+                    label: `${U2C_GOAL}% goal`,
+                    data: u2cGoalPoints(points),
+                    borderColor: '#0d6efd',
+                    borderDash: [3, 3],
                     pointRadius: 0,
                     fill: false,
                 },
@@ -564,7 +582,10 @@ function renderU2cTrend(prefix) {
                                 // committed.
                                 return ` Committed ${u2cMoney(p.committed_acr)} (${p.u2c_pct}% U2C)`;
                             }
-                            return ` Target ${u2cMoney(p.starting_acr)}`;
+                            if (ctx.datasetIndex === 2) {
+                                return ` ${U2C_GOAL}% goal ${u2cMoney(p.starting_acr * U2C_GOAL / 100)}`;
+                            }
+                            return ` Total pipeline ${u2cMoney(p.starting_acr)}`;
                         },
                     },
                 },
@@ -598,6 +619,7 @@ function renderU2cTrend(prefix) {
 const WL_KEY = 'u2c_workload_filter';
 const SORT_KEY = 'u2c_sort';
 const FILTER_KEY = 'u2c_filters';
+const U2C_GOAL = {{ u2c_goal|tojson }};
 
 // ==========================================================================
 // State
@@ -812,11 +834,11 @@ function applyAllFilters() {
     // U2C %
     if (el('cardU2cPct')) {
         el('cardU2cPct').textContent = u2cPct + '%';
-        el('cardU2cPct').className = 'mb-1 ' + (u2cPct >= 100 ? 'text-success' : u2cPct >= 50 ? 'text-primary' : 'text-warning');
+        el('cardU2cPct').className = 'mb-1 ' + (u2cPct >= U2C_GOAL ? 'text-success' : 'text-warning');
     }
     if (el('cardU2cPctBar')) {
         el('cardU2cPctBar').style.width = Math.min(u2cPct, 100) + '%';
-        el('cardU2cPctBar').className = 'progress-bar ' + (u2cPct >= 100 ? 'bg-success' : u2cPct >= 50 ? 'bg-primary' : 'bg-warning');
+        el('cardU2cPctBar').className = 'progress-bar ' + (u2cPct >= U2C_GOAL ? 'bg-success' : 'bg-warning');
     }
 
     // Attainment %

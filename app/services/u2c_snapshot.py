@@ -21,6 +21,7 @@ from app.models import (
 )
 
 logger = logging.getLogger(__name__)
+U2C_TARGET = 40.0
 
 
 def current_fiscal_quarter(ref_date: date | None = None) -> str:
@@ -878,7 +879,9 @@ def get_attainment(snapshot_id: int, workload_prefix: str | None = None) -> dict
 
 
 def get_attainment_trend(snapshot_id: int,
-                         workload_prefix: str | None = None) -> list[dict]:
+                         workload_prefix: str | None = None, *,
+                         include_live: bool = False,
+                         reference: date | None = None) -> list[dict]:
     """Return a quarter's weekly attainment points, oldest first.
 
     Sourced from our own stored copies of MSXi's weekly versions, so the series
@@ -902,10 +905,16 @@ def get_attainment_trend(snapshot_id: int,
             series to, matching the report's workload filter. Weeks recorded
             before per-milestone detail was stored are skipped when filtering,
             since they can only answer the territory-wide question.
+        include_live: Add a labeled point from the same latest synced milestone
+            data as the cards, without changing stored weekly history. Only
+            applies to the current, non-final quarter. A same-day weekly point
+            is replaced in the returned series, not in storage.
+        reference: Date for the live endpoint, defaulting to today.
 
     Returns:
         List of dicts with 'date', 'label', 'items', 'starting_acr',
-        'committed_acr', 'msxi_converted_acr' and 'u2c_pct'.
+        'committed_acr', 'msxi_converted_acr' and 'u2c_pct'. The live point has
+        source='live' and no historical MSXi converted-pipeline measure.
     """
     versions = (
         U2CSnapshotVersion.query
@@ -959,19 +968,51 @@ def get_attainment_trend(snapshot_id: int,
             'msxi_converted_acr': round(converted, 2),
             'u2c_pct': pct,
         })
+    if include_live:
+        return _append_live_attainment_point(
+            points, snapshot_id, workload_prefix, reference or date.today())
     return points
 
 
-def get_attainment_trend_by_workload(snapshot_id: int) -> dict[str, list[dict]]:
+def _append_live_attainment_point(
+    points: list[dict], snapshot_id: int, workload_prefix: str | None, reference: date,
+) -> list[dict]:
+    """Add current card totals to a chart without rewriting weekly history."""
+    snapshot = db.session.get(U2CSnapshot, snapshot_id)
+    if (snapshot is None or snapshot.is_final
+            or snapshot.fiscal_quarter != current_fiscal_quarter(reference)):
+        return points
+    live_date = reference.isoformat()
+    if points and points[-1]['date'] > live_date:
+        return points
+
+    attainment = get_attainment(snapshot_id, workload_prefix)
+    live_point = {
+        'date': live_date,
+        'label': f"{reference.strftime('%b %d')} (live)",
+        'source': 'live',
+        'items': attainment['total_in_scope'],
+        'starting_acr': attainment['target_total'],
+        'committed_acr': attainment['committed_total'],
+        'msxi_converted_acr': None,
+        'u2c_pct': attainment['u2c_pct'],
+    }
+    return [point for point in points if point['date'] != live_date] + [live_point]
+
+
+def get_attainment_trend_by_workload(
+    snapshot_id: int, *, include_live: bool = False,
+) -> dict[str, list[dict]]:
     """Return the trend for every workload prefix plus the overall series.
 
     Keyed by workload prefix, with ``''`` holding the unfiltered series, so the
     report can switch the chart as the workload dropdown changes without a
     round trip - the same way its cards and tables already filter client-side.
     """
-    series = {'': get_attainment_trend(snapshot_id)}
+    series = {'': get_attainment_trend(snapshot_id, include_live=include_live)}
     for prefix in get_workload_prefixes(snapshot_id):
-        series[prefix] = get_attainment_trend(snapshot_id, prefix)
+        series[prefix] = get_attainment_trend(
+            snapshot_id, prefix, include_live=include_live)
     return series
 
 

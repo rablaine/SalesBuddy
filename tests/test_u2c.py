@@ -1,6 +1,13 @@
 """Tests for U2C snapshot service and report."""
+import json
+from pathlib import Path
+import shutil
+import subprocess
+
 import pytest
 from datetime import datetime, timezone, date, timedelta
+
+from bs4 import BeautifulSoup
 
 from app.models import (
     db, Customer, Engagement, Milestone, OneOnOneAgendaItem, OneOnOneWorkspace,
@@ -1434,7 +1441,7 @@ class TestAttainmentTrend:
             snapshot = U2CSnapshot.query.first()
             assert get_attainment_trend(snapshot.id) == []
 
-    def test_chart_is_hidden_with_a_single_point(self, client, app, monkeypatch):
+    def test_chart_is_hidden_with_a_single_final_point(self, client, app, monkeypatch):
         """One point isn't a trend - don't render an empty-looking chart."""
         from app.services.u2c_snapshot import refresh_official_snapshot
 
@@ -1442,6 +1449,8 @@ class TestAttainmentTrend:
         FakeMsxi(fq, {'20260915': 4000.0}).install(monkeypatch)
         with app.app_context():
             refresh_official_snapshot()
+            U2CSnapshot.query.first().is_final = True
+            db.session.commit()
 
         response = client.get('/reports/u2c')
         assert b'u2cTrendChart' not in response.data
@@ -1464,7 +1473,8 @@ class TestAttainmentTrend:
         with app.app_context():
             self._seed(app, monkeypatch)
             result = get_u2c_attainment_trend()
-            assert len(result['points']) == 3
+            assert len(result['points']) == 4
+            assert result['points'][-1]['source'] == 'live'
             assert result['latest_u2c_pct'] == 62.5
             assert result['msxi_version'] == '20260915'
 
@@ -1473,6 +1483,182 @@ class TestAttainmentTrend:
         with app.app_context():
             result = get_u2c_attainment_trend('FY20 Q1')
             assert 'No U2C snapshot exists' in result['message']
+
+
+class TestLiveAttainmentTrend:
+    """Both graphs share a live endpoint without mutating weekly history."""
+
+    def _seed(self, u2c_data):
+        """Create a 48% Data example with stale weekly commitment statuses."""
+        from app.services.u2c_snapshot import record_version_totals
+
+        data_ms = db.session.get(Milestone, u2c_data['ms1_id'])
+        other_ms = db.session.get(Milestone, u2c_data['ms2_id'])
+        data_ms.monthly_usage = 7378.0
+        other_ms.monthly_usage = 8000.0
+        make_snapshot()
+        snapshot = U2CSnapshot.query.first()
+        start, _ = fiscal_quarter_date_range(snapshot.fiscal_quarter)
+        reference = start + timedelta(days=50)
+        rows = [
+            _msxi_row(milestone_number='DATA-COMMIT', starting_acr=7378.0,
+                      workload='Data: Fabric'),
+            _msxi_row(milestone_number='DATA-REMAIN', starting_acr=8000.0,
+                      workload='Data: SQL'),
+            _msxi_row(milestone_number='INFRA', starting_acr=2000.0,
+                      workload='Infra: AVD'),
+        ]
+        record_version_totals(
+            snapshot, (reference - timedelta(days=7)).strftime('%Y%m%d'), rows)
+        data_ms.customer_commitment = 'Committed'
+        data_ms.monthly_usage = 8289.0
+        db.session.commit()
+        return snapshot, reference, rows
+
+    def test_live_endpoint_matches_48_percent_cards(self, app, u2c_data):
+        """Use current status but baseline ACR, not the 53.9% live ACR measure."""
+        from app.services.u2c_snapshot import get_attainment_trend
+
+        with app.app_context():
+            snapshot, reference, _ = self._seed(u2c_data)
+            weekly = get_attainment_trend(snapshot.id, 'Data')
+            points = get_attainment_trend(
+                snapshot.id, 'Data', include_live=True, reference=reference)
+            cards = get_attainment(snapshot.id, 'Data')
+
+            assert points[:-1] == weekly
+            assert weekly[-1]['u2c_pct'] == 0
+            assert points[-1] == {
+                'date': reference.isoformat(),
+                'label': f"{reference.strftime('%b %d')} (live)",
+                'source': 'live',
+                'items': 2,
+                'starting_acr': 15378.0,
+                'committed_acr': 7378.0,
+                'msxi_converted_acr': None,
+                'u2c_pct': 48.0,
+            }
+            assert points[-1]['u2c_pct'] == cards['u2c_pct']
+            assert cards['attainment_pct'] == 53.9
+            assert get_attainment_trend(snapshot.id, 'Data') == weekly
+            assert snapshot.versions.count() == 1
+
+    def test_same_day_week_is_only_replaced_in_returned_series(self, app, u2c_data):
+        """Avoid two x-axis points on the same date without changing storage."""
+        from app.services.u2c_snapshot import (
+            get_attainment_trend, record_version_totals,
+        )
+
+        with app.app_context():
+            snapshot, reference, rows = self._seed(u2c_data)
+            record_version_totals(snapshot, reference.strftime('%Y%m%d'), rows)
+            db.session.commit()
+            points = get_attainment_trend(
+                snapshot.id, 'Data', include_live=True, reference=reference)
+            assert len(points) == 2
+            assert points[-1]['u2c_pct'] == 48.0
+            assert points[-1]['source'] == 'live'
+            assert snapshot.versions.count() == 2
+            assert get_attainment_trend(snapshot.id, 'Data')[-1]['u2c_pct'] == 0
+
+    @pytest.mark.parametrize('finalized', [False, True])
+    def test_closed_or_historical_quarters_have_no_live_point(
+        self, app, u2c_data, finalized,
+    ):
+        """Never present today's statuses as a historical quarter endpoint."""
+        from app.services.u2c_snapshot import get_attainment_trend
+
+        with app.app_context():
+            snapshot, reference, _ = self._seed(u2c_data)
+            snapshot.is_final = finalized
+            db.session.commit()
+            if not finalized:
+                reference += timedelta(days=100)
+            weekly = get_attainment_trend(snapshot.id, 'Data')
+            assert get_attainment_trend(
+                snapshot.id, 'Data', include_live=True, reference=reference,
+            ) == weekly
+
+    def test_live_series_follow_each_workload_and_overall(self, app, u2c_data):
+        """Every dropdown scope reconciles to its own current card totals."""
+        from app.services.u2c_snapshot import get_attainment_trend_by_workload
+
+        with app.app_context():
+            snapshot, _, _ = self._seed(u2c_data)
+            series = get_attainment_trend_by_workload(snapshot.id, include_live=True)
+            for prefix, points in series.items():
+                cards = get_attainment(snapshot.id, prefix or None)
+                assert points[-1]['source'] == 'live'
+                assert points[-1]['starting_acr'] == cards['target_total']
+                assert points[-1]['committed_acr'] == cards['committed_total']
+                assert points[-1]['u2c_pct'] == cards['u2c_pct']
+            assert series['Data'][-1]['u2c_pct'] == 48.0
+            assert series['Infra'][-1]['u2c_pct'] == 0.0
+
+    def test_live_endpoint_available_without_weekly_history(self, app, u2c_data):
+        """A current snapshot can provide a live value before history arrives."""
+        from app.services.u2c_snapshot import get_attainment_trend
+
+        with app.app_context():
+            make_snapshot()
+            snapshot = U2CSnapshot.query.first()
+            assert get_attainment_trend(snapshot.id) == []
+            points = get_attainment_trend(snapshot.id, include_live=True)
+            assert len(points) == 1
+            assert points[0]['source'] == 'live'
+            assert points[0]['starting_acr'] == 10000.0
+
+    def test_report_includes_live_endpoint(self, client, app, u2c_data):
+        """The U2C page actually opts into the shared live series."""
+        with app.app_context():
+            self._seed(u2c_data)
+        response = client.get('/reports/u2c')
+        assert response.status_code == 200
+        assert b'"u2c_pct": 48.0' in response.data
+        assert b'"source": "live"' in response.data
+        assert b'latest synced milestones (live)' in response.data
+
+    @pytest.mark.skipif(shutil.which('node') is None, reason='Node.js is required for JS tests')
+    def test_goal_chart_and_filtered_colors(self, client, app, u2c_data):
+        """Execute the rendered chart and filtering code, including goal boundaries."""
+        with app.app_context():
+            self._seed(u2c_data)
+        response = client.get('/reports/u2c')
+        soup = BeautifulSoup(response.data, 'html.parser')
+        scripts = [
+            script.get_text()
+            for script in soup.find_all('script', src=False)
+            if 'const TREND_SERIES' in script.get_text() or 'const WL_KEY' in script.get_text()
+        ]
+        assert len(scripts) == 2
+        assert 'Total Pipeline ACR' in soup.get_text()
+        assert 'Target Monthly ACR' not in soup.get_text()
+        result = subprocess.run(
+            ['node', str(Path(__file__).parent / 'js' / 'u2c_goal.cjs')],
+            input=json.dumps(scripts), capture_output=True, text=True, check=False,
+        )
+        assert result.returncode == 0, result.stdout + result.stderr
+
+
+class TestU2cGoalColors:
+    """Initial server rendering uses the same goal boundary as filtering."""
+
+    @pytest.mark.parametrize('percentage, tone', [
+        (39.9, 'warning'), (40.0, 'success'), (48.0, 'success'),
+    ])
+    def test_initial_goal_color(self, client, app, u2c_data, percentage, tone):
+        """Reaching 40%, not 100%, makes the U2C value and bar green."""
+        with app.app_context():
+            committed = db.session.get(Milestone, u2c_data['ms1_id'])
+            committed.monthly_usage = percentage
+            db.session.get(Milestone, u2c_data['ms2_id']).monthly_usage = 100 - percentage
+            db.session.get(Milestone, u2c_data['ms3_id']).monthly_usage = 0
+            make_snapshot()
+            committed.customer_commitment = 'Committed'
+            db.session.commit()
+        soup = BeautifulSoup(client.get('/reports/u2c').data, 'html.parser')
+        assert f'text-{tone}' in soup.select_one('#cardU2cPct')['class']
+        assert f'bg-{tone}' in soup.select_one('#cardU2cPctBar')['class']
 
 
 class TestTrendWorkloadFiltering:

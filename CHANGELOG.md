@@ -8,6 +8,11 @@ brought the change into `main`, so the admin Updates card can show
 Format: `## M/D/YYYY - <merge-short-sha>`. See
 `scripts/tag-changelog.ps1` for the helper that fills this in.
 
+## 9/30/2026
+
+- Show current U2C progress as a labeled live endpoint in both U2C Attainment and Connect Goals graphs, while preserving weekly snapshot history.
+- Distinguish total pipeline from the 40% goal on the U2C graph, and turn U2C progress green when the goal is reached.
+
 ## 9/30/2026 - 7188f65
 
 - Add internal projects to Initiative Tracker's work picker when user-facing projects exist, excluding system-only Copilot Saved Tasks, with project notes and action items in the same detail modal.

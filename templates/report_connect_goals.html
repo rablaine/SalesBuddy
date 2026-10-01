@@ -291,7 +291,10 @@
                 <div class="u2c-chart-wrap">
                     <canvas id="connectU2cChart"
                             role="img"
-                            aria-label="Weekly Data U2C progression for {{ u2c.fiscal_quarter }}"></canvas>
+                            aria-label="Data U2C progression for {{ u2c.fiscal_quarter }}, weekly history and latest synced milestones"></canvas>
+                </div>
+                <div class="small text-muted mt-2">
+                    Weekly MSXi history{% if u2c.trend and u2c.trend[-1].get('source') == 'live' %} + latest synced milestones (live){% endif %}
                 </div>
                 <p class="visually-hidden" id="u2cChartSummary">
                     Data U2C is {{ u2c.value }} percent against a 40 percent quarter target.
@@ -678,8 +681,8 @@
                     pointHoverRadius: 5,
                     tension: 0.18
                 }, {
-                    label: '40% goal',
-                    data: points.map(function() { return 40; }),
+                    label: '{{ widgets.get("u2c").target|int }}% goal',
+                    data: points.map(function() { return {{ widgets.get('u2c').target|tojson }}; }),
                     borderColor: '#6c757d',
                     borderDash: [6, 5],
                     pointRadius: 0,

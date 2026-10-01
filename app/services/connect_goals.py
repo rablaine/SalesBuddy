@@ -22,6 +22,7 @@ from app.models import (
 )
 from app.services.activity_coverage import fiscal_year_bounds
 from app.services.u2c_snapshot import (
+    U2C_TARGET,
     current_fiscal_quarter,
     fiscal_quarter_date_range,
     get_attainment,
@@ -37,7 +38,6 @@ FY27_DATA_SCOPE = {
 ACTIVE_MILESTONE_STATUSES = ('On Track', 'At Risk', 'Blocked')
 TEAM_COVERAGE_TARGET = 50.0
 HVA_COVERAGE_TARGET = 100.0
-U2C_TARGET = 40.0
 WHITESPACE_CONFIRMATION_MONTHS = 3
 VALIDATION_CATEGORIES = {
     606820007: 'Technical Workshop',
@@ -163,7 +163,9 @@ def get_u2c_widget(reference: date | None = None) -> dict[str, Any]:
         }
 
     attainment = get_attainment(snapshot.id, FY27_DATA_SCOPE['workload_prefix'])
-    trend = get_attainment_trend(snapshot.id, FY27_DATA_SCOPE['workload_area'])
+    trend = get_attainment_trend(
+        snapshot.id, FY27_DATA_SCOPE['workload_area'],
+        include_live=True, reference=reference)
     quarter_start, quarter_end = fiscal_quarter_date_range(fiscal_quarter)
     elapsed_days = max(0, min((reference - quarter_start).days + 1,
                               (quarter_end - quarter_start).days + 1))
