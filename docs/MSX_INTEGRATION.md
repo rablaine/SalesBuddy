@@ -482,6 +482,21 @@ Startup migrations repair the retired `is_hok` field:
   with an unusable schema.
 - Fresh schemas and repeat startups need no repair or additional backup.
 
+Web and worker schema initialization is serialized with an OS-managed
+`salesbuddy.db.startup.lock` sidecar beside the database. It covers table creation,
+migrations, verified backups, and initial user creation. The second process waits
+up to five minutes instead of competing for SQLite's write lock. A crash releases
+the lock automatically; do not delete the sidecar while the app is running.
+The supervisor allows six minutes for initial readiness, ending that grace as
+soon as a process becomes healthy. Later health failures retain normal restart behavior.
+
+The Electron shell continues checking readiness after 60 seconds and displays a
+startup message instead of navigating to an unavailable backend. Failed local
+page loads display a reconnecting message and retry their original URL when the
+backend is healthy. Navigation failures and renderer exits are recorded in
+`logs/electron-main.log`. This recovery requires the updated desktop shell,
+not just a backend code update.
+
 Milestone sync sends a terminal error event when its streaming generator fails.
 The UI also treats a connection closing without a completion event as a failure,
 not a sync that is still running. Earlier committed batches may remain saved.

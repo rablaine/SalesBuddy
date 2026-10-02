@@ -46,7 +46,7 @@ logger = logging.getLogger(__name__)
 
 # Tunables
 POLL_INTERVAL_SECONDS = 10
-STARTUP_GRACE_SECONDS = 25        # skip health checks for this long after (re)start
+STARTUP_GRACE_SECONDS = 360       # five-minute schema lock wait plus startup overhead
 MAX_HEALTH_FAILURES = 3           # consecutive failed probes => hung => restart
 CRASH_LOOP_MAX = 5                # restarts within the window before backoff kicks in
 CRASH_LOOP_WINDOW_SECONDS = 120
@@ -212,6 +212,7 @@ class ManagedChild:
         self.process: Optional[subprocess.Popen] = None
         self.started_at = 0.0
         self.health_failures = 0
+        self.startup_complete = False
         self._restart_times: List[float] = []
 
     def start(self, now: Optional[float] = None) -> None:
@@ -219,6 +220,7 @@ class ManagedChild:
         self.process = subprocess.Popen(self.argv, cwd=str(_repo_root()), env=self.env)
         self.started_at = now
         self.health_failures = 0
+        self.startup_complete = False
 
     def poll(self) -> Optional[int]:
         return self.process.poll() if self.process else None
@@ -236,7 +238,7 @@ class ManagedChild:
             logger.debug("terminate failed for %s", self.name, exc_info=True)
 
     def in_startup_grace(self, now: float) -> bool:
-        return (now - self.started_at) < STARTUP_GRACE_SECONDS
+        return not self.startup_complete and (now - self.started_at) < STARTUP_GRACE_SECONDS
 
     def record_restart(self, now: float) -> None:
         self._restart_times.append(now)
@@ -284,9 +286,11 @@ class Supervisor:
         in_grace = child.in_startup_grace(now)
 
         health: Optional[bool] = None
-        if not exited and not in_grace and child.health_check is not None:
+        if not exited and child.health_check is not None:
             health = child.health_check()
             if health is True:
+                child.startup_complete = True
+                in_grace = False
                 child.health_failures = 0
             elif health is False:
                 child.health_failures += 1
