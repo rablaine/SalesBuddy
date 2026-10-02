@@ -1434,27 +1434,78 @@ def _drop_user_id_columns(db, inspector):
 
 
 def _migrate_msx_task_hva_column(db, inspector):
-    """Add the HVA field and preserve values from the retired classification."""
+    """Repair legacy task classification after a verified, WAL-aware backup.
+
+    Rename untouched schemas in place. Partially migrated schemas already have
+    authoritative HVA values, so remove only their obsolete required column.
+    """
+    import sqlite3
+    from datetime import datetime, timezone
+    from pathlib import Path
+    from uuid import uuid4
+
+    from app.db_paths import backup_database
+
     if 'msx_tasks' not in inspector.get_table_names():
         return
 
     columns = {column['name'] for column in inspector.get_columns('msx_tasks')}
-    if 'is_hva' in columns:
+    if 'is_hok' not in columns:
+        if 'is_hva' not in columns:
+            _add_column_if_not_exists(
+                db, inspector, 'msx_tasks', 'is_hva', 'BOOLEAN NOT NULL DEFAULT 0',
+            )
         return
+    if db.engine.dialect.name != 'sqlite':
+        raise RuntimeError('Task classification migration requires SQLite')
 
-    _add_column_if_not_exists(
-        db,
-        inspector,
-        'msx_tasks',
-        'is_hva',
-        'BOOLEAN NOT NULL DEFAULT 0',
-    )
-    if 'is_hok' in columns:
-        db.session.execute(text(
-            "UPDATE msx_tasks SET is_hva = is_hok"
-        ))
-        db.session.commit()
-        print("  Migrated MSX task classification to HVA")
+    db.session.commit()
+    connection = db.engine.raw_connection()
+    raw = connection.driver_connection
+    backup = None
+    backup_path = None
+    try:
+        database_path = next(
+            row[2] for row in raw.execute('PRAGMA database_list') if row[1] == 'main'
+        )
+        if database_path:
+            timestamp = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')
+            source = Path(database_path)
+            backup_path = source.with_name(
+                f'{source.name}.task-hva-{timestamp}-{uuid4().hex}.bak'
+            )
+            if not backup_database(backup_path, src=source):
+                raise RuntimeError('Task classification backup failed verification')
+        else:
+            backup = sqlite3.connect(':memory:')
+            raw.backup(backup)
+            if backup.execute('PRAGMA integrity_check').fetchone()[0] != 'ok':
+                raise RuntimeError('Task classification backup failed verification')
+        print(f"  Task classification backup: {backup_path or 'isolated in-memory copy'}")
+
+        raw.execute('BEGIN IMMEDIATE')
+        # Web and worker can start together; recheck after taking the write lock.
+        locked_columns = {row[1] for row in raw.execute('PRAGMA table_info(msx_tasks)')}
+        if 'is_hok' in locked_columns:
+            if 'is_hva' in locked_columns:
+                raw.execute('ALTER TABLE msx_tasks DROP COLUMN is_hok')
+            else:
+                raw.execute('ALTER TABLE msx_tasks RENAME COLUMN is_hok TO is_hva')
+        if raw.execute('PRAGMA integrity_check').fetchone()[0] != 'ok':
+            raise RuntimeError('Task classification migration failed integrity verification')
+        raw.commit()
+        inspector.clear_cache()
+        db.session.expire_all()
+        print("  Repaired MSX task classification schema, preserving task records")
+    except Exception as error:
+        raw.rollback()
+        raise RuntimeError(
+            f'Task classification migration failed; rolled back. Backup: {backup_path or "memory"}'
+        ) from error
+    finally:
+        if backup is not None:
+            backup.close()
+        connection.close()
 
 
 def _reconcile_msx_task_hva_flags(db, inspector):

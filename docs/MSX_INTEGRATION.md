@@ -464,6 +464,30 @@ match = re.search(r'tasks\(([a-f0-9-]{36})\)', entity_id_header, re.IGNORECASE)
 task_id = match.group(1) if match else None
 ```
 
+### Local task storage and upgrade recovery
+
+MSX task creation happens before the local `msx_tasks` insert. If MSX creates a
+task but local storage fails, the milestone modal reports that partial success
+and disables repeat submission until the modal is closed. Check the milestone
+in MSX before retrying; a local failure does not undo the remote creation.
+
+Startup migrations repair the retired `is_hok` field:
+
+- Legacy-only schemas rename it to `is_hva`, preserving existing values.
+- Partially migrated schemas keep `is_hva` values and remove the obsolete
+  required `is_hok` column.
+- Before either repair, a verified SQLite online backup is saved beside the
+  database as `salesbuddy.db.task-hva-<timestamp>-<unique-id>.bak`. It includes
+  committed WAL contents. Repair failures abort startup instead of continuing
+  with an unusable schema.
+- Fresh schemas and repeat startups need no repair or additional backup.
+
+Milestone sync sends a terminal error event when its streaming generator fails.
+The UI also treats a connection closing without a completion event as a failure,
+not a sync that is still running. Earlier committed batches may remain saved.
+For Electron installations, backend tracebacks are in `logs/electron-stack.log`;
+`logs/diagnostic.jsonl` supplements them with MSX request results.
+
 ### List Tasks for a Milestone
 
 ```
