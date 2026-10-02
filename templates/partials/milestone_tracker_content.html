@@ -3,6 +3,13 @@
 {# Optional context: locked_seller (Seller object) - when set, seller filter is fixed #}
 {% from 'partials/customer_favicon.html' import customer_favicon %}
 
+<style>
+    .milestone-tracker-instance [data-customer-option].enter-target:not(.active) {
+        background-color: var(--bs-dropdown-link-hover-bg);
+        color: var(--bs-dropdown-link-hover-color);
+    }
+</style>
+
 <div class="milestone-tracker-instance" data-total="{{ milestones|length }}" {% if locked_seller %}data-locked-seller="{{ locked_seller.id }}"{% endif %}>
 
 <!-- Summary Cards -->
@@ -49,8 +56,60 @@
 
 <!-- Filters -->
 <div class="card mb-4" data-role="filterCard" style="overflow: visible;">
-    <div class="card-body py-2">
-        <div class="row align-items-center g-2">
+    <div class="card-body py-3">
+        <div class="row align-items-center g-2 mb-2" data-role="primaryFilters">
+            <div class="{{ 'col-6' if locked_seller else 'col-5' }}">
+                <input type="search" class="form-control form-control-sm"
+                       data-role="searchFilter" aria-label="Search milestones"
+                       placeholder="Search all milestone fields..."
+                       title="Search all saved milestone fields, including cached forecast comments">
+            </div>
+            <div class="{{ 'col-6' if locked_seller else 'col-4' }}">
+                <select data-role="customerFilter" hidden aria-hidden="true" tabindex="-1">
+                    <option value="">All Customers</option>
+                    {% for customer in milestones|map(attribute='customer')|select|unique(attribute='id')|sort(attribute='name') %}
+                    <option value="{{ customer.id }}">{{ customer.name }}</option>
+                    {% endfor %}
+                </select>
+                <div class="dropdown">
+                    <button type="button" data-role="customerDropdownBtn"
+                            class="btn btn-sm btn-outline-secondary dropdown-toggle w-100 text-start text-truncate"
+                            data-bs-toggle="dropdown" data-bs-auto-close="outside"
+                            aria-expanded="false" aria-label="Customers">
+                        All Customers
+                    </button>
+                    <div class="dropdown-menu w-100 p-2">
+                        <input type="search" data-role="customerSearch"
+                               class="form-control form-control-sm mb-2" autocomplete="off"
+                               placeholder="Find a customer..." aria-label="Find a customer">
+                        <button type="button" class="dropdown-item rounded"
+                                data-role="customerAll">All Customers</button>
+                        <hr class="dropdown-divider my-2">
+                        <div data-role="customerOptions" style="max-height: 16rem; overflow-y: auto;">
+                            {% for customer in milestones|map(attribute='customer')|select|unique(attribute='id')|sort(attribute='name') %}
+                            <button type="button" class="dropdown-item rounded text-truncate"
+                                    data-customer-option="{{ customer.id }}"
+                                    title="{{ customer.name }}">{{ customer.name }}</button>
+                            {% endfor %}
+                        </div>
+                        <div data-role="customerNoMatches" class="small text-muted px-2 py-1 d-none"
+                             role="status">No matching customers</div>
+                    </div>
+                </div>
+            </div>
+            {% if not locked_seller %}
+            <div class="col-3">
+                <select data-role="sellerFilter" class="form-select form-select-sm"
+                        aria-label="Sellers">
+                    <option value="">All Sellers</option>
+                    {% for seller in sellers %}
+                        <option value="{{ seller.id }}">{{ seller.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            {% endif %}
+        </div>
+        <div class="row align-items-center g-2" data-role="secondaryFilters">
             <div class="col-md">
                 <div class="dropdown">
                     <button class="btn btn-sm btn-outline-secondary dropdown-toggle w-100 text-start text-truncate" type="button" data-role="quarterDropdown" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
@@ -82,16 +141,6 @@
                     <option value="off">Off Team</option>
                 </select>
             </div>
-            {% if not locked_seller %}
-            <div class="col-md">
-                <select data-role="sellerFilter" class="form-select form-select-sm">
-                    <option value="">All Sellers</option>
-                    {% for seller in sellers %}
-                        <option value="{{ seller.id }}">{{ seller.name }}</option>
-                    {% endfor %}
-                </select>
-            </div>
-            {% endif %}
             <div class="col-md">
                 <div class="dropdown" style="width: 100%;">
                     <button class="btn btn-outline-secondary btn-sm dropdown-toggle w-100 text-start" type="button" data-role="statusDropdownBtn" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false" style="font-size: 0.875rem;">All Statuses</button>
@@ -191,13 +240,14 @@
                 data-on-my-team="{{ 'true' if ms.on_my_team else 'false' }}"
                 data-urgency="{{ ms.urgency }}"
                 data-customer="{{ ms.customer.name|lower if ms.customer else '' }}"
+                data-customer-id="{{ ms.customer.id if ms.customer else '' }}"
                 data-seller-name="{{ ms.seller.name|lower if ms.seller else 'zzz' }}"
                 data-status-sort="{{ ms.status_sort }}"
                 data-due-date="{{ ms.due_date.strftime('%Y-%m-%d') if ms.due_date else '9999-12-31' }}"
                 data-monthly="{{ ms.monthly_usage or 0 }}"
                 data-favorited="{{ 'true' if ms.id in favorited_ms_ids else 'false' }}"
                 data-commitment="{{ ms.customer_commitment or '' }}"
-                data-search="{{ ms.title|lower }} {{ ms.opportunity_name|lower if ms.opportunity_name else '' }} {{ ms.customer.name|lower if ms.customer else '' }} {{ ms.seller.name|lower if ms.seller else '' }} {{ ms.workload|lower if ms.workload else '' }}">
+                data-search="{{ ms.search_text }}">
                 
                 <!-- Milestone Info -->
                 <td data-export-url="{{ ms.url }}">
@@ -390,6 +440,12 @@
     function qa(sel) { return container.querySelectorAll(sel); }
 
     var sellerFilter = q('sellerFilter');
+    var customerFilter = q('customerFilter');
+    var customerDropdownBtn = q('customerDropdownBtn');
+    var customerSearch = q('customerSearch');
+    var customerAll = q('customerAll');
+    var customerNoMatches = q('customerNoMatches');
+    var searchFilter = q('searchFilter');
     var statusDropdownBtn = q('statusDropdownBtn');
     var areaDropdownBtn = q('areaDropdownBtn');
     var urgencyFilter = q('urgencyFilter');
@@ -417,6 +473,43 @@
 
     var currentSort = { column: 'monthly', direction: 'desc' };
 
+    function highlightCustomerOption(target) {
+        qa('[data-customer-option]').forEach(function(button) {
+            button.classList.toggle('enter-target', button === target);
+        });
+    }
+
+    function filterCustomerOptions() {
+        var search = customerSearch.value.trim().toLowerCase();
+        var matches = [];
+        qa('[data-customer-option]').forEach(function(button) {
+            var match = button.textContent.toLowerCase().includes(search);
+            button.classList.toggle('d-none', !match);
+            if (match) matches.push(button);
+        });
+        highlightCustomerOption(search ? matches[0] : null);
+        customerNoMatches.classList.toggle('d-none', matches.length > 0);
+        return matches;
+    }
+
+    function updateCustomerButtonText() {
+        var selected = customerFilter.options[customerFilter.selectedIndex];
+        customerDropdownBtn.textContent = selected ? selected.textContent : 'All Customers';
+        customerDropdownBtn.title = customerDropdownBtn.textContent;
+        customerDropdownBtn.setAttribute('aria-label', 'Customers: ' + customerDropdownBtn.textContent);
+        customerAll.classList.toggle('active', customerFilter.value === '');
+        qa('[data-customer-option]').forEach(function(button) {
+            button.classList.toggle('active', button.dataset.customerOption === customerFilter.value);
+        });
+    }
+
+    function selectCustomer(customerId) {
+        customerFilter.value = customerId;
+        applyFilters();
+        bootstrap.Dropdown.getOrCreateInstance(customerDropdownBtn).hide();
+        customerDropdownBtn.focus();
+    }
+
     // ---- Filter persistence ----
     function saveFilters() {
         var selectedQuarters = Array.from(qa('.quarter-checkbox:checked')).map(function(cb) { return cb.value; });
@@ -424,6 +517,8 @@
         var state = {
             quarters: selectedQuarters,
             seller: sellerFilter ? sellerFilter.value : '',
+            customer: customerFilter.value,
+            search: searchFilter.value,
             status: Array.from(qa('.status-checkbox:checked')).map(function(cb) { return cb.value; }),
             area: Array.from(qa('.area-checkbox:checked')).map(function(cb) { return cb.value; }),
             urgency: urgencyFilter.value,
@@ -450,6 +545,11 @@
                 });
             }
             if (state.seller && sellerFilter) sellerFilter.value = state.seller;
+            if (state.customer) {
+                customerFilter.value = state.customer;
+                if (customerFilter.selectedIndex < 0) customerFilter.value = '';
+            }
+            if (typeof state.search === 'string') searchFilter.value = state.search;
             // Handle backward compat: status/area used to be a string, now an array
             var savedStatuses = state.status ? (Array.isArray(state.status) ? state.status : [state.status]) : [];
             qa('.status-checkbox').forEach(function(cb) { cb.checked = savedStatuses.includes(cb.value); });
@@ -474,6 +574,8 @@
         var allChecked = qa('.quarter-checkbox').length === qa('.quarter-checkbox:checked').length;
         return allChecked &&
             (!sellerFilter || sellerFilter.value === '') &&
+            customerFilter.value === '' &&
+            searchFilter.value.trim() === '' &&
             qa('.status-checkbox:checked').length === 0 &&
             qa('.area-checkbox:checked').length === 0 &&
             urgencyFilter.value === '' &&
@@ -489,6 +591,10 @@
     function resetFilters() {
         qa('.quarter-checkbox').forEach(function(cb) { cb.checked = true; });
         if (sellerFilter) sellerFilter.value = '';
+        customerFilter.value = '';
+        searchFilter.value = '';
+        customerSearch.value = '';
+        filterCustomerOptions();
         qa('.status-checkbox').forEach(function(cb) { cb.checked = false; });
         qa('.area-checkbox').forEach(function(cb) { cb.checked = false; });
         urgencyFilter.value = '';
@@ -507,6 +613,8 @@
     function applyFilters() {
         var selectedQuarters = Array.from(qa('.quarter-checkbox:checked')).map(function(cb) { return cb.value; });
         var sv = sellerFilter ? sellerFilter.value : '';
+        var customerId = customerFilter.value;
+        var search = searchFilter.value.trim().toLowerCase();
         var selectedStatuses = Array.from(qa('.status-checkbox:checked')).map(function(cb) { return cb.value; });
         var selectedAreas = Array.from(qa('.area-checkbox:checked')).map(function(cb) { return cb.value; });
         var uv = urgencyFilter.value;
@@ -522,6 +630,8 @@
             if (selectedQuarters.length > 0 && row.dataset.quarter && !selectedQuarters.includes(row.dataset.quarter)) visible = false;
             if (selectedQuarters.length > 0 && !row.dataset.quarter && selectedQuarters.length < totalQuarters) visible = false;
             if (sv && row.dataset.sellerId !== sv) visible = false;
+            if (customerId && row.dataset.customerId !== customerId) visible = false;
+            if (search && !row.dataset.search.includes(search)) visible = false;
             if (selectedStatuses.length > 0 && !selectedStatuses.includes(row.dataset.status)) visible = false;
             if (selectedAreas.length > 0 && !selectedAreas.includes(row.dataset.area)) visible = false;
             if (uv && row.dataset.urgency !== uv) visible = false;
@@ -547,6 +657,7 @@
         pastDueCountEl.textContent = visiblePastDue;
         thisWeekCountEl.textContent = visibleThisWeek;
         updateQuarterButtonText();
+        updateCustomerButtonText();
         updateStatusButtonText();
         updateAreaButtonText();
         saveFilters();
@@ -558,6 +669,8 @@
             detail: {
                 quarters: selectedQuarters,
                 seller: sv,
+                customer: customerId,
+                search: search,
                 status: selectedStatuses,
                 area: selectedAreas,
                 urgency: uv,
@@ -656,6 +769,35 @@
         applyFilters();
     });
     if (sellerFilter) sellerFilter.addEventListener('change', applyFilters);
+    customerFilter.addEventListener('change', applyFilters);
+    customerDropdownBtn.addEventListener('shown.bs.dropdown', function() {
+        customerSearch.value = '';
+        filterCustomerOptions();
+        customerSearch.focus();
+    });
+    customerSearch.addEventListener('input', filterCustomerOptions);
+    customerSearch.addEventListener('focus', filterCustomerOptions);
+    customerSearch.addEventListener('keydown', function(event) {
+        if (!['Enter', 'ArrowDown', 'ArrowUp'].includes(event.key)) return;
+        var matches = filterCustomerOptions();
+        event.preventDefault();
+        if (!matches.length) return;
+        if (event.key === 'Enter') {
+            selectCustomer(matches[0].dataset.customerOption);
+        } else {
+            matches[event.key === 'ArrowDown' ? 0 : matches.length - 1].focus();
+        }
+    });
+    customerAll.addEventListener('click', function() { selectCustomer(''); });
+    qa('[data-customer-option]').forEach(function(button) {
+        button.addEventListener('focus', function() {
+            highlightCustomerOption(button);
+        });
+        button.addEventListener('click', function() {
+            selectCustomer(button.dataset.customerOption);
+        });
+    });
+    searchFilter.addEventListener('input', applyFilters);
     qa('.status-checkbox').forEach(function(cb) { cb.addEventListener('change', applyFilters); });
     qa('.area-checkbox').forEach(function(cb) { cb.addEventListener('change', applyFilters); });
     var statusSelectAll = q('statusSelectAll');

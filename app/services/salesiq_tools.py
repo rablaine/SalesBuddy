@@ -1971,15 +1971,18 @@ def get_msx_workspace_opportunities(**kwargs: Any) -> Any:
             },
             'search': {
                 'type': 'string',
-                'description': 'Search by title, number, workload, or owner.',
+                'description': (
+                    'Case-insensitive literal search across all saved milestone fields, '
+                    'cached forecast comments, and related customer, seller, and opportunity names.'
+                ),
             },
         },
     },
 )
 def get_msx_workspace_milestones(**kwargs: Any) -> Any:
     """Return milestones matching the given filters."""
-    from app.models import Milestone
-    from sqlalchemy import or_
+    from app.models import Customer, Milestone, db
+    from app.services.milestone_search import get_milestone_search_text
 
     query = Milestone.query.filter(Milestone.customer_id.isnot(None))
 
@@ -1999,17 +2002,21 @@ def get_msx_workspace_milestones(**kwargs: Any) -> Any:
     elif team == 'off':
         query = query.filter(Milestone.on_my_team.is_(False))
 
-    search = kwargs.get('search', '')
+    search = kwargs.get('search', '').strip().lower()
+    query = query.options(
+        db.joinedload(Milestone.customer).joinedload(Customer.seller),
+        db.joinedload(Milestone.customer).joinedload(Customer.territory),
+        db.joinedload(Milestone.opportunity),
+    ).order_by(Milestone.due_date)
     if search:
-        pat = f'%{search}%'
-        query = query.filter(or_(
-            Milestone.title.ilike(pat),
-            Milestone.milestone_number.ilike(pat),
-            Milestone.workload.ilike(pat),
-            Milestone.owner_name.ilike(pat),
-        ))
-
-    milestones = query.order_by(Milestone.due_date).limit(200).all()
+        milestones = []
+        for milestone in query.yield_per(200):
+            if search in get_milestone_search_text(milestone):
+                milestones.append(milestone)
+                if len(milestones) == 200:
+                    break
+    else:
+        milestones = query.limit(200).all()
     return {
         'count': len(milestones),
         'milestones': [

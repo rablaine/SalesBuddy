@@ -8,6 +8,10 @@ brought the change into `main`, so the admin Updates card can show
 Format: `## M/D/YYYY - <merge-short-sha>`. See
 `scripts/tag-changelog.ps1` for the helper that fills this in.
 
+## 10/2/2026
+
+- Search all saved milestone fields and filter with a searchable customer dropdown in Milestone Tracker, with a roomier two-row filter bar.
+
 ## 10/2/2026 - 2adbc77
 
 - Repair upgraded task databases so milestone sync and task creation can save new tasks after the HVA update, with a verified backup before schema repair.
