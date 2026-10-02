@@ -12,6 +12,7 @@ from flask import (
     Blueprint, render_template, request, redirect, url_for,
     flash, g, jsonify, Response, stream_with_context, current_app,
 )
+from sqlalchemy.exc import SQLAlchemyError
 from app.models import db, Milestone, MsxTask, Note, Customer, Seller, SolutionEngineer, Favorite
 from app.services.seller_mode import get_seller_mode_seller_id
 
@@ -147,12 +148,20 @@ def milestone_create_task(id):
     
     Returns JSON response for the modal form.
     """
-    milestone = Milestone.query.get_or_404(id)
-    
+    milestone = db.session.get(Milestone, id)
+    if milestone is None:
+        return jsonify({"success": False, "error": "Milestone not found"}), 404
+
     if not request.is_json:
         return jsonify({"success": False, "error": "JSON body required"}), 400
-    
-    data = request.json
+
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({"success": False, "error": "A valid JSON object is required"}), 400
+    for field in ("subject", "description", "due_date"):
+        if data.get(field) is not None and not isinstance(data[field], str):
+            return jsonify({"success": False, "error": f"{field} must be text"}), 400
+
     subject = (data.get("subject") or "").strip()
     task_category = data.get("task_category")
     duration_minutes = data.get("duration_minutes", 60)
@@ -168,13 +177,31 @@ def milestone_create_task(id):
     
     # Import here to avoid circular imports
     from app.services.msx_api import create_task, TASK_CATEGORIES, HVA_TASK_CATEGORIES
-    
+
+    for value in (task_category, duration_minutes):
+        if isinstance(value, bool) or not isinstance(value, (int, str)):
+            return jsonify({
+                "success": False, "error": "Task category and duration must be integers",
+            }), 400
+    try:
+        task_category = int(task_category)
+        duration_minutes = int(duration_minutes)
+    except (ValueError, TypeError, OverflowError):
+        return jsonify({
+            "success": False, "error": "Task category and duration must be integers",
+        }), 400
+    cat_info = next((c for c in TASK_CATEGORIES if c["value"] == task_category), None)
+    if cat_info is None:
+        return jsonify({"success": False, "error": "Invalid task category"}), 400
+    if duration_minutes <= 0:
+        return jsonify({"success": False, "error": "Task duration must be positive"}), 400
+
     # Create the task in MSX
     result = create_task(
         milestone_id=milestone.msx_milestone_id,
         subject=subject,
-        task_category=int(task_category),
-        duration_minutes=int(duration_minutes),
+        task_category=task_category,
+        duration_minutes=duration_minutes,
         description=description or None,
         due_date=due_date_str,
     )
@@ -182,11 +209,14 @@ def milestone_create_task(id):
     if not result.get("success"):
         return jsonify(result), 400
     
-    # Look up category display name
-    cat_info = next(
-        (c for c in TASK_CATEGORIES if c["value"] == int(task_category)),
-        {"label": "Unknown", "is_hva": False}
-    )
+    if not result.get("task_id"):
+        logger.error("MSX created a task for milestone %s without returning its ID", id)
+        return jsonify({
+            "success": False,
+            "created_in_msx": True,
+            "error": "MSX reported that the task was created but did not return its ID. "
+                     "Check the milestone in MSX before creating another task.",
+        }), 502
     
     # Parse due date for local storage
     task_due_date = None
@@ -202,16 +232,31 @@ def milestone_create_task(id):
         msx_task_url=result.get("task_url", ""),
         subject=subject,
         description=description or None,
-        task_category=int(task_category),
+        task_category=task_category,
         task_category_name=cat_info["label"],
-        duration_minutes=int(duration_minutes),
-        is_hva=int(task_category) in HVA_TASK_CATEGORIES,
+        duration_minutes=duration_minutes,
+        is_hva=task_category in HVA_TASK_CATEGORIES,
         due_date=task_due_date,
         note_id=None,
         milestone_id=milestone.id,
     )
-    db.session.add(msx_task)
-    db.session.commit()
+    try:
+        db.session.add(msx_task)
+        db.session.commit()
+    except SQLAlchemyError:
+        db.session.rollback()
+        logger.exception(
+            "Task %s created in MSX but could not be saved for milestone %s",
+            result["task_id"], id,
+        )
+        return jsonify({
+            "success": False,
+            "created_in_msx": True,
+            "task_id": result["task_id"],
+            "task_url": result.get("task_url"),
+            "error": "The task was created in MSX, but Sales Buddy could not save it locally. "
+                     "Do not create it again. Check the task in MSX and review the server log.",
+        }), 500
     
     logger.info(f"Created task '{subject}' on milestone {milestone.id} (MSX: {result['task_id']})")
     
@@ -521,12 +566,36 @@ def api_sync_milestones():
     from app.services.milestone_sync import (
         sync_all_customer_milestones,
         sync_all_customer_milestones_stream,
+        _sse_event,
     )
+
+    def record_failure() -> None:
+        """Roll back pending sync writes and persist a failed terminal status."""
+        from app.models import SyncStatus
+
+        db.session.rollback()
+        logger.exception("Milestone sync failed")
+        try:
+            SyncStatus.mark_completed(
+                'milestones', success=False,
+                details=json.dumps({'error': 'Sync failed. Review the server log.'}),
+            )
+        except SQLAlchemyError:
+            db.session.rollback()
+            logger.exception("Could not record milestone sync failure")
 
     # SSE streaming path
     if 'text/event-stream' in request.headers.get('Accept', ''):
         def generate():
-            yield from sync_all_customer_milestones_stream()
+            """Report unexpected sync exceptions as a terminal SSE error."""
+            try:
+                yield from sync_all_customer_milestones_stream()
+            except Exception:
+                record_failure()
+                yield _sse_event('error', {
+                    'message': 'Milestone sync failed. Some earlier changes may already be saved. '
+                               'Review the server log for details.',
+                })
 
         return Response(
             stream_with_context(generate()),
@@ -547,7 +616,7 @@ def api_sync_milestones():
             try:
                 sync_all_customer_milestones()
             except Exception:
-                logger.exception("Background milestone sync failed")
+                record_failure()
 
     t = threading.Thread(
         target=_run_sync,
@@ -755,4 +824,3 @@ def api_toggle_milestone_favorite(id: int):
     Milestone.query.get_or_404(id)
     is_favorited = Favorite.toggle('milestone', id)
     return jsonify(success=True, is_favorited=is_favorited)
-

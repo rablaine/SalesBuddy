@@ -417,6 +417,7 @@ function syncMilestones() {
     const progressWrap = document.getElementById('syncProgressWrap');
     const progressBar = document.getElementById('syncProgressBar');
     const detail = document.getElementById('syncDetail');
+    let syncFinished = false;
 
     // Warn user if they try to leave during sync
     function warnOnLeave(e) { e.preventDefault(); e.returnValue = ''; }
@@ -451,6 +452,10 @@ function syncMilestones() {
         method: 'POST',
         headers: { 'Accept': 'text/event-stream' },
     }).then(response => {
+        if (!response.ok || !response.headers.get('Content-Type')?.includes('text/event-stream')) {
+            throw new Error(`Could not start milestone sync (HTTP ${response.status}). ` +
+                'Review the server log for details.');
+        }
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let buffer = '';
@@ -505,6 +510,7 @@ function syncMilestones() {
                     }
                 }
             } else if (type === 'vpn_blocked') {
+                syncFinished = true;
                 // VPN block detected — show banner and stop the progress display
                 if (window.showVpnBanner) window.showVpnBanner();
                 window.removeEventListener('beforeunload', warnOnLeave);
@@ -515,6 +521,9 @@ function syncMilestones() {
                     '<strong>VPN Required:</strong> ' + (data.message || 'IP address is blocked.') +
                     (data.skipped ? ' (' + data.skipped + ' customers skipped)' : '');
                 detail.innerHTML = '';
+            } else if (type === 'error') {
+                syncFinished = true;
+                throw new Error(data.message || 'Milestone sync failed. Review the server log.');
             } else if (type === 'task_sync_start') {
                 detail.innerHTML = `<i class="bi bi-list-task text-info"></i> ${data.message}`;
             } else if (type === 'task_sync_end') {
@@ -537,6 +546,7 @@ function syncMilestones() {
                 let auditInfo = `${data.audit_fields_saved || 0} field changes tracked`;
                 detail.innerHTML = `<i class="bi bi-clock-history text-success"></i> Audit trail: ${auditInfo}`;
             } else if (type === 'complete') {
+                syncFinished = true;
                 window.removeEventListener('beforeunload', warnOnLeave);
                 progressBar.classList.remove('progress-bar-animated');
                 progressBar.style.width = '100%';
@@ -592,7 +602,13 @@ function syncMilestones() {
 
         function pump() {
             return reader.read().then(({ done, value }) => {
-                if (done) return;
+                if (done) {
+                    if (!syncFinished) {
+                        throw new Error('The milestone sync connection ended before completion. ' +
+                            'Some changes may already be saved. Review the server log.');
+                    }
+                    return;
+                }
                 processEvents(decoder.decode(value, { stream: true }));
                 return pump();
             });
@@ -601,8 +617,9 @@ function syncMilestones() {
     }).catch(error => {
         window.removeEventListener('beforeunload', warnOnLeave);
         restoreButtons();
+        progressBar.classList.remove('progress-bar-animated');
         alertEl.className = 'alert alert-danger mb-4';
-        msg.innerHTML = `<i class="bi bi-x-circle-fill"></i> Sync error: ${error.message}`;
+        msg.textContent = `Sync error: ${error.message}`;
         const brToggle3 = document.getElementById('syncBrainrotToggle');
         if (brToggle3) brToggle3.classList.add('d-none');
         if (window.setBrainrot) window.setBrainrot(false);

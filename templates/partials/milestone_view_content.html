@@ -785,9 +785,25 @@ window.createTask = function() {
             due_date: dueDate ? dueDate + 'T23:59:59Z' : null
         })
     })
-    .then(response => response.json())
+    .then(async response => {
+        const contentType = response.headers.get('Content-Type') || '';
+        if (!contentType.includes('application/json')) {
+            throw new Error(`Sales Buddy returned an unexpected response (HTTP ${response.status}). ` +
+                'Check the milestone in MSX before retrying, then review the server log.');
+        }
+        const result = await response.json();
+        if (!result || typeof result.success !== 'boolean') {
+            throw new Error(`Sales Buddy returned an invalid response (HTTP ${response.status}). ` +
+                'Check the milestone in MSX before retrying, then review the server log.');
+        }
+        if (!response.ok && result.success) {
+            throw new Error(`Sales Buddy returned an error (HTTP ${response.status}). ` +
+                'Check the milestone in MSX before retrying.');
+        }
+        return result;
+    })
     .then(result => {
-        btn.disabled = false;
+        btn.disabled = result.created_in_msx === true;
         btn.innerHTML = originalText;
         if (result.success) {
             window.location.reload();
@@ -798,7 +814,7 @@ window.createTask = function() {
     .catch(error => {
         btn.disabled = false;
         btn.innerHTML = originalText;
-        showTaskError('Network error: ' + error.message);
+        showTaskError('Unable to create task: ' + error.message);
     });
 }
 
@@ -843,6 +859,7 @@ document.getElementById('newTaskModal').addEventListener('hidden.bs.modal', func
     document.getElementById('modal_task_description').value = '';
     document.getElementById('modal_task_due_date').value = getTomorrowDate();
     hideTaskError();
+    document.getElementById('create_task_btn').disabled = false;
     // Re-show the parent modal if we came from one
     if (_parentModalEl) {
         var parentModal = bootstrap.Modal.getInstance(_parentModalEl);

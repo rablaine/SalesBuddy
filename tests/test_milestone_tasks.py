@@ -7,11 +7,29 @@ Covers:
 - POST /milestone/<id>/tasks endpoint
 - Task creation modal behavior
 """
+import shutil
+import subprocess
+from pathlib import Path
+
 import pytest
+from sqlalchemy import inspect, text
 from unittest.mock import patch
 from datetime import datetime, timezone
 
 from app.models import db, MsxTask, Milestone, Customer, Note, User
+
+
+@pytest.fixture
+def task_milestone(db_session):
+    """Create a milestone for task endpoint error-path tests."""
+    milestone = Milestone(
+        msx_milestone_id='ms-error-path',
+        url='https://example.com/ms-error-path',
+        title='Task Error Milestone',
+    )
+    db_session.add(milestone)
+    db_session.commit()
+    return milestone
 
 
 @pytest.fixture
@@ -228,6 +246,73 @@ class TestMilestoneViewTasks:
 
 class TestMilestoneCreateTask:
     """Tests for the POST /milestone/<id>/tasks endpoint."""
+
+    @pytest.mark.parametrize('partial', [False, True])
+    @patch('app.services.msx_api.create_task')
+    def test_upgraded_database_supports_creation_and_sync(
+        self, mock_create, app, client, db_session, task_milestone, partial,
+    ):
+        """Run startup migrations on deployed schema shapes, then create and sync tasks."""
+        from app.migrations import run_migrations
+        from app.services import milestone_sync
+
+        original = MsxTask(
+            msx_task_id='preserved-task',
+            subject='Preserved task',
+            task_category=861980002,
+            is_hva=True,
+            milestone_id=task_milestone.id,
+        )
+        db_session.add(original)
+        db_session.commit()
+        original_id = original.id
+        db_session.execute(text('ALTER TABLE msx_tasks RENAME COLUMN is_hva TO is_hok'))
+        if partial:
+            db_session.execute(text(
+                'ALTER TABLE msx_tasks ADD COLUMN is_hva BOOLEAN NOT NULL DEFAULT 0'
+            ))
+            db_session.execute(text('UPDATE msx_tasks SET is_hva = 1'))
+        db_session.commit()
+        run_migrations(db)
+        run_migrations(db)
+        assert 'is_hok' not in {c['name'] for c in inspect(db.engine).get_columns('msx_tasks')}
+        assert db_session.get(MsxTask, original_id).is_hva is True
+        assert db_session.get(MsxTask, original_id).subject == 'Preserved task'
+
+        mock_create.return_value = {
+            'success': True, 'task_id': 'created-after-upgrade',
+            'task_url': 'https://example.com/created-after-upgrade',
+        }
+        response = client.post(
+            f'/milestone/{task_milestone.id}/tasks',
+            json={'subject': 'Demo after upgrade', 'task_category': 861980002},
+        )
+        assert response.status_code == 200
+        assert response.get_json()['success'] is True
+        assert MsxTask.query.filter_by(msx_task_id='created-after-upgrade').one().is_hva is True
+
+        fetch_result = {
+            'success': True,
+            'tasks': [{
+                'task_id': 'synced-after-upgrade', 'subject': 'Synced demo',
+                'milestone_msx_id': task_milestone.msx_milestone_id,
+                'task_category': 861980002,
+            }],
+        }
+        from app.models import SyncStatus
+
+        SyncStatus.mark_started('milestones')
+        with patch.object(milestone_sync, 'get_tasks_for_milestones', return_value=fetch_result):
+            generator = milestone_sync._sync_all_tasks()
+            try:
+                while True:
+                    next(generator)
+                    SyncStatus.update_heartbeat('milestones')
+            except StopIteration as done:
+                assert done.value['success'] is True
+                assert done.value['tasks_created'] == 1
+        assert MsxTask.query.filter_by(msx_task_id='synced-after-upgrade').one().is_hva is True
+        assert MsxTask.query.filter_by(milestone_id=task_milestone.id).count() == 3
 
     @patch('app.services.msx_api.create_task')
     def test_create_task_success(self, mock_create, app, client, db_session, sample_user):
@@ -447,6 +532,96 @@ class TestMilestoneCreateTask:
         )
 
         assert response.status_code == 404
+        assert response.get_json() == {'success': False, 'error': 'Milestone not found'}
+
+    @pytest.mark.parametrize('body', ['{', 'null', '[]'])
+    @patch('app.services.msx_api.create_task')
+    def test_create_task_invalid_json(self, mock_create, client, task_milestone, body):
+        """Malformed and non-object JSON return a JSON validation error."""
+        response = client.post(
+            f'/milestone/{task_milestone.id}/tasks',
+            data=body, content_type='application/json',
+        )
+        assert response.status_code == 400
+        assert response.get_json()['success'] is False
+        mock_create.assert_not_called()
+
+    @pytest.mark.parametrize('fields', [
+        {'task_category': 'not-a-number'},
+        {'task_category': 999},
+        {'task_category': 861980004.5},
+        {'duration_minutes': None},
+        {'duration_minutes': 0},
+        {'duration_minutes': True},
+        {'duration_minutes': 60.5},
+        {'subject': ['not-text']},
+        {'description': 42},
+        {'due_date': ['not-text']},
+    ])
+    @patch('app.services.msx_api.create_task')
+    def test_create_task_invalid_fields(self, mock_create, client, task_milestone, fields):
+        """Reject invalid inputs before any MSX task is created."""
+        payload = {'subject': 'Test task', 'task_category': 861980004}
+        payload.update(fields)
+        response = client.post(f'/milestone/{task_milestone.id}/tasks', json=payload)
+        assert response.status_code == 400
+        assert response.get_json()['success'] is False
+        mock_create.assert_not_called()
+
+    @pytest.mark.parametrize('result', [
+        {'success': True, 'task_id': None, 'task_url': None},
+        {'success': True},
+    ])
+    @patch('app.services.msx_api.create_task')
+    def test_create_task_msx_missing_id(
+        self, mock_create, client, db_session, task_milestone, result, caplog,
+    ):
+        """A remote creation without an ID must not attempt a null-ID local insert."""
+        mock_create.return_value = result
+        response = client.post(
+            f'/milestone/{task_milestone.id}/tasks',
+            json={'subject': 'Test task', 'task_category': 861980004},
+        )
+        assert response.status_code == 502
+        data = response.get_json()
+        assert data['success'] is False
+        assert data['created_in_msx'] is True
+        assert 'Check the milestone in MSX' in data['error']
+        assert 'without returning its ID' in caplog.text
+        assert MsxTask.query.filter_by(milestone_id=task_milestone.id).count() == 0
+
+    @patch('app.services.msx_api.create_task')
+    def test_create_task_local_save_failure(
+        self, mock_create, client, db_session, task_milestone, caplog,
+    ):
+        """A constraint failure returns JSON, rolls back, and warns against duplicates."""
+        existing = MsxTask(
+            msx_task_id='already-synced-task',
+            subject='Already saved',
+            task_category=861980004,
+            milestone_id=task_milestone.id,
+        )
+        db_session.add(existing)
+        db_session.commit()
+        mock_create.return_value = {
+            'success': True,
+            'task_id': existing.msx_task_id,
+            'task_url': 'https://example.com/already-synced-task',
+        }
+        response = client.post(
+            f'/milestone/{task_milestone.id}/tasks',
+            json={'subject': 'New task', 'task_category': 861980004},
+        )
+        assert response.status_code == 500
+        data = response.get_json()
+        assert data['success'] is False
+        assert data['created_in_msx'] is True
+        assert data['task_id'] == 'already-synced-task'
+        assert data['task_url'] == mock_create.return_value['task_url']
+        assert 'Do not create it again' in data['error']
+        assert 'could not be saved' in caplog.text
+        assert MsxTask.query.filter_by(milestone_id=task_milestone.id).count() == 1
+        assert db_session.get(MsxTask, existing.id).subject == 'Already saved'
 
     @patch('app.services.msx_api.create_task')
     def test_create_task_no_due_date(self, mock_create, app, client, db_session, sample_user):
@@ -484,3 +659,16 @@ class TestMilestoneCreateTask:
         assert task.due_date is None
         assert task.is_hva is True
         assert task.task_category_name == 'Workshop'
+
+
+@pytest.mark.skipif(shutil.which('node') is None, reason='Node.js is required for JS tests')
+def test_milestone_task_error_ui() -> None:
+    """Exercise the actual modal script against JSON, HTML, and network responses."""
+    test_file = Path(__file__).parent / 'js' / 'milestone_task.test.cjs'
+    result = subprocess.run(
+        ['node', '--test', str(test_file)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
