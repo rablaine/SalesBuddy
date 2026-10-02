@@ -292,28 +292,58 @@ function stopStack() {
   log('Stack stopped');
 }
 
-function waitForServer(onReady) {
-  const deadline = Date.now() + 60000; // up to 60s for first boot
-  let fired = false;
-  const finish = () => { if (fired) return; fired = true; onReady(); };
-  const attempt = () => {
-    const req = http.get(HEALTH_URL, (res) => {
-      res.resume();
-      if (res.statusCode === 200) return finish();
-      retry();
-    });
-    req.on('error', retry);
-    req.setTimeout(3000, () => req.destroy());
+function waitForServer(onReady, onSlow = () => {}) {
+  const deadline = Date.now() + 60000;
+  let stopped = false;
+  let slow = false;
+  let timer = null;
+  let request = null;
+  let lastError = null;
+  const cancel = () => {
+    stopped = true;
+    clearTimeout(timer);
+    if (request) request.destroy();
   };
   const retry = () => {
-    if (fired) return;
-    if (Date.now() > deadline) {
-      log('Timed out waiting for the web server to come up');
-      return finish(); // load anyway; the window will show its own error
+    if (stopped) return;
+    if (isQuitting || isUpdating) return cancel();
+    if (!slow && Date.now() >= deadline) {
+      slow = true;
+      log('Backend startup is taking longer than 60s; continuing readiness checks');
+      onSlow();
     }
-    setTimeout(attempt, 500);
+    timer = setTimeout(attempt, slow ? 2000 : 500);
+  };
+  const attempt = () => {
+    if (stopped) return;
+    if (isQuitting || isUpdating) return cancel();
+    let settled = false;
+    const complete = (ready) => {
+      if (settled || stopped) return;
+      settled = true;
+      if (!ready) return retry();
+      cancel();
+      onReady();
+    };
+    const req = http.get(HEALTH_URL, (res) => {
+      res.resume();
+      complete(res.statusCode === 200);
+    });
+    request = req;
+    req.on('error', (error) => {
+      if (!stopped && error.message !== lastError) {
+        log(`Backend readiness request failed: ${error.message}`);
+        lastError = error.message;
+      }
+      complete(false);
+    });
+    req.setTimeout(3000, () => {
+      complete(false);
+      req.destroy();
+    });
   };
   attempt();
+  return cancel;
 }
 
 // ---------------------------------------------------------------------------
@@ -340,7 +370,7 @@ function runStep(file, args, cwd) {
 
 // Replace the window contents with a lightweight splash so the user isn't
 // staring at a dead backend while we pull/reinstall or rebuild the shell.
-function showUpdatingScreen(title, subtitle) {
+function statusScreenUrl(title, subtitle) {
   const h1 = title || 'Updating Sales Buddy';
   const p = subtitle || 'Pulling the latest version. The app will restart automatically.';
   const html =
@@ -354,9 +384,19 @@ function showUpdatingScreen(title, subtitle) {
     '<div class=\"s\"></div><h1>' + h1 + '</h1>' +
     '<p>' + p + '</p>' +
     '</body></html>';
+  return 'data:text/html;charset=utf-8,' + encodeURIComponent(html);
+}
+
+function loadWindowUrl(win, url) {
+  if (win.isDestroyed()) return;
+  const label = url.startsWith('data:') ? 'status screen' : url;
+  win.loadURL(url).catch((error) => log(`Window navigation failed (${label}): ${error.message}`));
+}
+
+function showUpdatingScreen(title, subtitle) {
   ensureWindow();
-  const data = 'data:text/html;charset=utf-8,' + encodeURIComponent(html);
-  for (const w of windows) { if (!w.isDestroyed()) w.loadURL(data); }
+  const data = statusScreenUrl(title, subtitle);
+  for (const w of windows) loadWindowUrl(w, data);
 }
 
 // True when `cmd` resolves on PATH. Used to confirm git is reachable BEFORE we
@@ -651,7 +691,7 @@ function activeWindow() {
 }
 
 function reloadAllWindows() {
-  for (const w of windows) { if (!w.isDestroyed()) w.loadURL(BASE_URL); }
+  for (const w of windows) loadWindowUrl(w, BASE_URL);
 }
 
 function isInternalUrl(target, fromUrl) {
@@ -696,7 +736,9 @@ function openNewWindow(url) {
   const win = new BrowserWindow(WINDOW_OPTS);
   windows.add(win);
   configureWindow(win);
-  win.loadURL(url || BASE_URL);
+  loadWindowUrl(win, isBooting ? statusScreenUrl(
+    'Starting Sales Buddy', 'Waiting for the local backend. This window will open automatically.'
+  ) : (url || BASE_URL));
   win.once('ready-to-show', () => win.show());
   return win;
 }
@@ -721,6 +763,44 @@ function ensureWindow() {
 // the close-to-tray-on-last-window rule.
 function configureWindow(win) {
   const wc = win.webContents;
+  let cancelRecovery = null;
+  let recoveryTimer = null;
+  const stopRecovery = () => {
+    clearTimeout(recoveryTimer);
+    recoveryTimer = null;
+    if (cancelRecovery) cancelRecovery();
+    cancelRecovery = null;
+  };
+  win.on('closed', stopRecovery);
+  wc.on('did-start-navigation', (_event, url, _inPlace, isMainFrame) => {
+    if (isMainFrame && /^https?:/.test(url)) stopRecovery();
+  });
+  wc.on('did-fail-load', (_event, code, description, url, isMainFrame) => {
+    if (!isMainFrame || code === -3 || isQuitting || isUpdating) return;
+    log(`Page load failed: code=${code}, reason=${description}, url=${url}`);
+    let failed;
+    try { failed = new URL(url); } catch (_) { return; }
+    const host = failed.hostname.replace(/^\[|\]$/g, '').toLowerCase();
+    if (!['localhost', '127.0.0.1', '::1'].includes(host) ||
+        failed.port !== String(PORT)) return;
+    stopRecovery();
+    loadWindowUrl(win, statusScreenUrl(
+      'Reconnecting to Sales Buddy',
+      'The local backend is unavailable. Retrying automatically. Help > Open Logs Folder has details.'
+    ));
+    recoveryTimer = setTimeout(() => {
+      recoveryTimer = null;
+      cancelRecovery = waitForServer(() => {
+        cancelRecovery = null;
+        if (win.isDestroyed() || isQuitting || isUpdating) return;
+        log(`Backend ready; retrying page: ${url}`);
+        loadWindowUrl(win, url);
+      });
+    }, 1000);
+  });
+  wc.on('render-process-gone', (_event, details) => {
+    log(`Renderer exited: reason=${details.reason}, exitCode=${details.exitCode}`);
+  });
 
   // Mirror the page's <title> (already ends in "- Sales Buddy"); fall back to the
   // bare app name when a page provides none.
@@ -975,8 +1055,12 @@ if (!app.requestSingleInstanceLock()) {
     if (IS_WIN) app.setAppUserModelId('com.salesbuddy.desktop');
     buildAppMenu();
     startStack();
+    createTray();
+    startUpdateRequestWatcher();
+    if (!shouldBootHidden() || pendingShowRequest) ensureWindow();
     waitForServer(() => {
       isBooting = false;
+      reloadAllWindows();
       // Boot straight to the tray (no window) for an automatic launch when the
       // user asked to start minimized, or when forced (installer warm-up) -
       // unless a show was already requested during boot (e.g. the installer's
@@ -986,10 +1070,15 @@ if (!app.requestSingleInstanceLock()) {
       } else {
         log('Starting minimized to the system tray.');
       }
-      createTray();
-      startUpdateRequestWatcher();
       // Quiet check shortly after boot: only prompts if an update is available.
       setTimeout(() => checkForUpdates(false), 5000);
+    }, () => {
+      if (!shouldBootHidden() || pendingShowRequest) {
+        showUpdatingScreen(
+          'Starting Sales Buddy',
+          'Startup is taking longer than usual. Retrying automatically. Help > Open Logs Folder has details.'
+        );
+      }
     });
   });
 

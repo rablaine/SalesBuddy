@@ -117,7 +117,9 @@ def create_app():
     from app import models
     
     # Create default user and preferences on app startup
-    with app.app_context():
+    from app.services.database_startup import database_startup_lock
+
+    with app.app_context(), database_startup_lock(db.engine):
         from app.models import User, UserPreference
         from app.migrations import run_table_renames, run_migrations
         

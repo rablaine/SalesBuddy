@@ -8,6 +8,11 @@ brought the change into `main`, so the admin Updates card can show
 Format: `## M/D/YYYY - <merge-short-sha>`. See
 `scripts/tag-changelog.ps1` for the helper that fills this in.
 
+## 10/2/2026
+
+- Coordinate web and worker database upgrades so simultaneous startup does not race task-schema repair.
+- *Electron Shell Update* - Keep waiting through slow startup and automatically reconnect failed local pages instead of leaving a blank desktop window.
+
 ## 10/2/2026 - d2e9c16
 
 - Search all saved milestone fields and filter with a searchable customer dropdown in Milestone Tracker, with a roomier two-row filter bar.

@@ -30,6 +30,7 @@ class FakeChild(sup.ManagedChild):
         # Start well outside the grace window so health checks apply immediately.
         self.started_at = (time.monotonic() - 10_000) if now is None else now
         self.health_failures = 0
+        self.startup_complete = False
         self.process = SimpleNamespace(returncode=None)
 
     def poll(self):
@@ -78,6 +79,33 @@ def test_in_startup_grace():
     child.started_at = now
     assert child.in_startup_grace(now + 1) is True
     assert child.in_startup_grace(now + sup.STARTUP_GRACE_SECONDS + 1) is False
+
+
+def test_slow_schema_startup_is_not_restarted():
+    """A child waiting for schema initialization gets more than the old 60s window."""
+    child = FakeChild('worker', health=False)
+    child.start(now=1000)
+    supervisor = sup.Supervisor([child])
+    for now in (1030, 1060, 1090, 1120):
+        supervisor._check(child, now)
+    assert child.starts == 1
+    assert child.terminates == 0
+    supervisor._check(child, 1000 + sup.STARTUP_GRACE_SECONDS + 1)
+    assert child.starts == 2
+
+
+def test_healthy_child_exits_grace_and_detects_later_hang():
+    """Long upgrade grace does not delay hang detection once a child is ready."""
+    child = FakeChild('web', health=True)
+    child.start(now=1000)
+    supervisor = sup.Supervisor([child])
+    supervisor._check(child, 1010)
+    assert child.startup_complete
+    assert not child.in_startup_grace(1011)
+    child._health = False
+    for now in (1020, 1030, 1040):
+        supervisor._check(child, now)
+    assert child.starts == 2
 
 
 # --- crash-loop backoff -----------------------------------------------------
