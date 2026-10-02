@@ -8,7 +8,7 @@ brought the change into `main`, so the admin Updates card can show
 Format: `## M/D/YYYY - <merge-short-sha>`. See
 `scripts/tag-changelog.ps1` for the helper that fills this in.
 
-## 10/2/2026
+## 10/2/2026 - 2adbc77
 
 - Repair upgraded task databases so milestone sync and task creation can save new tasks after the HVA update, with a verified backup before schema repair.
 - Stop the sync spinner and show a clear error when milestone sync fails or its connection ends before completion.
