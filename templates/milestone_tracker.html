@@ -137,6 +137,8 @@
     let year = parseInt(localStorage.getItem(MS_YEAR_KEY)) || new Date().getFullYear();
     let month = parseInt(localStorage.getItem(MS_MONTH_KEY)) || (new Date().getMonth() + 1);
     let calendarIsActive = localStorage.getItem(MS_VIEW_KEY) === 'calendar';
+    let calendarRequestId = 0;
+    let calendarFilterTimer;
 
     const instance = document.querySelector('.milestone-tracker-instance');
     if (!instance) return;
@@ -214,12 +216,16 @@
     function getFilterParams() {
         var params = '';
         var seller = instance.querySelector('[data-role="sellerFilter"]');
+        var customer = instance.querySelector('[data-role="customerFilter"]');
+        var search = instance.querySelector('[data-role="searchFilter"]');
         var urgency = instance.querySelector('[data-role="urgencyFilter"]');
         var myTeam = instance.querySelector('[data-role="myTeamFilter"]');
         var checkedStatuses = Array.from(instance.querySelectorAll('.status-checkbox:checked')).map(function(cb) { return cb.value; });
         var checkedAreas = Array.from(instance.querySelectorAll('.area-checkbox:checked')).map(function(cb) { return cb.value; });
 
         if (seller && seller.value) params += '&seller_id=' + seller.value;
+        if (customer && customer.value) params += '&customer_id=' + customer.value;
+        if (search && search.value.trim()) params += '&search=' + encodeURIComponent(search.value.trim());
         if (checkedStatuses.length > 0) params += '&status=' + encodeURIComponent(checkedStatuses.join(','));
         if (checkedAreas.length > 0) params += '&area=' + encodeURIComponent(checkedAreas.join(','));
         if (urgency && urgency.value) params += '&urgency=' + encodeURIComponent(urgency.value);
@@ -239,15 +245,27 @@
 
     function load() {
         if (!calendarIsActive) return;
+        var requestId = ++calendarRequestId;
         var body = document.getElementById('msCalendarBody');
         var title = document.getElementById('msCalendarTitle');
         body.innerHTML = '<tr><td colspan="7" class="text-center py-4"><div class="spinner-border spinner-border-sm"></div> Loading...</td></tr>';
 
         var filterParams = getFilterParams();
         fetch('/api/milestones/calendar?year=' + year + '&month=' + month + filterParams)
-            .then(function(r) { return r.json(); })
-            .then(function(data) { title.textContent = data.month_name + ' ' + data.year; render(data); })
-            .catch(function() { body.innerHTML = '<tr><td colspan="7" class="text-center py-4 text-danger">Error loading calendar</td></tr>'; });
+            .then(function(r) {
+                if (!r.ok) throw new Error('Calendar request failed: HTTP ' + r.status);
+                return r.json();
+            })
+            .then(function(data) {
+                if (requestId !== calendarRequestId) return;
+                title.textContent = data.month_name + ' ' + data.year;
+                render(data);
+            })
+            .catch(function(error) {
+                if (requestId !== calendarRequestId) return;
+                console.error('Error loading milestone calendar:', error);
+                body.innerHTML = '<tr><td colspan="7" class="text-center py-4 text-danger">Error loading calendar</td></tr>';
+            });
     }
 
     function render(data) {
@@ -349,7 +367,10 @@
 
     // Reload calendar when tracker filters change
     document.addEventListener('milestone-filter-change', function() {
-        if (calendarIsActive) load();
+        clearTimeout(calendarFilterTimer);
+        // Invalidate pending responses while the user is still typing.
+        calendarRequestId++;
+        if (calendarIsActive) calendarFilterTimer = setTimeout(load, 200);
     });
 
     // Initialize view

@@ -681,6 +681,8 @@ def milestones_calendar_api():
         team_only: '1' to show only milestones where user is on the team
         status:    milestone status string (e.g. 'On Track', 'At Risk', 'Blocked')
         seller_id: int seller ID to filter by
+        customer_id: int customer ID to filter by
+        search: case-insensitive literal text across saved milestone fields
         area:      workload area prefix (e.g. 'Infra', 'Data & AI')
         quarters:  comma-separated fiscal quarter strings (e.g. 'FY26 Q3,FY26 Q4')
         urgency:   urgency level ('past_due', 'this_week', 'this_month')
@@ -700,6 +702,14 @@ def milestones_calendar_api():
     area_filter = request.args.get('area', '')
     quarters_filter = request.args.get('quarters', '')
     urgency_filter = request.args.get('urgency', '')
+    search_filter = request.args.get('search', '').strip().lower()
+    customer_id_param = request.args.get('customer_id', '')
+    customer_id = None
+    if customer_id_param:
+        try:
+            customer_id = int(customer_id_param)
+        except ValueError:
+            return jsonify({'success': False, 'error': 'Invalid customer ID'}), 400
 
     if month < 1 or month > 12:
         month = today.month
@@ -716,6 +726,8 @@ def milestones_calendar_api():
         )
         .options(
             db.joinedload(Milestone.customer).joinedload(Customer.seller),
+            db.joinedload(Milestone.customer).joinedload(Customer.territory),
+            db.joinedload(Milestone.opportunity),
         )
     )
 
@@ -741,6 +753,8 @@ def milestones_calendar_api():
     # Team filter
     if request.args.get('team_only') == '1':
         milestones_q = milestones_q.filter(Milestone.on_my_team.is_(True))
+    if customer_id is not None:
+        milestones_q = milestones_q.filter(Milestone.customer_id == customer_id)
 
     milestones = milestones_q.order_by(Milestone.due_date).all()
 
@@ -750,7 +764,11 @@ def milestones_calendar_api():
         if quarters_filter else None
     )
     filtered = []
+    from app.services.milestone_search import get_milestone_search_text
+
     for ms in milestones:
+        if search_filter and search_filter not in get_milestone_search_text(ms):
+            continue
         # Area filter - supports comma-separated for multi-select
         if area_filter:
             area_values = [a.strip() for a in area_filter.split(',') if a.strip()]

@@ -18,6 +18,7 @@ from app.models import (
     db, CaipActivity, Customer, Milestone, MilestoneAudit, MsxTask,
     Opportunity, User, SyncStatus, UserPreference,
 )
+from app.services.milestone_search import get_milestone_search_text
 from app.services.msx_api import (
     batch_get_milestones,
     batch_get_milestones_by_id,
@@ -2432,6 +2433,7 @@ def get_milestone_tracker_data() -> Dict[str, Any]:
         
         tracker_items.append({
             "id": ms.id,
+            "search_text": get_milestone_search_text(ms),
             "title": ms.display_text,
             "milestone_number": ms.milestone_number,
             "status": ms.msx_status,
@@ -2620,6 +2622,7 @@ def get_milestone_tracker_data_for_seller(seller_id: int) -> Dict[str, Any]:
         
         tracker_items.append({
             "id": ms.id,
+            "search_text": get_milestone_search_text(ms),
             "title": ms.display_text,
             "milestone_number": ms.milestone_number,
             "status": ms.msx_status,
