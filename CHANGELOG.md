@@ -8,7 +8,7 @@ brought the change into `main`, so the admin Updates card can show
 Format: `## M/D/YYYY - <merge-short-sha>`. See
 `scripts/tag-changelog.ps1` for the helper that fills this in.
 
-## 10/22/2026
+## 10/22/2026 - efb6d23d
 
 - Keep unfinished notes and edits when closing the editor, open drafts directly, and protect recovery with explicit discard actions and safer save retries.
 - Browse note milestones immediately and inspect their logged HVAs without leaving the editor.
