@@ -3161,7 +3161,7 @@ def update_task(
     Args:
         task_id: The MSX task GUID.
         fields: Dict of field names to new values. Supported keys:
-            subject, description, scheduledend, statuscode.
+            subject, description, scheduledend, statuscode, msp_taskcategory.
 
     Returns:
         Dict with success: bool and optional error message.
@@ -3169,7 +3169,13 @@ def update_task(
     if _is_writeback_disabled():
         return dict(_WRITEBACK_BLOCKED)
 
-    allowed = {"subject", "description", "scheduledend", "statuscode"}
+    if "msp_taskcategory" in fields:
+        category = fields["msp_taskcategory"]
+        if (isinstance(category, bool) or not isinstance(category, int)
+                or category not in {item["value"] for item in TASK_CATEGORIES}):
+            logger.info("Rejected invalid task category for task %s", task_id)
+            return {"success": False, "error": "Choose a valid task category."}
+    allowed = {"subject", "description", "scheduledend", "statuscode", "msp_taskcategory"}
     payload = {k: v for k, v in fields.items() if k in allowed}
     if not payload:
         return {"success": False, "error": "No valid fields to update."}
@@ -3204,22 +3210,34 @@ def close_task(task_id: str) -> Dict[str, Any]:
     Returns:
         Dict with success: bool and optional error message.
     """
+    return _set_task_completed(task_id, completed=True)
+
+
+def reopen_task(task_id: str) -> Dict[str, Any]:
+    """Reopen an MSX task as Not Started and clear its completion timestamp."""
+    return _set_task_completed(task_id, completed=False)
+
+
+def _set_task_completed(task_id: str, *, completed: bool) -> Dict[str, Any]:
+    """Persist the task state and its matching Dataverse status reason together."""
     if _is_writeback_disabled():
         return dict(_WRITEBACK_BLOCKED)
 
     try:
         # PATCH statecode/statuscode directly - the most reliable approach
         payload = {
-            "statecode": 1,       # Completed
-            "statuscode": 5,      # Completed
+            "statecode": 1 if completed else 0,
+            "statuscode": 5 if completed else 2,
         }
+        if not completed:
+            payload["actualend"] = None
         response = _msx_request(
             'PATCH',
             f"{CRM_BASE_URL}/tasks({task_id})",
             json_data=payload,
         )
         if response.status_code in (200, 204):
-            logger.info(f"Closed task {task_id} via PATCH statecode")
+            logger.info("Set task %s completed=%s via PATCH statecode", task_id, completed)
             return {"success": True}
 
         return {
@@ -3231,7 +3249,7 @@ def close_task(task_id: str) -> Dict[str, Any]:
     except requests.exceptions.ConnectionError as e:
         return {"success": False, "error": f"Connection error (VPN?): {str(e)[:100]}"}
     except Exception as e:
-        logger.exception(f"Error closing task {task_id}")
+        logger.exception("Error setting task %s completed=%s", task_id, completed)
         return {"success": False, "error": str(e)}
 
 

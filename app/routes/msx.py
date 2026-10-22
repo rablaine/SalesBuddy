@@ -744,7 +744,7 @@ def leave_deal_team():
 
 @msx_bp.route('/task/<string:task_id>/update', methods=['PATCH'])
 def update_task_route(task_id: str):
-    """Update a task in MSX. Accepts subject, description, scheduledend, statuscode."""
+    """Update task fields in MSX, including its task category."""
     if not request.is_json:
         return jsonify({"success": False, "error": "JSON body required"}), 400
     from app.services.msx_api import update_task

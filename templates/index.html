@@ -829,8 +829,8 @@
                     });
                 } catch (e) {
                     console.error('Error loading draft:', e);
-                    // Invalid draft, remove it
-                    localStorage.removeItem(key);
+                    document.getElementById('homeDraftsEmpty').textContent =
+                        'A recovery copy could not be read. It has been kept on this device.';
                 }
             }
         }
@@ -861,16 +861,20 @@
                     (draft.customerId.startsWith('note_') ? draft.customerId.slice(5) : null));
                 if (Number.isSafeInteger(noteId) && noteId > 0) {
                     link.href = '{{ url_for("notes.note_edit", id=0) }}'
-                        .replace('/0/edit', `/${noteId}/edit`);
+                        .replace('/0/edit', `/${noteId}/edit`) +
+                        '?draft=' + encodeURIComponent(draft.key);
                 } else {
-                    link.href = '{{ url_for("notes.note_create") }}' +
-                        (draft.customerId === 'general' ? '' :
-                            '?customer_id=' + encodeURIComponent(draft.customerId));
+                    const customerId = draft.data.customer_id ||
+                        (/^\d+$/.test(draft.customerId) ? draft.customerId : '');
+                    const params = new URLSearchParams({draft: draft.key});
+                    if (customerId) params.set('customer_id', customerId);
+                    link.href = '{{ url_for("notes.note_create") }}' + '?' + params;
                 }
                 const title = document.createElement('strong');
-                title.textContent = draft.customerName;
+                title.textContent = draft.data.customer_name || 'General note';
                 const metadata = document.createElement('small');
-                metadata.textContent = timeAgo + (topicCount > 0 ?
+                metadata.textContent = (noteId > 0 ? 'Unfinished edits · ' : 'Unfinished note · ') +
+                    timeAgo + (topicCount > 0 ?
                     ` · ${topicCount} topic${topicCount > 1 ? 's' : ''}` : '');
                 link.append(title, metadata);
                 const remove = document.createElement('button');

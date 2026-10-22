@@ -110,50 +110,106 @@ test('engagement saves reject an unsuccessful result instead of marking it clean
     assert.equal(context._inlineEngCleanStates[9], 'clean');
 });
 
-test('editing a note cannot overwrite its customer or general creation draft', () => {
+function draftInitialization(noteId, initial = {}, url = 'http://localhost/note/new') {
     const start = template.indexOf('function getDraftKey()');
     const end = template.indexOf('// Get customer name', start);
-    const context = {CURRENT_NOTE_ID: 285, DRAFT_KEY_PREFIX: 'salesbuddy_draft_',
-        document: {getElementById: () => ({value: '107'})}};
+    const records = new Map(Object.entries(initial)), elements = new Map(), notices = [];
+    let restores = 0, saves = 0;
+    const context = {CURRENT_NOTE_ID: noteId, DRAFT_KEY_PREFIX: 'salesbuddy_draft_',
+        draftStore: null, draftBaseline: null, noteVersion: null, recoveryPending: false,
+        draftNeedsSave: false, draftRestored: false, initializingDraft: false,
+        restoreDraft: () => { restores++; return true; },
+        saveDraft: () => { saves++; return true; },
+        crypto: {randomUUID: () => 'unique-creation-id'}, URL,
+        SBNoteDrafts: require('../../static/js/ui-note-drafts.js'),
+        collectDraftData: () => ({content: 'Original'}), quill: {clipboard: {convert: html => ({ops: html})}},
+        localStorage: {getItem: key => records.get(key) ?? null,
+            setItem: (key, value) => records.set(key, value), removeItem: key => records.delete(key)},
+        window: {location: {href: url}, history: {replaceState() {}}},
+        SBNoteForm: {report: (...args) => notices.push(args)}, console: {error() {}},
+        document: {getElementById: id => {
+            if (!elements.has(id)) elements.set(id, {value: '107'});
+            return elements.get(id);
+        }}};
     vm.runInNewContext(template.slice(start, end), context);
-    assert.equal(context.getDraftKey(), 'salesbuddy_draft_note_285');
-    context.CURRENT_NOTE_ID = null;
-    assert.equal(context.getDraftKey(), 'salesbuddy_draft_107');
-    context.document.getElementById = () => null;
-    assert.equal(context.getDraftKey(), 'salesbuddy_draft_general');
-    context.CURRENT_NOTE_ID = 202;
-    assert.equal(context.getDraftKey(), 'salesbuddy_draft_note_202');
+    context.initializeNoteDraft();
+    return {context, records, elements, notices, restores: () => restores, saves: () => saves};
+}
+
+for (const noteId of [null, 285]) {
+    test(`an explicit ${noteId ? 'edit' : 'new-note'} draft link opens the draft directly`, () => {
+        const key = `salesbuddy_draft_${noteId ? 'note_285' : 'new_requested'}`;
+        const h = draftInitialization(noteId, {
+            [key]: JSON.stringify({note_id: noteId, content: 'My draft'}),
+        }, `http://localhost/note/${noteId ? '285/edit' : 'new'}?draft=${key}`);
+        assert.equal(h.restores(), 1);
+        assert.equal(h.saves(), 1);
+        assert.equal(h.context.draftRestored, true);
+        assert.equal(h.context.recoveryPending, false);
+        assert.equal(h.elements.get('noteDraftRecovery').hidden, true);
+    });
+}
+
+test('opening a saved note normally still offers rather than applies unfinished edits', () => {
+    const h = draftInitialization(285, {
+        salesbuddy_draft_note_285: '{"note_id":285,"content":"Unfinished edits"}',
+    }, 'http://localhost/note/285/edit');
+    assert.equal(h.restores(), 0);
+    assert.equal(h.context.recoveryPending, true);
+    assert.equal(h.elements.get('noteDraftRecovery').hidden, false);
+});
+
+test('a directly opened stale draft retains the saved-note conflict warning', () => {
+    const h = draftInitialization(285, {
+        salesbuddy_draft_note_285: '{"note_id":285,"base_version":"older","content":"Old edits"}',
+    }, 'http://localhost/note/285/edit?draft=salesbuddy_draft_note_285');
+    assert.equal(h.restores(), 1);
+    assert.match(h.notices.at(-1)[0], /saved note has changed/);
+});
+
+test('a draft link cannot apply edits belonging to a different saved note', () => {
+    const raw = '{"note_id":999,"content":"Other note"}';
+    const h = draftInitialization(285, {salesbuddy_draft_note_999: raw},
+        'http://localhost/note/285/edit?draft=salesbuddy_draft_note_999');
+    assert.equal(h.restores(), 0);
+    assert.equal(h.records.get('salesbuddy_draft_note_999'), raw);
+    assert.match(h.notices.at(-1)[0], /different note/);
+});
+
+test('the default template cannot replace an intentionally empty resumed draft', () => {
+    assert.match(template, /if \(!draftRestored && text\.length === 0\)/);
+});
+
+test('editing and creating use independent identities, not one draft per customer', () => {
+    assert.equal(draftInitialization(285).context.getDraftKey(), 'salesbuddy_draft_note_285');
+    assert.equal(draftInitialization(null).context.getDraftKey(),
+        'salesbuddy_draft_new_unique-creation-id');
 });
 
 test('legacy edit recovery migrates only the same saved note, never a creation draft', () => {
-    const start = template.indexOf('function restoreDraft()');
-    const end = template.indexOf('        const draft = JSON.parse(draftJson);', start);
-    const migration = template.slice(start, end) +
-        'return draftJson; } catch (error) { return false; } }';
-    const storage = new Map([['salesbuddy_draft_107', '{"note_id":null,"content":"protected"}']]);
-    const context = {CURRENT_NOTE_ID: 285, DRAFT_KEY_PREFIX: 'salesbuddy_draft_',
-        getDraftKey: () => 'salesbuddy_draft_note_285',
-        document: {getElementById: () => ({value: '107'})},
-        localStorage: {getItem: key => storage.get(key),
-            setItem: (key, value) => storage.set(key, value),
-            removeItem: key => storage.delete(key)}};
-    vm.runInNewContext(migration, context);
-    assert.equal(context.restoreDraft(), false);
-    assert.equal(storage.get('salesbuddy_draft_107'), '{"note_id":null,"content":"protected"}');
-    storage.set('salesbuddy_draft_107', '{"note_id":285,"content":"legacy edit"}');
-    assert.equal(context.restoreDraft(), '{"note_id":285,"content":"legacy edit"}');
-    assert.equal(storage.get('salesbuddy_draft_note_285'), '{"note_id":285,"content":"legacy edit"}');
-    assert.equal(storage.has('salesbuddy_draft_107'), false);
+    const fresh = draftInitialization(285, {
+        salesbuddy_draft_107: '{"note_id":null,"content":"protected"}',
+    });
+    assert.equal(fresh.context.recoveryPending, false);
+    assert.equal(fresh.records.get('salesbuddy_draft_107'), '{"note_id":null,"content":"protected"}');
+    const edit = draftInitialization(285, {
+        salesbuddy_draft_107: '{"note_id":285,"content":"legacy edit"}',
+    });
+    assert.equal(edit.context.recoveryPending, true);
+    assert.equal(edit.records.has('salesbuddy_draft_107'), false);
+    assert.equal(edit.records.get('salesbuddy_draft_note_285'),
+        '{"note_id":285,"content":"legacy edit"}');
 });
 
 test('read-only editor navigation never creates or replaces a draft', () => {
     const start = template.indexOf("window.addEventListener('beforeunload', function(e)");
-    const end = template.indexOf('// Clear draft only after successful form submission', start);
+    const end = template.indexOf("\ndocument.addEventListener('visibilitychange'", start);
     let unload, saves = 0;
     const context = {CURRENT_NOTE_ID: 285, draftNeedsSave: false,
         formSubmittedSuccessfully: false, draftDiscarded: false,
+        noteSavePending: false, noteFlyoutBlocker: () => '',
         document: {getElementById: () => ({value: '107'})},
-        saveDraft: () => { saves++; },
+        saveDraft: () => { saves++; return true; },
         window: {addEventListener: (type, handler) => { unload = handler; }}};
     vm.runInNewContext(template.slice(start, end), context);
     unload({});
@@ -262,10 +318,10 @@ test('native drawer stack uses dialog open state and retains earlier context pan
     assert.doesNotMatch(template.slice(start, end), /offcanvas|flyout-shifted/);
 });
 
-test('a pending note save blocks duplicates and a failed response keeps draft recovery', async () => {
+function saveLifecycle() {
     const start = template.indexOf("document.getElementById('noteForm').addEventListener('submit', async");
     const end = template.indexOf('// Discard draft function', start);
-    let submit, respond, clears = 0, requests = 0;
+    let submit, respond, clears = 0, requests = 0, state = 'submitted';
     const button = {disabled: false, innerHTML: ''};
     const form = {action: '/note/new', querySelector: () => button};
     const notices = [];
@@ -273,33 +329,160 @@ test('a pending note save blocks duplicates and a failed response keeps draft re
         document: {getElementById: id => id === 'noteForm' ?
             {addEventListener: (type, handler) => { submit = handler; }} : null},
         selectedMilestones: [], taskCategories: [], formSubmittedSuccessfully: false,
-        autoSaveTimeout: null,
+        CURRENT_NOTE_ID: null,
+        autoSaveTimeout: null, noteSavePending: false, recoveryPending: false, taskOutcome: '',
+        noteVersion: null, activeSaveSignature: null, activeSaveToken: null, URL,
+        draftStore: {token: () => 'retry-token', read: () => ({revision: 'submitted'}),
+            write: value => { context.laterDraft = value; }},
+        collectDraftData: () => ({content: state}),
+        draftFingerprint: value => value.content,
+        getDraftKey: () => 'salesbuddy_draft_new_1',
+        saveDraft: () => true,
         SBNoteForm: {report: (...args) => notices.push(args)},
-        FormData: class {},
+        FormData: class {
+            constructor() { this.values = new Map(); }
+            set(key, value) { this.values.set(key, value); }
+            entries() { return this.values.entries(); }
+        },
         fetch: () => { requests++; return new Promise(resolve => { respond = resolve; }); },
         clearDraft: () => { clears++; },
-        window: {location: {href: ''}},
+        window: {location: {href: '', origin: 'http://localhost'}},
         console: {log() {}, error() {}, warn() {}}, clearTimeout() {},
     };
     vm.runInNewContext(template.slice(start, end), context);
     const event = {target: form, preventDefault() {}};
+    return {context, button, notices, event, submit: event => submit(event),
+        respond: value => respond(value), requests: () => requests, clears: () => clears,
+        changeState: value => { state = value; }};
+}
+
+test('a pending save blocks duplicates and failed acknowledgements keep draft recovery', async () => {
+    const h = saveLifecycle();
+    const {submit, event, button, context, notices} = h;
     await submit({...event, defaultPrevented: true});
-    assert.equal(requests, 0);
+    assert.equal(h.requests(), 0);
     assert.equal(button.disabled, false);
-    await submit(event);
+    const pending = submit(event);
     assert.equal(button.disabled, true);
     await submit(event);
-    assert.equal(requests, 1);
-    respond({ok: false, redirected: false, status: 500});
-    await new Promise(resolve => setImmediate(resolve));
-    assert.equal(clears, 0);
+    assert.equal(h.requests(), 1);
+    h.respond({ok: false, json: async () => ({success: false, error: 'Save failed'})});
+    await pending;
+    assert.equal(h.clears(), 0);
     assert.equal(context.formSubmittedSuccessfully, false);
     assert.equal(button.disabled, false);
     assert.match(notices.at(-1)[0], /draft has been preserved/);
-    await submit(event);
-    respond({ok: true, redirected: true, status: 200, url: '/note/9'});
-    await new Promise(resolve => setImmediate(resolve));
-    assert.equal(clears, 1);
+    const retry = submit(event);
+    h.respond({ok: true, json: async () => ({
+        success: true, note_id: 9, version: 'new-version', redirect_url: '/note/9',
+    })});
+    await retry;
+    assert.equal(h.clears(), 1);
     assert.equal(context.formSubmittedSuccessfully, true);
-    assert.equal(context.window.location.href, '/note/9');
+    assert.equal(context.window.location.href, 'http://localhost/note/9');
 });
+
+test('HTTP 200 without an explicit saved-note acknowledgement never clears the draft', async () => {
+    const h = saveLifecycle();
+    const pending = h.submit(h.event);
+    h.respond({ok: true, json: async () => ({})});
+    await pending;
+    assert.equal(h.clears(), 0);
+    assert.equal(h.context.formSubmittedSuccessfully, false);
+});
+
+test('typing during a save is preserved as unfinished edits to the acknowledged note', async () => {
+    const h = saveLifecycle();
+    const pending = h.submit(h.event);
+    h.changeState('later keystrokes');
+    h.respond({ok: true, json: async () => ({
+        success: true, note_id: 9, version: 'new-version', redirect_url: '/note/9',
+    })});
+    await pending;
+    assert.equal(h.clears(), 0);
+    assert.equal(h.context.laterDraft.content, 'later keystrokes');
+    assert.equal(h.context.laterDraft.note_id, 9);
+    assert.match(h.context.window.location.href, /^\/note\/9\/edit\?draft=/);
+});
+
+test('a changed creation retry becomes recoverable edits instead of creating another note', async () => {
+    const h = saveLifecycle();
+    const pending = h.submit(h.event);
+    h.respond({ok: false, json: async () => ({
+        success: false, existing_note_id: 9, version: 'saved-version',
+        error: 'An earlier save created this note.',
+    })});
+    await pending;
+    assert.equal(h.clears(), 0);
+    assert.equal(h.context.laterDraft.note_id, 9);
+    assert.equal(h.context.laterDraft.base_version, 'saved-version');
+    assert.equal(h.context.laterDraft.content, 'submitted');
+    assert.match(h.context.window.location.href, /^\/note\/9\/edit\?draft=/);
+});
+
+test('snapshotting cannot apply pending meeting imports or open a meeting picker', () => {
+    const start = template.indexOf('function collectDraftData()');
+    const end = template.indexOf('function saveDraft()', start);
+    assert.doesNotMatch(template.slice(start, end),
+        /applyMeetingImport|showMeetingImportModalReady|hideMeetingStatusCard/);
+});
+
+for (const restored of [false, true]) {
+    test(`delayed engagement data preserves ${restored ? 'resumed' : 'newly typed'} inline edits`, async () => {
+        const start = template.indexOf('function _loadEngCard(card, engId)');
+        const end = template.indexOf('function _updateColumnLayout()', start);
+        let respond;
+        const card = {state: 'Initial', dataset: {}, cloneNode() { return {state: this.state}; }};
+        const context = {
+            fetch: () => new Promise(resolve => { respond = resolve; }),
+            _getCardEngState: card => card.state,
+            _populateEngCard: (card, data) => { card.state = data.state; },
+            _inlineEngCleanStates: {}, _wireInlineCardContacts() {}, _loadEngCardContacts() {},
+            console,
+        };
+        vm.runInNewContext(template.slice(start, end), context);
+        if (restored) {
+            card.state = 'Recovered edits';
+            card.dataset.noteDraftRestored = 'true';
+        }
+        context._loadEngCard(card, 7);
+        assert.equal(context._inlineEngCleanStates[7], card.state);
+        if (!restored) card.state = 'Typed while loading';
+        respond({json: async () => ({state: 'Saved engagement'})});
+        await new Promise(resolve => setImmediate(resolve));
+        assert.equal(card.state, restored ? 'Recovered edits' : 'Typed while loading');
+        assert.equal(context._inlineEngCleanStates[7], 'Saved engagement');
+    });
+}
+
+for (const scenario of [
+    {name: 'Close flushes before the debounce timer', protected: true, calls: 1, blocked: false},
+    {name: 'storage failure keeps the editor open on Stay', protected: false, calls: 1, blocked: true},
+    {name: 'dirty flyouts block parent navigation', blocker: 'engagement', calls: 0, blocked: true},
+    {name: 'a pending note save blocks parent navigation', pending: true, calls: 0, blocked: true},
+    {name: 'inline JavaScript links are not navigation', href: 'javascript:void(0)', calls: 0, blocked: false},
+]) {
+    test(scenario.name, async () => {
+        const start = template.indexOf("document.addEventListener('click', async event =>");
+        const end = template.indexOf('// Clear draft only after', start);
+        let handler, saves = 0, prevented = false;
+        const context = {
+            document: {addEventListener: (type, fn) => { handler = fn; }},
+            window: {location: {href: 'http://localhost/note/1/edit'}},
+            location: {pathname: '/note/1/edit', search: ''}, URL,
+            noteSavePending: Boolean(scenario.pending), formSubmittedSuccessfully: false,
+            draftDiscarded: false, draftNeedsSave: true,
+            noteFlyoutBlocker: () => scenario.blocker || '',
+            saveDraft: () => { saves++; return scenario.protected; },
+            askNoteDecision: async () => false, SBNoteForm: {report() {}},
+        };
+        vm.runInNewContext(template.slice(start, end), context);
+        const link = {href: scenario.href || 'http://localhost/note/1',
+            hasAttribute: name => name === 'data-note-close'};
+        await handler({target: {closest: () => link}, button: 0,
+            preventDefault: () => { prevented = true; }, stopImmediatePropagation() {}});
+        assert.equal(saves, scenario.calls);
+        assert.equal(prevented, scenario.blocked);
+        assert.equal(context.window.location.href, 'http://localhost/note/1/edit');
+    });
+}

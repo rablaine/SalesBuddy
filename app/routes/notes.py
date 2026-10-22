@@ -2,11 +2,16 @@
 Note routes for Sales Buddy.
 Handles note listing, creation, viewing, editing, and Fill My Day bulk import.
 """
-from flask import Blueprint, render_template, request, redirect, url_for, flash, g, jsonify, session
+from flask import Blueprint, Response, render_template, request, redirect, url_for, flash, g, jsonify, session
 from datetime import datetime, date, timezone
+import hashlib
+import json
 import logging
+from uuid import UUID
 
-from app.models import db, Note, Customer, Seller, Territory, Topic, Partner, Milestone, Opportunity, MsxTask, UserPreference, NoteTemplate, NoteAttendee, SolutionEngineer, CustomerContact, PartnerContact, InternalContact
+from sqlalchemy.exc import SQLAlchemyError
+
+from app.models import db, Note, NoteSaveReceipt, Customer, Seller, Territory, Topic, Partner, Milestone, Opportunity, MsxTask, UserPreference, NoteTemplate, NoteAttendee, SolutionEngineer, CustomerContact, PartnerContact, InternalContact
 from app.services.msx_api import TASK_CATEGORIES, add_user_to_milestone_team
 from app.services.seller_mode import get_seller_mode_seller_id as _get_seller_mode_seller_id
 from app.services.backup import schedule_customer_backup as _schedule_customer_backup
@@ -18,6 +23,93 @@ logger = logging.getLogger(__name__)
 
 # Create blueprint
 notes_bp = Blueprint('notes', __name__)
+
+
+def _editor_save_request() -> bool:
+    """Identify editor submissions that require explicit persistence acknowledgement."""
+    return request.accept_mimetypes.best == 'application/json'
+
+
+def _editor_payload_hash() -> str:
+    """Bind a retry token to exactly one submitted version of the form."""
+    payload = sorted(
+        (key, request.form.getlist(key)) for key in request.form
+        if key not in {'save_token', 'referrer', 'next'}
+    )
+    return hashlib.sha256(json.dumps(payload).encode('utf-8')).hexdigest()
+
+
+def _editor_save_preflight(note: Note | None = None) -> tuple[Response, int] | None:
+    """Reject invalid, stale or ambiguous writes and acknowledge completed retries."""
+    if not _editor_save_request():
+        return None
+    token = request.form.get('save_token', '')
+    try:
+        UUID(token)
+    except ValueError:
+        return jsonify(success=False, error='Save identity is missing. Keep your draft open.'), 400
+    receipt = db.session.get(NoteSaveReceipt, token)
+    if receipt:
+        saved = db.session.get(Note, receipt.note_id)
+        if saved is None:
+            return jsonify(
+                success=False, error='The previously saved note no longer exists. Review your draft.',
+            ), 409
+        if receipt.payload_hash != _editor_payload_hash() or (
+            note is not None and receipt.note_id != note.id
+        ):
+            if note is None:
+                return jsonify(
+                    success=False, existing_note_id=saved.id, version=receipt.created_at.isoformat(),
+                    error='An earlier save created this note. Review the remaining edits.',
+                ), 409
+            return jsonify(success=False, error='This save identity belongs to another revision.'), 409
+        return jsonify(
+            success=True, note_id=saved.id, version=receipt.created_at.isoformat(),
+            redirect_url=url_for('notes.note_view', id=saved.id),
+        ), 200
+    if note and request.form.get('note_version') != note.updated_at.isoformat():
+        return jsonify(
+            success=False,
+            error='This note changed in another window. Your draft is safe; review the saved note.',
+        ), 409
+    if note:
+        changed = db.session.execute(
+            db.update(Note).where(
+                Note.id == note.id, Note.updated_at == note.updated_at,
+            ).values(updated_at=datetime.now(timezone.utc)),
+            execution_options={'synchronize_session': False},
+        )
+        if changed.rowcount != 1:
+            db.session.rollback()
+            return jsonify(
+                success=False, error='This note changed during saving. Review your preserved draft.',
+            ), 409
+    if request.form.get('task_subject', '').strip() and not request.form.get('created_task_id'):
+        return jsonify(
+            success=False,
+            error='Create the milestone task first, or clear its fields before saving the note.',
+        ), 400
+    return None
+
+
+def _commit_editor_note(note: Note) -> bool:
+    """Commit the note and its retry receipt together, preserving failures explicitly."""
+    try:
+        if _editor_save_request():
+            db.session.flush()
+            db.session.add(NoteSaveReceipt(
+                token=request.form['save_token'], payload_hash=_editor_payload_hash(), note_id=note.id,
+                created_at=note.updated_at,
+            ))
+        db.session.commit()
+        return True
+    except SQLAlchemyError:
+        db.session.rollback()
+        logger.exception('Unable to persist note save')
+        if not _editor_save_request():
+            raise
+        return False
 
 
 def _synced_at_iso_utc(dt):
@@ -316,6 +408,9 @@ def notes_list():
 def note_create():
     """Create a new note (FR005)."""
     if request.method == 'POST':
+        preflight = _editor_save_preflight()
+        if preflight is not None:
+            return preflight
         customer_id = request.form.get('customer_id')
         seller_id = request.form.get('seller_id')
         call_date_str = request.form.get('call_date')
@@ -327,10 +422,14 @@ def note_create():
         
         # Validation -- customer is optional for general notes
         if not call_date_str:
+            if _editor_save_request():
+                return jsonify(success=False, error='Call date is required.'), 400
             flash('Call date is required.', 'danger')
             return redirect(url_for('notes.note_create'))
         
         if not content:
+            if _editor_save_request():
+                return jsonify(success=False, error='Note content is required.'), 400
             flash('Note content is required.', 'danger')
             return redirect(url_for('notes.note_create'))
         
@@ -342,6 +441,8 @@ def note_create():
             else:
                 call_date = datetime.strptime(call_date_str, '%Y-%m-%d')
         except ValueError:
+            if _editor_save_request():
+                return jsonify(success=False, error='Invalid date/time format.'), 400
             flash('Invalid date/time format.', 'danger')
             return redirect(url_for('notes.note_create'))
         
@@ -454,7 +555,8 @@ def note_create():
         # Auto-track this note on any linked opportunities (DSS mode)
         track_note_on_opportunities(note)
 
-        db.session.commit()
+        if not _commit_editor_note(note):
+            return jsonify(success=False, error='The note could not be saved. Retry this save.'), 503
 
         # Ghost back-linking: if this note was created from a ghost meeting on
         # the home calendar, stamp note_id onto the PrefetchedMeeting so
@@ -483,6 +585,11 @@ def note_create():
             _schedule_customer_backup(note.customer_id)
         
         flash('Note created successfully!', 'success')
+        if _editor_save_request():
+            return jsonify(
+                success=True, note_id=note.id, version=note.updated_at.isoformat(),
+                redirect_url=referrer or url_for('notes.note_view', id=note.id),
+            )
         
         # Redirect back to referrer if provided
         if referrer:
@@ -753,6 +860,9 @@ def note_edit(id):
     note = Note.query.filter_by(id=id).first_or_404()
     
     if request.method == 'POST':
+        preflight = _editor_save_preflight(note)
+        if preflight is not None:
+            return preflight
         customer_id = request.form.get('customer_id')
         seller_id = request.form.get('seller_id')
         call_date_str = request.form.get('call_date')
@@ -763,10 +873,14 @@ def note_edit(id):
         
         # Validation -- customer is optional for general notes
         if not call_date_str:
+            if _editor_save_request():
+                return jsonify(success=False, error='Call date is required.'), 400
             flash('Call date is required.', 'danger')
             return redirect(url_for('notes.note_edit', id=id))
         
         if not content:
+            if _editor_save_request():
+                return jsonify(success=False, error='Note content is required.'), 400
             flash('Note content is required.', 'danger')
             return redirect(url_for('notes.note_edit', id=id))
         
@@ -778,6 +892,8 @@ def note_edit(id):
             else:
                 call_date = datetime.strptime(call_date_str, '%Y-%m-%d')
         except ValueError:
+            if _editor_save_request():
+                return jsonify(success=False, error='Invalid date/time format.'), 400
             flash('Invalid date/time format.', 'danger')
             return redirect(url_for('notes.note_edit', id=id))
         
@@ -877,7 +993,10 @@ def note_edit(id):
         # Auto-track this note on any linked opportunities (DSS mode)
         track_note_on_opportunities(note)
 
-        db.session.commit()
+        # Relationship-only edits must also advance the optimistic concurrency version.
+        note.updated_at = datetime.now(timezone.utc)
+        if not _commit_editor_note(note):
+            return jsonify(success=False, error='The note could not be saved. Retry this save.'), 503
 
         # Back up this customer's notes (async, debounced - never blocks save)
         if note.customer_id:
@@ -887,6 +1006,11 @@ def note_edit(id):
 
         # Redirect back to where the user originally came from (e.g. customer page)
         next_url = request.form.get('next', '')
+        if _editor_save_request():
+            return jsonify(
+                success=True, note_id=note.id, version=note.updated_at.isoformat(),
+                redirect_url=next_url or url_for('notes.note_view', id=note.id),
+            )
         if next_url:
             return redirect(next_url)
         return redirect(url_for('notes.note_view', id=note.id))

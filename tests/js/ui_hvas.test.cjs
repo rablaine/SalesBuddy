@@ -7,7 +7,10 @@ const source = fs.readFileSync(
     path.join(__dirname, '..', '..', 'static', 'js', 'ui-hvas.js'), 'utf8',
 );
 
-function harness({empty = false, startError = null, withTask = false, completionRequest = null} = {}) {
+function harness({
+    empty = false, startError = null, withTask = false, completionRequest = null,
+    reopening = false, categoryChange = false,
+} = {}) {
     const handlers = {};
     const element = name => ({
         hidden: false, disabled: false, attributes: {},
@@ -28,17 +31,19 @@ function harness({empty = false, startError = null, withTask = false, completion
     };
     const state = {starts: 0, reloads: 0, errors: [], navigations: [], requests: [], timers: []};
     const controls = {
-        '[data-hva-complete]': element('complete'),
-        '[data-hva-confirmation]': element('confirmation'),
-        '[data-hva-confirm]': element('confirm'),
-        '[data-hva-cancel]': element('cancel'),
+        '[data-hva-toggle]': element('toggle'),
+        '[data-hva-category]': {...element('category'), value: '861980004'},
         '[data-hva-result]': element('result'),
     };
-    controls['[data-hva-confirmation]'].hidden = true;
     controls['[data-hva-result]'].hidden = true;
     const action = element('action');
-    action.dataset = {completeUrl: '/api/reports/hvas/17/complete'};
+    action.dataset = {
+        action: categoryChange ? 'category' : (reopening ? 'reopen' : 'complete'),
+        actionUrl: `/api/reports/hvas/17/${categoryChange ? 'category' :
+            (reopening ? 'reopen' : 'complete')}`,
+    };
     action.querySelector = selector => controls[selector];
+    action.closest = () => ({querySelector: selector => controls[selector]});
     const window = {
         location: {
             href: 'https://salesbuddy.test/reports/hvas?status=completed&search=followup' +
@@ -127,50 +132,31 @@ test('other pages are untouched', () => {
     vm.runInNewContext(source, {document: {querySelector: () => null}});
 });
 
-test('completion needs explicit inline confirmation and Cancel performs no write', () => {
-    const {state, handlers, controls} = harness({withTask: true});
-    handlers['complete:click']();
-    assert.equal(controls['[data-hva-confirmation]'].hidden, false);
-    assert.equal(controls['[data-hva-complete]'].hidden, true);
-    assert.equal(state.focused, 'confirm');
-    assert.equal(state.requests.length, 0);
-    handlers['cancel:click']();
-    assert.equal(controls['[data-hva-confirmation]'].hidden, true);
-    assert.equal(controls['[data-hva-complete]'].hidden, false);
-    assert.equal(state.focused, 'complete');
-    assert.equal(state.requests.length, 0);
-});
-
-test('confirmed completion guards duplicate writes and briefly acknowledges before reloading', async () => {
+for (const reopening of [false, true]) {
+test(`one-click ${reopening ? 'reopen' : 'complete'} guards duplicate writes and reloads on success`, async () => {
     let resolve;
     const response = new Promise(done => { resolve = done; });
     const {state, handlers, controls, action} = harness({
-        withTask: true, completionRequest: () => response,
+        withTask: true, completionRequest: () => response, reopening,
     });
-    handlers['complete:click']();
-    const running = handlers['confirm:click']();
-    await handlers['confirm:click']();
-    handlers['cancel:click']();
+    const running = handlers['toggle:click']();
+    await handlers['toggle:click']();
     assert.equal(state.requests.length, 1);
-    assert.equal(state.requests[0][0], '/api/reports/hvas/17/complete');
+    assert.equal(state.requests[0][0], `/api/reports/hvas/17/${reopening ? 'reopen' : 'complete'}`);
     assert.equal(state.requests[0][1].method, 'POST');
-    assert.equal(controls['[data-hva-confirm]'].disabled, true);
-    assert.equal(controls['[data-hva-cancel]'].disabled, true);
+    assert.equal(controls['[data-hva-toggle]'].disabled, true);
     assert.equal(action.attributes['aria-busy'], 'true');
-    assert.match(controls['[data-hva-result]'].textContent, /Completing/);
+    assert.match(controls['[data-hva-result]'].textContent, reopening ? /Reopening/ : /Completing/);
     resolve({ok: true, json: async () => ({success: true})});
     await running;
     assert.equal(action.attributes['aria-busy'], 'false');
-    assert.match(controls['[data-hva-result]'].textContent, /Completed in MSX/);
-    assert.equal(state.reloads, 0);
-    assert.equal(state.timers.length, 1);
-    assert.equal(state.timers[0].delay, 1000);
-    await handlers['confirm:click']();
-    assert.equal(state.requests.length, 1);
-    state.timers[0].callback();
     assert.equal(state.reloads, 1);
+    assert.equal(state.timers.length, 0);
+    await handlers['toggle:click']();
+    assert.equal(state.requests.length, 1);
     assert.equal(state.navigations.length, 0);
 });
+}
 
 test('failed completion displays the server error and offers an explicit retry', async () => {
     let failed = true;
@@ -181,22 +167,20 @@ test('failed completion displays the server error and offers an explicit retry',
                 {success: false, error: 'Access denied'} : {success: true},
         }),
     });
-    handlers['complete:click']();
-    await handlers['confirm:click']();
+    await handlers['toggle:click']();
     assert.equal(controls['[data-hva-result]'].attributes.role, 'alert');
     assert.equal(controls['[data-hva-result]'].textContent, 'Access denied');
-    assert.equal(controls['[data-hva-complete]'].hidden, false);
-    assert.equal(controls['[data-hva-complete]'].textContent, 'Retry complete');
+    assert.equal(controls['[data-hva-toggle]'].disabled, false);
+    assert.equal(state.focused, 'toggle');
     assert.equal(state.errors.length, 1);
     assert.equal(state.timers.length, 0);
     assert.equal(state.reloads, 0);
     failed = false;
-    handlers['complete:click']();
-    await handlers['confirm:click']();
+    await handlers['toggle:click']();
     assert.equal(state.requests.length, 2);
     assert.equal(controls['[data-hva-result]'].attributes.role, 'status');
-    assert.match(controls['[data-hva-result]'].textContent, /Completed in MSX/);
-    assert.equal(state.timers.length, 1);
+    assert.equal(state.reloads, 1);
+    assert.equal(state.timers.length, 0);
 });
 
 test('remote success with a cache failure requires refresh instead of another write', async () => {
@@ -208,10 +192,10 @@ test('remote success with a cache failure requires refresh instead of another wr
             }),
         }),
     });
-    await handlers['confirm:click']();
-    assert.equal(controls['[data-hva-complete]'].hidden, true);
+    await handlers['toggle:click']();
+    assert.equal(controls['[data-hva-toggle]'].disabled, true);
     assert.match(controls['[data-hva-result]'].textContent, /Refresh MSX tasks/);
-    await handlers['confirm:click']();
+    await handlers['toggle:click']();
     assert.equal(state.requests.length, 1);
     assert.equal(state.reloads, 0);
 });
@@ -223,10 +207,61 @@ test('network and malformed responses never claim completion', async () => {
         async () => ({ok: true, json: async () => null}),
     ]) {
         const {state, handlers, controls} = harness({withTask: true, completionRequest});
-        await handlers['confirm:click']();
+        await handlers['toggle:click']();
         assert.equal(controls['[data-hva-result]'].attributes.role, 'alert');
-        assert.equal(controls['[data-hva-complete]'].hidden, false);
+        assert.equal(controls['[data-hva-toggle]'].disabled, false);
         assert.equal(state.errors.length, 1);
         assert.equal(state.timers.length, 0);
     }
 });
+
+test('category changes immediately save a numeric option and reload only after MSX succeeds', async () => {
+    let resolve;
+    const response = new Promise(done => { resolve = done; });
+    const {state, handlers, controls} = harness({
+        withTask: true, categoryChange: true, completionRequest: () => response,
+    });
+    const select = controls['[data-hva-category]'];
+    await handlers['category:change']();
+    assert.equal(state.requests.length, 0);
+    select.value = '606820000';
+    const running = handlers['category:change']();
+    await handlers['category:change']();
+    assert.equal(state.requests.length, 1);
+    assert.equal(select.disabled, true);
+    assert.equal(state.requests[0][0], '/api/reports/hvas/17/category');
+    assert.equal(state.requests[0][1].headers['Content-Type'], 'application/json');
+    assert.deepEqual(JSON.parse(state.requests[0][1].body), {category: 606820000});
+    assert.match(controls['[data-hva-result]'].textContent, /Updating category in MSX/);
+    assert.equal(state.reloads, 0);
+    resolve({ok: true, json: async () => ({success: true})});
+    await running;
+    assert.equal(state.reloads, 1);
+    assert.equal(select.disabled, true);
+});
+
+for (const remoteChanged of [false, true]) {
+    test(`category failure handles remote_changed=${remoteChanged} without false success`, async () => {
+        const {state, handlers, controls} = harness({
+            withTask: true, categoryChange: true,
+            completionRequest: async () => ({
+                ok: false, json: async () => ({
+                    success: false, remote_changed: remoteChanged,
+                    error: remoteChanged ? 'Refresh MSX tasks.' : 'Access denied',
+                }),
+            }),
+        });
+        const select = controls['[data-hva-category]'];
+        select.value = '606820000';
+        await handlers['category:change']();
+        assert.equal(state.reloads, 0);
+        assert.equal(select.disabled, remoteChanged);
+        assert.equal(select.value, remoteChanged ? '606820000' : '861980004');
+        assert.equal(controls['[data-hva-result]'].attributes.role, 'alert');
+        if (!remoteChanged) {
+            select.value = '606820000';
+            await handlers['category:change']();
+            assert.equal(state.requests.length, 2);
+        }
+    });
+}

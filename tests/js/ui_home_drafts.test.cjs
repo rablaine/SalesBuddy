@@ -34,7 +34,7 @@ function homeDrafts(initial = {}) {
     const code = (management + storageEvents)
         .replaceAll('{{ url_for("notes.note_create") }}', '/note/new')
         .replaceAll('{{ url_for("notes.note_edit", id=0) }}', '/note/0/edit');
-    vm.runInNewContext(code, {document, window, localStorage, console,
+    vm.runInNewContext(code, {document, window, localStorage, console, URLSearchParams,
         confirm: () => false});
     documentEvents.get('DOMContentLoaded')();
     return {get, storage,
@@ -48,7 +48,7 @@ test('Home counts local drafts initially and hides the breadcrumb button when no
     })});
     assert.equal(h.get('draftCount').textContent, 1);
     assert.equal(h.get('homeDraftsButton').hidden, false);
-    assert.deepEqual(h.links(), ['/note/new?customer_id=107']);
+    assert.deepEqual(h.links(), ['/note/new?draft=salesbuddy_draft_107&customer_id=107']);
     h.storage.clear();
     h.emit('storage', {key: 'salesbuddy_draft_107'});
     assert.equal(h.get('homeDraftsButton').hidden, true);
@@ -79,5 +79,17 @@ test('draft links resume edited notes, legacy edits and general notes at the cor
         'salesbuddy_draft_107': JSON.stringify({note_id: 13, customer_name: 'Customer'}),
         'salesbuddy_draft_general': JSON.stringify({customer_name: ''}),
     });
-    assert.deepEqual(h.links(), ['/note/12/edit', '/note/13/edit', '/note/new']);
+    assert.deepEqual(h.links(), ['/note/12/edit?draft=salesbuddy_draft_note_12',
+        '/note/13/edit?draft=salesbuddy_draft_107', '/note/new?draft=salesbuddy_draft_general']);
+});
+
+test('two creation drafts for the same customer resume their own identity and customer', () => {
+    const h = homeDrafts({
+        'salesbuddy_draft_new_first': JSON.stringify({customer_id: '107', content: 'First'}),
+        'salesbuddy_draft_new_second': JSON.stringify({customer_id: '107', content: 'Second'}),
+    });
+    assert.deepEqual(h.links(), [
+        '/note/new?draft=salesbuddy_draft_new_first&customer_id=107',
+        '/note/new?draft=salesbuddy_draft_new_second&customer_id=107',
+    ]);
 });

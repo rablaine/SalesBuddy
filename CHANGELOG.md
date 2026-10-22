@@ -8,6 +8,12 @@ brought the change into `main`, so the admin Updates card can show
 Format: `## M/D/YYYY - <merge-short-sha>`. See
 `scripts/tag-changelog.ps1` for the helper that fills this in.
 
+## 10/22/2026
+
+- Keep unfinished notes and edits when closing the editor, open drafts directly, and protect recovery with explicit discard actions and safer save retries.
+- Complete or reopen HVAs directly beside their status with one click, with automatic report updates.
+- Change task categories directly in the HVA report, with starred HVA choices and immediate MSX updates.
+
 ## 10/21/2026 - eb1db554
 
 - Fix startup migration failures on older databases while preserving existing task and note links.

@@ -120,6 +120,7 @@ def get_hva_inventory(
             "id": task.id, "msx_task_id": task.msx_task_id, "subject": task.subject,
             "description": task.description, "url": build_task_url(task.msx_task_id),
             "category": task.task_category_name or "Unknown category",
+            "category_code": task.task_category,
             "status": STATUS_LABELS.get(task.statecode, "Unknown"),
             "statecode": task.statecode, "created": _iso(task.msx_created_on),
             "due": _iso(task.due_date), "completed": _iso(task.actual_end),

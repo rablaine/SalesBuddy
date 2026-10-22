@@ -11,9 +11,18 @@
 {% endblock %}
 
 {% block content %}
+<div class="sb-note-status" data-note-recovery="{{ note.id }}" hidden>
+    <span></span>
+    <a href="{{ url_for('notes.note_edit', id=note.id) }}">Review unfinished edits</a>
+</div>
 {% include 'partials/note_view_content.html' %}
 <footer class="sb-note-status" aria-label="Note status">
     <span>Note {{ note.id }} · {{ 'Customer note' if note.customer else 'General note' }}</span>
     <span>{{ note.call_date.strftime('%b %d, %Y') }}</span>
 </footer>
+{% endblock %}
+
+{% block extra_js %}
+{{ super() }}
+<script src="{{ url_for('static', filename='js/ui-note-drafts.js') }}"></script>
 {% endblock %}

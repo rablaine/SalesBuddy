@@ -21,6 +21,29 @@ The MSI installer handles everything: prerequisites (Git, Python, Azure CLI, Nod
 
 ## Features
 
+The note editor separates saved notes from recovery drafts. **Save Note** or
+**Save Changes** commits the note; **Close** preserves unfinished work on this
+device. **Discard Draft** or **Discard Changes** explicitly removes that recovery
+copy after confirmation, without deleting a saved note or separately saved
+engagements, contacts, projects or MSX tasks.
+
+Opening an unchanged note does not create a draft. Home > Drafts distinguishes
+unfinished new notes from unfinished edits and resumes the exact recovery copy.
+Clicking a draft opens it directly. Opening a saved note normally offers its
+unfinished edits without silently replacing saved content. Separate notes for
+the same customer and competing editor windows keep
+separate recovery copies. Storage failures are shown explicitly; drafts are not
+silently pruned to make room. Copy your note before leaving if draft protection
+fails. Recovery is local to the browser/app profile and is not a cloud backup.
+
+The editor only clears its draft after the server confirms note persistence.
+Retries of the same submitted revision acknowledge the same saved note; stale
+edits are rejected rather than overwriting a newer saved revision. Changing a
+new draft after a lost save response opens recoverable edits to the note already
+created instead of creating another note. MSX task
+creation is not repeated automatically after an uncertain response. Check MSX
+before explicitly allowing another attempt.
+
 Daily Copilot suggestions accept either JSON or numbered WorkIQ follow-ups,
 including their context and source links. A numbered-list fallback does not
 repeat the WorkIQ call. If neither format can be parsed, existing suggestions

@@ -120,6 +120,16 @@ def test_note_form_retains_fields_commands_and_native_dialogs(
     for field in ["partner_search", "attendee_search", "topic_search"]:
         assert form.find(id=field)
     assert form.select_one('button[type="submit"]')
+    close = form.select_one('[data-note-close]')
+    assert close.get_text(strip=True).endswith('Close')
+    assert not close.has_attr('onclick')
+    discard = form.select_one('button[onclick="discardDraft()"]')
+    assert discard.get_text(strip=True).endswith(
+        'Discard Changes' if kind == 'edit' else 'Discard Draft'
+    )
+    assert main.find(id='draftSaveIndicator')['role'] == 'status'
+    assert main.find(id='noteDraftRecovery').has_attr('hidden')
+    assert '/static/js/ui-note-drafts.js' in scripts
     assert form.find(id="noteSaveFeedback")["hidden"] == ""
     assert main.select_one(".sb-note-form-status")
     if kind == "general":
