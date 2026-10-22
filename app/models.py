@@ -819,6 +819,16 @@ class PartnerContact(db.Model):
         return f'<PartnerContact {self.name} at {self.partner.name if self.partner else "Unknown"}>'
 
 
+class NoteSaveReceipt(db.Model):
+    """Durable acknowledgements for retry-safe editor saves, not user content."""
+    __tablename__ = 'note_save_receipts'
+
+    token = db.Column(db.String(36), primary_key=True)
+    payload_hash = db.Column(db.String(64), nullable=False)
+    note_id = db.Column(db.Integer, db.ForeignKey('notes.id', ondelete='CASCADE'), nullable=False)
+    created_at = db.Column(db.DateTime, default=utc_now, nullable=False)
+
+
 class Note(db.Model):
     """Note entry with rich text content and associated metadata."""
     __tablename__ = 'notes'

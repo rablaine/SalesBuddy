@@ -174,3 +174,4 @@
 .sb-note-view .call-content th { background: var(--sb-ui-context); }
 .sb-note-view .call-content tr:nth-child(even) { background: var(--sb-ui-canvas); }
 .sb-note-view .call-content img { max-width: 100%; height: auto; }
+.sb-note-status[data-note-recovery][hidden] {display:none;}

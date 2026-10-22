@@ -2169,6 +2169,7 @@ def report_hvas():
         'report_hvas.html', **data, inventory_url=inventory_url,
         customers=Customer.query.order_by(Customer.name).all(),
         categories=[category for category in TASK_CATEGORIES if category['is_hva']],
+        task_categories=TASK_CATEGORIES,
     )
 
 
@@ -2182,41 +2183,83 @@ def api_hvas():
         return jsonify(success=False, error=str(exc)), 400
 
 
-@bp.post('/api/reports/hvas/<int:task_id>/complete')
-def complete_hva(task_id: int) -> Response | tuple[Response, int]:
-    """Complete an owned HVA in MSX, retaining its cached record and historical links."""
-    from app.services.msx_api import HVA_TASK_CATEGORIES, close_task
+@bp.post('/api/reports/hvas/<int:task_id>/category')
+def update_hva_category(task_id: int) -> Response | tuple[Response, int]:
+    """Update an owned task's MSX category and keep the local HVA classification in sync."""
+    from app.services.msx_api import TASK_CATEGORIES, update_task
+
+    data = request.get_json(silent=True)
+    code = data.get('category') if isinstance(data, dict) else None
+    category = next((item for item in TASK_CATEGORIES if item['value'] == code), None)
+    if isinstance(code, bool) or not isinstance(code, int) or category is None:
+        logger.info('Invalid category change for task %s', task_id)
+        return jsonify(success=False, error='Choose a valid task category.'), 400
+    task = MsxTask.query.filter_by(id=task_id, is_current_owner=True).one_or_none()
+    if task is None:
+        logger.info('Category change rejected for missing or unowned task %s', task_id)
+        return jsonify(success=False, error='Owned task not found. Refresh MSX tasks.'), 404
+    if task.task_category != code:
+        result = update_task(task.msx_task_id, {'msp_taskcategory': code})
+        if not result.get('success'):
+            error = result.get('error') or 'MSX could not update this task category.'
+            logger.warning('MSX category update failed for task %s: %s', task_id, error)
+            return jsonify(success=False, error=error), 502
+    try:
+        task.task_category = code
+        task.task_category_name = category['label']
+        task.is_hva = category['is_hva']
+        db.session.commit()
+    except SQLAlchemyError:
+        db.session.rollback()
+        logger.exception('Category cache save failed for task %s after MSX update', task_id)
+        return jsonify(success=False, remote_changed=True, error=(
+            'Category saved in MSX, but Sales Buddy could not save the updated category. '
+            'Refresh MSX tasks before retrying.'
+        )), 500
+    return jsonify(success=True, category=code, category_name=category['label'],
+                   is_hva=category['is_hva'])
+
+
+@bp.post('/api/reports/hvas/<int:task_id>/complete', defaults={'completed': True})
+@bp.post('/api/reports/hvas/<int:task_id>/reopen', endpoint='reopen_hva',
+         defaults={'completed': False})
+def complete_hva(task_id: int, completed: bool) -> Response | tuple[Response, int]:
+    """Set an owned HVA's completion state while retaining its historical links."""
+    from app.services.msx_api import HVA_TASK_CATEGORIES, close_task, reopen_task
+
+    action = 'complete' if completed else 'reopen'
 
     task = MsxTask.query.filter(
         MsxTask.id == task_id, MsxTask.is_current_owner.is_(True),
         MsxTask.is_hva.is_(True), MsxTask.task_category.in_(HVA_TASK_CATEGORIES),
     ).one_or_none()
     if task is None:
-        logger.info('HVA completion rejected for missing or ineligible task %s', task_id)
+        logger.info('HVA %s rejected for missing or ineligible task %s', action, task_id)
         return jsonify(success=False, error='Owned HVA not found. Refresh MSX tasks.'), 404
     if task.statecode == 2:
-        logger.info('HVA completion rejected for canceled task %s', task_id)
+        logger.info('HVA %s rejected for canceled task %s', action, task_id)
         return jsonify(success=False, error='Canceled HVAs are left unchanged.'), 409
-    if task.statecode == 1:
-        return jsonify(success=True, already_completed=True)
-    result = close_task(task.msx_task_id)
+    target_state = 1 if completed else 0
+    if task.statecode == target_state:
+        return jsonify(success=True, already_completed=completed, statecode=target_state)
+    result = close_task(task.msx_task_id) if completed else reopen_task(task.msx_task_id)
     if not result.get('success'):
-        error = result.get('error') or 'MSX could not complete this HVA.'
-        logger.warning('MSX completion failed for HVA %s: %s', task_id, error)
+        error = result.get('error') or f'MSX could not {action} this HVA.'
+        logger.warning('MSX %s failed for HVA %s: %s', action, task_id, error)
         return jsonify(success=False, error=error), 502
     try:
-        task.statecode = 1
-        task.statuscode = 5
-        task.actual_end = datetime.now(timezone.utc)
+        task.statecode = target_state
+        task.statuscode = 5 if completed else 2
+        task.actual_end = datetime.now(timezone.utc) if completed else None
         db.session.commit()
     except SQLAlchemyError:
         db.session.rollback()
-        logger.exception('MSX completed HVA %s but the local cache could not be saved', task_id)
+        logger.exception('MSX %s succeeded for HVA %s but cache save failed', action, task_id)
         return jsonify(success=False, remote_changed=True, error=(
-            'Completed in MSX, but Sales Buddy could not save the updated status. '
+            'Updated in MSX, but Sales Buddy could not save the updated status. '
             'Refresh MSX tasks before retrying.'
         )), 500
-    return jsonify(success=True)
+    return jsonify(success=True, statecode=target_state)
 
 
 @bp.route('/reports/msx-workspace')

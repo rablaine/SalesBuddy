@@ -1,5 +1,6 @@
 """Native template form parity and failure recovery using the isolated database."""
 from unittest.mock import patch
+from urllib.parse import urlsplit
 
 import pytest
 from bs4 import BeautifulSoup
@@ -56,7 +57,10 @@ def test_exact_native_fields_and_editor(client, template_id, mode):
     assert form.select_one('[data-template-cancel]')['href'] == '/preferences'
     assert form.select_one('[type=submit]').get_text(strip=True) == (
         'Create Template' if mode == 'new' else 'Update Template')
-    assert len(soup.select('script[src$="ui-milestone-form.js"]')) == 1
+    assert sum(
+        urlsplit(script['src']).path == '/static/js/ui-milestone-form.js'
+        for script in soup.select('script[src]')
+    ) == 1
     assert len(form.select('#templateToolbar button')) == 10
     assert [option['value'] for option in form.select('.ql-header option')] == ['', '1', '2', '3']
 

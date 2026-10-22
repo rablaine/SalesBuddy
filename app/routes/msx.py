@@ -17,6 +17,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from urllib.parse import urlparse
+from uuid import UUID
 from flask import Blueprint, jsonify, request, Response, g, current_app, stream_with_context
 import logging
 from sqlalchemy.exc import SQLAlchemyError
@@ -446,6 +447,25 @@ def get_opportunities_for_customer(customer_id: int):
 # Task Routes
 # -----------------------------------------------------------------------------
 
+@msx_bp.route('/milestone-hvas')
+def get_milestone_hvas_route():
+    """Return cached HVA history without fetching or modifying MSX activities."""
+    ids = request.args.getlist('milestone_id')
+    if not 1 <= len(ids) <= 100:
+        return jsonify(success=False, error="Choose between 1 and 100 milestones."), 400
+    try:
+        normalized = [str(UUID(value)) for value in ids]
+    except ValueError:
+        return jsonify(success=False, error="Choose valid MSX milestone IDs."), 400
+    try:
+        from app.services.hva_inventory import get_milestone_hvas
+        return jsonify(success=True, milestones=get_milestone_hvas(normalized))
+    except SQLAlchemyError:
+        db.session.rollback()
+        logger.exception("Could not read cached milestone HVA history")
+        return jsonify(success=False, error="Could not load logged HVAs. Try again."), 500
+
+
 @msx_bp.route('/task-categories')
 def get_task_categories():
     """
@@ -744,7 +764,7 @@ def leave_deal_team():
 
 @msx_bp.route('/task/<string:task_id>/update', methods=['PATCH'])
 def update_task_route(task_id: str):
-    """Update a task in MSX. Accepts subject, description, scheduledend, statuscode."""
+    """Update task fields in MSX, including its task category."""
     if not request.is_json:
         return jsonify({"success": False, "error": "JSON body required"}), 400
     from app.services.msx_api import update_task

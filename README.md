@@ -21,6 +21,29 @@ The MSI installer handles everything: prerequisites (Git, Python, Azure CLI, Nod
 
 ## Features
 
+The note editor separates saved notes from recovery drafts. **Save Note** or
+**Save Changes** commits the note; **Close** preserves unfinished work on this
+device. **Discard Draft** or **Discard Changes** explicitly removes that recovery
+copy after confirmation, without deleting a saved note or separately saved
+engagements, contacts, projects or MSX tasks.
+
+Opening an unchanged note does not create a draft. Home > Drafts distinguishes
+unfinished new notes from unfinished edits and resumes the exact recovery copy.
+Clicking a draft opens it directly. Opening a saved note normally offers its
+unfinished edits without silently replacing saved content. Separate notes for
+the same customer and competing editor windows keep
+separate recovery copies. Storage failures are shown explicitly; drafts are not
+silently pruned to make room. Copy your note before leaving if draft protection
+fails. Recovery is local to the browser/app profile and is not a cloud backup.
+
+The editor only clears its draft after the server confirms note persistence.
+Retries of the same submitted revision acknowledge the same saved note; stale
+edits are rejected rather than overwriting a newer saved revision. Changing a
+new draft after a lost save response opens recoverable edits to the note already
+created instead of creating another note. MSX task
+creation is not repeated automatically after an uncertain response. Check MSX
+before explicitly allowing another attempt.
+
 Daily Copilot suggestions accept either JSON or numbered WorkIQ follow-ups,
 including their context and source links. A numbered-list fallback does not
 repeat the WorkIQ call. If neither format can be parsed, existing suggestions
@@ -130,16 +153,29 @@ user-data directory, outside the installation and notes database. The developmen
 shell uses its separate profile. Start-minimized and tray behavior are unchanged.
 This requires the updated Electron shell; a browser reload does not apply it.
 
+Selected milestones in new and edited notes show their logged HVAs as compact
+tags. Hover a tag or Tab to it for the activity title, description, status, dates,
+and duration; Escape dismisses the details. This uses local milestone task
+history, including completed and canceled activities, without starting an MSX
+refresh. Newly created tasks refresh the tags automatically. Refresh the HVAs
+report through its normal sync to update history from MSX.
+
 The desktop shell keeps a small, local input-focus diagnostic history for the
 intermittent issue where text fields stop accepting typing. If it happens, note
-the time, try Alt+Tab away and back, then choose **Help > Save Input Focus
-Diagnostics...** before restarting or updating. The export records focus,
-input-event counts, window state, and responsiveness, never typed keys, field
-values, note text, customer names, or page URLs. It is not uploaded automatically.
+the time and choose **Help > Save Input Focus Diagnostics...**, ideally before
+Alt+Tab recovery. If the menu will not respond, use Alt+Tab, then save promptly
+before restarting or updating. The export records focus at each event,
+input-event counts, window state, and responsiveness. On Windows it also samples
+native foreground ownership, allowlisted window classes, and GUI-thread
+focus/capture/menu state around dropdown interactions. It never records typed
+keys, field values, dropdown choices, note text, customer names, window titles,
+or page URLs. It is not uploaded automatically.
 The rolling history uses at most three 2 MiB files in the app's `logs` folder;
 save promptly because older entries are overwritten. This requires a shell
 rebuild and does not change focus or attempt automatic recovery. See the
 [input-focus investigation plan](docs/PLAN_ELECTRON_INPUT_FOCUS.md) for details.
+The exporter finishes its native incident snapshot before opening the Save
+dialog, so that dialog does not replace the state we are trying to capture.
 
 For intermittent navbar clicks that close a menu without navigating, open the
 **Help and keyboard shortcuts (?)** window and choose **Download navbar diagnostics**.
@@ -176,6 +212,10 @@ standalone UI iterations using entirely fictional data. See the
 - **Refresh note milestones** - use Refresh milestones beside the note's milestone picker
   when a seller creates a milestone during your call. It reads fresh choices through the
   shared sync worker without saving the note or changing selected milestones or task fields.
+  Opening the picker lists unselected milestones immediately; type to filter or clear
+  the search to browse again. Refresh stays to the left during loading and matching.
+  Escape closes the list so Tab can move on without selecting a milestone;
+  Ctrl+Enter saves the note rather than selecting a picker result.
   A spinner shows work in progress, a check confirms completion for one second, and failures
   offer Retry refresh. Customers without an MSX link still use the inline linking workflow.
 - **HVA inventory** - Browse > Work > HVAs lists your owned high-value MSX tasks across

@@ -11,6 +11,8 @@
 <link rel="stylesheet" href="{{ url_for('static', filename='css/ui-note-form-native.css') }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/ui-note-form.css') }}">
 <script src="{{ url_for('static', filename='js/ui-note-form-native.js') }}"></script>
+<script src="{{ url_for('static', filename='js/ui-note-drafts.js') }}"></script>
+<script defer src="{{ url_for('static', filename='js/ui-note-milestone-hvas.js') }}"></script>
 <!-- Quill Rich Text Editor -->
 <link href="https://cdn.quilljs.com/1.3.6/quill.snow.css" rel="stylesheet">
 <style>
@@ -77,9 +79,8 @@
                 {% endif %}
             </h1>
             <div class="sb-nf-d-flex sb-nf-align-items-center sb-nf-gap-3">
-                <div id="draftSaveIndicator" class="sb-nf-text-muted sb-nf-small" style="opacity: 0; transition: opacity 0.3s;">
-                    <i class="bi bi-check-circle sb-nf-text-success"></i> Draft saved
-                </div>
+                <div id="draftSaveIndicator" class="sb-nf-text-muted sb-nf-small" role="status"
+                     aria-live="polite">No unsaved changes</div>
                 {% if not is_general_note %}
                 <button type="button" class="sb-nf-btn sb-nf-btn-outline-secondary" id="contactsFlyoutBtn" onclick="openContactsFlyout()"
                         {% if not preselect_customer_id and not (note and note.customer_id) %}style="display: none;"{% endif %}>
@@ -89,6 +90,13 @@
             </div>
         </div>
 
+        <div id="noteDraftRecovery" class="sb-nf-alert sb-nf-alert-warning" hidden>
+            <span id="noteDraftRecoveryText"></span>
+            <button type="button" class="sb-nf-btn sb-nf-btn-sm sb-nf-btn-outline-primary"
+                    onclick="resumeNoteDraft()">Resume edits</button>
+            <button type="button" class="sb-nf-btn sb-nf-btn-sm sb-nf-btn-outline-danger"
+                    onclick="discardDraft()">Discard changes</button>
+        </div>
         <div class="sb-nf-card" style="position: relative; overflow: visible;">
             <!-- Meeting Import Status (floating overlay, draggable) -->
             <div id="meetingStatusCard" class="sb-nf-card sb-nf-shadow-lg sb-nf-border-primary"
@@ -355,14 +363,14 @@
                                 <span class="sb-nf-text-info sb-nf-fw-normal" style="font-size: 0.8em;"><i class="bi bi-people"></i> Saves you to the team in MSX</span>
                             </label>
                             <div class="sb-nf-d-flex sb-nf-align-items-center sb-nf-gap-2">
-                                <div id="milestone_loading" class="sb-nf-text-muted sb-nf-small" style="display: none;">
-                                    <span class="sb-nf-spinner-border sb-nf-spinner-border-sm sb-nf-me-1"></span> Loading milestones...
-                                </div>
                                 <button type="button" class="sb-nf-btn sb-nf-btn-sm sb-nf-btn-outline-secondary" id="refreshMilestonesBtn"
                                         disabled aria-label="Refresh milestones from MSX" aria-busy="false"
                                         aria-describedby="milestone_help_text" onclick="loadMilestonesForCustomer(currentCustomerId, true)">
                                     <i class="bi bi-arrow-clockwise" aria-hidden="true"></i> <span>Refresh milestones</span>
                                 </button>
+                                <div id="milestone_loading" class="sb-nf-text-muted sb-nf-small" style="display: none;">
+                                    <span class="sb-nf-spinner-border sb-nf-spinner-border-sm sb-nf-me-1"></span> Loading milestones...
+                                </div>
                                 <button type="button" class="sb-nf-btn sb-nf-btn-sm sb-nf-btn-outline-info" id="aiMatchMilestoneBtn" style="display: none;" onclick="aiMatchMilestone()">
                                     <i class="bi bi-stars"></i> <span id="aiMatchMilestoneBtnText">Match Milestone</span>
                                 </button>
@@ -462,7 +470,7 @@
                                     <!-- Task Created Status (shown after successful creation) -->
                                     <div id="task_created_status" class="sb-nf-alert sb-nf-alert-success sb-nf-mb-3" style="display: none;">
                                         <i class="bi bi-check-circle-fill sb-nf-me-1"></i>
-                                        <strong>Task Created!</strong>
+                                        <strong>Task created in MSX. Save the note to link it.</strong>
                                         <a href="#" id="task_created_link" target="_blank" class="sb-nf-ms-2">View in MSX</a>
                                         <button type="button" class="sb-nf-btn sb-nf-btn-sm sb-nf-btn-outline-secondary sb-nf-float-end" onclick="clearCreatedTask()">
                                             <i class="bi bi-x"></i> Clear
@@ -576,13 +584,11 @@
                     <div class="sb-nf-d-flex sb-nf-justify-content-between">
                         <div>
                             <button type="submit" class="sb-nf-btn sb-nf-btn-success">
-                                <i class="bi bi-check-circle"></i> Save Note
+                                <i class="bi bi-check-circle"></i> {{ 'Save Changes' if note else 'Save Note' }}
                             </button>
-                            {% if not note %}
                             <button type="button" class="sb-nf-btn sb-nf-btn-outline-danger sb-nf-ms-2" onclick="discardDraft()">
-                                <i class="bi bi-trash"></i> Discard Draft
+                                <i class="bi bi-trash"></i> {{ 'Discard Changes' if note else 'Discard Draft' }}
                             </button>
-                            {% endif %}
                             {% if note %}
                             <button type="button" class="sb-nf-btn sb-nf-btn-outline-danger sb-nf-ms-2" data-sb-dialog="deleteNoteModal">
                                 <i class="bi bi-trash"></i> Delete
@@ -590,21 +596,21 @@
                             {% endif %}
                         </div>
                         {% if next_url %}
-                        <a href="{{ next_url }}" class="sb-nf-btn sb-nf-btn-secondary" onclick="cancelNote()">
-                            <i class="bi bi-x-circle"></i> Cancel
+                        <a href="{{ next_url }}" data-note-close class="sb-nf-btn sb-nf-btn-secondary">
+                            <i class="bi bi-x-circle"></i> Close
                         </a>
                         <input type="hidden" name="next" value="{{ next_url }}">
                         {% elif note %}
-                        <a href="{{ url_for('notes.note_view', id=note.id) }}" class="sb-nf-btn sb-nf-btn-secondary" onclick="cancelNote()">
-                            <i class="bi bi-x-circle"></i> Cancel
+                        <a href="{{ url_for('notes.note_view', id=note.id) }}" data-note-close class="sb-nf-btn sb-nf-btn-secondary">
+                            <i class="bi bi-x-circle"></i> Close
                         </a>
                         {% elif referrer %}
-                        <a href="{{ referrer }}" class="sb-nf-btn sb-nf-btn-secondary" onclick="cancelNote()">
-                            <i class="bi bi-x-circle"></i> Cancel
+                        <a href="{{ referrer }}" data-note-close class="sb-nf-btn sb-nf-btn-secondary">
+                            <i class="bi bi-x-circle"></i> Close
                         </a>
                         {% else %}
-                        <a href="{{ url_for('notes.notes_list') }}" class="sb-nf-btn sb-nf-btn-secondary" onclick="cancelNote()">
-                            <i class="bi bi-x-circle"></i> Cancel
+                        <a href="{{ url_for('notes.notes_list') }}" data-note-close class="sb-nf-btn sb-nf-btn-secondary">
+                            <i class="bi bi-x-circle"></i> Close
                         </a>
                         {% endif %}
                     </div>
@@ -1193,6 +1199,15 @@
 {% endblock %}
 
 {% block extra_js %}
+<dialog class="sb-dialog sb-dialog-compact" id="noteDecisionDialog"
+        aria-labelledby="noteDecisionHeading" aria-describedby="noteDecisionText">
+    <div class="sb-dialog-header"><h2 id="noteDecisionHeading">Unsaved work</h2></div>
+    <div class="sb-dialog-body"><p id="noteDecisionText"></p></div>
+    <div class="sb-dialog-footer">
+        <button type="button" class="sb-dialog-button" data-sb-dialog-close autofocus>Stay</button>
+        <button type="button" class="sb-dialog-button" id="noteDecisionConfirm">Discard</button>
+    </div>
+</dialog>
 {% set is_general_note = not preselect_customer_id and not (note and note.customer_id) %}
 <!-- Quill Rich Text Editor -->
 <script src="https://cdn.quilljs.com/1.3.6/quill.js"></script>
@@ -2639,31 +2654,31 @@ document.getElementById('noteForm').onsubmit = function(e) {
     if (isPartnerFlyoutDirty()) {
         e.preventDefault();
         e.stopImmediatePropagation();
-        alert('You have unsaved changes in the partner flyout. Please save or close it first.');
+        SBNoteForm.report('Save or discard the partner edits before saving the note.', 'error');
         return false;
     }
     if (typeof isContactsFlyoutDirty === 'function' && isContactsFlyoutDirty()) {
         e.preventDefault();
         e.stopImmediatePropagation();
-        alert('You have unsaved contact edits. Please save or cancel them first.');
+        SBNoteForm.report('Save or discard the contact edits before saving the note.', 'error');
         return false;
     }
     if (typeof isEngFlyoutDirty === 'function' && isEngFlyoutDirty()) {
         e.preventDefault();
         e.stopImmediatePropagation();
-        alert('You have unsaved changes in the engagement flyout. Please save or close it first.');
+        SBNoteForm.report('Save or discard the engagement edits before saving the note.', 'error');
         return false;
     }
     if (typeof isProjFlyoutDirty === 'function' && window.isProjFlyoutDirty()) {
         e.preventDefault();
         e.stopImmediatePropagation();
-        alert('You have unsaved changes in the project flyout. Please save or close it first.');
+        SBNoteForm.report('Save or discard the project edits before saving the note.', 'error');
         return false;
     }
     if (typeof isEngTaskFlyoutDirty === 'function' && isEngTaskFlyoutDirty()) {
         e.preventDefault();
         e.stopImmediatePropagation();
-        alert('You have unsaved changes in the action item flyout. Please save or close it first.');
+        SBNoteForm.report('Save or discard the action item edits before saving the note.', 'error');
         return false;
     }
 
@@ -2679,7 +2694,7 @@ document.getElementById('noteForm').onsubmit = function(e) {
     if (textContent.trim().length === 0 && !hasImages) {
         e.preventDefault();
         e.stopImmediatePropagation(); // Stop other submit handlers from running
-        alert('Notes cannot be empty.');
+        SBNoteForm.report('Add note content before saving.', 'error');
         quill.focus();
         return false;
     }
@@ -4760,15 +4775,11 @@ async function loadMilestonesForCustomer(customerId, manualRefresh = false) {
             allMilestones = data.milestones;
             loadedMilestoneCustomerId = customerId;
             milestoneSearch.disabled = false;
-            if (allMilestones.length <= 10) {
-                milestoneSearch.placeholder = `${allMilestones.length} milestone${allMilestones.length !== 1 ? 's' : ''} - click to browse`;
-            } else {
-                milestoneSearch.placeholder = `Search ${allMilestones.length} milestones (or * to list all)...`;
-            }
+            milestoneSearch.placeholder = `${allMilestones.length} milestone${allMilestones.length !== 1 ? 's' : ''} - click to browse or type to filter`;
             milestoneHelpText.textContent = `Found ${allMilestones.length} milestone${allMilestones.length !== 1 ? 's' : ''} for this customer`;
             inlineTpidSection.style.display = 'none';
             if (matchBtn) matchBtn.style.display = allMilestones.length ? 'inline-block' : 'none';
-            if (milestoneSearch.value.trim()) {
+            if (milestoneSearch.value.trim() || document.activeElement === milestoneSearch) {
                 milestoneSearch.dispatchEvent(new Event('input'));
             }
             // Auto-select milestone if pre-specified via query param
@@ -4944,14 +4955,6 @@ milestoneSearch.addEventListener('input', function() {
     const searchTerm = this.value.toLowerCase().trim();
     
     if (searchTerm.length === 0) {
-        milestoneDropdown.style.display = 'none';
-        currentMilestoneMatches = [];
-        selectedMilestoneIndex = -1;
-        return;
-    }
-    
-    // Wildcard * shows all milestones
-    if (searchTerm === '*') {
         showAllMilestones();
         return;
     }
@@ -4997,21 +5000,21 @@ function showAllMilestones() {
     currentMilestoneMatches = sortMilestones(
         allMilestones.filter(m => !selectedMilestones.some(s => s.id === m.id))
     );
-    selectedMilestoneIndex = 0;
+    selectedMilestoneIndex = currentMilestoneMatches.length ? 0 : -1;
     renderMilestoneDropdown();
-    milestoneDropdown.style.display = 'block';
+    milestoneDropdown.style.display = currentMilestoneMatches.length ? 'block' : 'none';
     milestoneDropdown.style.width = milestoneSearch.offsetWidth + 'px';
 }
 
-// Auto-show dropdown on focus when ≤10 milestones and input is empty
-milestoneSearch.addEventListener('focus', function() {
-    if (milestoneSearch.value.trim().length === 0 && allMilestones.length > 0 && allMilestones.length <= 10) {
-        showAllMilestones();
-    }
-});
+function openMilestonePicker() {
+    milestoneSearch.dispatchEvent(new Event('input'));
+}
+milestoneSearch.addEventListener('focus', openMilestonePicker);
+milestoneSearch.addEventListener('click', openMilestonePicker);
 
 // Keyboard navigation for milestones
 milestoneSearch.addEventListener('keydown', function(e) {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') return;
     if (e.key === 'ArrowDown' && currentMilestoneMatches.length > 0) {
         e.preventDefault();
         selectedMilestoneIndex = (selectedMilestoneIndex + 1) % currentMilestoneMatches.length;
@@ -5206,6 +5209,7 @@ function renderSelectedMilestones() {
             removeMilestone(this.dataset.msxId);
         });
     });
+    window.SBMilestoneHvas?.render();
 }
 
 function removeMilestone(msxId) {
@@ -5220,6 +5224,10 @@ function removeMilestone(msxId) {
 
 // ===== MSX TASK CREATION =====
 function createTaskInMSX() {
+    if (taskOutcome) {
+        showTaskError('Task creation outcome is unknown. Check MSX before another attempt.');
+        return Promise.resolve();
+    }
     // Only create the task on the first milestone attached to the note
     const milestoneId = selectedMilestones.length > 0 ? selectedMilestones[0].id : null;
     const subject = document.getElementById('task_subject').value.trim();
@@ -5250,9 +5258,16 @@ function createTaskInMSX() {
     
     // Get category info for storing
     const categoryInfo = taskCategories.find(c => c.value == category) || {label: 'Unknown', is_hva: false};
+    taskOutcome = 'pending';
+    if (!saveDraft()) {
+        taskOutcome = '';
+        btn.disabled = false;
+        btn.innerHTML = originalText;
+        return Promise.resolve();
+    }
     
     // Call API
-    fetch('/api/msx/tasks', {
+    return fetch('/api/msx/tasks', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({
@@ -5269,7 +5284,9 @@ function createTaskInMSX() {
         btn.disabled = false;
         btn.innerHTML = originalText;
         
-        if (result.success) {
+        if (result.success && result.task_id) {
+            taskOutcome = '';
+            window.SBMilestoneHvas?.refresh();
             // Store created task info
             document.getElementById('created_task_id').value = result.task_id;
             document.getElementById('created_task_url').value = result.task_url || '';
@@ -5286,15 +5303,22 @@ function createTaskInMSX() {
                 document.getElementById('task_created_link').style.display = 'none';
             }
             
-            debouncedAutoSave();
+            saveDraft();
         } else {
-            showTaskError(result.error || 'Failed to create task');
+            taskOutcome = 'unknown';
+            btn.disabled = true;
+            showTaskError((result.error || 'Task was not confirmed.') +
+                ' Check MSX before another attempt.');
+            saveDraft();
         }
     })
     .catch(error => {
-        btn.disabled = false;
+        taskOutcome = 'unknown';
+        btn.disabled = true;
         btn.innerHTML = originalText;
-        showTaskError('Network error: ' + error.message);
+        showTaskError('Task creation outcome is unknown. Check MSX before another attempt. ' +
+            error.message);
+        saveDraft();
     });
 }
 
@@ -5328,6 +5352,23 @@ function showTaskError(message) {
     const errorDiv = document.getElementById('task_creation_error');
     errorDiv.textContent = message;
     errorDiv.style.display = 'block';
+    if (taskOutcome) {
+        const reconcile = document.createElement('button');
+        reconcile.type = 'button';
+        reconcile.className = 'sb-nf-btn sb-nf-btn-sm sb-nf-btn-outline-secondary';
+        reconcile.textContent = 'I checked MSX: no task was created';
+        reconcile.onclick = async () => {
+            if (!await askNoteDecision(
+                'Only retry if you have checked MSX and confirmed no task was created. ' +
+                'An existing task will not be deleted or automatically matched.', 'Allow another attempt')) return;
+            taskOutcome = '';
+            if (saveDraft()) {
+                document.getElementById('create_task_btn').disabled = false;
+                hideTaskError();
+            }
+        };
+        errorDiv.appendChild(reconcile);
+    }
 }
 
 function hideTaskError() {
@@ -5847,22 +5888,110 @@ function aiMatchOpportunity() {
 
 // ===== AUTO-SAVE FUNCTIONALITY =====
 const DRAFT_KEY_PREFIX = 'salesbuddy_draft_';
-const MAX_DRAFTS = 5;
 const DEBOUNCE_DELAY = 1500; // 1.5 seconds after user stops typing
 const CURRENT_NOTE_ID = {% if note %}{{ note.id }}{% else %}null{% endif %};
 let autoSaveTimeout = null;
 let draftRestored = false;
 let draftNeedsSave = false;
+let draftStore = null;
+let draftBaseline = null;
+let noteVersion = {{ note.updated_at.isoformat()|tojson if note else 'null' }};
+let activeSaveToken = null;
+let activeSaveSignature = null;
+let taskOutcome = '';
+let noteSavePending = false;
+let recoveryPending = false;
+let initializingDraft = false;
 
-// Keep edits separate from customer/general creation drafts.
 function getDraftKey() {
-    if (CURRENT_NOTE_ID !== null) return `${DRAFT_KEY_PREFIX}note_${CURRENT_NOTE_ID}`;
-    const customerEl = document.getElementById('customer_id');
-    const customerId = customerEl ? customerEl.value : null;
-    if (customerId) return `${DRAFT_KEY_PREFIX}${customerId}`;
-    // General notes use a fixed draft key
-    const isGeneral = !customerEl || !customerId;
-    return isGeneral ? `${DRAFT_KEY_PREFIX}general` : null;
+    return draftStore?.key || null;
+}
+
+function draftFingerprint(data) {
+    return SBNoteDrafts.fingerprint(data, html => quill.clipboard.convert(html).ops);
+}
+
+function updateDraftAddress(key) {
+    const url = new URL(window.location.href);
+    url.searchParams.set('draft', key);
+    window.history.replaceState(window.history.state, '', url);
+}
+
+function initializeNoteDraft() {
+    if (draftStore) return;
+    const url = new URL(window.location.href);
+    const requested = url.searchParams.get('draft');
+    const key = requested?.startsWith(DRAFT_KEY_PREFIX) ? requested :
+        CURRENT_NOTE_ID !== null ? `${DRAFT_KEY_PREFIX}note_${CURRENT_NOTE_ID}` :
+            `${DRAFT_KEY_PREFIX}new_${crypto.randomUUID()}`;
+    draftStore = SBNoteDrafts.createStore({
+        storage: localStorage, key, uuid: () => crypto.randomUUID(),
+        onFork: (key, reason) => {
+            updateDraftAddress(key);
+            if (reason === 'conflict') {
+                SBNoteForm.report('Another window changed this draft. Both copies have been preserved.', 'error');
+            }
+        },
+    });
+    draftBaseline = draftFingerprint(collectDraftData());
+    updateDraftAddress(key);
+    try {
+        let saved = draftStore.read();
+        if (!saved && CURRENT_NOTE_ID !== null) {
+            const legacyKey = DRAFT_KEY_PREFIX + (document.getElementById('customer_id')?.value || 'general');
+            const raw = localStorage.getItem(legacyKey);
+            if (raw && JSON.parse(raw).note_id === CURRENT_NOTE_ID) {
+                // Keep the legacy recovery copy until its replacement is successfully written.
+                localStorage.setItem(key, raw);
+                localStorage.removeItem(legacyKey);
+                saved = draftStore.read();
+            }
+        }
+        if (!saved) return;
+        if ((saved.note_id ?? null) !== CURRENT_NOTE_ID) {
+            throw new Error('This draft belongs to a different note. Open it from Home > Drafts.');
+        }
+        recoveryPending = true;
+        const stale = saved.base_version && saved.base_version !== noteVersion;
+        if (requested === key) {
+            resumeNoteDraft();
+            if (draftRestored && stale) {
+                SBNoteForm.report(
+                    'Draft opened. The saved note has changed since these edits. Review before saving.',
+                    'error');
+            }
+            return;
+        }
+        const banner = document.getElementById('noteDraftRecovery');
+        banner.hidden = false;
+        document.getElementById('noteDraftRecoveryText').textContent =
+            `Unfinished ${CURRENT_NOTE_ID ? 'edits' : 'note'} from ${new Date(saved.timestamp).toLocaleString()}. ` +
+            (stale ?
+                'The saved note has changed since this draft. Review before saving. ' : '');
+    } catch (error) {
+        console.error('Unable to load note recovery:', error);
+        SBNoteForm.report(error.message + ' Recovery data has not been deleted.', 'error');
+    }
+}
+
+function resumeNoteDraft() {
+    if (!recoveryPending) return;
+    if (draftNeedsSave) {
+        SBNoteForm.report('Close to preserve your current work before resuming the earlier draft.', 'error');
+        return;
+    }
+    initializingDraft = true;
+    try {
+        if (restoreDraft()) {
+            draftRestored = true;
+            recoveryPending = false;
+            document.getElementById('noteDraftRecovery').hidden = true;
+            draftNeedsSave = true;
+        }
+    } finally {
+        initializingDraft = false;
+    }
+    if (draftRestored) saveDraft();
 }
 
 // Get customer name from select dropdown
@@ -5882,24 +6011,7 @@ function getCustomerFavicon() {
 }
 
 // Save draft to localStorage
-function saveDraft() {
-    // Apply any pending meeting selection (show the picker modal)
-    if (_pendingMeetingSelection) {
-        var pendingSel = _pendingMeetingSelection;
-        _pendingMeetingSelection = null;
-        hideMeetingStatusCard();
-        showMeetingImportModalReady(pendingSel.meetings, pendingSel.autoSelectedIndex, pendingSel.autoSelectedReason, pendingSel.syncedAt);
-    }
-    // Apply any pending meeting import (insert content)
-    if (_pendingMeetingImport) {
-        var pending = _pendingMeetingImport;
-        _pendingMeetingImport = null;
-        applyMeetingImport(pending);
-    }
-    
-    const draftKey = getDraftKey();
-    if (!draftKey) return; // Can't save without customer selected
-    
+function collectDraftData() {
     // Get milestone data if selected
     const milestoneData = selectedMilestones.map(m => ({
         id: m.id,
@@ -5920,6 +6032,7 @@ function saveDraft() {
         subject: taskSubjectEl.value,
         category: document.getElementById('task_category').value,
         description: document.getElementById('task_description').value,
+        due_date: document.getElementById('task_due_date').value,
         created_task_id: document.getElementById('created_task_id').value,
         created_task_url: document.getElementById('created_task_url').value,
         created_task_category_name: document.getElementById('created_task_category_name').value,
@@ -5931,6 +6044,7 @@ function saveDraft() {
         customer_name: getCustomerName(),
         customer_favicon: getCustomerFavicon(),
         project_id: document.getElementById('project_id')?.value || '',
+        from_meeting: document.querySelector('#noteForm input[name="from_meeting"]')?.value || '',
         call_date: document.getElementById('call_date').value,
         call_time: document.getElementById('call_time').value,
         content: quill.root.innerHTML,
@@ -5947,10 +6061,13 @@ function saveDraft() {
             return {
                 type: badge.dataset.attendeeType,
                 id: badge.dataset.attendeeId,
-                name: badge.textContent.trim().replace('\u00d7', '').trim()
+                name: badge.querySelector('input[name="attendee_ext_names"]')?.value ||
+                    badge.textContent.trim().replace('\u00d7', '').trim(),
+                email: badge.querySelector('input[name="attendee_ext_emails"]')?.value || ''
             };
         }),
         milestones: milestoneData,
+        opportunities: typeof selectedOpportunities !== 'undefined' ? selectedOpportunities : [],
         dismissedMilestoneIds: Array.from(window.dismissedMilestoneIds || []),
         engagementIds: Array.from(document.getElementById('engagement_ids')?.selectedOptions || []).map(o => parseInt(o.value)),
         engTaskBadges: Array.from(document.getElementById('engTaskBadges').querySelectorAll('a')).map(a => ({
@@ -5964,6 +6081,8 @@ function saveDraft() {
             return Array.from(container.querySelectorAll('.inline-eng-card')).map(function(card) {
                 return {
                     id: card.getAttribute('data-eng-id'),
+                    dirty: Boolean(_inlineEngCleanStates?.[card.getAttribute('data-eng-id')] &&
+                        _inlineEngCleanStates[card.getAttribute('data-eng-id')] !== _getCardEngState(card)),
                     title: card.querySelector('.eng-header-title').textContent.trim(),
                     status: card.querySelector('.eng-status').value,
                     technical_problem: card.querySelector('.eng-tech-problem').value,
@@ -5976,37 +6095,47 @@ function saveDraft() {
         })(),
         task: taskData,
         pendingTaskSuggestion: pendingTaskSuggestion || null,
+        taskOutcome,
         note_id: {% if note %}{{ note.id }}{% else %}null{% endif %},
+        base_version: noteVersion,
+        saveToken: activeSaveToken,
+        saveSignature: activeSaveSignature,
         timestamp: Date.now()
     };
-    
-    // Only save if there's actual content
-    const tempDiv = document.createElement('div');
-    tempDiv.innerHTML = draftData.content;
-    const textContent = (tempDiv.textContent || tempDiv.innerText || '').trim();
-    
-    if (textContent.length > 0 || draftData.topics.length > 0 || draftData.pendingTopics.length > 0 || draftData.partners.length > 0 || draftData.attendees.length > 0 || milestoneData.length > 0 || draftData.project_id) {
-        try {
-            localStorage.setItem(draftKey, JSON.stringify(draftData));
-            console.log('Draft auto-saved');
-            showDraftSavedIndicator();
-        } catch (e) {
-            console.error('Failed to save draft:', e);
-            // Storage quota exceeded - prune old drafts
-            pruneOldDrafts();
-        }
-    }
+    return draftData;
 }
 
-// Show draft saved indicator with fade animation
-function showDraftSavedIndicator() {
-    const indicator = document.getElementById('draftSaveIndicator');
-    if (!indicator) return;
-    
-    indicator.style.opacity = '1';
-    setTimeout(() => {
-        indicator.style.opacity = '0';
-    }, 2000);
+function saveDraft() {
+    if (!draftStore || initializingDraft || draftDiscarded || formSubmittedSuccessfully) return true;
+    try {
+        const data = collectDraftData();
+        if (draftFingerprint(data) === draftBaseline) {
+            if (!recoveryPending && !draftStore.remove()) {
+                throw new Error('Another window changed this draft. Its copy was kept.');
+            }
+            draftNeedsSave = false;
+            document.getElementById('draftSaveIndicator').textContent = 'No unsaved changes';
+            return true;
+        }
+        const previous = draftStore.read();
+        if (!previous || draftFingerprint(previous) !== draftFingerprint(data) ||
+            previous.saveToken !== data.saveToken || previous.saveSignature !== data.saveSignature ||
+            previous.base_version !== data.base_version) {
+            draftStore.write(data);
+        }
+        draftNeedsSave = false;
+        recoveryPending = false;
+        document.getElementById('noteDraftRecovery').hidden = true;
+        document.getElementById('draftSaveIndicator').textContent =
+            'Draft saved on this device · ' + new Date().toLocaleTimeString();
+        return true;
+    } catch (error) {
+        console.error('Failed to save draft:', error);
+        document.getElementById('draftSaveIndicator').textContent = 'Draft could not be saved';
+        SBNoteForm.report('Draft could not be saved. Keep this page open and copy your note. ' +
+            error.message, 'error');
+        return false;
+    }
 }
 
 // Restore draft from localStorage
@@ -6015,20 +6144,21 @@ function restoreDraft() {
     if (!draftKey) return false;
     
     try {
-        let draftJson = localStorage.getItem(draftKey);
-        if (!draftJson && CURRENT_NOTE_ID !== null) {
-            const customerEl = document.getElementById('customer_id');
-            const legacyKey = `${DRAFT_KEY_PREFIX}${customerEl?.value || 'general'}`;
-            const legacyJson = localStorage.getItem(legacyKey);
-            if (legacyJson && JSON.parse(legacyJson).note_id === CURRENT_NOTE_ID) {
-                localStorage.setItem(draftKey, legacyJson);
-                localStorage.removeItem(legacyKey);
-                draftJson = legacyJson;
-            }
-        }
+        const draftJson = localStorage.getItem(draftKey);
         if (!draftJson) return false;
         
         const draft = JSON.parse(draftJson);
+        const customerSelect = document.getElementById('customer_id');
+        if (draft.customer_id !== undefined &&
+            String(draft.customer_id || '') !== String(customerSelect?.value || '')) {
+            throw new Error('The draft belongs to another customer. Open its recovery link from Home.');
+        }
+        draftStore.claim();
+        draftStore.restoreToken(draft);
+        activeSaveToken = draft.saveToken || null;
+        activeSaveSignature = draft.saveSignature || null;
+        noteVersion = draft.base_version || noteVersion;
+        taskOutcome = draft.taskOutcome || '';
         
         // On edit pages, only restore if the draft is for this specific note
         if (CURRENT_NOTE_ID !== null && draft.note_id !== CURRENT_NOTE_ID) {
@@ -6039,26 +6169,35 @@ function restoreDraft() {
             return false;
         }
         
-        // Check if draft has any content
-        const tempDiv = document.createElement('div');
-        tempDiv.innerHTML = draft.content || '';
-        const textContent = (tempDiv.textContent || tempDiv.innerText || '').trim();
-        
-        if (textContent.length === 0 && (!draft.topics || draft.topics.length === 0) && (!draft.pendingTopics || draft.pendingTopics.length === 0) && (!draft.partners || draft.partners.length === 0) && !draft.milestone && (!draft.milestones || draft.milestones.length === 0)) {
-            return false; // No content to restore
-        }
-        
         // Restore form data
-        if (draft.call_date) {
+        if (draft.call_date !== undefined) {
             document.getElementById('call_date').value = draft.call_date;
         }
         
-        if (draft.call_time) {
+        if (draft.call_time !== undefined) {
             document.getElementById('call_time').value = draft.call_time;
         }
         
-        if (draft.content) {
-            quill.root.innerHTML = draft.content;
+        quill.setContents(quill.clipboard.convert(draft.content || ''), 'silent');
+        if (draft.from_meeting) {
+            const form = document.getElementById('noteForm');
+            let meetingInput = form.querySelector('input[name="from_meeting"]');
+            if (!meetingInput) {
+                meetingInput = document.createElement('input');
+                meetingInput.type = 'hidden';
+                meetingInput.name = 'from_meeting';
+                form.appendChild(meetingInput);
+            }
+            meetingInput.value = draft.from_meeting;
+        }
+        selectedTopicsContainer.replaceChildren();
+        selectedPartnersContainer.replaceChildren();
+        document.getElementById('selected_attendees').replaceChildren();
+        selectedMilestones = [];
+        if (typeof selectedOpportunities !== 'undefined') {
+            selectedOpportunities = [];
+            (draft.opportunities || []).forEach(selectOpportunity);
+            renderSelectedOpportunities();
         }
         
         if (draft.topics && draft.topics.length > 0) {
@@ -6086,11 +6225,12 @@ function restoreDraft() {
         // Restore attendees
         if (draft.attendees && draft.attendees.length > 0 && typeof window.addAttendee === 'function') {
             draft.attendees.forEach(att => {
-                window.addAttendee(att.type, att.id, att.name);
+                window.addAttendee(att.type, att.id, att.name, att.email);
             });
         }
         
         // Restore dismissed milestone suggestions
+        window.dismissedMilestoneIds.clear();
         if (draft.dismissedMilestoneIds && draft.dismissedMilestoneIds.length > 0) {
             draft.dismissedMilestoneIds.forEach(id => window.dismissedMilestoneIds.add(String(id)));
         }
@@ -6100,14 +6240,13 @@ function restoreDraft() {
         if (savedMilestones.length > 0 && typeof selectMilestone === 'function') {
             savedMilestones.forEach(m => selectMilestone(m));
         }
+        if (typeof renderSelectedMilestones === 'function') renderSelectedMilestones();
         
         // Restore pending task suggestion (from meeting import, before milestone selected)
-        if (draft.pendingTaskSuggestion) {
-            pendingTaskSuggestion = draft.pendingTaskSuggestion;
-        }
+        pendingTaskSuggestion = draft.pendingTaskSuggestion || null;
         
         // Restore engagement selections
-        if (draft.engagementIds && draft.engagementIds.length > 0) {
+        if (draft.engagementIds) {
             var engSelect = document.getElementById('engagement_ids');
             if (engSelect) {
                 Array.from(engSelect.options).forEach(function(opt) {
@@ -6134,7 +6273,8 @@ function restoreDraft() {
                     if (existing) {
                         // Populate the existing card with draft data instead of creating a duplicate
                         _populateEngCard(existing, eng);
-                        _inlineEngCleanStates[eng.id] = _getCardEngState(existing);
+                        existing.dataset.noteDraftRestored = 'true';
+                        if (eng.dirty) _inlineEngCleanStates[eng.id] = '{}';
                         return;
                     }
                     var tmp = document.createElement('div');
@@ -6143,8 +6283,9 @@ function restoreDraft() {
                     card.querySelector('.eng-header-title').textContent = eng.title || 'Engagement';
                     card.querySelector('.eng-view-link').href = '/engagement/' + eng.id;
                     _populateEngCard(card, eng);
+                    card.dataset.noteDraftRestored = 'true';
                     container.appendChild(card);
-                    _inlineEngCleanStates[eng.id] = _getCardEngState(card);
+                    _inlineEngCleanStates[eng.id] = eng.dirty ? '{}' : _getCardEngState(card);
                 });
             }
         }
@@ -6156,7 +6297,7 @@ function restoreDraft() {
         }
 
         // Restore project selection (general notes)
-        if (draft.project_id) {
+        if (draft.project_id !== undefined) {
             var projSelect = document.getElementById('project_id');
             if (projSelect) {
                 projSelect.value = draft.project_id;
@@ -6165,8 +6306,9 @@ function restoreDraft() {
         }
 
         // Restore action item badges
+        var badges = document.getElementById('engTaskBadges');
+        badges.replaceChildren();
         if (draft.engTaskBadges && draft.engTaskBadges.length > 0) {
-            var badges = document.getElementById('engTaskBadges');
             draft.engTaskBadges.forEach(function(b) {
                 if (b.taskId) {
                     badges.appendChild(_makeEngTaskBadge({id: parseInt(b.taskId), title: b.title.replace(/^\u2611\s*/, '')}));
@@ -6185,6 +6327,11 @@ function restoreDraft() {
             document.getElementById('task_subject').value = draft.task.subject || '';
             document.getElementById('task_category').value = draft.task.category || '';
             document.getElementById('task_description').value = draft.task.description || '';
+            document.getElementById('task_due_date').value = draft.task.due_date || '';
+            if (taskOutcome) {
+                document.getElementById('create_task_btn').disabled = true;
+                showTaskError('Task creation outcome is unknown. Check MSX before creating another task.');
+            }
             
             // Restore created task info if it was already created
             if (draft.task.created_task_id) {
@@ -6217,52 +6364,15 @@ function restoreDraft() {
         return true;
     } catch (e) {
         console.error('Failed to restore draft:', e);
+        SBNoteForm.report('Unable to restore this draft. The recovery copy has been kept.', 'error');
         return false;
     }
 }
 
 // Clear draft from localStorage
-function clearDraft() {
-    const draftKey = getDraftKey();
-    if (!draftKey) return;
-    
-    try {
-        localStorage.removeItem(draftKey);
-        console.log('Draft cleared');
-    } catch (e) {
-        console.error('Failed to clear draft:', e);
-    }
-}
-
-// Prune old drafts (keep only MAX_DRAFTS most recent)
-function pruneOldDrafts() {
-    try {
-        const drafts = [];
-        for (let i = 0; i < localStorage.length; i++) {
-            const key = localStorage.key(i);
-            if (key && key.startsWith(DRAFT_KEY_PREFIX)) {
-                try {
-                    const data = JSON.parse(localStorage.getItem(key));
-                    drafts.push({ key, timestamp: data.timestamp || 0 });
-                } catch (e) {
-                    // Invalid draft, remove it
-                    localStorage.removeItem(key);
-                }
-            }
-        }
-        
-        // Sort by timestamp descending
-        drafts.sort((a, b) => b.timestamp - a.timestamp);
-        
-        // Remove drafts beyond MAX_DRAFTS
-        if (drafts.length > MAX_DRAFTS) {
-            drafts.slice(MAX_DRAFTS).forEach(draft => {
-                localStorage.removeItem(draft.key);
-                console.log('Pruned old draft:', draft.key);
-            });
-        }
-    } catch (e) {
-        console.error('Failed to prune drafts:', e);
+function clearDraft(revision) {
+    if (!draftStore.remove(revision)) {
+        throw new Error('Another window changed the draft. Its newer recovery copy has been kept.');
     }
 }
 
@@ -6270,22 +6380,15 @@ function pruneOldDrafts() {
 window.addEventListener('storage', function(e) {
     if (e.key && e.key.startsWith(DRAFT_KEY_PREFIX)) {
         const draftKey = getDraftKey();
-        if (e.key === draftKey && !draftRestored) {
-            // Another tab modified our draft - reload if we haven't restored yet
-            if (e.newValue) {
-                console.log('Draft updated from another tab');
-                const shouldRestore = confirm('A draft was updated in another tab. Reload it?');
-                if (shouldRestore) {
-                    restoreDraft();
-                    draftRestored = true;
-                }
-            }
+        if (e.key === draftKey) {
+            SBNoteForm.report('Another window changed this draft. Your next edit will be kept as a separate copy.', 'error');
         }
     }
 });
 
 // Debounced auto-save - saves after user stops typing for DEBOUNCE_DELAY ms
 function debouncedAutoSave() {
+    if (initializingDraft || !draftStore) return;
     draftNeedsSave = true;
     // Don't save if draft was discarded
     if (draftDiscarded) return;
@@ -6296,90 +6399,116 @@ function debouncedAutoSave() {
     }
     
     // Set new timeout to save after delay
-    const customerEl = document.getElementById('customer_id');
-    const customerId = customerEl ? customerEl.value : null;
-    const isGeneralNote = !customerEl;
-    if (customerId || isGeneralNote) {
-        autoSaveTimeout = setTimeout(() => {
-            if (!draftDiscarded) {
-                saveDraft();
-            }
-        }, DEBOUNCE_DELAY);
-    }
+    document.getElementById('draftSaveIndicator').textContent = 'Saving draft...';
+    autoSaveTimeout = setTimeout(saveDraft, DEBOUNCE_DELAY);
 }
 
 // Function to start auto-save for selected customer (or general note)
 function startAutoSave() {
-    const customerSelect = document.getElementById('customer_id');
-    const customerId = customerSelect ? (customerSelect.value || customerSelect.querySelector('option[selected]')?.value) : null;
-    const isGeneralNote = !customerSelect;
-    
-    // Check for existing draft
-    if ((customerId || isGeneralNote) && !draftRestored) {
-        const hasDraft = restoreDraft();
-        if (hasDraft) {
-            draftRestored = true;
-        }
-    }
-    
-    // Set up debounced auto-save listeners
-    if (customerId || isGeneralNote) {
-        // Listen to Quill text changes
-        quill.on('text-change', debouncedAutoSave);
-        
-        // Listen for image resize (DOM mutations Quill doesn't track)
-        var editorEl = document.querySelector('#editor .ql-editor');
-        if (editorEl) {
-            new MutationObserver(function(mutations) {
-                for (var m of mutations) {
-                    if (m.type === 'attributes' && m.target.tagName === 'IMG') {
-                        debouncedAutoSave();
-                        return;
-                    }
-                }
-            }).observe(editorEl, { attributes: true, subtree: true, attributeFilter: ['style', 'width', 'height'] });
-        }
-        
-        // Listen to date and time field changes
-        document.getElementById('call_date').addEventListener('input', debouncedAutoSave);
-        document.getElementById('call_time').addEventListener('input', debouncedAutoSave);
-        
-        console.log('Debounced auto-save enabled', customerId ? 'for customer ' + customerId : 'for general note');
-    }
-}
+    if (draftStore) return;
+    initializeNoteDraft();
+    quill.on('text-change', debouncedAutoSave);
 
-// Start auto-save when customer is selected (or immediately for general notes)
-var _customerSelectEl = document.getElementById('customer_id');
-if (_customerSelectEl) {
-    _customerSelectEl.addEventListener('change', startAutoSave);
-} else {
-    // General note - start auto-save immediately
-    startAutoSave();
+    // Image resizing changes the DOM without a Quill text-change event.
+    var editorEl = document.querySelector('#editor .ql-editor');
+    if (editorEl) {
+        new MutationObserver(function(mutations) {
+            for (var m of mutations) {
+                if (m.type === 'attributes' && m.target.tagName === 'IMG') {
+                    debouncedAutoSave();
+                    return;
+                }
+            }
+        }).observe(editorEl, { attributes: true, subtree: true, attributeFilter: ['style', 'width', 'height'] });
+    }
+        
+    const form = document.getElementById('noteForm');
+    form.addEventListener('input', debouncedAutoSave);
+    form.addEventListener('change', debouncedAutoSave);
+    for (const id of ['selected_topics', 'selected_partners', 'selected_attendees', 'engTaskBadges']) {
+        const element = document.getElementById(id);
+        if (element) new MutationObserver(debouncedAutoSave).observe(element,
+            {childList: true, subtree: true});
+    }
 }
 
 // Flags to prevent saving after form submission or draft discard
 let formSubmittedSuccessfully = false;
 let draftDiscarded = false;
 
-// Cancel note editing - clear draft so it doesn't linger
-function cancelNote() {
-    draftDiscarded = true;
-    if (autoSaveTimeout) {
-        clearTimeout(autoSaveTimeout);
-    }
-    clearDraft();
+function noteFlyoutBlocker() {
+    const checks = [
+        ['partner', isPartnerFlyoutDirty],
+        ['contact', typeof isContactsFlyoutDirty === 'function' ? isContactsFlyoutDirty : null],
+        ['engagement', typeof isEngFlyoutDirty === 'function' ? isEngFlyoutDirty : null],
+        ['project', window.isProjFlyoutDirty],
+        ['action item', typeof isEngTaskFlyoutDirty === 'function' ? isEngTaskFlyoutDirty : null],
+    ];
+    return checks.find(([, check]) => check && check())?.[0] || '';
+}
+
+function askNoteDecision(message, action) {
+    const dialog = document.getElementById('noteDecisionDialog');
+    if (dialog.open) return Promise.resolve(false);
+    document.getElementById('noteDecisionText').textContent = message;
+    const button = document.getElementById('noteDecisionConfirm');
+    button.textContent = action;
+    return new Promise(resolve => {
+        button.onclick = () => SBDialog.close(dialog, 'confirmed');
+        dialog.addEventListener('sb:dialog-closed',
+            event => resolve(event.detail.reason === 'confirmed'), {once: true});
+        SBDialog.open(dialog);
+    });
 }
 
 // Save draft before page unload (unless form was successfully submitted or draft discarded)
 window.addEventListener('beforeunload', function(e) {
-    const customerEl = document.getElementById('customer_id');
-    const customerId = customerEl ? customerEl.value : null;
-    const isGeneralNote = !customerEl;
-    if ((customerId || isGeneralNote) && !formSubmittedSuccessfully && !draftDiscarded &&
-        draftNeedsSave) {
-        saveDraft();
+    if (formSubmittedSuccessfully || draftDiscarded) return;
+    const protectedDraft = !draftNeedsSave || saveDraft();
+    if (noteSavePending || noteFlyoutBlocker() || !protectedDraft) {
+        e.preventDefault();
+        e.returnValue = '';
     }
 });
+
+document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden' && draftNeedsSave) saveDraft();
+});
+
+document.addEventListener('click', async event => {
+    const link = event.target.closest('a[href]');
+    if (!link || link.target === '_blank' || link.hasAttribute('download') ||
+        event.ctrlKey || event.metaKey || event.shiftKey || event.altKey ||
+        event.button !== 0 || formSubmittedSuccessfully || draftDiscarded) return;
+    const destination = new URL(link.href, window.location.href);
+    if (!['http:', 'https:'].includes(destination.protocol)) return;
+    if (destination.pathname === location.pathname && destination.search === location.search &&
+        destination.hash) return;
+    if (!link.hasAttribute('data-note-close') && !draftNeedsSave && !noteFlyoutBlocker() &&
+        !noteSavePending) return;
+    if (noteSavePending) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        SBNoteForm.report('Wait for the current note save to finish before leaving.', 'error');
+        return;
+    }
+    const blocker = noteFlyoutBlocker();
+    if (blocker) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        SBNoteForm.report(`Save or discard the ${blocker} flyout edits before leaving.`, 'error');
+        return;
+    }
+    if (!saveDraft()) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        if (await askNoteDecision('Your draft could not be saved. Copy your note before leaving.',
+            'Leave without saving')) {
+            draftDiscarded = true;
+            window.location.href = link.href;
+        }
+    }
+}, true);
 
 // Clear draft only after successful form submission
 document.getElementById('noteForm').addEventListener('submit', async function(e) {
@@ -6395,8 +6524,10 @@ document.getElementById('noteForm').addEventListener('submit', async function(e)
     SBNoteForm.report('Saving note...', 'neutral');
     submitButton.innerHTML = '<span class="sb-nf-spinner-border sb-nf-spinner-border-sm sb-nf-me-2"></span>Saving...';
     
-    // Auto-create task in MSX if task fields are filled but task wasn't created via the button
-    // Only create the task on the first milestone attached to the note
+    noteSavePending = true;
+    try {
+        if (recoveryPending) throw new Error('Resume or discard the earlier draft before saving.');
+        if (!saveDraft()) throw new Error('Draft protection is unavailable.');
     const taskSubjectEl = document.getElementById('task_subject');
     const taskSubject = taskSubjectEl ? taskSubjectEl.value.trim() : '';
     const taskCategoryEl = document.getElementById('task_category');
@@ -6404,141 +6535,105 @@ document.getElementById('noteForm').addEventListener('submit', async function(e)
     const createdTaskIdEl = document.getElementById('created_task_id');
     const createdTaskId = createdTaskIdEl ? createdTaskIdEl.value.trim() : '';
     const milestoneId = selectedMilestones.length > 0 ? selectedMilestones[0].id : null;
+    if (taskOutcome) throw new Error('Task creation outcome is unknown. Check MSX before retrying.');
     
     if (milestoneId && taskSubject && taskCategory && !createdTaskId) {
         // Task fields are filled but task hasn't been created yet - create it now
         submitButton.innerHTML = '<span class="sb-nf-spinner-border sb-nf-spinner-border-sm sb-nf-me-2"></span>Creating task...';
         
-        const taskDescription = document.getElementById('task_description').value.trim();
-        const taskDueDate = document.getElementById('task_due_date').value;
-        const categoryInfo = taskCategories.find(c => c.value == taskCategory) || {label: 'Unknown', is_hva: false};
-        
-        try {
-            const taskResponse = await fetch('/api/msx/tasks', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({
-                    milestone_id: milestoneId,
-                    subject: taskSubject,
-                    task_category: parseInt(taskCategory),
-                    description: taskDescription || null,
-                    due_date: taskDueDate ? taskDueDate + 'T23:59:59Z' : null,
-                    complete_on_create: true
-                })
-            });
-            const taskResult = await taskResponse.json();
-            
-            if (taskResult.success && taskResult.task_id) {
-                // Store task info in hidden fields so the backend can link it
-                document.getElementById('created_task_id').value = taskResult.task_id;
-                document.getElementById('created_task_url').value = taskResult.task_url || '';
-                document.getElementById('created_task_category_name').value = categoryInfo.label;
-                document.getElementById('created_task_is_hva').value = categoryInfo.is_hva ? '1' : '0';
-                console.log('Task auto-created before save:', taskResult.task_id);
-            } else {
-                console.warn('Task auto-creation failed, will fall back to server-side:', taskResult.error || 'No task_id');
-                // Don't block the save - the server-side create-on-save will try too
-            }
-        } catch (taskError) {
-            console.warn('Task auto-creation network error, will fall back to server-side:', taskError);
-            // Don't block the save - the server-side create-on-save will try too
+        await createTaskInMSX();
+        if (!document.getElementById('created_task_id').value) {
+            throw new Error('The milestone task was not confirmed. Review its status before saving.');
         }
     }
     
     // Build FormData AFTER potential task creation so hidden fields are up to date
     const formData = new FormData(form);
+    formData.set('note_version', noteVersion || '');
+    activeSaveSignature = JSON.stringify(Array.from(formData.entries())
+        .filter(([key]) => !['referrer', 'next'].includes(key)));
+    activeSaveToken = draftStore.token(activeSaveSignature, CURRENT_NOTE_ID === null);
+    formData.set('save_token', activeSaveToken);
+    const submittedState = draftFingerprint(collectDraftData());
+    if (!saveDraft()) throw new Error('Draft protection is unavailable.');
+    const submittedRevision = draftStore.read()?.revision;
     submitButton.innerHTML = '<span class="sb-nf-spinner-border sb-nf-spinner-border-sm sb-nf-me-2"></span>Saving...';
     
     // Submit via fetch so we can wait for response
-    fetch(form.action, {
+    const response = await fetch(form.action, {
         method: 'POST',
         body: formData,
-        redirect: 'follow' // Follow redirects automatically
-    })
-    .then(response => {
-        console.log('Response status:', response.status, 'OK:', response.ok, 'Redirected:', response.redirected);
-        if (response.ok || response.redirected) {
-            // Success! Set flag to prevent beforeunload from saving
-            console.log('Setting submission success flag...');
-            formSubmittedSuccessfully = true;
-            
-            // Stop auto-save first, then clear the draft
-            console.log('Stopping auto-save...');
-            if (autoSaveTimeout) {
-                clearTimeout(autoSaveTimeout);
-                autoSaveTimeout = null;
-            }
-            console.log('Clearing draft before redirect...');
-            clearDraft();
-            console.log('Draft cleared, redirecting to:', response.url);
-            // Redirect to the final URL (after any server redirects)
-            window.location.href = response.url;
-        } else {
-            // Server returned an error - keep the draft
-            throw new Error('Form submission failed');
-        }
-    })
-    .catch(error => {
-        console.error('Form submission error:', error);
-        SBNoteForm.report('Failed to save note. Your draft has been preserved. Please try again.', 'error');
-        // Re-enable submit button
-        submitButton.disabled = false;
-        submitButton.innerHTML = '<i class="bi bi-save"></i> Save Note';
+        headers: {'Accept': 'application/json'}, redirect: 'error',
     });
+    const result = await response.json();
+    if (CURRENT_NOTE_ID === null && Number.isSafeInteger(result.existing_note_id) && result.version) {
+        const later = collectDraftData();
+        later.note_id = result.existing_note_id;
+        later.base_version = result.version;
+        later.saveToken = null;
+        later.saveSignature = null;
+        draftStore.write(later);
+        clearTimeout(autoSaveTimeout);
+        formSubmittedSuccessfully = true;
+        window.location.href = `/note/${result.existing_note_id}/edit?draft=${encodeURIComponent(getDraftKey())}`;
+        return;
+    }
+    if (!response.ok || result.success !== true || !Number.isSafeInteger(result.note_id) ||
+        !result.version || !result.redirect_url) {
+        throw new Error(result.error || 'The server did not confirm that the note was saved.');
+    }
+    const destination = new URL(result.redirect_url, window.location.origin);
+    if (destination.origin !== window.location.origin) {
+        throw new Error('The note was saved, but its return address is invalid.');
+    }
+    clearTimeout(autoSaveTimeout);
+    autoSaveTimeout = null;
+    if (submittedState !== draftFingerprint(collectDraftData())) {
+        const later = collectDraftData();
+        later.note_id = result.note_id;
+        later.base_version = result.version;
+        later.saveToken = null;
+        later.saveSignature = null;
+        draftStore.write(later);
+        formSubmittedSuccessfully = true;
+        window.location.href = `/note/${result.note_id}/edit?draft=${encodeURIComponent(getDraftKey())}`;
+        return;
+    }
+    clearDraft(submittedRevision);
+    formSubmittedSuccessfully = true;
+    SBNoteForm.report('Changes saved.', 'success');
+    window.location.href = destination.href;
+    } catch (error) {
+        console.error('Form submission error:', error);
+        const protectedDraft = saveDraft();
+        SBNoteForm.report(error.message + (protectedDraft ?
+            ' Your draft has been preserved. You can retry this save.' :
+            ' Draft protection failed. Keep this page open and copy your note.'), 'error');
+    } finally {
+        noteSavePending = false;
+        submitButton.disabled = false;
+        submitButton.innerHTML = '<i class="bi bi-save"></i> {{ "Save Changes" if note else "Save Note" }}';
+    }
 });
 
 // Discard draft function
-function discardDraft() {
-    if (confirm('Discard this draft? This will clear all unsaved changes and cannot be undone.')) {
-        // Set flag FIRST to prevent beforeunload from re-saving
-        draftDiscarded = true;
-        
-        // Clear any pending auto-save
-        if (autoSaveTimeout) {
-            clearTimeout(autoSaveTimeout);
-        }
-        
-        // Clear milestone data from memory
-        selectedMilestones = [];
-        window.dismissedMilestoneIds.clear();
-        
-        // Now clear from localStorage
+async function discardDraft() {
+    if (noteSavePending) return;
+    const message = CURRENT_NOTE_ID ?
+        'Discard unsaved changes? The saved note will not change.' :
+        'Discard this unfinished note? This cannot be undone.';
+    if (!await askNoteDecision(message +
+        ' Engagements, contacts, projects and MSX tasks already created or saved separately will remain.',
+        CURRENT_NOTE_ID ? 'Discard changes' : 'Discard draft')) return;
+    try {
+        if (recoveryPending) draftStore.claim();
         clearDraft();
-        
-        // Clear the form (for visual feedback before redirect)
-        quill.setContents([]);
-        var callDate = document.getElementById('call_date');
-        var callTime = document.getElementById('call_time');
-        if (callDate) callDate.value = '';
-        if (callTime) callTime.value = '';
-        document.querySelectorAll('.sb-nf-badge[data-topic-id]').forEach(badge => badge.remove());
-        document.querySelectorAll('.sb-nf-badge[data-partner-id]').forEach(badge => badge.remove());
-        
-        // Clear milestone display
-        var selectedMilestoneEl = document.getElementById('selected_milestone');
-        if (selectedMilestoneEl) selectedMilestoneEl.innerHTML = '';
-        var taskSection = document.getElementById('task_creation_section');
-        if (taskSection) taskSection.style.display = 'none';
-        
-        // Clear task fields (with null checks)
-        var taskSubject = document.getElementById('task_subject');
-        var taskCategory = document.getElementById('task_category');
-        var taskDescription = document.getElementById('task_description');
-        var createdTaskId = document.getElementById('created_task_id');
-        var createdTaskUrl = document.getElementById('created_task_url');
-        var createdTaskCatName = document.getElementById('created_task_category_name');
-        var createdTaskIsHva = document.getElementById('created_task_is_hva');
-        
-        if (taskSubject) taskSubject.value = '';
-        if (taskCategory) taskCategory.value = '';
-        if (taskDescription) taskDescription.value = '';
-        if (createdTaskId) createdTaskId.value = '';
-        if (createdTaskUrl) createdTaskUrl.value = '';
-        if (createdTaskCatName) createdTaskCatName.value = '';
-        if (createdTaskIsHva) createdTaskIsHva.value = '';
-        
-        // Redirect back to home page
-        window.location.href = '{{ url_for("main.index") }}';
+        draftDiscarded = true;
+        clearTimeout(autoSaveTimeout);
+        window.location.href = document.querySelector('[data-note-close]').href;
+    } catch (error) {
+        console.error('Unable to discard note draft:', error);
+        SBNoteForm.report(error.message, 'error');
     }
 }
 
@@ -6562,7 +6657,7 @@ document.addEventListener('DOMContentLoaded', function() {
     {% if not note and default_template_content %}
     (function() {
         var text = quill.getText().trim();
-        if (text.length === 0) {
+        if (!draftRestored && text.length === 0) {
             quill.root.innerHTML = SBTemplateHTML.sanitize({{ default_template_content|tojson }});
         }
     })();
@@ -8945,11 +9040,22 @@ function _loadEngCardContacts(card, engId) {
 }
 
 function _loadEngCard(card, engId) {
+    const requestedState = _getCardEngState(card);
+    if (_inlineEngCleanStates[engId] === undefined) {
+        _inlineEngCleanStates[engId] = requestedState;
+    }
     fetch('/api/engagement/' + engId)
         .then(function(r) { return r.json(); })
         .then(function(data) {
-            _populateEngCard(card, data);
-            _inlineEngCleanStates[engId] = _getCardEngState(card);
+            if (card.dataset.noteDraftRestored === 'true' ||
+                _getCardEngState(card) !== requestedState) {
+                const original = card.cloneNode(true);
+                _populateEngCard(original, data);
+                _inlineEngCleanStates[engId] = _getCardEngState(original);
+            } else {
+                _populateEngCard(card, data);
+                _inlineEngCleanStates[engId] = _getCardEngState(card);
+            }
             _wireInlineCardContacts(card, engId);
             _loadEngCardContacts(card, engId);
         })

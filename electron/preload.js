@@ -18,7 +18,8 @@ function startInputFocusDiagnostics() {
   if (window !== window.top) return;
   const targetIds = new Set([
     'editor', 'content', 'task_subject', 'task_description', 'task_category', 'task_due_date',
-    'engTaskTitle', 'engTaskDescription', 'salesbuddy-find-bar', 'sb-shell-menubar',
+    'engTaskTitle', 'engTaskDescription', 'modal_task_category',
+    'salesbuddy-find-bar', 'sb-shell-menubar',
   ]);
   const tags = new Set([
     'INPUT', 'TEXTAREA', 'SELECT', 'DIV', 'BUTTON', 'BODY', 'A', 'IFRAME', 'HTML',
@@ -30,10 +31,13 @@ function startInputFocusDiagnostics() {
     'color', 'month', 'week', 'reset',
   ]);
   const eventTypes = [
-    'focus', 'blur', 'focusin', 'focusout', 'pointerdown', 'keydown', 'beforeinput', 'input',
+    'focus', 'blur', 'focusin', 'focusout', 'pointerdown', 'pointerup', 'keydown', 'keyup',
+    'beforeinput', 'input', 'change',
     'compositionstart', 'compositionend', 'visibilitychange',
   ];
-  const aggregateTypes = new Set(['keydown', 'beforeinput', 'input']);
+  const aggregateTypes = new Set(['keydown', 'keyup', 'beforeinput', 'input']);
+  const selectEvents = new Set(['pointerdown', 'keydown', 'change', 'focusout']);
+  let lastSelectFlush = -Infinity;
   const aggregates = new Map();
   let events = [];
   let dropped = 0;
@@ -49,8 +53,10 @@ function startInputFocusDiagnostics() {
     let area = 'other';
     if (element?.closest) {
       if (element.closest('.ql-editor, #editor')) area = 'note-editor';
-      else if (['task_subject', 'task_description', 'task_category', 'task_due_date']
-        .includes(id)) area = 'milestone-task';
+      else if (['task_subject', 'task_description', 'task_category', 'task_due_date',
+        'modal_task_category'].some(field => field === id || field === name)) {
+        area = 'milestone-task';
+      }
       else if (element.closest('#salesbuddy-find-bar')) area = 'shell-find';
       else if (element.closest('#sb-shell-menubar')) area = 'shell-menu';
     }
@@ -64,13 +70,16 @@ function startInputFocusDiagnostics() {
   }
   function add(type, target) {
     const info = targetInfo(target);
-    const key = aggregateTypes.has(type) ? type + JSON.stringify(info) : null;
+    const focused = document.hasFocus();
+    const active = targetInfo(document.activeElement);
+    const key = aggregateTypes.has(type)
+      ? type + JSON.stringify([info, focused, active]) : null;
     const previous = key && aggregates.get(key);
     if (previous) {
       previous.count = Math.min(1000000, previous.count + 1);
       return;
     }
-    const entry = {type, at: Date.now(), count: 1, target: info};
+    const entry = {type, at: Date.now(), count: 1, target: info, focused, active};
     if (events.length === 64) {
       const removed = events.shift();
       for (const [storedKey, stored] of aggregates) {
@@ -100,6 +109,11 @@ function startInputFocusDiagnostics() {
   }
   function onEvent(event) {
     add(event.type, event.target);
+    if (event.target?.tagName === 'SELECT' && selectEvents.has(event.type)
+        && performance.now() - lastSelectFlush >= 500) {
+      lastSelectFlush = performance.now();
+      flush();
+    }
   }
   function snapshot() {
     if (stopped) return;
@@ -151,6 +165,12 @@ const FIND_BAR_ID = 'salesbuddy-find-bar';
 const HL_ALL = 'sb-find-all';
 const HL_ACTIVE = 'sb-find-active';
 
+function positionFindBar(bar) {
+  const chromeBottom = Math.max(0, ...['sb-shell-titlebar', 'sb-shell-menubar']
+    .map(id => document.getElementById(id)?.getBoundingClientRect().bottom || 0));
+  bar.style.top = `${chromeBottom + 12}px`;
+}
+
 function createFindBar() {
   if (document.getElementById(FIND_BAR_ID)) return;
 
@@ -168,6 +188,7 @@ function createFindBar() {
       position: fixed;
       right: 12px;
       top: 12px;
+      -webkit-app-region: no-drag;
       z-index: 2147483647;
     }
     #${FIND_BAR_ID}.is-visible { display: flex; }
@@ -335,6 +356,7 @@ function createFindBar() {
   };
 
   const show = () => {
+    positionFindBar(bar);
     bar.classList.add('is-visible');
     input.focus();
     input.select();
@@ -380,6 +402,7 @@ function createFindBar() {
   }, true);
 
   ipcRenderer.on('find:show', show);
+  window.addEventListener('resize', () => positionFindBar(bar));
 }
 
 window.addEventListener('DOMContentLoaded', createFindBar);

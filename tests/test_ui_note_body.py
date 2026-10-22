@@ -1,6 +1,7 @@
 """Shared workbench note-body information, markup and command parity."""
 
 from datetime import datetime, timezone
+from urllib.parse import urlsplit
 
 import pytest
 from bs4 import BeautifulSoup
@@ -171,7 +172,9 @@ def test_full_note_delete_is_native_and_keeps_existing_post(
     assert form["method"] == "POST"
     assert form["action"] == f"/note/{note_id}/delete"
     assert form.select_one('button[type="submit"]').get_text() == "Delete Note"
-    assert soup.select_one('link[href="/static/css/ui-note.css"]')
+    assert "/static/css/ui-note.css" in {
+        urlsplit(link["href"]).path for link in soup.select('link[rel="stylesheet"][href]')
+    }
     fragment = BeautifulSoup(client.get(f"/api/note/{note_id}/detail").data, "html.parser")
     assert not fragment.select("#deleteModal, .btn-share, .sb-note-page-header")
 

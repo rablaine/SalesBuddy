@@ -1159,7 +1159,7 @@ function buildAppMenu() {
 async function saveInputFocusDiagnostics() {
   try {
     if (!inputFocusDiagnostics) throw new Error('Input focus diagnostics are not running.');
-    inputFocusDiagnostics.markIncident();
+    await inputFocusDiagnostics.markIncident();
     const options = {
       title: 'Save Input Focus Diagnostics',
       defaultPath: path.join(app.getPath('documents'),

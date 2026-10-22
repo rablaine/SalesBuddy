@@ -4,69 +4,62 @@
     const root = document.querySelector('.sb-hvas');
     if (!root) return;
     root.querySelectorAll('[data-hva-action]').forEach(action => {
-        const button = action.querySelector('[data-hva-complete]');
-        const confirmation = action.querySelector('[data-hva-confirmation]');
-        const confirm = action.querySelector('[data-hva-confirm]');
-        const cancel = action.querySelector('[data-hva-cancel]');
-        const message = action.querySelector('[data-hva-result]');
+        const categoryChange = action.dataset.action === 'category';
+        const button = action.querySelector(
+            categoryChange ? '[data-hva-category]' : '[data-hva-toggle]',
+        );
+        const message = action.closest('td').querySelector('[data-hva-result]');
+        const reopening = action.dataset.action === 'reopen';
+        const originalValue = button.value;
         let pending = false;
         let completed = false;
-        button.addEventListener('click', () => {
+        button.addEventListener(categoryChange ? 'change' : 'click', async () => {
             if (pending || completed) return;
-            button.hidden = true;
-            confirmation.hidden = false;
-            message.hidden = true;
-            confirm.focus();
-        });
-        cancel.addEventListener('click', () => {
-            if (pending || completed) return;
-            confirmation.hidden = true;
-            button.hidden = false;
-            button.focus();
-        });
-        confirm.addEventListener('click', async () => {
-            if (pending || completed) return;
+            if (categoryChange && button.value === originalValue) return;
             pending = true;
             action.setAttribute('aria-busy', 'true');
-            confirm.disabled = cancel.disabled = true;
+            button.disabled = true;
             message.hidden = false;
             message.setAttribute('role', 'status');
-            message.textContent = 'Completing in MSX...';
+            message.textContent = categoryChange ? 'Updating category in MSX...' :
+                (reopening ? 'Reopening in MSX...' : 'Completing in MSX...');
             try {
-                const response = await fetch(action.dataset.completeUrl, {
+                const options = {
                     method: 'POST', headers: {'Accept': 'application/json'},
-                });
+                };
+                if (categoryChange) {
+                    options.headers['Content-Type'] = 'application/json';
+                    options.body = JSON.stringify({category: Number(button.value)});
+                }
+                const response = await fetch(action.dataset.actionUrl, options);
                 const result = await response.json().catch(error => {
                     throw new Error(
-                        'Could not read the completion response. Check MSX before retrying.',
+                        'Could not read the status response. Check MSX before retrying.',
                         {cause: error},
                     );
                 });
                 if (!result || typeof result !== 'object') {
-                    throw new Error('Could not read the completion response. Check MSX.');
+                    throw new Error('Could not read the status response. Check MSX.');
                 }
                 if (!response.ok || result.success !== true) {
                     completed = result.remote_changed === true;
-                    throw new Error(result.error || 'MSX could not complete this HVA.');
+                    throw new Error(result.error || 'MSX could not update this HVA.');
                 }
                 completed = true;
-                confirmation.hidden = true;
-                message.textContent = 'Completed in MSX. Updating report...';
-                setTimeout(() => window.location.reload(), 1000);
+                window.location.reload();
             } catch (error) {
-                console.error('HVA completion failed:', error);
-                confirmation.hidden = true;
-                button.hidden = completed;
+                console.error('HVA status update failed:', error);
                 message.setAttribute('role', 'alert');
-                message.textContent = error.message || 'Could not complete this HVA. Check MSX.';
+                message.textContent = error.message || 'Could not update this HVA. Check MSX.';
                 if (!completed) {
-                    button.textContent = 'Retry complete';
+                    if (categoryChange) button.value = originalValue;
+                    button.disabled = false;
                     button.focus();
                 }
             } finally {
                 pending = false;
                 action.setAttribute('aria-busy', 'false');
-                confirm.disabled = cancel.disabled = false;
+                button.disabled = completed;
             }
         });
     });

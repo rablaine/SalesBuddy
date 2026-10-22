@@ -1,4 +1,4 @@
-"""Owned-HVA browsing and explicitly confirmed completion without live MSX writes."""
+"""Owned-HVA browsing and one-click status changes without live MSX writes."""
 
 import shutil
 import subprocess
@@ -168,16 +168,138 @@ def test_custom_valid_page_size_remains_selected_in_the_browser(client, hva_rows
     assert len(soup.select("#hvaTable tbody tr")) == 1
 
 
-def test_completion_controls_are_only_available_for_open_and_unknown_hvas(client, hva_rows):
-    """Completed and canceled activities have no action, even when the report is filtered."""
+def test_status_actions_are_next_to_status_without_confirmation(client, hva_rows):
+    """Owned tasks can complete or reopen beside their status, except canceled tasks."""
     soup = BeautifulSoup(client.get("/reports/hvas").data, "html.parser")
-    actions = soup.select("[data-hva-action]")
-    assert len(actions) == 2
+    actions = soup.select(".hva-task-action[data-hva-action]")
+    assert len(actions) == 3
     for task in hva_rows["rows"]:
         row = soup.select_one(f'tr[data-task-id="{task.id}"]')
-        assert bool(row.select_one("[data-hva-complete]")) == (task.statecode in (0, None))
-    assert all(action.select_one("[data-hva-confirmation]").has_attr("hidden")
-               for action in actions)
+        button = row.select_one("[data-hva-toggle]")
+        assert bool(button) == (task.statecode != 2)
+        if button:
+            action = button.parent
+            verb = "reopen" if task.statecode == 1 else "complete"
+            assert action["data-action"] == verb
+            assert action["data-action-url"] == f"/api/reports/hvas/{task.id}/{verb}"
+            assert button.find_parent("td") == row.select("td")[1]
+            assert button["aria-label"] == f"{verb.title()} {task.subject}"
+    assert not soup.select("[data-hva-confirmation]")
+
+
+def test_category_dropdown_includes_every_category_and_stars_only_hvas(client, hva_rows):
+    """Every task, including canceled tasks, has the correctly selected editable category."""
+    soup = BeautifulSoup(client.get("/reports/hvas").data, "html.parser")
+    controls = soup.select("[data-hva-category]")
+    assert len(controls) == 4
+    for control in controls:
+        row = control.find_parent("tr")
+        assert control["aria-label"].startswith("Category for ")
+        assert control.find_parent("td") == row.select("td")[2]
+        options = control.select("option")
+        assert len(options) == len(TASK_CATEGORIES)
+        assert control.select_one("option[selected]")["value"] == str(
+            hva_rows["category"]["value"],
+        )
+        for option, category in zip(options, TASK_CATEGORIES):
+            assert option["value"] == str(category["value"])
+            assert option.get_text() == (
+                ("\N{BLACK STAR} " if category["is_hva"] else "") + category["label"]
+            )
+
+
+@pytest.mark.parametrize("state", [0, 1, 2, None])
+@pytest.mark.parametrize("is_hva", [True, False])
+def test_category_change_updates_msx_and_cached_classification(
+    client, hva_rows, monkeypatch, state, is_hva,
+):
+    """Any owned task can change category without losing state, dates or historical links."""
+    task = hva_rows["rows"][0]
+    task.statecode = state
+    db.session.commit()
+    before = (task.statecode, task.actual_end, task.due_date, task.milestone_id)
+    category = next(c for c in TASK_CATEGORIES
+                    if c["is_hva"] == is_hva and c["value"] != task.task_category)
+    update = Mock(return_value={"success": True})
+    monkeypatch.setattr("app.services.msx_api.update_task", update)
+    response = client.post(f"/api/reports/hvas/{task.id}/category",
+                           json={"category": category["value"]})
+    assert response.status_code == 200
+    assert response.json["category_name"] == category["label"]
+    update.assert_called_once_with(task.msx_task_id, {"msp_taskcategory": category["value"]})
+    db.session.refresh(task)
+    assert task.task_category == category["value"]
+    assert task.task_category_name == category["label"]
+    assert task.is_hva == is_hva
+    assert (task.statecode, task.actual_end, task.due_date, task.milestone_id) == before
+    assert (task.id in {r["id"] for r in get_hva_inventory()["rows"]}) == is_hva
+    assert client.post(f"/api/reports/hvas/{task.id}/category",
+                       json={"category": category["value"]}).json["success"]
+    assert update.call_count == 1
+
+
+@pytest.mark.parametrize("body", [
+    None, [], {}, {"category": True}, {"category": "861980004"},
+    {"category": 861980004.0}, {"category": 123},
+])
+def test_invalid_category_is_rejected_without_msx_write(client, hva_rows, monkeypatch, body):
+    """Malformed inputs cannot clear the category or silently select a different one."""
+    update = Mock()
+    monkeypatch.setattr("app.services.msx_api.update_task", update)
+    task = hva_rows["rows"][0]
+    response = client.post(f"/api/reports/hvas/{task.id}/category", json=body)
+    assert response.status_code == 400
+    assert response.json["error"]
+    update.assert_not_called()
+
+
+def test_category_change_requires_an_owned_task_and_post(client, hva_rows, monkeypatch):
+    """Unowned tasks and unknown IDs cannot be changed through the inventory."""
+    update = Mock()
+    monkeypatch.setattr("app.services.msx_api.update_task", update)
+    task = MsxTask.query.filter_by(subject="not-owned").one()
+    for task_id in (task.id, 999999):
+        url = f"/api/reports/hvas/{task_id}/category"
+        assert client.get(url).status_code == 405
+        assert client.post(url, json={"category": hva_rows["category"]["value"]}).status_code == 404
+    update.assert_not_called()
+
+
+@pytest.mark.parametrize("cache_failure", [False, True])
+def test_category_failure_keeps_existing_cache_and_exposes_remote_change(
+    client, hva_rows, monkeypatch, cache_failure,
+):
+    """Remote errors permit retry, while a successful remote write requires reconciliation."""
+    task = hva_rows["rows"][0]
+    original = (task.task_category, task.task_category_name, task.is_hva)
+    category = next(c for c in TASK_CATEGORIES if not c["is_hva"])
+    monkeypatch.setattr("app.services.msx_api.update_task", Mock(return_value={
+        "success": cache_failure, "error": "Access denied",
+    }))
+    if cache_failure:
+        monkeypatch.setattr(db.session, "commit", Mock(side_effect=SQLAlchemyError("Disk full")))
+    response = client.post(f"/api/reports/hvas/{task.id}/category",
+                           json={"category": category["value"]})
+    assert response.status_code == (500 if cache_failure else 502)
+    assert response.json.get("remote_changed", False) is cache_failure
+    db.session.refresh(task)
+    assert (task.task_category, task.task_category_name, task.is_hva) == original
+
+
+def test_msx_category_update_payload_and_validation(monkeypatch):
+    """The shared task updater sends the Dataverse field and rejects invalid option values."""
+    from app.services import msx_api
+
+    remote = Mock(return_value=Mock(status_code=204))
+    monkeypatch.setattr(msx_api, "_msx_request", remote)
+    monkeypatch.setattr(msx_api, "_is_writeback_disabled", lambda: False)
+    fields = {"msp_taskcategory": TASK_CATEGORIES[0]["value"]}
+    assert msx_api.update_task("task-guid", fields)["success"]
+    assert remote.call_args.kwargs["json_data"] == fields
+    remote.reset_mock()
+    for invalid in (True, "861980004", 861980004.0, 123, None):
+        assert not msx_api.update_task("task-guid", {"msp_taskcategory": invalid})["success"]
+    remote.assert_not_called()
 
 
 @pytest.mark.parametrize("state", [0, None, 99])
@@ -287,6 +409,83 @@ def test_completion_is_post_only_and_unknown_id_is_explicit(client, monkeypatch)
     assert response.status_code == 404
     assert response.json["error"]
     close.assert_not_called()
+
+
+def test_reopening_preserves_links_clears_completion_and_is_idempotent(
+    client, hva_rows, monkeypatch,
+):
+    """Reopening restores the MSX Not Started state without losing activity history."""
+    task = hva_rows["rows"][1]
+    before = (task.id, task.milestone_id, task.note_id, task.meeting_id, task.due_date)
+    reopen = Mock(return_value={"success": True})
+    monkeypatch.setattr("app.services.msx_api.reopen_task", reopen)
+    response = client.post(f"/api/reports/hvas/{task.id}/reopen")
+    assert response.status_code == 200
+    assert response.json["statecode"] == 0
+    reopen.assert_called_once_with(task.msx_task_id)
+    db.session.refresh(task)
+    assert task.statecode == 0
+    assert task.statuscode == 2
+    assert task.actual_end is None
+    assert (task.id, task.milestone_id, task.note_id, task.meeting_id, task.due_date) == before
+    assert get_hva_inventory()["summary"]["completed"] == 0
+    assert get_hva_inventory()["summary"]["open"] == 2
+    assert client.post(f"/api/reports/hvas/{task.id}/reopen").json["success"]
+    assert reopen.call_count == 1
+
+
+@pytest.mark.parametrize("task_name, expected_status", [
+    ("Canceled session", 409), ("not-owned", 404), ("not-hva", 404), ("old-category", 404),
+])
+def test_ineligible_reopening_never_writes_msx(
+    client, hva_rows, monkeypatch, task_name, expected_status,
+):
+    """Reopening has the same ownership, category and canceled-state protections."""
+    reopen = Mock()
+    monkeypatch.setattr("app.services.msx_api.reopen_task", reopen)
+    task = MsxTask.query.filter_by(subject=task_name).one()
+    assert client.post(f"/api/reports/hvas/{task.id}/reopen").status_code == expected_status
+    reopen.assert_not_called()
+    assert client.get(f"/api/reports/hvas/{task.id}/reopen").status_code == 405
+
+
+@pytest.mark.parametrize("cache_failure", [False, True])
+def test_reopening_failure_does_not_falsify_local_status(
+    client, hva_rows, monkeypatch, cache_failure,
+):
+    """A failed remote write or cache commit leaves the cached completed record intact."""
+    task = hva_rows["rows"][1]
+    monkeypatch.setattr("app.services.msx_api.reopen_task", Mock(return_value={
+        "success": cache_failure, "error": "Access denied",
+    }))
+    if cache_failure:
+        monkeypatch.setattr(db.session, "commit", Mock(side_effect=SQLAlchemyError("Disk full")))
+    response = client.post(f"/api/reports/hvas/{task.id}/reopen")
+    assert response.status_code == (500 if cache_failure else 502)
+    assert response.json.get("remote_changed", False) is cache_failure
+    db.session.refresh(task)
+    assert task.statecode == 1
+    assert task.actual_end is not None
+
+
+@pytest.mark.parametrize("completed", [True, False])
+def test_msx_task_state_payload_and_writeback_gate(monkeypatch, completed):
+    """MSX receives compatible state/reason pairs and reopening clears actualend."""
+    from app.services import msx_api
+
+    remote = Mock(return_value=Mock(status_code=204))
+    monkeypatch.setattr(msx_api, "_msx_request", remote)
+    monkeypatch.setattr(msx_api, "_is_writeback_disabled", lambda: False)
+    change = msx_api.close_task if completed else msx_api.reopen_task
+    assert change("task-guid")["success"]
+    expected = {"statecode": 1, "statuscode": 5} if completed else {
+        "statecode": 0, "statuscode": 2, "actualend": None,
+    }
+    assert remote.call_args.kwargs["json_data"] == expected
+    monkeypatch.setattr(msx_api, "_is_writeback_disabled", lambda: True)
+    remote.reset_mock()
+    assert not change("task-guid")["success"]
+    remote.assert_not_called()
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is required for JS tests")

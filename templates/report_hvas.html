@@ -99,20 +99,33 @@
                 <tr data-task-id="{{ row.id }}">
                     <td data-sb-sort-value="{{ row.subject }}">
                         <a class="hva-subject" href="{{ row.url }}" target="_blank" rel="noopener noreferrer" title="{{ row.description or row.subject }}">{{ row.subject }} <i class="bi bi-box-arrow-up-right" aria-hidden="true"></i></a>
-                        {% if row.status not in ['Completed', 'Canceled'] %}
-                        <div class="hva-task-action" data-hva-action data-complete-url="{{ url_for('reports.complete_hva', task_id=row.id) }}">
-                            <button type="button" class="hva-command" data-hva-complete aria-label="Complete {{ row.subject }}"><i class="bi bi-check2" aria-hidden="true"></i> Complete</button>
-                            <div class="hva-confirm" data-hva-confirmation hidden>
-                                <span>Complete in MSX?</span>
-                                <button type="button" class="hva-command" data-hva-confirm>Complete</button>
-                                <button type="button" class="hva-command" data-hva-cancel>Cancel</button>
+                    </td>
+                    <td data-sb-sort-value="{{ row.status }}">
+                        <div class="hva-status">
+                            <span class="hva-state" data-state="{{ row.status|lower }}">{{ row.status }}</span>
+                            {% if row.status != 'Canceled' %}
+                            {% set reopen = row.status == 'Completed' %}
+                            <div class="hva-task-action" data-hva-action data-action="{{ 'reopen' if reopen else 'complete' }}" data-action-url="{{ url_for('reports.reopen_hva' if reopen else 'reports.complete_hva', task_id=row.id) }}">
+                                <button type="button" class="hva-command" data-hva-toggle title="{{ 'Reopen' if reopen else 'Complete' }} in MSX" aria-label="{{ 'Reopen' if reopen else 'Complete' }} {{ row.subject }}"><i class="bi {{ 'bi-arrow-counterclockwise' if reopen else 'bi-check2' }}" aria-hidden="true"></i></button>
                             </div>
+                            {% endif %}
+                        </div>
+                        {% if row.status != 'Canceled' %}
+                        <div data-hva-feedback>
                             <p class="hva-result" data-hva-result role="status" aria-live="polite" hidden></p>
                         </div>
                         {% endif %}
                     </td>
-                    <td data-sb-sort-value="{{ row.status }}"><span class="hva-state" data-state="{{ row.status|lower }}">{{ row.status }}</span></td>
-                    <td data-sb-sort-value="{{ row.category }}">{{ row.category }}</td>
+                    <td data-sb-sort-value="{{ row.category }}">
+                        <div data-hva-action data-action="category" data-action-url="{{ url_for('reports.update_hva_category', task_id=row.id) }}">
+                            <select class="hva-category" data-hva-category aria-label="Category for {{ row.subject }}" title="Starred categories are HVAs. Non-HVA categories remove the task from this report.">
+                                {% for category in task_categories %}
+                                <option value="{{ category.value }}"{% if category.value == row.category_code %} selected{% endif %}>{% if category.is_hva %}&#9733; {% endif %}{{ category.label }}</option>
+                                {% endfor %}
+                            </select>
+                            <p class="hva-result" data-hva-result role="status" aria-live="polite" hidden></p>
+                        </div>
+                    </td>
                     <td data-sb-sort-value="{{ row.customer or '' }}">{% if row.customer_id %}<a href="{{ url_for('customers.customer_view', id=row.customer_id) }}">{{ row.customer }}</a>{% else %}<span class="hva-muted">Not linked in SB</span>{% endif %}</td>
                     <td data-sb-sort-value="{{ row.related or '' }}">{% if row.milestone_id %}<a href="{{ url_for('milestones.milestone_view', id=row.milestone_id) }}">{{ row.related }}</a>{% else %}<span class="hva-muted">{{ row.related or 'No related record' }}</span>{% endif %}</td>
                     {% for field in ['created', 'due', 'completed'] %}

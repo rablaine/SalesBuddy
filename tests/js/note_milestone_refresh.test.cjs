@@ -9,6 +9,102 @@ const source = template.slice(
     template.indexOf('// Inline TPID lookup'),
 );
 
+function pickerHarness(milestones, selected = []) {
+    const handlers = {};
+    const search = {value: '', offsetWidth: 700,
+        addEventListener(type, handler) { handlers[type] = handler; },
+        dispatchEvent(event) { handlers[event.type].call(this, event); }};
+    const context = {
+        _hasMilestoneUI: true, milestoneSearch: search, milestoneDropdown: {style: {}},
+        allMilestones: milestones, selectedMilestones: selected,
+        currentMilestoneMatches: [], selectedMilestoneIndex: -1,
+        renderMilestoneDropdown() {},
+        selectMilestone: milestone => selected.push(milestone),
+        Event: class { constructor(type) { this.type = type; } },
+    };
+    const start = template.indexOf("milestoneSearch.addEventListener('input'");
+    const end = template.indexOf('} // end if (_hasMilestoneUI)', start);
+    assert.ok(start >= 0 && end > start);
+    vm.runInNewContext(template.slice(start, end), context);
+    return {context, search, handlers};
+}
+
+test('opening a large milestone picker browses all unselected choices without a shortcut', () => {
+    const milestones = Array.from({length: 103}, (_, index) => ({
+        id: String(index), name: `Milestone ${index}`, status: 'On Track',
+    }));
+    const h = pickerHarness(milestones, [milestones[0]]);
+    h.handlers.focus();
+    assert.equal(h.context.currentMilestoneMatches.length, 102);
+    assert.equal(h.context.milestoneDropdown.style.display, 'block');
+    assert.equal(h.context.milestoneDropdown.style.width, '700px');
+    assert.equal(h.search.value, '');
+    h.context.milestoneDropdown.style.display = 'none';
+    h.handlers.click();
+    assert.equal(h.context.milestoneDropdown.style.display, 'block');
+    h.handlers.keydown({key: 'ArrowDown', preventDefault() {}});
+    assert.equal(h.context.selectedMilestoneIndex, 1);
+    h.handlers.keydown({key: 'Enter', preventDefault() {}});
+    assert.equal(h.context.selectedMilestones.length, 2);
+});
+
+test('typing filters milestones, clearing browses again, and an asterisk is not a shortcut', () => {
+    const h = pickerHarness([
+        {id: '1', name: 'Fabric analytics', number: '7-123', status: 'On Track'},
+        {id: '2', name: 'SQL migration', opportunity_name: 'Database', status: 'Completed'},
+    ]);
+    h.search.value = 'database';
+    h.search.dispatchEvent({type: 'input'});
+    assert.equal(h.context.currentMilestoneMatches[0].id, '2');
+    h.search.value = '';
+    h.search.dispatchEvent({type: 'input'});
+    assert.equal(h.context.currentMilestoneMatches.length, 2);
+    h.search.value = '*';
+    h.search.dispatchEvent({type: 'input'});
+    assert.equal(h.context.currentMilestoneMatches.length, 0);
+    assert.equal(h.context.milestoneDropdown.style.display, 'none');
+});
+
+test('an empty or fully selected milestone picker has no blank dropdown', () => {
+    const milestone = {id: '1', name: 'Selected'};
+    for (const [choices, selected] of [[[], []], [[milestone], [milestone]]]) {
+        const h = pickerHarness(choices, selected);
+        h.handlers.focus();
+        assert.equal(h.context.milestoneDropdown.style.display, 'none');
+        assert.equal(h.context.selectedMilestoneIndex, -1);
+    }
+});
+
+test('Escape then Tab exits without selection, while Ctrl+Enter remains available to Save Note', () => {
+    const h = pickerHarness([{id: '1', name: 'Fabric'}]);
+    h.handlers.focus();
+    let prevented = 0;
+    h.handlers.keydown({key: 'Escape', preventDefault() { prevented++; }});
+    h.handlers.keydown({key: 'Tab', preventDefault() { prevented++; }});
+    assert.equal(prevented, 0);
+    assert.equal(h.context.milestoneDropdown.style.display, 'none');
+    assert.equal(h.context.selectedMilestones.length, 0);
+    for (const modifier of ['ctrlKey', 'metaKey']) {
+        h.handlers.focus();
+        h.handlers.keydown({key: 'Enter', [modifier]: true,
+            preventDefault() { prevented++; }});
+    }
+    assert.equal(prevented, 0);
+    assert.equal(h.context.selectedMilestones.length, 0);
+});
+
+test('Refresh stays left of loading and matching, and the milestone shortcut hint is removed', () => {
+    const refresh = template.indexOf('id="refreshMilestonesBtn"');
+    const loading = template.indexOf('id="milestone_loading"');
+    const match = template.indexOf('id="aiMatchMilestoneBtn"');
+    assert.ok(refresh < loading && refresh < match);
+    const milestoneCode = source + template.slice(
+        template.indexOf("milestoneSearch.addEventListener('input'"),
+        template.indexOf('function getStatusBadgeClass'),
+    );
+    assert.doesNotMatch(milestoneCode, /or \* to list all|searchTerm === '\*'|≤10 milestones/);
+});
+
 function harness(hasUI = true) {
     const elements = new Map();
     function element(id) {
