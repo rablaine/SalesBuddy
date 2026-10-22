@@ -13,7 +13,7 @@
     "dist": "electron-builder --dir"
   },
   "devDependencies": {
-    "electron": "^40.10.6",
+    "electron": "44.9.1",
     "electron-builder": "^26.15.7",
     "rcedit": "^4.0.1"
   },

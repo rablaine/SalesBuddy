@@ -25,6 +25,43 @@ def _iso(value: datetime | None) -> str | None:
     ).isoformat() if value else None
 
 
+def _serialize_hva(task: MsxTask) -> dict:
+    """Serialize shared cached activity details for the inventory and note editor."""
+    milestone = task.milestone
+    customer = milestone.customer if milestone else None
+    return {
+        "id": task.id, "msx_task_id": task.msx_task_id, "subject": task.subject,
+        "description": task.description, "url": build_task_url(task.msx_task_id),
+        "category": task.task_category_name or "Unknown category",
+        "category_code": task.task_category,
+        "status": STATUS_LABELS.get(task.statecode, "Unknown"),
+        "statecode": task.statecode, "created": _iso(task.msx_created_on),
+        "due": _iso(task.due_date), "completed": _iso(task.actual_end),
+        "customer_id": customer.id if customer else None,
+        "customer": customer.name if customer else None,
+        "milestone_id": milestone.id if milestone else None,
+        "related": milestone.display_text if milestone else task.msx_regarding_name,
+    }
+
+
+def get_milestone_hvas(msx_ids: list[str]) -> dict[str, list[dict]]:
+    """Read all cached HVAs on selected milestones, including historical owners."""
+    result = {msx_id.lower(): [] for msx_id in msx_ids}
+    if not result:
+        return result
+    tasks = MsxTask.query.join(Milestone).filter(
+        func.lower(Milestone.msx_milestone_id).in_(result),
+        MsxTask.is_hva.is_(True), MsxTask.task_category.in_(HVA_TASK_CATEGORIES),
+    ).options(
+        joinedload(MsxTask.milestone).joinedload(Milestone.customer),
+    ).order_by(MsxTask.msx_created_on.desc().nullslast(), MsxTask.id.desc()).all()
+    for task in tasks:
+        row = _serialize_hva(task)
+        row["duration_minutes"] = task.duration_minutes
+        result[task.milestone.msx_milestone_id.lower()].append(row)
+    return result
+
+
 def get_hva_inventory(
     search: str = "", status: str = "", customer_id: int | None = None,
     category: int | None = None, date_field: str = "created",
@@ -112,23 +149,7 @@ def get_hva_inventory(
     ).order_by(ordered.nullslast(), MsxTask.id.desc()).offset((page - 1) * per_page).limit(
         per_page,
     ).all()
-    rows = []
-    for task in tasks:
-        milestone = task.milestone
-        customer = milestone.customer if milestone else None
-        rows.append({
-            "id": task.id, "msx_task_id": task.msx_task_id, "subject": task.subject,
-            "description": task.description, "url": build_task_url(task.msx_task_id),
-            "category": task.task_category_name or "Unknown category",
-            "category_code": task.task_category,
-            "status": STATUS_LABELS.get(task.statecode, "Unknown"),
-            "statecode": task.statecode, "created": _iso(task.msx_created_on),
-            "due": _iso(task.due_date), "completed": _iso(task.actual_end),
-            "customer_id": customer.id if customer else None,
-            "customer": customer.name if customer else None,
-            "milestone_id": milestone.id if milestone else None,
-            "related": milestone.display_text if milestone else task.msx_regarding_name,
-        })
+    rows = [_serialize_hva(task) for task in tasks]
     source = SyncStatus.get_status("owned_tasks")
     return {
         "rows": rows, "summary": summary, "page": page, "pages": pages, "per_page": per_page,

@@ -73,6 +73,26 @@ def test_autocomplete_rows_reset_native_button_borders_and_show_keyboard_selecti
     assert "background:var(--sb-ui-selection)" in selection.group(2)
 
 
+def test_milestone_picker_has_a_theme_aware_outer_boundary() -> None:
+    """The milestone list remains visibly bounded against the editor surface."""
+    css = (Path(__file__).parents[1] / "static" / "css" / "ui-note-form.css").read_text("utf-8")
+    rule = re.search(r"\.sb-note-form-page #milestone_dropdown\s*\{([^}]+)\}", css)
+    assert rule is not None
+    assert "border:1px solid var(--sb-ui-control-line)" in rule.group(1)
+    assert "background:var(--sb-ui-surface)" in rule.group(1)
+
+
+def test_note_command_bar_has_top_and_bottom_boundaries() -> None:
+    """The sticky Save/Discard/Close strip has a finished edge on both sides."""
+    css = (Path(__file__).parents[1] / "static" / "css" / "ui-note-form.css").read_text("utf-8")
+    rule = re.search(
+        r"\.sb-note-form-page #noteForm > \.sb-nf-d-flex:last-child\s*\{([^}]+)\}", css,
+    )
+    assert rule is not None
+    assert "border-top:1px solid var(--sb-ui-line)" in rule.group(1)
+    assert "border-bottom:1px solid var(--sb-ui-line)" in rule.group(1)
+
+
 def test_small_modal_width_applies_to_outer_dialog_not_only_its_contents() -> None:
     """The contact photo dialog must not leave an empty half beside its contents."""
     styles = Path(__file__).parents[1] / "static" / "css"
@@ -130,6 +150,7 @@ def test_note_form_retains_fields_commands_and_native_dialogs(
     assert main.find(id='draftSaveIndicator')['role'] == 'status'
     assert main.find(id='noteDraftRecovery').has_attr('hidden')
     assert '/static/js/ui-note-drafts.js' in scripts
+    assert '/static/js/ui-note-milestone-hvas.js' in scripts
     assert form.find(id="noteSaveFeedback")["hidden"] == ""
     assert main.select_one(".sb-note-form-status")
     if kind == "general":

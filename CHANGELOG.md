@@ -11,8 +11,9 @@ Format: `## M/D/YYYY - <merge-short-sha>`. See
 ## 10/22/2026
 
 - Keep unfinished notes and edits when closing the editor, open drafts directly, and protect recovery with explicit discard actions and safer save retries.
-- Complete or reopen HVAs directly beside their status with one click, with automatic report updates.
-- Change task categories directly in the HVA report, with starred HVA choices and immediate MSX updates.
+- Browse note milestones immediately and inspect their logged HVAs without leaving the editor.
+- Change HVA categories and complete or reopen activities directly in the report, with immediate updates.
+- *Electron Shell Update* - Update the desktop runtime and private focus diagnostics for intermittent typing failures, and keep Find clear of window controls.
 
 ## 10/21/2026 - eb1db554
 

@@ -12,6 +12,7 @@
 <link rel="stylesheet" href="{{ url_for('static', filename='css/ui-note-form.css') }}">
 <script src="{{ url_for('static', filename='js/ui-note-form-native.js') }}"></script>
 <script src="{{ url_for('static', filename='js/ui-note-drafts.js') }}"></script>
+<script defer src="{{ url_for('static', filename='js/ui-note-milestone-hvas.js') }}"></script>
 <!-- Quill Rich Text Editor -->
 <link href="https://cdn.quilljs.com/1.3.6/quill.snow.css" rel="stylesheet">
 <style>
@@ -362,14 +363,14 @@
                                 <span class="sb-nf-text-info sb-nf-fw-normal" style="font-size: 0.8em;"><i class="bi bi-people"></i> Saves you to the team in MSX</span>
                             </label>
                             <div class="sb-nf-d-flex sb-nf-align-items-center sb-nf-gap-2">
-                                <div id="milestone_loading" class="sb-nf-text-muted sb-nf-small" style="display: none;">
-                                    <span class="sb-nf-spinner-border sb-nf-spinner-border-sm sb-nf-me-1"></span> Loading milestones...
-                                </div>
                                 <button type="button" class="sb-nf-btn sb-nf-btn-sm sb-nf-btn-outline-secondary" id="refreshMilestonesBtn"
                                         disabled aria-label="Refresh milestones from MSX" aria-busy="false"
                                         aria-describedby="milestone_help_text" onclick="loadMilestonesForCustomer(currentCustomerId, true)">
                                     <i class="bi bi-arrow-clockwise" aria-hidden="true"></i> <span>Refresh milestones</span>
                                 </button>
+                                <div id="milestone_loading" class="sb-nf-text-muted sb-nf-small" style="display: none;">
+                                    <span class="sb-nf-spinner-border sb-nf-spinner-border-sm sb-nf-me-1"></span> Loading milestones...
+                                </div>
                                 <button type="button" class="sb-nf-btn sb-nf-btn-sm sb-nf-btn-outline-info" id="aiMatchMilestoneBtn" style="display: none;" onclick="aiMatchMilestone()">
                                     <i class="bi bi-stars"></i> <span id="aiMatchMilestoneBtnText">Match Milestone</span>
                                 </button>
@@ -4774,15 +4775,11 @@ async function loadMilestonesForCustomer(customerId, manualRefresh = false) {
             allMilestones = data.milestones;
             loadedMilestoneCustomerId = customerId;
             milestoneSearch.disabled = false;
-            if (allMilestones.length <= 10) {
-                milestoneSearch.placeholder = `${allMilestones.length} milestone${allMilestones.length !== 1 ? 's' : ''} - click to browse`;
-            } else {
-                milestoneSearch.placeholder = `Search ${allMilestones.length} milestones (or * to list all)...`;
-            }
+            milestoneSearch.placeholder = `${allMilestones.length} milestone${allMilestones.length !== 1 ? 's' : ''} - click to browse or type to filter`;
             milestoneHelpText.textContent = `Found ${allMilestones.length} milestone${allMilestones.length !== 1 ? 's' : ''} for this customer`;
             inlineTpidSection.style.display = 'none';
             if (matchBtn) matchBtn.style.display = allMilestones.length ? 'inline-block' : 'none';
-            if (milestoneSearch.value.trim()) {
+            if (milestoneSearch.value.trim() || document.activeElement === milestoneSearch) {
                 milestoneSearch.dispatchEvent(new Event('input'));
             }
             // Auto-select milestone if pre-specified via query param
@@ -4958,14 +4955,6 @@ milestoneSearch.addEventListener('input', function() {
     const searchTerm = this.value.toLowerCase().trim();
     
     if (searchTerm.length === 0) {
-        milestoneDropdown.style.display = 'none';
-        currentMilestoneMatches = [];
-        selectedMilestoneIndex = -1;
-        return;
-    }
-    
-    // Wildcard * shows all milestones
-    if (searchTerm === '*') {
         showAllMilestones();
         return;
     }
@@ -5011,21 +5000,21 @@ function showAllMilestones() {
     currentMilestoneMatches = sortMilestones(
         allMilestones.filter(m => !selectedMilestones.some(s => s.id === m.id))
     );
-    selectedMilestoneIndex = 0;
+    selectedMilestoneIndex = currentMilestoneMatches.length ? 0 : -1;
     renderMilestoneDropdown();
-    milestoneDropdown.style.display = 'block';
+    milestoneDropdown.style.display = currentMilestoneMatches.length ? 'block' : 'none';
     milestoneDropdown.style.width = milestoneSearch.offsetWidth + 'px';
 }
 
-// Auto-show dropdown on focus when ≤10 milestones and input is empty
-milestoneSearch.addEventListener('focus', function() {
-    if (milestoneSearch.value.trim().length === 0 && allMilestones.length > 0 && allMilestones.length <= 10) {
-        showAllMilestones();
-    }
-});
+function openMilestonePicker() {
+    milestoneSearch.dispatchEvent(new Event('input'));
+}
+milestoneSearch.addEventListener('focus', openMilestonePicker);
+milestoneSearch.addEventListener('click', openMilestonePicker);
 
 // Keyboard navigation for milestones
 milestoneSearch.addEventListener('keydown', function(e) {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') return;
     if (e.key === 'ArrowDown' && currentMilestoneMatches.length > 0) {
         e.preventDefault();
         selectedMilestoneIndex = (selectedMilestoneIndex + 1) % currentMilestoneMatches.length;
@@ -5220,6 +5209,7 @@ function renderSelectedMilestones() {
             removeMilestone(this.dataset.msxId);
         });
     });
+    window.SBMilestoneHvas?.render();
 }
 
 function removeMilestone(msxId) {
@@ -5296,6 +5286,7 @@ function createTaskInMSX() {
         
         if (result.success && result.task_id) {
             taskOutcome = '';
+            window.SBMilestoneHvas?.refresh();
             // Store created task info
             document.getElementById('created_task_id').value = result.task_id;
             document.getElementById('created_task_url').value = result.task_url || '';

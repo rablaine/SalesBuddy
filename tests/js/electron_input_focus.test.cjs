@@ -17,13 +17,15 @@ function target(id = 'task_subject') {
 
 function batch() {
   return {focused: true, visibility: 'visible', active: target(), dropped: 0, maxDelayMs: 0,
-    events: [{type: 'keydown', at: 1000, count: 1, target: target()}]};
+    events: [{type: 'keydown', at: 1000, count: 1, target: target(),
+      focused: true, active: target()}]};
 }
 
-function fixture() {
+function fixture({nativeCapture} = {}) {
   let clock = 1000;
   let heartbeat;
   let cancelled = false;
+  const delays = new Map();
   const app = new EventEmitter();
   const records = [], logs = [], captures = [], messages = [], saved = [];
   const win = Object.assign(new EventEmitter(), {
@@ -40,15 +42,20 @@ function fixture() {
     writer: {write: record => { records.push(record); return true; },
       save: file => saved.push(file)},
     nativeFactory: () => ({
-      capture: (window, event) => captures.push({id: window.id, event}),
+      capture: (window, event) => {
+        captures.push({id: window.id, event});
+        return nativeCapture?.(window, event);
+      },
       stop: () => captures.push('stopped'),
     }),
     schedule: callback => { heartbeat = callback; return 1; },
     cancel: () => { cancelled = true; }, now: () => clock,
+    delay: (callback, ms) => { const token = {}; delays.set(token, {callback, ms}); return token; },
+    cancelDelay: token => delays.delete(token),
   });
   diagnostics.attach(win);
   return {
-    app, win, diagnostics, records, logs, captures, messages, saved,
+    app, win, diagnostics, records, logs, captures, messages, saved, delays,
     tick: () => heartbeat(), advance: () => { clock += 1000; },
     cancelled: () => cancelled,
     send: (payload = batch(), senderFrame = win.webContents.mainFrame) =>
@@ -72,6 +79,8 @@ test('renderer IPC reconstructs only safe metadata and rejects arbitrary strings
     {...batch(), active: {...target(), type: 'private'}},
     {...batch(), events: [{...batch().events[0], type: 'private'}]},
     {...batch(), events: [{...batch().events[0], at: Infinity}]},
+    {...batch(), events: [{...batch().events[0], focused: 'private'}]},
+    {...batch(), events: [{...batch().events[0], active: null}]},
   ]) assert.equal(cleanBatch(invalid), null);
 });
 
@@ -132,15 +141,62 @@ test('window and app lifecycle, native routing counts and renderer age are corre
   assert.equal(h.records.at(-1).keyboardEvents, 0);
 });
 
-test('incident capture snapshots every window and never changes focus', () => {
+test('incident capture snapshots every window and never changes focus', async () => {
   const h = fixture();
   h.win.focus = () => assert.fail('Diagnostics must not change focus.');
-  h.diagnostics.markIncident();
+  await h.diagnostics.markIncident();
   assert.deepEqual(h.messages, [[SNAPSHOT_CHANNEL]]);
   assert.deepEqual(h.captures, [{id: 1, event: 'incident'}]);
   assert.ok(h.records.some(r => r.event === 'incident-marker'));
   h.diagnostics.save('chosen.jsonl');
   assert.deepEqual(h.saved, ['chosen.jsonl']);
+});
+
+test('select transitions request bounded native snapshots and cancel followups on close', () => {
+  const h = fixture();
+  const value = batch();
+  value.events[0].type = 'pointerdown';
+  value.events[0].target = {...target('task_category'), tag: 'SELECT', type: ''};
+  h.send(value);
+  h.send(value);
+  assert.deepEqual(h.captures, [{id: 1, event: 'select-interaction'}]);
+  assert.deepEqual([...h.delays.values()].map(item => item.ms), [250, 1000]);
+  for (const [token, item] of [...h.delays]) {
+    h.delays.delete(token);
+    item.callback();
+  }
+  assert.deepEqual(h.captures.map(item => item.event), [
+    'select-interaction', 'select-followup-250', 'select-followup-1000',
+  ]);
+  h.advance();
+  h.send(value);
+  assert.equal(h.delays.size, 2);
+  h.win.emit('closed');
+  assert.equal(h.delays.size, 0);
+});
+
+test('shutdown cancels select followups and trusted IPC is required to schedule them', () => {
+  const h = fixture();
+  const value = batch();
+  value.events[0].type = 'change';
+  value.events[0].target = {...target('task_category'), tag: 'SELECT', type: ''};
+  h.send(value, {url: 'https://untrusted.example/'});
+  assert.equal(h.delays.size, 0);
+  h.send(value);
+  assert.equal(h.delays.size, 2);
+  h.diagnostics.shutdown();
+  assert.equal(h.delays.size, 0);
+});
+
+test('focus mismatch heartbeats sample native state only when the native window is focused', () => {
+  const h = fixture();
+  h.send({...batch(), focused: false});
+  h.tick();
+  assert.equal(h.captures.at(-1).event, 'focus-mismatch');
+  h.win.isFocused = () => false;
+  const count = h.captures.length;
+  h.tick();
+  assert.equal(h.captures.length, count);
 });
 
 test('closed windows and shutdown release listeners and timers', () => {
@@ -210,6 +266,21 @@ test('production rotation enforces the actual 2 MiB per-file and 6 MiB total lim
   assert.ok(sizes.reduce((total, size) => total + size, 0) <= 6 * 1024 * 1024);
 });
 
+function nativeResponse(id) {
+  const gui = {
+    available: true, error: 0, flags: 4, activeHandle: '999', focusHandle: '777',
+    captureHandle: '0', menuOwnerHandle: '999', moveSizeHandle: '0',
+    title: 'private window title',
+  };
+  return {
+    id, capturedAt: 1000, windowHandle: '1234',
+    foregroundHandle: '999', ownerHandle: '456', foregroundPid: 42, enabled: false,
+    foregroundIsSelf: false, title: 'private title', foregroundClass: '#32770',
+    foregroundOwnerHandle: '1234', foregroundRootOwnerHandle: '1234',
+    windowThreadId: 12, foregroundThreadId: 13, windowGui: gui, foregroundGui: gui,
+  };
+}
+
 function nativeFixture() {
   const records = [], logs = [], requests = [], timers = new Map();
   let kills = 0;
@@ -239,20 +310,103 @@ test('Windows snapshots correlate native foreground, enabled state and owner wit
   const h = nativeFixture();
   h.probe.capture(h.win, 'focus');
   assert.equal(h.requests[0].hwnd, '1234');
-  const response = JSON.stringify({
-    id: h.requests[0].id, capturedAt: 1000, windowHandle: '1234',
-    foregroundHandle: '999', ownerHandle: '456', foregroundPid: 42, enabled: false,
-    foregroundIsSelf: false, title: 'private title',
-  }) + '\n';
+  const response = JSON.stringify(nativeResponse(h.requests[0].id)) + '\n';
   h.child.stdout.emit('data', Buffer.from(response.slice(0, 20)));
   h.child.stdout.emit('data', Buffer.from(response.slice(20)));
   assert.equal(h.records[0].foregroundPid, 42);
   assert.equal(h.records[0].ownerHandle, '456');
   assert.equal(h.records[0].enabled, false);
+  assert.equal(h.records[0].foregroundOwnerHandle, '1234');
+  assert.equal(h.records[0].foregroundRootOwnerHandle, '1234');
+  assert.equal(h.records[0].foregroundClass, '#32770');
+  assert.equal(h.records[0].windowGui.focusHandle, '777');
+  assert.equal(h.records[0].foregroundGui.flags, 4);
   assert.doesNotMatch(JSON.stringify(h.records), /private/);
   assert.equal(h.timers.size, 0);
   h.probe.stop();
   assert.equal(h.kills(), 1);
+});
+
+test('native snapshot completion waits for the response and rejects unsafe metadata', async () => {
+  const h = nativeFixture();
+  let complete = false;
+  const pending = h.probe.capture(h.win, 'incident').then(() => { complete = true; });
+  await Promise.resolve();
+  assert.equal(complete, false);
+  const response = nativeResponse(h.requests[0].id);
+  h.child.stdout.emit('data', Buffer.from(JSON.stringify(response) + '\n'));
+  await pending;
+  assert.equal(complete, true);
+  h.probe.stop();
+  for (const mutate of [
+    value => { value.foregroundClass = 'private-class'; },
+    value => { value.windowGui.focusHandle = 'private-title'; },
+    value => { value.foregroundGui.available = 'private'; },
+  ]) {
+    const invalid = nativeFixture();
+    const request = invalid.probe.capture(invalid.win, 'incident');
+    const value = nativeResponse(invalid.requests[0].id);
+    mutate(value);
+    invalid.child.stdout.emit('data', Buffer.from(JSON.stringify(value) + '\n'));
+    await request;
+    assert.equal(invalid.records[0].event, 'unavailable');
+    assert.doesNotMatch(JSON.stringify(invalid.records), /private/);
+  }
+});
+
+test('incident export awaits native sampling before opening its save dialog', () => {
+  const source = fs.readFileSync(path.join(__dirname, '../../electron/main.js'), 'utf8');
+  const start = source.indexOf('async function saveInputFocusDiagnostics()');
+  const end = source.indexOf('\nfunction showAbout()', start);
+  const handler = source.slice(start, end);
+  const marker = handler.indexOf('await inputFocusDiagnostics.markIncident()');
+  assert.ok(marker >= 0 && marker < handler.indexOf('dialog.showSaveDialog'));
+});
+
+test('incident marking remains pending until native sampling finishes', async () => {
+  let finish;
+  const h = fixture({nativeCapture: () => new Promise(resolve => { finish = resolve; })});
+  let complete = false;
+  const marking = h.diagnostics.markIncident().then(() => { complete = true; });
+  await Promise.resolve();
+  assert.equal(complete, false);
+  assert.deepEqual(h.messages, [[SNAPSHOT_CHANNEL]]);
+  finish();
+  await marking;
+  assert.equal(complete, true);
+  h.diagnostics.shutdown();
+});
+
+test('native timeout settles an awaiting incident capture without hanging the exporter', async () => {
+  const h = nativeFixture();
+  const pending = h.probe.capture(h.win, 'incident');
+  [...h.timers.values()][0]();
+  await pending;
+  assert.equal(h.records[0].failure, 'timeout');
+  assert.equal(h.logs.length, 1);
+});
+
+test('real Windows helper returns safe native focus metadata', {
+  skip: process.platform !== 'win32',
+}, () => {
+  const {spawnSync} = require('node:child_process');
+  const result = spawnSync('powershell.exe', [
+    '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
+    '-File', path.join(__dirname, '../../electron/input-focus.ps1'),
+  ], {input: '{"id":1,"hwnd":"0"}\n', encoding: 'utf8', timeout: 15000, windowsHide: true});
+  assert.equal(result.status, 0, result.stderr || result.error?.message);
+  const response = JSON.parse(result.stdout.trim());
+  const h = nativeFixture();
+  h.probe.capture(h.win, 'incident');
+  response.id = h.requests[0].id;
+  h.child.stdout.emit('data', Buffer.from(JSON.stringify(response) + '\n'));
+  assert.equal(h.records[0].event, 'incident');
+  assert.equal(h.records[0].windowGui.available, false);
+  assert.equal(h.records[0].windowGui.focusHandle, '0');
+  assert.ok(['none', 'unavailable', 'other', '#32768', '#32770', 'ComboLBox',
+    'Chrome_WidgetWin_0', 'Chrome_WidgetWin_1', 'Chrome_RenderWidgetHostHWND',
+    'tooltips_class32'].includes(h.records[0].foregroundClass));
+  h.probe.stop();
 });
 
 test('probe timeouts and process errors are logged once and release pending requests', () => {
@@ -362,6 +516,41 @@ test('renderer captures editor-to-task transitions without reading keys or conte
   assert.equal(result.events.find(e => e.type === 'keydown').count, 100);
   assert.ok(cleanBatch(result));
   assert.equal(result.dropped, 0);
+});
+
+test('renderer select transitions flush promptly without inspecting choices or keys', () => {
+  const h = rendererFixture();
+  const category = Object.assign(h.element('task_category'), {tagName: 'SELECT', type: ''});
+  h.document.hasFocus = () => false;
+  h.event('pointerdown', category);
+  const first = h.messages.at(-1).value;
+  assert.equal(h.messages.length, 2);
+  assert.equal(first.events[0].type, 'pointerdown');
+  assert.equal(first.events[0].focused, false);
+  assert.equal(first.events[0].active.id, 'task_category');
+  h.event('change', category);
+  h.event('keyup', category);
+  assert.equal(h.messages.length, 2, 'Select bursts remain rate bounded.');
+  h.document.hasFocus = () => true;
+  h.event('focusout', category);
+  h.tick();
+  const result = h.messages.at(-1).value;
+  assert.equal(result.events[0].type, 'change');
+  assert.equal(result.events[0].focused, false);
+  assert.equal(result.events.at(-1).focused, true);
+  assert.equal(result.focused, true);
+  assert.ok(cleanBatch(result));
+});
+
+test('renderer preserves changes in focus state within aggregated keyboard counts', () => {
+  const h = rendererFixture();
+  h.event('keydown');
+  h.document.hasFocus = () => false;
+  h.event('keydown');
+  h.tick();
+  const result = h.messages.at(-1).value;
+  assert.deepEqual(result.events.map(event => event.focused), [true, false]);
+  assert.ok(cleanBatch(result));
 });
 
 test('renderer buffers, IPC batches, heartbeat delays and page lifecycle remain bounded', () => {

@@ -1,6 +1,6 @@
 # Plan: Diagnose Intermittent Electron Input Focus Loss
 
-**Status:** Matching upstream Electron fix identified; controlled upgrade comparison pending
+**Status:** Electron 44.9.1 development build running; manual validation and production trial pending
 **Last updated:** 2026-10-22
 
 ## Goal
@@ -106,9 +106,129 @@ runtime before adding more production instrumentation or application workarounds
    A shell rebuild/restage and an Electron Shell Update changelog marker are
    required; a backend update alone cannot ship this repair.
 6. If the mismatch persists, or neither build reproduces it, retain the candidate
-   status. Add privacy-safe dialog lifecycle/caller identification and foreground
-   window class/ownership evidence for the next capture. The current native probe
-   does not identify the foreground dialog or its owner.
+   status. Use the version-2 native ownership/class and dropdown interaction
+   evidence described below to narrow the trigger. The original capture did not
+   identify the foreground window's class or owner. Explicit dialog lifecycle/
+   caller identification remains a possible followup if that evidence points to
+   an app dialog.
+
+### October 22 development runtime upgrade
+
+- Updated the Electron manifest and lockfile to exact **44.9.1**, a patched
+  stable version in the 44.x line. GitHub listed 45.0.0 and newer 43.x/44.x
+  releases, but npm returned version-not-found for 45.0.0 and 43.8.3, including a
+  direct public-registry check. 44.9.1 was the newest stable npm package available
+  during implementation. No registry configuration was changed.
+- Built the unsigned packaged development shell with the existing build script.
+  Its first resource-branding attempt failed; retrying the existing resource tool
+  succeeded. The executable reports Sales Buddy product/file version 1.1.4.0.
+- Launched with `--dev-client` and `SALESBUDDY_REPO` pointing to this repository.
+  It uses the existing port-5000 backend and separate `SalesBuddy-dev-shell`
+  profile. The installed production shell and port 5151 were not changed.
+- Confirmed dark mode, the development Home page, and a responsive Chromium
+  152.0.7977.167 runtime. The shell suite passed **101 Node tests**, and the scoped
+  startup/update integration suite passed **7 Python tests**.
+- Exercised native `alert()` dismissal and both `confirm()` choices in the running
+  Electron Home page, followed by CDP mouse clicks and keyboard input into its
+  customer search. Each case retained document focus, focused the clicked input,
+  and accepted the character. The temporary search value was cleared. These are
+  routed input checks, not physical-keyboard testing or an old/new reproduction
+  comparison.
+- A temporary loopback debugging endpoint was used only for those checks and
+  removed before handing over the development shell for manual testing.
+- The branch carries the Electron Shell Update changelog marker for eventual
+  release. No production rebuild/restage, merge or push has been performed.
+
+The candidate fix still needs the user's note/task workflow checks and a
+representative tester trial. A healthy smoke test does not prove that the
+intermittent production failure is resolved.
+
+### Tester clarification: category dropdown without a dialog
+
+The tester reports that the activity task category dropdown can trigger the
+failure when moving from its results to an activity text field. Neither the
+tester nor the user recalls an alert or confirmation preceding the failure.
+Treat category selection followed directly by clicking the task title as a
+primary reproduction case, independent of JavaScript dialogs.
+
+The note editor's task category control is a native HTML `select`. Its popup is
+not an app alert or confirmation. This makes popup focus handling worth
+investigating, but does not establish that it shares the cause or repair in
+Electron PR #54380.
+
+The captured chronology also limits what we can conclude:
+
+- At 14:11:28 UTC, the main window becomes disabled and another HWND in the same
+  process becomes foreground. The capture does not identify that window.
+- At 14:11:32, native/WebContents focus returns, but renderer document focus
+  remains false.
+- At 14:11:39, a pointer event reaches `task_subject` while document focus is
+  already false.
+- The first identifiable `task_category` pointer event is at 14:11:41, followed
+  by category input events and another title click. Document focus remains false.
+
+Those recorded category interactions occur after the mismatch is visible. They
+do not prove that category selection initiated this captured incident, nor rule
+out an earlier dropdown interaction or a separate trigger. Do not label the
+disabled-main interval as a confirmed dialog or category popup.
+
+Next validation should exercise real dropdown interaction in the upgraded
+Electron shell: mouse selection followed by a title click, keyboard selection
+followed by Tab, and dismissal with Escape followed by a title click. Verify
+actual typing, not just programmatic focus or value assignment. A normal browser
+check or successful alert test does not validate this native-shell path.
+
+If the failure recurs, capture it before Alt+Tab recovery if Help still responds;
+otherwise recover first and save promptly. The current evidence does not justify
+a forced-focus loop or replacing native selects.
+
+### October 22 diagnostic instrumentation update
+
+- Session-start records now identify schema version 2. Every renderer event
+  includes document focus and allowlisted active-element metadata at event
+  time, rather than only the batch's later state. Keyboard counts are separated
+  when that state changes. `change`, `pointerup`, and counted `keyup` events
+  help correlate selection and subsequent typing without recording choices or
+  keys. These are interaction events, not proof a popup opened or closed.
+- Native-select pointerdown, keydown, change, and focusout trigger prompt
+  renderer batches, capped at one early flush per 500 ms. The trusted main
+  process samples Windows state immediately and 250/1000 ms later, with at
+  most one such burst per window per second. Followups are canceled on window
+  close or shutdown. Existing IPC, buffer, helper timeout, and log-size limits
+  remain in place.
+- Windows snapshots include foreground owner/root-owner handles and a strictly
+  allowlisted class (`other` for unrecognized classes). Both the application's
+  GUI thread and foreground GUI thread report active, focus, capture, menu-owner,
+  and move/size handles plus flags. Failed GUI-thread reads are explicit through
+  availability/error metadata. No window titles, caret positions, raw class
+  names, field values, labels, or typed characters are recorded.
+- When the latest renderer batch reports no document focus while the native
+  app window remains focused, the existing 15-second heartbeat also takes a
+  native snapshot. This is diagnostic observation, not automatic focus repair.
+- Help's export awaits the bounded native incident sample before opening its
+  own Save dialog. Helper failure is logged explicitly and does not indefinitely
+  block export. This avoids confusing the export dialog with the original
+  interruption.
+
+These changes require rebuilding the desktop shell. Existing version-1 records
+can remain in the rotating history alongside new version-2 session records.
+The next capture should show whether the foreground popup is owned by the main
+window, whether native capture/menu mode persists, and whether DOM focus fails
+before, during, or after the category-to-title transition. None of those outcomes
+has yet been observed in a new failure capture.
+
+Validation: all **114 scoped Electron Node tests** passed, including the actual
+Windows PowerShell helper, privacy/schema rejection, bounded select sampling,
+cleanup, per-event focus transitions, and incident-snapshot waiting/timeout
+coverage. The unsigned 44.9.1 dev shell was rebuilt successfully. Against the
+existing port-5000 development data, a routed-input check selected a real
+milestone and task category, clicked the title, and entered a character. It
+retained focus and produced native select/followup snapshots with successful
+GUI-thread reads. Find rendered at 72 px below the 60 px shell chrome. No note
+or remote task was saved; the validation draft was removed. The temporary
+loopback debugging shell was closed and its endpoint removed before normal
+relaunch. This validates instrumentation, not reproduction or resolution of the
+intermittent failure.
 
 ### Separate Save Note failure and draft loss
 

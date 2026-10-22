@@ -10,10 +10,12 @@ const LOG_FILES = 3;
 const MAX_EVENTS = 64;
 const TARGET_IDS = new Set([
   'editor', 'content', 'task_subject', 'task_description', 'task_category', 'task_due_date',
-  'engTaskTitle', 'engTaskDescription', 'salesbuddy-find-bar', 'sb-shell-menubar',
+  'engTaskTitle', 'engTaskDescription', 'modal_task_category',
+  'salesbuddy-find-bar', 'sb-shell-menubar',
 ]);
 const EVENT_TYPES = new Set([
-  'focus', 'blur', 'focusin', 'focusout', 'pointerdown', 'keydown', 'beforeinput', 'input',
+  'focus', 'blur', 'focusin', 'focusout', 'pointerdown', 'pointerup', 'keydown', 'keyup',
+  'beforeinput', 'input', 'change',
   'compositionstart', 'compositionend', 'visibilitychange', 'heartbeat', 'snapshot', 'pagehide',
 ]);
 const TAGS = new Set([
@@ -26,6 +28,25 @@ const INPUT_TYPES = new Set([
   'color', 'month', 'week', 'reset',
 ]);
 const AREAS = new Set(['note-editor', 'milestone-task', 'shell-find', 'shell-menu', 'other']);
+const SELECT_EVENTS = new Set(['pointerdown', 'keydown', 'change', 'focusout']);
+const WINDOW_CLASSES = new Set([
+  'Chrome_WidgetWin_0', 'Chrome_WidgetWin_1', 'Chrome_RenderWidgetHostHWND',
+  '#32768', '#32770', 'ComboLBox', 'tooltips_class32', 'none', 'unavailable', 'other',
+]);
+
+function cleanGuiState(value) {
+  if (!value || typeof value.available !== 'boolean'
+      || !Number.isSafeInteger(value.error) || value.error < 0
+      || !Number.isSafeInteger(value.flags) || value.flags < 0) return null;
+  const result = {available: value.available, error: value.error, flags: value.flags};
+  for (const key of [
+    'activeHandle', 'focusHandle', 'captureHandle', 'menuOwnerHandle', 'moveSizeHandle',
+  ]) {
+    if (typeof value[key] !== 'string' || !/^\d{1,20}$/.test(value[key])) return null;
+    result[key] = value[key];
+  }
+  return result;
+}
 
 function cleanTarget(target) {
   if (!target || !TAGS.has(target.tag) || !INPUT_TYPES.has(target.type)
@@ -52,10 +73,14 @@ function cleanBatch(batch) {
   const events = [];
   for (const event of batch.events) {
     const target = cleanTarget(event?.target);
+    const active = cleanTarget(event?.active);
     if (!target || !EVENT_TYPES.has(event.type) || !Number.isSafeInteger(event.at)
         || event.at < 0 || !Number.isSafeInteger(event.count) || event.count < 1
-        || event.count > 1000000) return null;
-    events.push({type: event.type, at: event.at, count: event.count, target});
+        || event.count > 1000000 || typeof event.focused !== 'boolean' || !active) return null;
+    events.push({
+      type: event.type, at: event.at, count: event.count, target,
+      focused: event.focused, active,
+    });
   }
   return {
     focused: batch.focused, visibility: batch.visibility, active, events,
@@ -131,7 +156,7 @@ function createNativeProbe(record, log, {
   function fail(reason, failure = 'protocol') {
     if (stopped || unavailable) return;
     unavailable = true;
-    for (const item of pending.values()) cancel(item.timer);
+    for (const item of pending.values()) { cancel(item.timer); item.resolve(); }
     pending.clear();
     log(`Windows input focus probe unavailable: ${reason}`);
     record({source: 'native', event: 'unavailable', failure});
@@ -152,10 +177,16 @@ function createNativeProbe(record, log, {
         const data = JSON.parse(line);
         const request = pending.get(data.id);
         if (!request) throw new Error('unexpected probe response');
-        if (!['windowHandle', 'foregroundHandle', 'ownerHandle'].every(
+        const windowGui = cleanGuiState(data.windowGui);
+        const foregroundGui = cleanGuiState(data.foregroundGui);
+        if (!['windowHandle', 'foregroundHandle', 'ownerHandle',
+          'foregroundOwnerHandle', 'foregroundRootOwnerHandle'].every(
           key => typeof data[key] === 'string' && /^\d{1,20}$/.test(data[key]))
           || !['enabled', 'foregroundIsSelf'].every(key => typeof data[key] === 'boolean')
           || !Number.isSafeInteger(data.foregroundPid) || data.foregroundPid < 0
+          || !['windowThreadId', 'foregroundThreadId'].every(
+            key => Number.isSafeInteger(data[key]) && data[key] >= 0)
+          || !WINDOW_CLASSES.has(data.foregroundClass) || !windowGui || !foregroundGui
           || !Number.isSafeInteger(data.capturedAt) || data.capturedAt < 0) {
           throw new Error('invalid probe response');
         }
@@ -166,8 +197,14 @@ function createNativeProbe(record, log, {
           requestedAt: request.at, capturedAt: data.capturedAt,
           windowHandle: data.windowHandle, foregroundHandle: data.foregroundHandle,
           ownerHandle: data.ownerHandle, foregroundPid: data.foregroundPid,
+          foregroundOwnerHandle: data.foregroundOwnerHandle,
+          foregroundRootOwnerHandle: data.foregroundRootOwnerHandle,
+          foregroundClass: data.foregroundClass,
+          windowThreadId: data.windowThreadId, foregroundThreadId: data.foregroundThreadId,
+          windowGui, foregroundGui,
           enabled: data.enabled, foregroundIsSelf: data.foregroundIsSelf,
         });
+        request.resolve();
       } catch (error) { fail(error.message); }
     }
   });
@@ -180,12 +217,14 @@ function createNativeProbe(record, log, {
     const at = Date.now();
     const timer = schedule(() => fail('probe response timed out', 'timeout'), 5000);
     timer.unref?.();
-    pending.set(id, {window: win.id, event, at, timer});
-    child.stdin.write(JSON.stringify({id, hwnd}) + '\n');
+    return new Promise(resolve => {
+      pending.set(id, {window: win.id, event, at, timer, resolve});
+      child.stdin.write(JSON.stringify({id, hwnd}) + '\n');
+    });
   }
   function stop() {
     stopped = true;
-    for (const request of pending.values()) cancel(request.timer);
+    for (const request of pending.values()) { cancel(request.timer); request.resolve(); }
     pending.clear();
     child.kill();
   }
@@ -196,6 +235,7 @@ function createInputFocusDiagnostics({
   app, port, logDir, log, versions = process.versions, gpuRendering,
   writer = createRotatingLog(logDir, log), nativeFactory = createNativeProbe,
   schedule = setInterval, cancel = clearInterval, now = Date.now,
+  delay = setTimeout, cancelDelay = clearTimeout,
 }) {
   const tracked = new Map();
   const subscriptions = [];
@@ -215,7 +255,7 @@ function createInputFocusDiagnostics({
     removals.push(() => emitter.removeListener(event, handler));
   }
   record({
-    source: 'main', event: 'session-start', pid: process.pid, gpuRendering,
+    source: 'main', event: 'session-start', schemaVersion: 2, pid: process.pid, gpuRendering,
     electron: versions.electron, chrome: versions.chrome, node: versions.node,
   });
   for (const event of ['browser-window-focus', 'browser-window-blur']) {
@@ -239,14 +279,18 @@ function createInputFocusDiagnostics({
     if (stopped || tracked.has(win.id)) return;
     const wc = win.webContents;
     const removals = [];
+    const delayedCaptures = new Set();
     const on = (emitter, event, handler) => listen(emitter, event, handler, removals);
     const dispose = () => {
+      for (const timer of delayedCaptures) cancelDelay(timer);
+      delayedCaptures.clear();
       for (const remove of removals) remove();
       removals.length = 0;
       tracked.delete(win.id);
     };
     const item = {
       win, dispose, keyboard: 0, pointer: 0, lastRendererAt: null, rateAt: now(), rate: 0,
+      lastSelectAt: -Infinity, documentFocused: null,
     };
     tracked.set(win.id, item);
     record({source: 'main', event: 'window-created', window: win.id, state: state(win)});
@@ -297,7 +341,21 @@ function createInputFocusDiagnostics({
         return;
       }
       item.lastRendererAt = time;
+      item.documentFocused = batch.focused;
       record({source: 'renderer', window: win.id, state: state(win), ...batch});
+      if (time - item.lastSelectAt >= 1000 && batch.events.some(event =>
+        event.target.tag === 'SELECT' && SELECT_EVENTS.has(event.type))) {
+        item.lastSelectAt = time;
+        native.capture(win, 'select-interaction');
+        for (const milliseconds of [250, 1000]) {
+          const timer = delay(() => {
+            delayedCaptures.delete(timer);
+            if (!win.isDestroyed()) native.capture(win, `select-followup-${milliseconds}`);
+          }, milliseconds);
+          timer?.unref?.();
+          delayedCaptures.add(timer);
+        }
+      }
     });
   }
 
@@ -311,19 +369,25 @@ function createInputFocusDiagnostics({
       });
       item.keyboard = 0;
       item.pointer = 0;
+      if (item.documentFocused === false && item.win.isFocused()) {
+        native.capture(item.win, 'focus-mismatch');
+      }
     }
   }, 15000);
   timer?.unref?.();
 
-  function markIncident() {
+  async function markIncident() {
     const saved = record({source: 'main', event: 'incident-marker'});
+    const captures = [];
     for (const {win} of tracked.values()) {
       if (win.isDestroyed()) continue;
       record({source: 'main', event: 'incident-window', window: win.id, state: state(win)});
-      native.capture(win, 'incident');
+      captures.push(native.capture(win, 'incident'));
       win.webContents.send(SNAPSHOT_CHANNEL);
     }
     if (!saved) throw new Error('The input focus diagnostic log could not be written.');
+    // Finish sampling before the Save dialog itself can change native focus.
+    await Promise.all(captures);
   }
   function shutdown() {
     if (stopped) return;
