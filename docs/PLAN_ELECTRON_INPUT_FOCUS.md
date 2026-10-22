@@ -1,7 +1,7 @@
 # Plan: Diagnose Intermittent Electron Input Focus Loss
 
-**Status:** Phase 1 implemented and validated in dev; production incident capture pending
-**Last updated:** 2026-10-21
+**Status:** Production focus failure captured; native-dialog return path under investigation
+**Last updated:** 2026-10-22
 
 ## Goal
 
@@ -26,6 +26,61 @@ shell or Windows focus integration rather than adding page-specific workarounds.
 - Ben reports that it happens more often while filling out **Create Task on
   Milestone**, after leaving the customer note's main text editor. Alt+Tab away
   and back restores typing in those episodes too.
+
+## October 22 production incident findings
+
+The tester exported `SalesBuddy-input-focus-2026-10-22T14-11-57-280Z.jsonl`
+after adjusting a milestone task category, failing to focus the task title, and
+recovering focus by switching away and back. Times below are UTC.
+
+| Time | Captured evidence |
+| --- | --- |
+| 14:11:28 | The main window becomes disabled and loses foreground to another handle in the same Sales Buddy process, strongly suggesting a native modal dialog. |
+| 14:11:32 | Windows foreground and Electron window/WebContents focus return, but the renderer reports `document.hasFocus() === false`. A roughly four-second renderer delay spans the interruption. |
+| 14:11:34-44 | Pointer events reach enabled, writable text inputs, including `task_subject`. Active elements change without normal `focus`/`focusin` events. The task category select still emits input events. Subsequent renderer delays are only 0-8 ms, with no dropped diagnostic events. |
+| 14:11:46-52 | Foreground moves to another process and back, consistent with the reported Alt+Tab recovery. Normal document and task-title focus events return. No subsequent text-entry attempt is captured before export. |
+| 14:11:57 | The export incident marker is recorded after focus recovery. |
+
+This is strong evidence of a desynchronized Electron/Chromium focus chain after
+a native-dialog-like interruption, not a sustained renderer freeze or a disabled
+task title. The capture contains no renderer/GPU crash or unresponsive event.
+It does not identify the dialog, establish which keys were attempted, or prove
+that a particular `alert()`/`confirm()` caller caused the failure.
+
+The native probe's `ownerHandle` is the owner of the tracked main window, not
+the owner of the foreground handle. A zero owner does not rule out an owned
+dialog. Background-window timer throttling must not be classified as a stall.
+
+### Separate Save Note failure and draft loss
+
+The tester also reported that Save Note could not be activated after creating
+the milestone task; Alt+Tab did not help. A second capture was reported but was
+not available for this investigation. Treat that save failure as undiagnosed,
+not automatically another instance of the captured focus mismatch.
+
+Cancel then removed the note's recovery copy. Current `cancelNote()` deliberately
+clears the local draft and suppresses unload saving. Commit `fc3f231c` introduced
+this on March 23 to prevent stale drafts after cancelling an existing-note edit,
+but applied it to new-note cancellation too. Independently created engagements
+and MSX tasks can survive without a saved note, explaining an engagement with
+zero associated notes without proving that a saved note was deleted.
+
+### Next steps
+
+1. Obtain the second capture and compare Save Note attempts with the focus
+   signature above. Capture console errors, button/status state, and whether a
+   note-save POST occurs, including its response. Do not export credentials or
+   unredacted HAR files.
+2. Prioritize dismissing native `alert()`/`confirm()` dialogs followed by task-title
+   input in a controlled Electron reproduction. Identify the actual dialog caller
+   before choosing a shell fix. A healthy browser test cannot rule this out.
+3. Keep focus investigation separate from note lifecycle protection: explicit Save,
+   non-destructive Close, explicit Discard, meaningful-change detection, recoverable
+   drafts, and draft cleanup only after confirmed note persistence.
+4. Until protection is improved, copy unsaved content before navigating after a
+   save failure. Do not use Cancel or Discard Draft as a recovery mechanism.
+5. Do not add page-specific focus loops, automatic Alt+Tab equivalents, or disable
+   GPU acceleration based on this capture.
 
 ## October 21 implementation checkpoint
 
