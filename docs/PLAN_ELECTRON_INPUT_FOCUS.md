@@ -1,6 +1,6 @@
 # Plan: Diagnose Intermittent Electron Input Focus Loss
 
-**Status:** Production focus failure captured; native-dialog return path under investigation
+**Status:** Matching upstream Electron fix identified; controlled upgrade comparison pending
 **Last updated:** 2026-10-22
 
 ## Goal
@@ -51,6 +51,65 @@ The native probe's `ownerHandle` is the owner of the tracked main window, not
 the owner of the foreground handle. A zero owner does not rule out an owned
 dialog. Background-window timer throttling must not be classified as a stall.
 
+### October 22 upstream fix discovery
+
+Electron's [PR 54380](https://github.com/electron/electron/pull/54380), merged
+September 26, addresses a closely matching Windows failure after JavaScript
+`alert()`, `confirm()`, or a beforeunload prompt. The native window reactivates
+before Chromium unblocks the renderer, leaving its native view focused but its
+Blink widget blurred and its text-input/IME client detached. Deactivating and
+reactivating the window restores input.
+
+The upstream author reproduced `document.hasFocus() === false` after dismissal
+and verified actual keyboard input on Windows 11. The fix reconciles the internal
+focus state after the renderer is unblocked, only when those states disagree.
+This is a much closer match to the captured foreground/WebContents/document
+disagreement than a generic suggestion to call `focus()` from page JavaScript.
+
+Verified release evidence:
+
+- The captured shell and repository lockfile use **Electron 40.10.6**.
+- [Electron 43.7.6 release notes](https://github.com/electron/electron/releases/tag/v43.7.6)
+  explicitly include the repair through
+  [PR 54462](https://github.com/electron/electron/pull/54462).
+- [Electron 44.5.0 release notes](https://github.com/electron/electron/releases/tag/v44.5.0)
+  explicitly include the same repair through
+  [PR 54461](https://github.com/electron/electron/pull/54461).
+- The original fix also has a merged 45.x backport. The initially closed
+  backport attempts are not the merged backports.
+- **43.8.3**, released October 21, is a concrete patched 43.x comparison target
+  as of this investigation. Do not assume updating within 40.x supplies the fix.
+
+The upstream symptom match is strong, but it does not prove which native
+interruption occurred in the tester's session, or resolve the separate Save Note
+failure. The next experiment should compare the existing runtime with a patched
+runtime before adding more production instrumentation or application workarounds.
+
+#### Controlled comparison
+
+1. Use the existing live development backend and actual note editor in the
+   development Electron shell, never the installed production backend. Preserve
+   unsaved work and keep the app dark.
+2. On 40.10.6, exercise a real native confirmation followed by Quill-to-task-title
+   input, plus category-to-title input. Include both dismissal choices and an
+   Alt+Tab while the native dialog is open. Do not create MSX tasks merely to test
+   typing.
+3. Record Windows activation, enabled state, WebContents focus, document focus,
+   and whether actual keyboard input changes the field. Programmatic value
+   assignment or a healthy browser-dev test is not a valid input test.
+4. Update the Electron manifest and lockfile to an exact patched comparison
+   version in a separate implementation step, run scoped shell tests, and rebuild
+   the development shell. Repeat the same cases, including app-owned dialogs,
+   Find, multiple windows, tray restore and external links.
+5. If the old build fails and the patched build passes, use the runtime upgrade
+   as the candidate fix and retain diagnostics for a representative tester trial.
+   A shell rebuild/restage and an Electron Shell Update changelog marker are
+   required; a backend update alone cannot ship this repair.
+6. If the mismatch persists, or neither build reproduces it, retain the candidate
+   status. Add privacy-safe dialog lifecycle/caller identification and foreground
+   window class/ownership evidence for the next capture. The current native probe
+   does not identify the foreground dialog or its owner.
+
 ### Separate Save Note failure and draft loss
 
 The tester also reported that Save Note could not be activated after creating
@@ -58,12 +117,18 @@ the milestone task; Alt+Tab did not help. A second capture was reported but was
 not available for this investigation. Treat that save failure as undiagnosed,
 not automatically another instance of the captured focus mismatch.
 
-Cancel then removed the note's recovery copy. Current `cancelNote()` deliberately
-clears the local draft and suppresses unload saving. Commit `fc3f231c` introduced
+Cancel then removed the note's recovery copy. At the time of the incident,
+`cancelNote()` deliberately cleared the local draft and suppressed unload saving.
+Commit `fc3f231c` introduced
 this on March 23 to prevent stale drafts after cancelling an existing-note edit,
 but applied it to new-note cancellation too. Independently created engagements
 and MSX tasks can survive without a saved note, explaining an engagement with
 zero associated notes without proving that a saved note was deleted.
+
+The approved note lifecycle changes are now committed locally in `df5ad522`.
+Close preserves meaningful unfinished work, explicit draft links open directly,
+and Discard is separate from saving or leaving. Save acknowledgements and retry
+protection reduce data-loss risk; they are not a fix for Electron focus loss.
 
 ### Next steps
 
@@ -71,14 +136,13 @@ zero associated notes without proving that a saved note was deleted.
    signature above. Capture console errors, button/status state, and whether a
    note-save POST occurs, including its response. Do not export credentials or
    unredacted HAR files.
-2. Prioritize dismissing native `alert()`/`confirm()` dialogs followed by task-title
-   input in a controlled Electron reproduction. Identify the actual dialog caller
-   before choosing a shell fix. A healthy browser test cannot rule this out.
-3. Keep focus investigation separate from note lifecycle protection: explicit Save,
-   non-destructive Close, explicit Discard, meaningful-change detection, recoverable
-   drafts, and draft cleanup only after confirmed note persistence.
-4. Until protection is improved, copy unsaved content before navigating after a
-   save failure. Do not use Cancel or Discard Draft as a recovery mechanism.
+2. Run the controlled old-versus-patched Electron comparison above. If it does
+   not explain the incident, identify the actual dialog caller with additional
+   diagnostics. A healthy browser test cannot rule this out.
+3. Keep the committed note lifecycle protection separate from focus recovery.
+   Validate the runtime change without weakening safe saves or recovery.
+4. Copy unsaved content if draft protection itself reports a failure. Close
+   preserves drafts in the new UX; Discard intentionally removes them.
 5. Do not add page-specific focus loops, automatic Alt+Tab equivalents, or disable
    GPU acceleration based on this capture.
 
