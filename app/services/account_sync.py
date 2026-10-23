@@ -4,7 +4,7 @@ import logging
 import math
 import queue
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from urllib.parse import urlparse
 from flask import current_app
@@ -13,7 +13,9 @@ from app.models import (
     Vertical, db, utc_now,
 )
 from app.services.msx_auth import is_vpn_blocked
-from app.services.msx_api import scan_init, query_entity, batch_query_account_teams, build_account_url
+from app.services.msx_api import (
+    scan_init, query_entity, batch_query_account_teams, build_account_url, get_user_info,
+)
 
 logger = logging.getLogger(__name__)
 ACCOUNT_SYNC_VERSION = 2
@@ -591,41 +593,19 @@ def sync_accounts_stream(source: str = 'accountteams', skip_aura: bool = False):
                 "progress": 88,
             })
 
-            alias_q: queue.Queue = queue.Queue()
-            alias_list = list(all_user_ids)
             alias_workers = min(_PARALLEL_WORKERS, alias_total)
-            alias_chunk_size = math.ceil(alias_total / alias_workers)
-            alias_chunks = [
-                alias_list[i:i + alias_chunk_size]
-                for i in range(0, alias_total, alias_chunk_size)
-            ]
-
-            def _resolve_aliases(ids, q):
-                for uid in ids:
-                    info = get_user_info(uid)
-                    q.put((uid, info))
-
             with ThreadPoolExecutor(max_workers=alias_workers) as pool:
-                for chunk in alias_chunks:
-                    pool.submit(_resolve_aliases, chunk, alias_q)
-
-                while alias_done < alias_total:
-                    try:
-                        uid, info = alias_q.get(timeout=60)
-                        alias_cache[uid] = info
-                        alias_done += 1
-                        if alias_done % 5 == 0 or alias_done == alias_total:
-                            yield _sse({
-                                "message": (
-                                    f"Resolving aliases "
-                                    f"({alias_done}/{alias_total})..."
-                                ),
-                                "progress": 88 + round(
-                                    (alias_done / alias_total) * 2
-                                ),
-                            })
-                    except queue.Empty:
-                        break
+                futures = {
+                    pool.submit(get_user_info, uid): uid
+                    for uid in all_user_ids
+                }
+                for future in as_completed(futures):
+                    alias_cache[futures[future]] = future.result()
+                    alias_done += 1
+                    yield _sse({
+                        "message": f"Resolving aliases ({alias_done}/{alias_total})...",
+                        "progress": 88 + round((alias_done / alias_total) * 2),
+                    })
 
         def _cached_alias(user_id):
             """Look up alias from pre-resolved cache."""
@@ -1156,7 +1136,7 @@ def sync_accounts_stream(source: str = 'accountteams', skip_aura: bool = False):
         # the account import completed. Fire-and-forget; aura manages
         # its own lock and idempotency so a concurrent scheduled run
         # is harmless.
-        if not _skip_post_import_aura:
+        if not _skip_post_import_aura and Customer.query.first() is not None:
             try:
                 from app.services.sync_jobs import admit_sync
                 admit_sync('meeting-aura', initiator='followup')

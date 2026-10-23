@@ -71,13 +71,20 @@ def test_status_read_reports_persistent_access_failure(client, monkeypatch, capl
 
 def test_conflicting_requests_wait_with_named_blocker(client):
     """The entire group is reserved while fetching, before any write starts."""
-    first = sync_jobs.admit_sync('meetings', {'date': '2026-10-14'})
-    second = sync_jobs.admit_sync('meeting-aura', {'anchor': '2026-10-14'})
-    assert job_queue.claim_next('one').id == first.id
-    assert job_queue.claim_next('two') is None
-    snapshot = client.get(f'/api/jobs/{second.id}').json['job']
-    assert snapshot['state'] == 'waiting_for_group'
-    assert snapshot['blocker'] == {'id': first.id, 'name': 'Meetings for a date'}
+    customer = Customer(name='Meeting Group Test Customer', tpid=999003)
+    db.session.add(customer)
+    db.session.commit()
+    try:
+        first = sync_jobs.admit_sync('meetings', {'date': '2026-10-14'})
+        second = sync_jobs.admit_sync('meeting-aura', {'anchor': '2026-10-14'})
+        assert job_queue.claim_next('one').id == first.id
+        assert job_queue.claim_next('two') is None
+        snapshot = client.get(f'/api/jobs/{second.id}').json['job']
+        assert snapshot['state'] == 'waiting_for_group'
+        assert snapshot['blocker'] == {'id': first.id, 'name': 'Meetings for a date'}
+    finally:
+        db.session.delete(customer)
+        db.session.commit()
 
 
 def test_independent_fetches_really_overlap_in_worker_loop(app, monkeypatch):
@@ -161,6 +168,75 @@ def test_background_writers_take_turns_while_status_and_heartbeats_stay_live(
     assert Job.query.filter_by(status='done').count() == 2
     assert sync_runtime.write_owner() is None
     assert Customer.query.filter(Customer.tpid.in_([123, 456])).count() == 2
+
+
+def test_milestones_and_revenue_fetch_together_and_serialize_sqlite_writes(
+    app, client, monkeypatch,
+):
+    """The exact onboarding pair overlaps source work but never SQLite transactions."""
+    customer = Customer(name='Concurrent Onboarding Test Customer', tpid=999004)
+    db.session.add(customer)
+    db.session.commit()
+    customer_id = customer.id
+    entered = {operation: threading.Event() for operation in ('milestones', 'revenue')}
+    writing = threading.Event()
+    release = threading.Event()
+    stop = threading.Event()
+    write_order = []
+
+    def run(operation, options):
+        """Stand in for remote reads, leaving claims, writes and outcomes real."""
+        entered[operation].set()
+        assert all(event.wait(5) for event in entered.values())
+        if operation == 'revenue':
+            assert writing.wait(5)
+        sync_jobs.publish_progress({'message': 'Source data fetched.', 'progress': 50})
+        row = db.session.get(Customer, customer_id)
+        row.nickname = operation
+        db.session.flush()
+        write_order.append(operation)
+        if operation == 'milestones':
+            writing.set()
+            assert release.wait(10)
+        db.session.commit()
+        return {'success': True}
+
+    monkeypatch.setattr(sync_jobs, '_execute_operation', run)
+    milestone_job = sync_jobs.admit_sync('milestones')
+    revenue_job = sync_jobs.admit_sync('revenue')
+    loop = threading.Thread(target=job_queue.run_worker_loop, kwargs={
+        'app': app, 'stop_event': stop, 'poll_interval': 0.02}, daemon=True)
+    loop.start()
+    try:
+        assert all(event.wait(5) for event in entered.values())
+        assert writing.wait(5)
+        db.session.refresh(revenue_job)
+        wait_until(lambda: (sync_runtime.read(revenue_job) or {}).get('waiting_for_write'))
+        snapshot = client.get(f'/api/jobs/{revenue_job.id}').json['job']
+        assert snapshot['state'] == 'waiting_for_write'
+        assert snapshot['blocker']['id'] == milestone_job.id
+        assert snapshot['blocker']['name'] == 'Milestones'
+        assert snapshot['progress']['message'] == 'Source data fetched.'
+        assert write_order == ['milestones']
+    finally:
+        release.set()
+        stop.set()
+        loop.join(10)
+
+    def completed():
+        """Observe both terminal worker outcomes before checking durable data."""
+        db.session.expire_all()
+        return all(db.session.get(Job, job.id).status == 'done'
+                   for job in (milestone_job, revenue_job))
+
+    try:
+        wait_until(completed)
+        assert write_order == ['milestones', 'revenue']
+        assert db.session.get(Customer, customer_id).nickname == 'revenue'
+        assert sync_runtime.write_owner() is None
+    finally:
+        db.session.delete(db.session.get(Customer, customer_id))
+        db.session.commit()
 
 
 def test_fresh_file_heartbeat_prevents_false_stale_recovery():

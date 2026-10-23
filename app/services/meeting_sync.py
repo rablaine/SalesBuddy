@@ -438,6 +438,13 @@ def _should_prefetch_today() -> bool:
     return row is None
 
 
+def _has_meeting_customers() -> bool:
+    """Defer automatic meeting work until accounts exist for matching."""
+    from app.models import Customer
+
+    return Customer.query.first() is not None
+
+
 def _run_sync(app) -> None:
     """Run the morning aura sync (today + next 7 weekdays).
 
@@ -446,6 +453,9 @@ def _run_sync(app) -> None:
     """
     try:
         with app.app_context():
+            if not _has_meeting_customers():
+                logger.info("Automatic meeting sync deferred until accounts are imported")
+                return
             from app.services.sync_jobs import admit_sync
             admit_sync('meeting-aura', initiator='scheduled')
     except Exception:
@@ -461,6 +471,9 @@ def _run_prefetch_only(app) -> None:
     """
     try:
         with app.app_context():
+            if not _has_meeting_customers():
+                logger.info("Automatic meeting prefetch deferred until accounts are imported")
+                return
             from app.services.sync_jobs import admit_sync
             today_str = date.today().strftime('%Y-%m-%d')
             admit_sync('meetings', {'date': today_str}, initiator='scheduled')
@@ -579,6 +592,10 @@ def start_meeting_sync_background(app) -> None:
     the "first run of the day" case and the "user just installed and has
     no future-day data yet" case.
     """
+    with app.app_context():
+        if not _has_meeting_customers():
+            logger.info("Startup meeting sync deferred until accounts are imported")
+            return
     if _aura_needs_run(app):
         logger.info("Aura window incomplete at startup, kicking off background sync")
         thread = threading.Thread(target=_run_sync, args=(app,), daemon=True)

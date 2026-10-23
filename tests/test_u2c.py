@@ -858,6 +858,10 @@ class TestImportOfficialRoute:
         """Observe admission separately from execution and its persisted result."""
         from app.services.job_queue import process_one
 
+        with app.app_context():
+            if Territory.query.first() is None:
+                db.session.add(Territory(name='East.SMECC.MAA.0101'))
+                db.session.commit()
         response = client.post('/api/reports/u2c/import-official', json={})
         assert response.status_code == 202
         with app.app_context():
@@ -926,6 +930,131 @@ class TestTerritoryCodes:
 
 class TestScheduledU2CImport:
     """The daily scheduler hook that refreshes the official baseline."""
+
+    @pytest.fixture(autouse=True)
+    def territory_scope(self, app):
+        """Supply the configured scope required for a real source attempt."""
+        with app.app_context():
+            territory = Territory(name='East.SMECC.MAA.0101')
+            db.session.add(territory)
+            db.session.commit()
+            return territory
+
+    def test_empty_setup_does_not_admit_or_record_an_attempt(self, app, territory_scope):
+        """Startup before account import waits without creating failure cooldowns."""
+        from app.models import Job, SyncStatus
+        from app.services.scheduled_sync import _run_daily_scheduler_cycle
+
+        with app.app_context():
+            db.session.delete(territory_scope)
+            db.session.commit()
+        _run_daily_scheduler_cycle(app)
+        with app.app_context():
+            assert Job.query.count() == 0
+            assert SyncStatus.query.filter_by(sync_type='u2c_import').first() is None
+
+    @pytest.mark.parametrize('legacy_setup_failure', [False, True])
+    def test_milestone_followup_imports_when_territories_become_ready(
+        self, app, monkeypatch, territory_scope, legacy_setup_failure,
+    ):
+        """Fresh setup and old premature failures recover without a forced manual retry."""
+        from app.models import Job, SyncStatus
+        from app.services import job_queue, scheduled_sync, sync_jobs
+        from app.services.u2c_pull import TERRITORIES_REQUIRED_ERROR
+
+        fake = FakeMsxi(current_fiscal_quarter(), {'20260915': 5000.0}).install(monkeypatch)
+        execute = sync_jobs._execute_operation
+
+        def run(operation, options):
+            """Keep real U2C execution while replacing unrelated remote sources."""
+            return execute(operation, options) if operation == 'u2c' else {'success': True}
+
+        monkeypatch.setattr(sync_jobs, '_execute_operation', run)
+        with app.app_context():
+            db.session.delete(territory_scope)
+            db.session.commit()
+            if legacy_setup_failure:
+                SyncStatus.mark_started('u2c_import')
+                SyncStatus.mark_completed('u2c_import', success=False, details=json.dumps({
+                    'outcome': 'broken', 'error': TERRITORIES_REQUIRED_ERROR,
+                }))
+            assert scheduled_sync._u2c_import_due() is False
+            scheduled_sync._run_u2c_import()
+            assert Job.query.count() == 0
+            db.session.add_all([
+                Territory(name='East.SMECC.MAA.0101'),
+                Customer(name='Ready account', tpid=991),
+            ])
+            db.session.commit()
+            assert scheduled_sync._u2c_import_due() is True
+            sync_jobs.admit_sync('milestones')
+            for _ in range(4):
+                job_queue.process_one('test-worker')
+            job = Job.query.filter_by(job_type='sync:u2c').one()
+            assert job.initiator == 'followup'
+            assert json.loads(job.payload) == {'force': False}
+            assert job.status == 'done'
+            assert json.loads(job.result)['outcome'] == 'imported'
+            assert U2CSnapshot.query.count() == 1
+            assert SyncStatus.get_status('u2c_import')['state'] == 'complete'
+            assert scheduled_sync._u2c_import_due() is False
+        assert fake.calls
+
+    @pytest.mark.parametrize('success,reason', [
+        (False, 'retry_cooldown'), (True, 'up_to_date'),
+    ])
+    def test_skip_is_explicit_and_preserves_source_attempt(
+        self, app, monkeypatch, success, reason,
+    ):
+        """A skipped worker run cannot fabricate source success or reset its cadence."""
+        from app.models import Job, SyncStatus
+        from app.services import job_queue, scheduled_sync, sync_jobs
+
+        fake = FakeMsxi(current_fiscal_quarter(), {'20260915': 5000.0}).install(monkeypatch)
+        with app.app_context():
+            SyncStatus.mark_started('u2c_import')
+            SyncStatus.mark_completed('u2c_import', success=success, details=json.dumps({
+                'outcome': 'unchanged' if success else 'broken',
+                'error': None if success else 'gateway down',
+            }))
+            status = SyncStatus.query.filter_by(sync_type='u2c_import').one()
+            completed = status.completed_at
+            job = sync_jobs.admit_sync('u2c', {'force': False})
+            job_queue.process_one('test-worker')
+            db.session.refresh(job)
+            assert job.status == Job.STATUS_DONE
+            result = json.loads(job.result)
+            assert result['skipped'] is True
+            assert result['reason'] == reason
+            assert ('last U2C import succeeded' if success else
+                    'previous U2C import failed') in result['message']
+            db.session.refresh(status)
+            assert status.success is success
+            assert status.completed_at == completed
+            assert scheduled_sync._u2c_import_due() is False
+            scheduled_sync._run_u2c_import()
+            assert Job.query.count() == 1
+        assert fake.calls == []
+
+    def test_manual_retry_can_bypass_a_genuine_failure_cooldown(self, app, monkeypatch):
+        """An explicit forced refresh still works before the automatic retry is due."""
+        from app.models import SyncStatus
+        from app.services import job_queue, scheduled_sync, sync_jobs
+
+        fake = FakeMsxi(current_fiscal_quarter(), {'20260915': 5000.0}).install(monkeypatch)
+        with app.app_context():
+            SyncStatus.mark_started('u2c_import')
+            SyncStatus.mark_completed('u2c_import', success=False, details=json.dumps({
+                'outcome': 'broken', 'error': 'gateway down',
+            }))
+            assert scheduled_sync._u2c_import_due() is False
+            job = sync_jobs.admit_sync('u2c', {'force': True})
+            job_queue.process_one('test-worker')
+            db.session.refresh(job)
+            assert job.status == 'done'
+            assert json.loads(job.result)['outcome'] == 'imported'
+            assert SyncStatus.get_status('u2c_import')['state'] == 'complete'
+        assert fake.calls
 
     def test_due_when_never_run(self, app):
         from app.services.scheduled_sync import _u2c_import_due

@@ -67,7 +67,7 @@ def _selected_buckets(preference: UserPreference | None) -> list[str]:
 
 
 def get_setup_state(reference: date | None = None) -> dict[str, Any]:
-    """Return whether annual FY27 Data priorities are confirmed."""
+    """Require annual FY27 compensation choices for SEs, not sellers."""
     preference = UserPreference.query.first()
     selected = _selected_buckets(preference)
     available = sorted(
@@ -76,6 +76,9 @@ def get_setup_state(reference: date | None = None) -> dict[str, Any]:
         if bucket
     )
     fiscal_year = current_fiscal_year_label(reference)
+    is_seller = bool(preference and preference.user_role == 'dss')
+    if is_seller:
+        selected = available
     unavailable_selected = [bucket for bucket in selected if bucket not in available]
     confirmed_version = (
         preference.compensated_buckets_confirmed_taxonomy_version
@@ -89,17 +92,17 @@ def get_setup_state(reference: date | None = None) -> dict[str, Any]:
     reasons = []
     if fiscal_year != FY27_DATA_SCOPE['fiscal_year']:
         reasons.append('This v1 report is configured for FY27 Data priorities.')
-    if not selected:
+    if not is_seller and not selected:
         reasons.append('Select at least one compensation bucket.')
-    if confirmed_fiscal_year != fiscal_year:
+    if not is_seller and confirmed_fiscal_year != fiscal_year:
         reasons.append(f'Confirm priorities for {fiscal_year}.')
-    if confirmed_version != taxonomy_version:
+    if not is_seller and confirmed_version != taxonomy_version:
         reasons.append('Review priorities against the current MSXI bucket taxonomy.')
-    if unavailable_selected:
+    if not is_seller and unavailable_selected:
         reasons.append(
             f"Remove unavailable buckets: {', '.join(unavailable_selected)}."
         )
-    if not available:
+    if not is_seller and not available:
         reasons.append('Import or sync revenue data before configuring priorities.')
 
     return {

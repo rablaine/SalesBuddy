@@ -8,8 +8,49 @@ import pytest
 import requests
 from bs4 import BeautifulSoup
 
-from app.models import Customer, Job, JobEvent, SyncStatus, UserPreference, db
+from app.models import Customer, Job, JobEvent, SyncStatus, Territory, UserPreference, db
 from app.services import job_queue, sync_jobs
+
+
+@pytest.mark.parametrize('initiator', ['manual', 'scheduled', 'followup'])
+def test_meeting_aura_requires_customers_before_admission(app, monkeypatch, initiator):
+    """Every launcher rejects a missing account prerequisite before creating a failed job."""
+    from types import SimpleNamespace
+
+    with app.app_context():
+        monkeypatch.setattr(Customer, 'query', SimpleNamespace(first=lambda: None))
+        before = Job.query.count()
+        with pytest.raises(sync_jobs.SyncAdmissionError, match='Import accounts first'):
+            sync_jobs.admit_sync('meeting-aura', initiator=initiator)
+        assert Job.query.count() == before
+
+
+@pytest.mark.parametrize('initiator', ['manual', 'scheduled', 'followup'])
+@pytest.mark.parametrize('territory_name', [None, '   '])
+def test_u2c_requires_valid_territories_before_admission(initiator, territory_name):
+    """No launcher creates a failed U2C job while territory setup is incomplete."""
+    if territory_name is not None:
+        db.session.add(Territory(name=territory_name))
+        db.session.commit()
+    with pytest.raises(sync_jobs.SyncAdmissionError, match='No territories configured'):
+        sync_jobs.admit_sync('u2c', initiator=initiator)
+    assert Job.query.count() == 0
+    assert SyncStatus.query.filter_by(sync_type='u2c_import').first() is None
+
+
+def test_u2c_rechecks_territories_in_the_worker(executor):
+    """Queued work cannot run against a scope removed after admission."""
+    territory = Territory(name='East.SMECC.MAA.0101')
+    db.session.add(territory)
+    db.session.commit()
+    job = sync_jobs.admit_sync('u2c')
+    db.session.delete(territory)
+    db.session.commit()
+    job_queue.process_one('test-worker')
+    db.session.refresh(job)
+    assert job.status == 'failed'
+    assert 'No territories configured' in job.last_error
+    assert executor == []
 
 
 @pytest.fixture
@@ -408,6 +449,8 @@ def test_original_sync_routes_admit_and_observe_same_job(
     """Every original JSON launcher admits one durable job without executing inline."""
     customer = Customer(name='Adapter customer', tpid=12345, tpid_url='https://example.test/msx')
     db.session.add(customer)
+    if operation == 'u2c':
+        db.session.add(Territory(name='East.SMECC.MAA.0101'))
     db.session.commit()
     response = client.post(url.format(id=customer.id), json=payload)
     assert response.status_code == 202
@@ -531,17 +574,24 @@ def test_calendar_failure_before_checkpoint_is_visible_after_returning(client):
 
 def test_meeting_status_card_observes_running_job_before_newer_queued_window(client):
     """The global status card follows the actual source fetch instead of its queued successor."""
-    running = sync_jobs.admit_sync('meeting-aura', {'anchor': '2026-10-14'})
-    running.status = Job.STATUS_RUNNING
-    running.progress_json = json.dumps({'message': 'Fetching five meeting dates.'})
-    running.heartbeat_at = job_queue._now()
+    customer = Customer(name='Meeting Status Test Customer', tpid=999002)
+    db.session.add(customer)
     db.session.commit()
-    queued = sync_jobs.admit_sync('meeting-aura', {'anchor': '2026-10-15'})
-    assert queued.id > running.id
-    status = client.get('/api/meetings/sync-status').json
-    assert status['running'] is True
-    assert status['job_id'] == running.id
-    assert status['job']['progress']['message'] == 'Fetching five meeting dates.'
+    try:
+        running = sync_jobs.admit_sync('meeting-aura', {'anchor': '2026-10-14'})
+        running.status = Job.STATUS_RUNNING
+        running.progress_json = json.dumps({'message': 'Fetching five meeting dates.'})
+        running.heartbeat_at = job_queue._now()
+        db.session.commit()
+        queued = sync_jobs.admit_sync('meeting-aura', {'anchor': '2026-10-15'})
+        assert queued.id > running.id
+        status = client.get('/api/meetings/sync-status').json
+        assert status['running'] is True
+        assert status['job_id'] == running.id
+        assert status['job']['progress']['message'] == 'Fetching five meeting dates.'
+    finally:
+        db.session.delete(customer)
+        db.session.commit()
 
 
 def test_manual_and_headless_duplicate_share_identity(client):
@@ -843,6 +893,8 @@ def test_domain_guard_does_not_confuse_its_own_job_with_another_sync(
 ):
     """A source's cadence/full-import guards must not reject their current queue owner."""
     db.session.add(Customer(name='Guard scope', tpid=991))
+    if operation == 'u2c':
+        db.session.add(Territory(name='East.SMECC.MAA.0101'))
     db.session.commit()
     SyncStatus.mark_started(legacy)
     SyncStatus.mark_completed(legacy, success=True)

@@ -8,6 +8,24 @@ const source = fs.readFileSync(path.join(__dirname, '../../static/js/ui-home-cal
 const template = fs.readFileSync(path.join(__dirname, '../../templates/index.html'), 'utf8');
 const css = fs.readFileSync(path.join(__dirname, '../../static/css/ui-home-calendar.css'), 'utf8');
 
+for (const firstRun of [true, false, null]) {
+    test(`meeting refresh observation respects first-run setup (${firstRun})`, async () => {
+        let reads = 0;
+        const context = {
+            document: {getElementById: id => {
+                assert.equal(id, 'welcomeModal');
+                return firstRun === null ? null : {dataset: {sbAutoOpen: String(firstRun)}};
+            }},
+            meetingRefresh: {check: async () => { reads++; }},
+        };
+        const start = template.indexOf('    function checkAuraSync()');
+        const end = template.indexOf('    // Reload drafts', start);
+        vm.runInNewContext(template.slice(start, end), context);
+        await context.checkAuraSync();
+        assert.equal(reads, firstRun ? 0 : 1);
+    });
+}
+
 function fixture() {
     const all = [];
     function element(tag = 'div') {

@@ -62,6 +62,7 @@ class TestOnboardingWizardDisplay:
         # Step 1: welcome, theme, and sign-in all on one screen
         assert "get you set up" in html.lower()
         assert 'onboardDarkModeToggle' in html
+        assert 'onboardThemeFamily' in html
         assert 'Connect to MSX' in html
         assert 'startSignInBtn' in html
         assert 'Sign In to Azure' in html
@@ -87,13 +88,28 @@ class TestOnboardingWizardDisplay:
         assert 'onboardNextBtn' in html
         assert 'onboardBackBtn' in html
 
-    def test_onboarding_progress_bar(self, client, app):
-        """Verify progress bar and step badge exist."""
-        response = client.get('/')
-        html = response.data.decode('utf-8')
-        assert 'onboardingProgress' in html
-        assert 'onboardingStepBadge' in html
-        assert 'Step 1 of 2' in html
+    def test_onboarding_step_label_and_import_progress(self, client, app):
+        """Step count stays at the header's right; only imports have progress bars."""
+        from bs4 import BeautifulSoup
+
+        soup = BeautifulSoup(client.get('/').data, 'html.parser')
+        header = soup.select_one('#welcomeModal .sb-dialog-header')
+        assert header.select_one(':scope > #onboardingStepBadge').get_text() == 'Step 1 of 2'
+        assert header.select_one('.sb-dialog-heading #setupWizardEyebrow')
+        theme_row = soup.select_one('.sb-setup-theme')
+        assert theme_row.select_one('.sb-setup-theme-copy h3 label[for="onboardThemeFamily"]')
+        assert [
+            child.get('class') for child in theme_row.find_all(recursive=False)
+        ] == [
+            ['sb-setup-theme-copy'],
+            ['sb-record-field', 'sb-setup-theme-picker'],
+            ['sb-theme-switch'],
+        ]
+        body = soup.select_one('#welcomeModal .sb-dialog-body')
+        assert not body.select(':scope > .sb-setup-progress')
+        assert not body.select_one('#onboardingStep1 [role="progressbar"]')
+        for phase in ('Accounts', 'Milestones', 'Revenue'):
+            assert body.select_one(f'#phase{phase}Bar')
 
 
 class TestDismissWelcomeModalEndpoint:
@@ -771,11 +787,11 @@ class TestWizardResumeLogic:
         assert 'initWizard();' in html
 
     def test_wizard_has_import_helpers(self, client, app):
-        """Step 2 needs helpers to drive phase rows and weight the progress bar."""
+        """Step 2 retains individual phase progress and resumable import state."""
         response = client.get('/')
         html = response.data.decode('utf-8')
         assert 'function setPhaseState(' in html
-        assert 'function importProgressPct()' in html
+        assert 'function setPhaseProgress(' in html
         assert 'function hydrateImportState()' in html
         # Per-step skipping is gone now that one button drives everything.
         assert 'function nextIncompleteStep()' not in html
@@ -816,18 +832,23 @@ class TestWizardImportStep:
         html = response.data.decode('utf-8')
         assert 'const ready = accountsImported || await runAccounts();' in html
 
-    def test_milestones_and_revenue_run_one_at_a_time(self, client, app):
-        """Concurrent SQLite writers risk 'database is locked' on slower disks."""
+    def test_milestones_and_revenue_run_together_after_accounts(self, client, app):
+        """Independent syncs overlap while the shared worker serializes their writes."""
         response = client.get('/')
         html = response.data.decode('utf-8')
-        assert 'if (!milestonesImported) await runMilestones();' in html
-        assert 'if (!revenueImported) await runRevenue();' in html
-        # No fan-out - the two heavy writes must never overlap
-        assert 'Promise.allSettled' not in html
-        assert 'Promise.all(' not in html
+        assert 'if (!milestonesImported) imports.push(runMilestones());' in html
+        assert 'if (!revenueImported) imports.push(runRevenue());' in html
+        assert 'await Promise.all(imports);' in html
+        assert 'then milestones and revenue together' in html
+
+    def test_completed_imports_scroll_the_dialog_to_setup_selections(self, client, app):
+        """The modal's own scroll area brings the post-sync selections into view."""
+        html = client.get('/').data.decode('utf-8')
+        assert 'class="sb-dialog-body" id="onboardingBody"' in html
+        assert 'body.scrollTop = body.scrollHeight;' in html
 
     def test_wizard_has_no_skip_button(self, client, app):
-        """Skip is gone - Finish itself is the 'skip revenue' path."""
+        """Required setup choices cannot be bypassed with a Skip button."""
         response = client.get('/')
         html = response.data.decode('utf-8')
         assert 'onboardSkipStepBtn' not in html
@@ -837,10 +858,12 @@ class TestWizardImportStep:
         response = client.get('/')
         html = response.data.decode('utf-8')
         assert 'const allDone = accountsImported && milestonesImported && revenueImported;' in html
-        assert 'nextBtn.disabled = !(allDone || escapeHatch);' in html
+        assert 'if (!reviewMode && !(allDone || escapeHatch))' in html
+        assert 'return getSeSetupBlockReason();' in html
+        assert 'nextBtn.disabled = Boolean(reason);' in html
 
     def test_failure_lets_the_user_out_after_accounts(self, client, app):
-        """A repeatedly failing sync must not trap them in the wizard."""
+        """Sync failures allow exit once the required SE choices are available."""
         response = client.get('/')
         html = response.data.decode('utf-8')
         assert 'const escapeHatch = accountsImported && importFailed && !importRunning;' in html
@@ -862,7 +885,7 @@ class TestWizardImportStep:
         """The import step warns about VPN once, not per phase."""
         response = client.get('/')
         html = response.data.decode('utf-8')
-        assert 'Requires VPN' in html
+        assert 'Requires VPN and usually takes a few minutes.' in html
 
     def test_revenue_tip_no_longer_asks_for_an_export(self, client, app):
         """The old tip walked through a CSV export; the sync needs no prep."""
@@ -872,12 +895,76 @@ class TestWizardImportStep:
         assert 'export your revenue CSV' not in html
 
     def test_has_bucket_picker(self, client, app):
-        """After syncing, the wizard lets the user pick compensated buckets."""
+        """Specialty and bucket choices share one row without a separate save button."""
+        from bs4 import BeautifulSoup
+
         response = client.get('/')
         html = response.data.decode('utf-8')
         assert 'onboardBucketPickerCard' in html
         assert 'onboardBucketList' in html
         assert 'renderOnboardBucketPicker' in html
+        soup = BeautifulSoup(response.data, 'html.parser')
+        card = soup.select_one('#onboardBucketPickerCard')
+        columns = card.select_one(':scope > .sb-setup-se-columns')
+        assert len(columns.find_all(recursive=False)) == 2
+        assert columns.select_one(':scope > .sb-setup-se-specialty #onboardSeSpecialty')
+        assert columns.select_one(':scope > .sb-setup-se-buckets #onboardBucketList')
+        assert not card.select('button:not(#onboardReloadBuckets)')
+        assert card.select_one(':scope > #onboardSeSetupStatus')
+
+    @pytest.mark.parametrize('specialty', ['data', 'infra', 'apps_ai', 'other'])
+    def test_se_specialty_starts_blank_on_first_run(self, client, app, specialty):
+        """A default or previously saved value must not make a first-run choice for an SE."""
+        from bs4 import BeautifulSoup
+        from app.models import UserPreference, db
+
+        with app.app_context():
+            pref = UserPreference.query.first()
+            original = (pref.user_role, pref.se_specialty, pref.first_run_modal_dismissed)
+            pref.user_role = 'se'
+            pref.se_specialty = specialty
+            pref.first_run_modal_dismissed = False
+            db.session.commit()
+        try:
+            soup = BeautifulSoup(client.get('/customers').data, 'html.parser')
+            picker = soup.select_one('#onboardSeSpecialty')
+            assert [option['value'] for option in picker.select('option')] == [
+                '', 'data', 'infra', 'apps_ai', 'other',
+            ]
+            assert not picker.select('option[selected]')
+            assert picker.select_one('option[value="other"]').get_text() == 'Other'
+            assert soup.select_one('label[for="onboardSeSpecialty"]')
+            assert soup.select_one('#onboardNextBtn').has_attr('disabled')
+            action = soup.select_one('#onboardNextAction')
+            assert action['aria-describedby'] == 'onboardNextReason'
+            assert action.select_one('#onboardNextBtn')['aria-describedby'] == 'onboardNextReason'
+            assert action.select_one('#onboardNextReason[role="tooltip"]')
+        finally:
+            with app.app_context():
+                pref = UserPreference.query.first()
+                pref.user_role, pref.se_specialty, pref.first_run_modal_dismissed = original
+                db.session.commit()
+
+    def test_se_review_preserves_saved_specialty(self, client, app):
+        """Review shows an existing Other selection without changing any preferences."""
+        from bs4 import BeautifulSoup
+        from app.models import UserPreference, db
+
+        with app.app_context():
+            pref = UserPreference.query.first()
+            original = (pref.user_role, pref.se_specialty, pref.first_run_modal_dismissed)
+            pref.user_role = 'se'
+            pref.se_specialty = 'other'
+            pref.first_run_modal_dismissed = True
+            db.session.commit()
+        try:
+            soup = BeautifulSoup(client.get('/').data, 'html.parser')
+            assert soup.select_one('#onboardSeSpecialty option[selected]')['value'] == 'other'
+        finally:
+            with app.app_context():
+                pref = UserPreference.query.first()
+                pref.user_role, pref.se_specialty, pref.first_run_modal_dismissed = original
+                db.session.commit()
 
     def test_revenue_copy_does_not_mention_exports(self, client, app):
         """New users should never learn about a CSV path that no longer exists."""
@@ -915,6 +1002,7 @@ class TestWizardImportStep:
         assert toggle['aria-label'] == 'Dark mode'
         assert soup.select_one('label[for="onboardDarkModeToggle"]') is not None
         css = Path('static/css/ui-onboarding.css').read_text(encoding='utf-8')
-        assert 'cursor: pointer;' in css
-        assert '.sb-setup-theme-choice input:checked' in css
+        shared_css = Path('static/css/ui-base.css').read_text(encoding='utf-8')
+        assert 'cursor: pointer;' in shared_css
+        assert '.sb-theme-switch-input:checked::before' in shared_css
         assert '.sb-setup :focus-visible' in css

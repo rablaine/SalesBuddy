@@ -103,6 +103,7 @@
             const message = body.querySelector('[data-sync-message]');
             const progress = body.querySelector('progress');
             const button = body.querySelector('[data-widget-sync-retry]');
+            const actions = body.querySelector('[data-widget-sync-actions]');
             const label = body.querySelector('[data-sync-label]');
             let busy = false;
             let refreshOnly = false;
@@ -113,11 +114,13 @@
                 progress.hidden = true;
                 button.textContent = refreshOnly ? 'Retry loading widget' : 'Retry sync';
                 button.hidden = false;
+                actions.hidden = false;
             }
             async function run(retry = false) {
                 if (busy || !body.isConnected) return;
                 busy = true;
                 button.hidden = true;
+                actions.hidden = true;
                 progress.hidden = false;
                 message.classList.remove('db-error');
                 message.textContent = refreshOnly ? 'Loading synced data...' : 'Preparing widget data...';

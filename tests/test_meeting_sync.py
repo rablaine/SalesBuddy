@@ -12,6 +12,44 @@ import pytest
 from app.models import db, DailyMeetingCache
 
 
+@pytest.mark.parametrize('entrypoint', [
+    'start_meeting_sync_background', '_run_sync', '_run_prefetch_only',
+])
+def test_automatic_meeting_sync_waits_for_customers(app, monkeypatch, entrypoint):
+    """A blank install must not admit background work that cannot match customers."""
+    from app.models import Customer
+    from app.services import meeting_sync
+
+    with app.app_context():
+        monkeypatch.setattr(Customer, 'query', MagicMock(first=lambda: None))
+        with patch('app.services.sync_jobs.admit_sync') as admit, \
+                patch.object(meeting_sync, '_aura_needs_run') as needs_run, \
+                patch.object(meeting_sync.threading, 'Thread') as thread:
+            getattr(meeting_sync, entrypoint)(app)
+        admit.assert_not_called()
+        needs_run.assert_not_called()
+        thread.assert_not_called()
+
+
+@pytest.mark.parametrize('entrypoint,operation', [
+    ('_run_sync', 'meeting-aura'), ('_run_prefetch_only', 'meetings'),
+])
+def test_automatic_meeting_sync_resumes_after_customer_import(
+    app, monkeypatch, entrypoint, operation,
+):
+    """Once accounts exist, normal scheduler admissions still reach the shared worker."""
+    from app.models import Customer
+    from app.services import meeting_sync
+
+    with app.app_context():
+        monkeypatch.setattr(Customer, 'query', MagicMock(first=lambda: object()))
+        with patch('app.services.sync_jobs.admit_sync') as admit:
+            getattr(meeting_sync, entrypoint)(app)
+        assert admit.call_count == 1
+        assert admit.call_args.args[0] == operation
+        assert admit.call_args.kwargs['initiator'] == 'scheduled'
+
+
 # ---------------------------------------------------------------------------
 # Model tests
 # ---------------------------------------------------------------------------

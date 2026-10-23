@@ -67,6 +67,35 @@ def test_fresh_install_loads_choices_before_prompting_without_get_writes(client,
         assert Job.query.one().initiator == 'dashboard'
 
 
+@pytest.mark.parametrize('status', [None, Job.STATUS_PENDING, Job.STATUS_RUNNING, Job.STATUS_FAILED])
+@pytest.mark.parametrize('group_by_seller', [False, True])
+def test_sync_actions_only_show_when_the_widget_needs_help(client, status, group_by_seller):
+    """Preparing, queued and running widgets need no extra click to follow their sync."""
+    db.session.add(Customer(name='Widget account', tpid=12345))
+    if status is not None:
+        db.session.add(Job(
+            job_type='sync:fabric', status=status, payload='{}',
+            last_error='VPN unavailable' if status == Job.STATUS_FAILED else None,
+        ))
+    db.session.commit()
+    response = client.get(f'{BASE}/widget-preview', query_string={
+        'key': 'fabric.expansion', 'variant': 'metric', 'width': 6,
+        'filter_context': json.dumps({
+            'dashboard': {'live_filters': ['group_by_seller']},
+            'live': {'group_by_seller': group_by_seller},
+        }),
+    })
+    assert response.status_code == 200
+    soup = BeautifulSoup(response.json['html'], 'html.parser')
+    actions = soup.select_one('[data-widget-sync-actions]')
+    failed = status == Job.STATUS_FAILED
+    assert actions.has_attr('hidden') is not failed
+    assert actions.select_one('[data-widget-sync-retry]').has_attr('hidden') is not failed
+    assert actions.find('a', string='Sync Status')['href'] == '/admin/sync-console'
+    assert soup.select_one('[data-sync-message]')['role'] == 'status'
+    assert 'This widget will update automatically when its data is ready.' in soup.get_text()
+
+
 def test_input_precedes_remaining_syncs_and_provider(client, monkeypatch):
     """Once choices exist, no widget source is admitted before confirmation."""
     setup = {'ready': False, 'available_buckets': ['Fabric'], 'fiscal_year': 'FY27'}

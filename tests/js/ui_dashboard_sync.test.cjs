@@ -124,12 +124,14 @@ test('leaving the page stops observation without cancelling the durable job', as
 
 function browser({
     error = null, editor = false, library = false, failRefresh = false, deferRefresh = false,
+    failSync = false,
 } = {}) {
     const events = {};
     const progress = {hidden: false, removeAttribute() { this.indeterminate = true; }};
     const button = {hidden: true,
         addEventListener(_, callback) { this.click = callback; },
         removeEventListener() { delete this.click; }};
+    const actions = {hidden: !error};
     const message = {classList: {add() {}, remove() {}}};
     const label = {};
     const body = {
@@ -141,7 +143,8 @@ function browser({
         },
         querySelector(selector) {
             return {'[data-sync-message]': message, progress,
-                '[data-widget-sync-retry]': button, '[data-sync-label]': label}[selector];
+                '[data-widget-sync-retry]': button, '[data-widget-sync-actions]': actions,
+                '[data-sync-label]': label}[selector];
         },
         closest(selector) {
             if (selector === '.db-preview-widget') return library ? {} : null;
@@ -176,7 +179,8 @@ function browser({
             observe: async (_, {onProgress}) => {
                 publish = onProgress;
                 await new Promise(resolve => { finish = resolve; });
-                return {...job, status: 'done'};
+                return {...job, status: failSync ? 'failed' : 'done',
+                    ...(failSync ? {error: 'VPN unavailable'} : {})};
             },
         },
         SBDashboardFilters: {context: () => scope},
@@ -192,7 +196,7 @@ function browser({
         CustomEvent: class {constructor(type, options) { this.type = type; this.detail = options.detail; }},
         console: {error() {}},
     });
-    return {calls, body, button, progress, message, events,
+    return {calls, body, button, actions, progress, message, events,
         publish: current => publish(current), finish: () => finish(),
         refreshed: () => refreshed(),
         setScope(value) { scope = value; }};
@@ -203,6 +207,7 @@ const tick = () => new Promise(resolve => setImmediate(resolve));
 test('inline progress follows measured values then refreshes the same instance and filters', async () => {
     const page = browser();
     await tick();
+    assert.equal(page.actions.hidden, true);
     page.publish({...job, progress: {percent: 37, message: 'Importing capacities'}});
     assert.equal(page.progress.value, 37);
     assert.equal(page.message.textContent, 'Importing capacities');
@@ -219,14 +224,40 @@ test('failed states wait for Retry and deleted widgets ignore completed requests
     const page = browser({error: 'VPN unavailable'});
     assert.equal(page.calls.length, 0);
     assert.equal(page.button.hidden, false);
+    assert.equal(page.actions.hidden, false);
     assert.equal(page.message.textContent, 'VPN unavailable');
     page.button.click();
+    assert.equal(page.actions.hidden, true);
     await tick();
     assert.equal(JSON.parse(page.calls[0].options.body).retry, true);
     page.body.isConnected = false;
     page.finish();
     await tick();
     assert.equal(page.calls.length, 1);
+});
+
+test('queued and running syncs show actions only after a failure and hide them on retry', async () => {
+    const page = browser({failSync: true});
+    await tick();
+    for (const status of ['pending', 'running']) {
+        page.publish({...job, status});
+        assert.equal(page.actions.hidden, true);
+        assert.equal(page.button.hidden, true);
+        assert.equal(page.progress.hidden, false);
+    }
+    page.finish();
+    await tick();
+    assert.equal(page.actions.hidden, false);
+    assert.equal(page.button.hidden, false);
+    assert.equal(page.progress.hidden, true);
+    assert.equal(page.message.textContent, 'VPN unavailable');
+    page.button.click();
+    assert.equal(page.actions.hidden, true);
+    assert.equal(page.button.hidden, true);
+    await tick();
+    page.finish();
+    await tick();
+    assert.equal(page.actions.hidden, false);
 });
 
 test('editor refresh uses its stale-safe loader without publishing or changing layout', async () => {
@@ -253,7 +284,9 @@ test('failed redraw retries loading without admitting the successful source agai
     page.finish();
     await tick();
     assert.equal(page.button.textContent, 'Retry loading widget');
+    assert.equal(page.actions.hidden, false);
     page.button.click();
+    assert.equal(page.actions.hidden, true);
     await tick();
     assert.equal(page.calls.filter(call => call.options?.method === 'POST').length, 1);
 });

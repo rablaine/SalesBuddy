@@ -600,7 +600,9 @@ class TestSyncStatusEndpoint:
         assert body['aura_dates'] == []
         assert body['jobs'] == []
 
-    def test_discovers_all_queued_manual_and_automatic_dates(self, app, client):
+    def test_discovers_all_queued_manual_and_automatic_dates(
+        self, app, client, clean_meeting_tables,
+    ):
         """A fresh page discovers every pending date without starting another sync."""
         from app.models import Job
         from app.services.sync_jobs import admit_sync

@@ -48,6 +48,19 @@ def test_theme_persists_and_renders_before_first_paint(client, preference, famil
         assert document.html['data-sb-family'] == family
         mode_attribute = 'data-sb-mode' if route == '/does-not-exist' else 'data-bs-theme'
         assert document.html[mode_attribute] == ('dark' if dark else 'light')
+        if route != '/does-not-exist':
+            picker = document.select_one('#onboardingStep1 #onboardThemeFamily')
+            assert picker.select_one('option[selected]')['value'] == family
+            assert [option['value'] for option in picker.select('option')] == [
+                'graphite', 'midnight', 'harbor', 'carbon',
+            ]
+            assert [option.get_text(strip=True) for option in picker.select('option')] == [
+                'Graphite', 'Midnight', 'Harbor', 'Carbon',
+            ]
+            assert document.select_one('label[for="onboardThemeFamily"]')
+            assert picker['aria-describedby'] == 'onboardThemeResult'
+            assert document.select_one('#onboardThemeResult')['aria-live'] == 'polite'
+            assert document.select_one('#onboardDarkModeToggle').has_attr('checked') is dark
         if route == '/preferences':
             picker = document.select_one('#settingsThemeFamily')
             assert picker.select_one('option[selected]')['value'] == family
