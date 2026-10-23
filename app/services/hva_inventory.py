@@ -25,6 +25,40 @@ def _iso(value: datetime | None) -> str | None:
     ).isoformat() if value else None
 
 
+def change_hva_category(task: MsxTask, category: int) -> dict:
+    """Edit a completed activity only while open, then restore its completion date."""
+    from app.services.msx_api import close_task, reopen_task, update_task
+
+    if task.statecode != 1:
+        return update_task(task.msx_task_id, {"msp_taskcategory": category})
+
+    reopened = reopen_task(task.msx_task_id)
+    if not reopened.get("success"):
+        return {
+            "success": False,
+            "error": "MSX could not reopen the completed task to change its category. "
+                     + (reopened.get("error") or "The category was not changed."),
+        }
+    try:
+        result = update_task(task.msx_task_id, {"msp_taskcategory": category})
+    finally:
+        restored = close_task(task.msx_task_id, actual_end=task.actual_end)
+    if not restored.get("success"):
+        category_result = (
+            "Category saved in MSX, but the task could not be completed again."
+            if result.get("success") else
+            "The category change failed and the task could not be completed again. "
+            + (result.get("error") or "")
+        )
+        return {
+            "success": False, "remote_changed": True,
+            "error": category_result + " The task may still be open. "
+                     + (restored.get("error") or "")
+                     + " Refresh MSX tasks before retrying.",
+        }
+    return result
+
+
 def _serialize_hva(task: MsxTask) -> dict:
     """Serialize shared cached activity details for the inventory and note editor."""
     milestone = task.milestone

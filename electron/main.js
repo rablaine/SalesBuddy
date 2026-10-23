@@ -889,7 +889,8 @@ async function runRebuild(trigger) {
       `-SkipPull -RecoveryOwnedByCaller > "${rebuildLog}" 2>&1\r\n` +
       `if errorlevel 1 (\r\n"${PYTHON}" "${UPGRADE_SCRIPT}" --repo "${REPO_ROOT}" ` +
       `fail --phase shell\r\n"${PYTHON}" "${UPGRADE_SCRIPT}" --repo "${REPO_ROOT}" ` +
-      `launch-recovery\r\nif errorlevel 1 start "" "${process.execPath}"\r\n)\r\n`
+      `launch-recovery\r\nif errorlevel 1 "${PYTHON}" "${UPGRADE_SCRIPT}" ` +
+      `--repo "${REPO_ROOT}" launch-desktop\r\n)\r\n`
     );
     let settled = false;
     let handoffTimer;

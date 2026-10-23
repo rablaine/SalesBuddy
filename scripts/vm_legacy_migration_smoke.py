@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import json
 import re
 import sqlite3
@@ -24,9 +25,22 @@ FIX_LINE = "        ('note_id', '_old_call_logs'): 'notes',\n"
 
 def pre_fix_source(source: str) -> str:
     """Recreate the historical omission, without injecting an exception or replacing migrations."""
-    if source.count(FIX_LINE) != 1:
+    try:
+        functions = [
+            node for node in ast.parse(source).body
+            if isinstance(node, ast.FunctionDef) and node.name == '_migrate_owned_task_inventory'
+        ]
+    except SyntaxError as error:
+        raise RuntimeError('The expected legacy-note repair is missing or ambiguous') from error
+    if len(functions) != 1:
         raise RuntimeError('The expected legacy-note repair is missing or ambiguous')
-    return source.replace(FIX_LINE, '', 1)
+    function = functions[0]
+    lines = source.splitlines(keepends=True)
+    start, end = function.lineno - 1, function.end_lineno
+    original = ''.join(lines[start:end])
+    if original.count(FIX_LINE) != 1:
+        raise RuntimeError('The expected legacy-note repair is missing or ambiguous')
+    return ''.join(lines[:start]) + original.replace(FIX_LINE, '', 1) + ''.join(lines[end:])
 
 
 def legacy_task_sql(source: str) -> str:

@@ -29,6 +29,10 @@ def test_shared_initializer_orders_schema_and_seeds_idempotently(monkeypatch):
         'app.services.dashboard_templates.initialize_dashboard_templates',
         lambda: calls.append('templates'),
     )
+    monkeypatch.setattr(
+        'app.services.migration_backups.prune_migration_backups',
+        lambda engine: calls.append('cleanup'),
+    )
     original_create_all = db.create_all
 
     def create_all() -> None:
@@ -46,7 +50,7 @@ def test_shared_initializer_orders_schema_and_seeds_idempotently(monkeypatch):
     with app.app_context(), database_startup_lock(db.engine):
         initialize_database(db)
         initialize_database(db)
-        assert calls == ['rename', 'create', 'migrate', 'templates'] * 2
+        assert calls == ['rename', 'create', 'migrate', 'templates', 'cleanup'] * 2
         assert db.session.get(User, 1).email == 'user@localhost'
         assert User.query.count() == 1
         assert UserPreference.query.count() == 1
@@ -57,6 +61,42 @@ def test_shared_initializer_orders_schema_and_seeds_idempotently(monkeypatch):
         assert UserPreference.query.count() == 1
         db.session.remove()
         db.engine.dispose()
+
+
+@pytest.mark.parametrize('failure_stage', ['migrations', 'templates', 'seeds'])
+def test_failed_initializer_never_prunes_migration_evidence(monkeypatch, failure_stage):
+    """Cleanup runs only after every schema/template/canonical-record initialization step succeeds."""
+    from flask import Flask
+    from app.models import db
+    from app.services.database_startup import initialize_database
+
+    app = Flask(__name__)
+    app.config.update(SQLALCHEMY_DATABASE_URI='sqlite:///:memory:', TESTING=True)
+    db.init_app(app)
+
+    def fail(*args, **kwargs):
+        """Stop one real initialization stage before evidence retention can execute."""
+        raise RuntimeError('synthetic initialization failure')
+
+    def forbidden(_engine):
+        """Reject any cleanup before successful completion."""
+        pytest.fail('Failed initialization must retain all migration evidence')
+
+    monkeypatch.setattr('app.services.migration_backups.prune_migration_backups', forbidden)
+    monkeypatch.setattr('app.migrations.run_table_renames', lambda database: None)
+    monkeypatch.setattr('app.migrations.run_migrations', fail if failure_stage == 'migrations'
+                        else lambda database: None)
+    monkeypatch.setattr('app.services.dashboard_templates.initialize_dashboard_templates',
+                        fail if failure_stage == 'templates' else lambda: None)
+    with app.app_context():
+        try:
+            if failure_stage == 'seeds':
+                monkeypatch.setattr(db.session, 'commit', fail)
+            with pytest.raises(RuntimeError, match='synthetic initialization failure'):
+                initialize_database(db)
+        finally:
+            db.session.remove()
+            db.engine.dispose()
 
 
 def _upgrade_in_process(url, acquired, release) -> None:

@@ -16,7 +16,11 @@ Guidelines for adding new migrations:
 3. Use inspector.get_table_names() to check for existing tables
 4. Never use DROP TABLE or DROP COLUMN without explicit user confirmation
 5. Add a descriptive print statement so deploy logs show what happened
+6. Use create_migration_backup from app.services.migration_backups for snapshots;
+   register new labels there so retry reuse and successful-startup retention apply
 """
+from collections.abc import Callable
+
 from sqlalchemy import inspect, text
 
 
@@ -566,59 +570,98 @@ def _migrate_initiative_project_links(db) -> None:
     print("  Added project links to initiative items, preserving discussion history")
 
 
-def _rebuild_sqlite_table(db, table: str, new_sql: str, new_table: str, label: str) -> None:
+def _rebuild_sqlite_table(
+    db, table: str, new_sql: str, new_table: str, label: str, *,
+    omitted_columns: tuple[str, ...] = (), expressions: dict[str, str] | None = None,
+    omitted_indexes: tuple[str, ...] = (),
+    sql_functions: dict[str, Callable[[object], object]] | None = None,
+    renamed_columns: dict[str, str] | None = None,
+) -> None:
     """Back up and atomically replace a table, preserving IDs, indexes, triggers and FKs."""
-    import sqlite3
-    from datetime import datetime, timezone
-    from pathlib import Path
-    from uuid import uuid4
+    from app.services.migration_backups import create_migration_backup
+    from scripts.upgrade import CORE_TABLES
 
     columns = inspect(db.engine).get_columns(table)
     db.session.commit()
     connection = db.engine.raw_connection()
     raw = connection.driver_connection
     foreign_keys = raw.execute('PRAGMA foreign_keys').fetchone()[0]
-    backup = None
+    legacy_alter = raw.execute('PRAGMA legacy_alter_table').fetchone()[0]
     backup_path = None
     try:
-        database_path = next(
-            row[2] for row in raw.execute('PRAGMA database_list') if row[1] == 'main'
-        )
-        if database_path:
-            timestamp = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')
-            backup_path = Path(database_path).with_name(
-                f'{Path(database_path).name}.{label}-{timestamp}-{uuid4().hex}.bak'
-            )
-            backup_path.touch(exist_ok=False)
-            backup = sqlite3.connect(str(backup_path))
-        else:
-            backup = sqlite3.connect(':memory:')
-        raw.backup(backup)
-        if backup.execute('PRAGMA integrity_check').fetchone()[0] != 'ok':
-            raise RuntimeError(f'{label} migration backup failed integrity verification')
+        for name, function in (sql_functions or {}).items():
+            raw.create_function(name, 1, function, deterministic=True)
+        backup_path = create_migration_backup(raw, label)
         print(f"  {label} migration backup: {backup_path or 'isolated in-memory copy'}")
 
         raw.execute('PRAGMA foreign_keys=OFF')
         if raw.execute('PRAGMA foreign_keys').fetchone()[0]:
             raise RuntimeError(f'Could not disable foreign keys for {label} migration')
         raw.execute('BEGIN IMMEDIATE')
+        existing_violations = set(raw.execute('PRAGMA foreign_key_check').fetchall())
         objects = raw.execute(
-            "SELECT sql FROM sqlite_master WHERE tbl_name=? "
+            "SELECT name, sql FROM sqlite_master WHERE tbl_name=? "
             "AND type IN ('index', 'trigger') AND sql IS NOT NULL", (table,),
         ).fetchall()
+        if omitted_columns:
+            import re
+
+            for name, object_sql in objects:
+                if name not in omitted_indexes and any(
+                    re.search(rf'\b{re.escape(column)}\b', object_sql, re.IGNORECASE)
+                    for column in omitted_columns
+                ):
+                    raise RuntimeError(f'{label} migration has dependent schema on a removed column')
         raw.execute(new_sql)
-        names = ', '.join('"' + column['name'].replace('"', '""') + '"' for column in columns)
+        copied = [column for column in columns if column['name'] not in omitted_columns
+                  and not column.get('computed')]
+        copied_names = [column['name'] for column in copied]
+        copied_names.extend(name for name in expressions or {} if name not in copied_names)
+        names = ', '.join('"' + name.replace('"', '""') + '"' for name in copied_names)
+        values = ', '.join(
+            (expressions or {}).get(name, '"' + name.replace('"', '""') + '"')
+            for name in copied_names
+        )
         raw.execute(
-            f'INSERT INTO "{new_table}" ({names}) SELECT {names} FROM "{table}"'
+            f'INSERT INTO "{new_table}" ({names}) SELECT {values} FROM "{table}"'
         )
         before_count = raw.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()[0]
         after_count = raw.execute(f'SELECT COUNT(*) FROM "{new_table}"').fetchone()[0]
         if before_count != after_count:
             raise RuntimeError(f'{label} migration row count mismatch')
+        before_values = f'SELECT {values}, COUNT(*) FROM "{table}" GROUP BY {values}'
+        after_values = f'SELECT {names}, COUNT(*) FROM "{new_table}" GROUP BY {names}'
+        if raw.execute(
+            f'{before_values} EXCEPT {after_values}'
+        ).fetchone() or raw.execute(
+            f'{after_values} EXCEPT {before_values}'
+        ).fetchone():
+            raise RuntimeError(f'{label} migration changed preserved values')
+        old_sequence = None
+        if raw.execute(
+            "SELECT 1 FROM sqlite_master WHERE name='sqlite_sequence'",
+        ).fetchone():
+            old_sequence = raw.execute(
+                'SELECT seq FROM sqlite_sequence WHERE name=?', (table,),
+            ).fetchone()
         raw.execute(f'DROP TABLE "{table}"')
+        # Views and external triggers may reference the canonical name during this gap.
+        raw.execute('PRAGMA legacy_alter_table=ON')
         raw.execute(f'ALTER TABLE "{new_table}" RENAME TO "{table}"')
-        for (object_sql,) in objects:
+        raw.execute(f'PRAGMA legacy_alter_table={legacy_alter}')
+        if old_sequence:
+            raw.execute(
+                'UPDATE sqlite_sequence SET seq=MAX(seq, ?) WHERE name=?',
+                (old_sequence[0], table),
+            )
+        for name, object_sql in objects:
+            if name in omitted_indexes:
+                continue
             raw.execute(object_sql)
+        for old_name, new_name in (renamed_columns or {}).items():
+            quoted_old = '"' + old_name.replace('"', '""') + '"'
+            quoted_new = '"' + new_name.replace('"', '""') + '"'
+            raw.execute(f'ALTER TABLE "{table}" RENAME COLUMN {quoted_old} TO {quoted_new}')
         # Older migrations left unrelated dangling FKs in some deployed databases.
         # Only this table and its inbound references can change in this rebuild.
         affected_tables = {table}
@@ -634,7 +677,11 @@ def _rebuild_sqlite_table(db, table: str, new_sql: str, new_table: str, label: s
         violations = []
         for affected_table in sorted(affected_tables):
             quoted_table = '"' + affected_table.replace('"', '""') + '"'
-            violations.extend(raw.execute(f'PRAGMA foreign_key_check({quoted_table})').fetchall())
+            violations.extend(
+                row for row in raw.execute(f'PRAGMA foreign_key_check({quoted_table})').fetchall()
+                if affected_table == table or row not in existing_violations
+                or affected_table in CORE_TABLES or table not in CORE_TABLES
+            )
         if violations:
             raise RuntimeError(f'{label} migration foreign key violations: {violations!r}')
         raw.commit()
@@ -645,12 +692,13 @@ def _rebuild_sqlite_table(db, table: str, new_sql: str, new_table: str, label: s
         ) from error
     finally:
         try:
+            raw.execute(f'PRAGMA legacy_alter_table={legacy_alter}')
             raw.execute(f'PRAGMA foreign_keys={foreign_keys}')
             if raw.execute('PRAGMA foreign_keys').fetchone()[0] != foreign_keys:
                 raise RuntimeError(f'Could not restore {label} migration foreign key state')
         finally:
-            if backup is not None:
-                backup.close()
+            for name in sql_functions or {}:
+                raw.create_function(name, 1, None)
             connection.close()
 
 
@@ -814,77 +862,78 @@ def _add_column_if_not_exists(db, inspector, table: str, column: str, column_def
     Example:
         _add_column_if_not_exists(db, inspector, 'customers', 'priority', 'INTEGER DEFAULT 0')
     """
-    try:
-        columns = [c['name'] for c in inspector.get_columns(table)]
-    except Exception:
-        # Table doesn't exist yet - db.create_all() will handle it
+    inspector.clear_cache()
+    if not inspector.has_table(table):
         return
+    columns = [c['name'] for c in inspector.get_columns(table)]
     if column not in columns:
         db.session.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {column_def}"))
         db.session.commit()
         print(f"  Added column '{column}' to '{table}'")
 
 
-def _make_column_nullable(db, inspector, table: str, column: str):
-    """Make an existing NOT NULL column nullable via SQLite table rebuild.
+def _migration_table_sql(db, table: str) -> str:
+    """Read original DDL rather than reconstructing a historical table from today's model."""
+    with db.engine.connect() as connection:
+        return connection.execute(text(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name=:table",
+        ), {'table': table}).scalar_one()
 
-    SQLite does not support ALTER COLUMN. This function checks if the column
-    is currently NOT NULL and, if so, rebuilds the table with the constraint
-    removed. Safe to run multiple times (idempotent).
 
-    Args:
-        db: SQLAlchemy database instance
-        inspector: SQLAlchemy inspector instance
-        table: Table name
-        column: Column name to make nullable
-    """
-    try:
-        columns = inspector.get_columns(table)
-    except Exception:
+def _replacement_table_sql(create_sql: str, table: str, replacement: str) -> str:
+    """Rename only the CREATE target, never the live table or its inbound references."""
+    import re
+
+    identifier = rf'(?:"{re.escape(table)}"|`{re.escape(table)}`|\[{re.escape(table)}\]|{re.escape(table)})'
+    sql, count = re.subn(
+        rf'^(\s*CREATE TABLE\s+(?:IF NOT EXISTS\s+)?){identifier}(?=\s*\()',
+        rf'\1"{replacement}"', create_sql, count=1, flags=re.IGNORECASE,
+    )
+    if count != 1:
+        raise RuntimeError(f'Could not safely prepare replacement table for {table}')
+    return sql
+
+
+def _make_column_nullable(db, inspector, table: str, column: str) -> None:
+    """Relax one constraint while preserving original columns, values and dependent schema."""
+    import re
+
+    inspector.clear_cache()
+    if table not in inspector.get_table_names():
         return
-    col_info = next((c for c in columns if c['name'] == column), None)
-    if not col_info:
+    col_info = next((c for c in inspector.get_columns(table) if c['name'] == column), None)
+    if not col_info or col_info['nullable']:
         return
-    # If already nullable, nothing to do
-    if col_info.get('nullable', True):
-        return
-
-    print(f"  Making '{table}.{column}' nullable (table rebuild)...")
-    with db.engine.connect() as conn:
-        # Get the full CREATE TABLE statement
-        result = conn.execute(
-            text(f"SELECT sql FROM sqlite_master WHERE type='table' AND name='{table}'")
-        )
-        create_sql = result.scalar()
-        if not create_sql:
-            return
-
-        # Modify: remove NOT NULL from the target column definition
-        # Match patterns like: column_name INTEGER NOT NULL  or  column_name INTEGER NOT NULL,
-        import re
-        pattern = rf'(\b{column}\b\s+\w+(?:\([^)]*\))?)\s+NOT\s+NULL'
-        new_create_sql = re.sub(pattern, r'\1', create_sql, count=1, flags=re.IGNORECASE)
-        if new_create_sql == create_sql:
-            # Pattern didn't match - maybe it has additional constraints
-            # Try broader pattern: column_name TYPE ... NOT NULL
-            pattern2 = rf'("{column}"|{column})(\s+[^,]*?)\s+NOT\s+NULL'
-            new_create_sql = re.sub(pattern2, r'\1\2', create_sql, count=1, flags=re.IGNORECASE)
-            if new_create_sql == create_sql:
-                print(f"  WARNING: Could not find NOT NULL constraint for '{table}.{column}'")
-                return
-
-        # Rename to temp, create new, copy data, drop temp
-        col_names = ', '.join(c['name'] for c in columns)
-        new_create_sql = new_create_sql.replace(f'CREATE TABLE {table}', f'CREATE TABLE {table}_new', 1)
-        # Also handle quoted table name
-        new_create_sql = new_create_sql.replace(f'CREATE TABLE "{table}"', f'CREATE TABLE "{table}_new"', 1)
-
-        conn.execute(text(f'ALTER TABLE {table} RENAME TO {table}_old'))
-        conn.execute(text(new_create_sql))
-        conn.execute(text(f'INSERT INTO {table}_new ({col_names}) SELECT {col_names} FROM {table}_old'))
-        conn.execute(text(f'DROP TABLE {table}_old'))
-        conn.commit()
-    print(f"  Made '{table}.{column}' nullable")
+    create_sql = _migration_table_sql(db, table)
+    definitions = _sqlite_table_definitions(create_sql)
+    identifier = rf'(?:"{re.escape(column)}"|`{re.escape(column)}`|\[{re.escape(column)}\]|{re.escape(column)})'
+    changed = 0
+    for index, definition in enumerate(definitions):
+        if re.match(rf'^{identifier}\s', definition, re.IGNORECASE):
+            tokens = r"""'(?:''|[^'])*'|"(?:""|[^"])*"|`[^`]*`|\[[^\]]*\]|[()]|\bNOT\s+NULL\b"""
+            depth = 0
+            for match in re.finditer(tokens, definition, re.IGNORECASE):
+                token = match.group()
+                if token == '(':
+                    depth += 1
+                elif token == ')':
+                    depth -= 1
+                elif depth == 0 and re.fullmatch(r'NOT\s+NULL', token, re.IGNORECASE):
+                    definitions[index] = definition[:match.start()] + definition[match.end():]
+                    changed += 1
+                    break
+            break
+    if changed != 1:
+        raise RuntimeError(f'Could not safely relax {table}.{column}')
+    replacement = f'_{table}_{column}_nullable'
+    new_sql = (
+        f'CREATE TABLE "{replacement}" (\n' + ',\n'.join(definitions)
+        + ')' + create_sql[create_sql.rindex(')') + 1:]
+    )
+    _rebuild_sqlite_table(db, table, new_sql, replacement, 'nullable-column')
+    inspector.clear_cache()
+    db.session.expire_all()
+    print(f"  Made '{table}.{column}' nullable, preserving data and dependent schema")
 
 
 def _add_index_if_not_exists(db, inspector, table: str, index_name: str, columns: list):
@@ -975,43 +1024,28 @@ def _migrate_backup_config_to_db(db):
 
 
 def _migrate_milestones_for_msx(db, inspector):
-    """
-    Migrate milestones table for MSX integration.
-    
-    This migration:
-    1. Drops and recreates milestones table with new schema (SQLite limitation)
-    2. Creates msx_tasks table
-    
-    Note: SQLite can't ALTER TABLE to add UNIQUE columns, so we recreate the table.
-    Milestone data is cleared - will be re-created via MSX picker.
-    """
-    # Check if migration is needed by looking for new columns
+    """Extend pre-MSX milestones without deleting records or note associations."""
+    inspector.clear_cache()
     if _table_exists(inspector, 'milestones'):
         if not _column_exists(inspector, 'milestones', 'msx_milestone_id'):
-            print("  Migrating milestones table for MSX integration...")
-            
-            with db.engine.connect() as conn:
-                # Clear junction table first (foreign keys)
-                conn.execute(text("DELETE FROM notes_milestones"))
-                # SQLite can't add UNIQUE column via ALTER TABLE, so drop and recreate
-                conn.execute(text("DROP TABLE milestones"))
-                conn.execute(text("""
-                    CREATE TABLE milestones (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        msx_milestone_id VARCHAR(50) UNIQUE,
-                        milestone_number VARCHAR(50),
-                        url VARCHAR(2000) NOT NULL,
-                        title VARCHAR(500),
-                        msx_status VARCHAR(50),
-                        msx_status_code INTEGER,
-                        opportunity_name VARCHAR(500),
-                        customer_id INTEGER REFERENCES customers(id),
-                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL,
-                        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL
-                    )
-                """))
-                conn.commit()
-            print("    Recreated milestones table with MSX schema")
+            _add_column_if_not_exists(
+                db, inspector, 'milestones', 'msx_milestone_id', 'VARCHAR(50)',
+            )
+        for column, definition in (
+            ('milestone_number', 'VARCHAR(50)'), ('title', 'VARCHAR(500)'),
+            ('msx_status', 'VARCHAR(50)'), ('msx_status_code', 'INTEGER'),
+            ('opportunity_name', 'VARCHAR(500)'),
+        ):
+            _add_column_if_not_exists(db, inspector, 'milestones', column, definition)
+        inspector.clear_cache()
+        unique = inspector.get_unique_constraints('milestones') + inspector.get_indexes('milestones')
+        if not any(item.get('unique', True) and item['column_names'] == ['msx_milestone_id']
+                   for item in unique):
+            with db.engine.begin() as connection:
+                connection.execute(text(
+                    'CREATE UNIQUE INDEX IF NOT EXISTS uq_milestones_msx_milestone_id '
+                    'ON milestones(msx_milestone_id)',
+                ))
     
     # Create msx_tasks table if it doesn't exist
     if not _table_exists(inspector, 'msx_tasks'):
@@ -1038,17 +1072,10 @@ def _migrate_milestones_for_msx(db, inspector):
     
     
 def _migrate_call_date_to_datetime(db, inspector):
-    """
-    Upgrade call_date column from Date to DateTime for meeting timestamps.
-    
-    SQLite stores DATE as TEXT 'YYYY-MM-DD' and DATETIME as 'YYYY-MM-DD HH:MM:SS'.
-    This migration:
-    1. Adds a temporary call_datetime column
-    2. Copies data with time conversion
-    3. Drops old column and renames new one via table rebuild (SQLite limitation)
-    
-    Idempotent: Checks column type before running. Safe if already DateTime.
-    """
+    """Convert historical local note dates without renaming their live parent table."""
+    import re
+
+    inspector.clear_cache()
     if not _table_exists(inspector, 'notes'):
         return
     
@@ -1063,65 +1090,39 @@ def _migrate_call_date_to_datetime(db, inspector):
     if 'DATETIME' in col_type:
         return
     
-    print("  Upgrading call_date from Date to DateTime...")
-    
-    with db.engine.connect() as conn:
-        # Step 1: Add temporary datetime column (check first - may exist from partial migration)
-        if 'call_datetime' not in columns:
-            conn.execute(text("ALTER TABLE notes ADD COLUMN call_datetime DATETIME"))
-        
-        # Step 2: Copy and convert data
-        # Handles various date formats safely
-        conn.execute(text("""
-            UPDATE notes 
-            SET call_datetime = CASE
-                WHEN call_date LIKE '____-__-__ %' THEN call_date
-                WHEN call_date LIKE '____-__-__T%' THEN REPLACE(call_date, 'T', ' ')
-                WHEN call_date LIKE '____-__-__' THEN call_date || ' 00:00:00'
-                ELSE call_date || '-01-01 00:00:00'
-            END
-        """))
-        
-        # Step 3: Rebuild table with new column type (SQLite can't ALTER COLUMN)
-        # Get all current columns except call_date and call_datetime
-        all_cols = [c['name'] for c in inspector.get_columns('notes') 
-                    if c['name'] not in ('call_date', 'call_datetime')]
-        
-        # Build column list for copy
-        cols_csv = ', '.join(all_cols)
-        
-        conn.execute(text("ALTER TABLE notes RENAME TO notes_backup"))
-        
-        # Get the CREATE TABLE statement and modify it
-        result = conn.execute(text(
-            "SELECT sql FROM sqlite_master WHERE type='table' AND name='notes_backup'"
-        ))
-        create_sql = result.scalar()
-        
-        # Replace table name and fix the column type
-        create_sql = create_sql.replace('notes_backup', 'notes', 1)
-        # Replace DATE with DATETIME for call_date column
-        create_sql = create_sql.replace(
-            'call_date DATE NOT NULL', 
-            'call_date DATETIME NOT NULL'
-        )
-        # Also handle if it was defined without explicit type keyword
-        create_sql = create_sql.replace(
-            'call_date DATE', 
-            'call_date DATETIME'
-        )
-        
-        conn.execute(text(create_sql))
-        
-        # Copy data back, using call_datetime for the call_date column
-        conn.execute(text(f"""
-            INSERT INTO notes ({cols_csv}, call_date)
-            SELECT {cols_csv}, call_datetime FROM notes_backup
-        """))
-        
-        conn.execute(text("DROP TABLE notes_backup"))
-        conn.commit()
-    
+    with db.engine.connect() as connection:
+        dates = connection.execute(text('SELECT call_date FROM notes')).scalars().all()
+    from datetime import datetime
+
+    for value in dates:
+        if value is None and columns['call_date']['nullable']:
+            continue
+        try:
+            parsed = datetime.fromisoformat(str(value))
+            if parsed.tzinfo is not None:
+                raise ValueError('Historical call dates must remain naive local times')
+        except (TypeError, ValueError) as error:
+            raise RuntimeError(
+                'Unrecognized historical call_date; original note data left unchanged',
+            ) from error
+    create_sql = _migration_table_sql(db, 'notes')
+    new_sql, count = re.subn(
+        r'((?:"call_date"|call_date)\s+)DATE\b', r'\1DATETIME',
+        create_sql, count=1, flags=re.IGNORECASE,
+    )
+    if count != 1:
+        raise RuntimeError('Could not safely convert the historical note date type')
+    new_sql = _replacement_table_sql(new_sql, 'notes', '_notes_datetime_new')
+    expression = (
+        "CASE WHEN length(call_date)=10 THEN call_date || ' 00:00:00' "
+        "ELSE replace(call_date, 'T', ' ') END"
+    )
+    _rebuild_sqlite_table(
+        db, 'notes', new_sql, '_notes_datetime_new', 'note-datetime',
+        expressions={'call_date': expression},
+    )
+    inspector.clear_cache()
+    db.session.expire_all()
     print("    Upgraded call_date to DateTime successfully")
 
 
@@ -1389,13 +1390,32 @@ def _migrate_connect_exports_ai_summary(db, inspector):
         )
 
 
+def _parse_historical_tpid(value: object) -> int | None:
+    """Validate an old TPID before changing its value or SQLite storage type."""
+    import re
+
+    if value is None:
+        return None
+    if isinstance(value, int):
+        parsed = value
+    elif isinstance(value, float) and value.is_integer():
+        parsed = int(value)
+    elif isinstance(value, str) and re.fullmatch(r'[+-]?\d+', value.strip()):
+        parsed = int(value.strip())
+    else:
+        raise RuntimeError('Invalid historical customer TPID; original values preserved')
+    if not -(2 ** 63) <= parsed < 2 ** 63:
+        raise RuntimeError('Historical customer TPID exceeds SQLite integer range')
+    return parsed
+
+
 def _migrate_customer_tpid_to_int(db, inspector):
     """Cast any string-typed TPIDs to integers.
 
     Early MSX imports stored TPIDs as strings (e.g. '2853766') because the
     API returns them that way.  The column is BigInteger, but SQLite's
     flexible typing allowed strings through.  This causes type-mismatch
-    issues when doing in-memory set lookups.  Idempotent -- only updates
+    issues when doing in-memory set lookups.      Idempotent: only updates
     rows where typeof(tpid) != 'integer'.
     """
     if 'customers' not in inspector.get_table_names():
@@ -1408,22 +1428,50 @@ def _migrate_customer_tpid_to_int(db, inspector):
     )).scalar()
 
     if rows and rows > 0:
+        pending = db.session.execute(text(
+            "SELECT id, tpid FROM customers WHERE typeof(tpid) != 'integer' AND tpid IS NOT NULL",
+        )).fetchall()
+        converted = [
+            {'identity': identity, 'tpid': _parse_historical_tpid(value)}
+            for identity, value in pending
+        ]
+        column = next(item for item in inspector.get_columns('customers') if item['name'] == 'tpid')
+        if any(kind in str(column['type']).upper() for kind in ('CHAR', 'TEXT', 'CLOB')):
+            import re
+
+            create_sql, count = re.subn(
+                r'((?:"tpid"|tpid)\s+)(?:VARCHAR(?:\(\d+\))?|CHAR(?:\(\d+\))?|TEXT|CLOB)'
+                r'(?=\s|,|\))',
+                r'\1BIGINT', _migration_table_sql(db, 'customers'),
+                count=1, flags=re.IGNORECASE,
+            )
+            if count != 1:
+                raise RuntimeError('Could not safely convert the historical TPID column type')
+            _rebuild_sqlite_table(
+                db, 'customers', _replacement_table_sql(
+                    create_sql, 'customers', '_customers_tpid_new',
+                ), '_customers_tpid_new', 'customer-tpid-type',
+                expressions={'tpid': '_salesbuddy_historical_tpid(tpid)'},
+                sql_functions={'_salesbuddy_historical_tpid': _parse_historical_tpid},
+            )
+            inspector.clear_cache()
+            db.session.expire_all()
+            print('  Converted historical TPID column and values to integer storage')
+            return
         print(f"  Migrating: casting {rows} string TPIDs to integers")
-        db.session.execute(text(
-            "UPDATE customers SET tpid = CAST(tpid AS INTEGER) "
-            "WHERE typeof(tpid) != 'integer' AND tpid IS NOT NULL"
-        ))
-        db.session.commit()
+        try:
+            db.session.execute(text(
+                'UPDATE customers SET tpid=:tpid WHERE id=:identity',
+            ), converted)
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+            raise
         print(f"    Converted {rows} TPIDs to integer type")
 
 
 def _migrate_customer_tpid_unique(db, inspector):
-    """Enforce a unique constraint on customers.tpid.
-
-    Before adding the constraint, remove duplicate rows (keeping the one
-    with the most call logs for each TPID).  This is idempotent -- if the
-    unique index already exists, we skip.
-    """
+    """Deduplicate known TPIDs transactionally, preserving every discovered inbound link."""
     if 'customers' not in inspector.get_table_names():
         return
 
@@ -1441,87 +1489,78 @@ def _migrate_customer_tpid_unique(db, inspector):
 
     print("  Migrating: enforcing unique constraint on customers.tpid")
 
-    # Step 1: deduplicate -- keep the row with the most notes per TPID
-    from sqlalchemy import text
-    dupes = db.session.execute(text("""
-        SELECT tpid, COUNT(*) AS cnt
-        FROM customers
-        GROUP BY tpid
-        HAVING COUNT(*) > 1
-    """)).fetchall()
+    from app.services.migration_backups import create_migration_backup
 
-    removed = 0
-    for tpid_val, cnt in dupes:
-        rows = db.session.execute(text("""
-            SELECT c.id,
-                   (SELECT COUNT(*) FROM notes WHERE customer_id = c.id) AS log_count
-            FROM customers c
-            WHERE c.tpid = :tpid
-            ORDER BY log_count DESC, c.id ASC
-        """), {"tpid": tpid_val}).fetchall()
-
-        # Keep the first (most call logs, lowest id as tiebreaker)
-        keep_id = rows[0][0]
-        for row in rows[1:]:
-            delete_id = row[0]
-            # Re-parent any call logs from the duplicate to the keeper
-            db.session.execute(text(
-                "UPDATE notes SET customer_id = :keep WHERE customer_id = :dup"
-            ), {"keep": keep_id, "dup": delete_id})
-            # Re-parent milestones
-            db.session.execute(text(
-                "UPDATE milestones SET customer_id = :keep "
-                "WHERE customer_id = :dup"
-            ), {"keep": keep_id, "dup": delete_id})
-            # Re-parent opportunities
-            db.session.execute(text(
-                "UPDATE opportunities SET customer_id = :keep "
-                "WHERE customer_id = :dup"
-            ), {"keep": keep_id, "dup": delete_id})
-            # Re-parent revenue data
-            db.session.execute(text(
-                "UPDATE customer_revenue_data SET customer_id = :keep "
-                "WHERE customer_id = :dup"
-            ), {"keep": keep_id, "dup": delete_id})
-            # Re-parent revenue analysis
-            db.session.execute(text(
-                "UPDATE customer_revenue_analysis SET customer_id = :keep "
-                "WHERE customer_id = :dup"
-            ), {"keep": keep_id, "dup": delete_id})
-            # Remove M2M references (customers_verticals)
-            db.session.execute(text(
-                "DELETE FROM customers_verticals WHERE customer_id = :dup"
-            ), {"dup": delete_id})
-            # Delete the duplicate customer
-            db.session.execute(text(
-                "DELETE FROM customers WHERE id = :dup"
-            ), {"dup": delete_id})
-            removed += 1
-
-    if removed:
-        db.session.commit()
-        print(f"    Removed {removed} duplicate customer rows")
-
-    # Step 2: create the unique index
-    db.session.execute(text(
-        "CREATE UNIQUE INDEX IF NOT EXISTS uq_customers_tpid ON customers (tpid)"
-    ))
     db.session.commit()
+    connection = db.engine.raw_connection()
+    raw = connection.driver_connection
+    backup_path = None
+    try:
+        dupes = raw.execute(
+            'SELECT tpid FROM customers WHERE tpid IS NOT NULL GROUP BY tpid HAVING COUNT(*)>1',
+        ).fetchall()
+        if dupes:
+            backup_path = create_migration_backup(raw, 'customer-tpid')
+            print(f'  Customer deduplication backup: {backup_path or "isolated in-memory copy"}')
+        raw.execute('BEGIN IMMEDIATE')
+        tables = [row[0] for row in raw.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'",
+        )] if dupes else []
+        links = []
+        for table in tables:
+            quoted = '"' + table.replace('"', '""') + '"'
+            for fk in raw.execute(f'PRAGMA foreign_key_list({quoted})'):
+                if fk[2] == 'customers':
+                    if fk[1] != 0 or fk[4] != 'id':
+                        raise RuntimeError('Unsupported composite customer relationship')
+                    column = '"' + fk[3].replace('"', '""') + '"'
+                    links.append((quoted, column))
+        counts = {
+            table: raw.execute(f'SELECT COUNT(*) FROM {table}').fetchone()[0]
+            for table, _ in links if table != '"customers"'
+        }
+        before_violations = set(raw.execute('PRAGMA foreign_key_check').fetchall())
+        has_notes = 'notes' in tables and any(
+            row[1] == 'customer_id' for row in raw.execute('PRAGMA table_info(notes)')
+        )
+        for (tpid,) in dupes:
+            ordering = (
+                '(SELECT COUNT(*) FROM notes WHERE notes.customer_id=customers.id) DESC, id'
+                if has_notes else 'id'
+            )
+            ids = [row[0] for row in raw.execute(
+                f'SELECT id FROM customers WHERE tpid=? ORDER BY {ordering}', (tpid,),
+            )]
+            keep = ids[0]
+            for duplicate in ids[1:]:
+                for table, column in links:
+                    raw.execute(
+                        f'UPDATE {table} SET {column}=? WHERE {column}=?', (keep, duplicate),
+                    )
+                raw.execute('DELETE FROM customers WHERE id=?', (duplicate,))
+        for table, count in counts.items():
+            if raw.execute(f'SELECT COUNT(*) FROM {table}').fetchone()[0] != count:
+                raise RuntimeError('Customer deduplication changed dependent record counts')
+        if set(raw.execute('PRAGMA foreign_key_check').fetchall()) - before_violations:
+            raise RuntimeError('Customer deduplication introduced foreign key violations')
+        raw.execute('CREATE UNIQUE INDEX IF NOT EXISTS uq_customers_tpid ON customers(tpid)')
+        raw.commit()
+    except Exception as error:
+        raw.rollback()
+        raise RuntimeError(
+            f'Customer deduplication failed; rolled back. Backup: {backup_path or "memory"}',
+        ) from error
+    finally:
+        connection.close()
+    inspector.clear_cache()
+    db.session.expire_all()
     print("    Created unique index: uq_customers_tpid")
 
 
 def _drop_user_id_columns(db, inspector):
-    """Drop user_id columns from all tables.
+    """Remove obsolete ownership without rebuilding from lossy current model metadata."""
+    import re
 
-    This is a single-user system.  The user_id FK was vestigial from a
-    multi-user era and is no longer referenced anywhere in the codebase.
-
-    SQLite cannot ALTER TABLE DROP COLUMN when the column participates
-    in a FOREIGN KEY constraint, so we use the standard table-rebuild
-    pattern: rename the old table, create a fresh copy from the current
-    SQLAlchemy model (which no longer defines user_id), copy data over,
-    and drop the old copy.
-    """
     tables_with_user_id = [
         'pods', 'solution_engineers', 'verticals', 'territories',
         'sellers', 'customers', 'topics', 'specialties', 'partners',
@@ -1530,71 +1569,46 @@ def _drop_user_id_columns(db, inspector):
         'revenue_config', 'connect_exports',
     ]
 
-    # Determine which tables still carry user_id
-    tables_to_migrate = []
     for table in tables_with_user_id:
+        inspector = inspect(db.engine)
         if not _table_exists(inspector, table):
             continue
-        columns = [col['name'] for col in inspector.get_columns(table)]
-        if 'user_id' in columns:
-            tables_to_migrate.append(
-                (table, [c for c in columns if c != 'user_id'])
-            )
-
-    if not tables_to_migrate:
-        return  # Already migrated
-
-    # Disable FK enforcement for the rebuild
-    db.session.commit()
-    db.session.execute(text('PRAGMA foreign_keys=OFF'))
-
-    for table, keep_cols in tables_to_migrate:
-        tmp = f'_old_{table}'
-
-        # 1. Rename original -> temp
-        db.session.execute(text(f'ALTER TABLE "{table}" RENAME TO "{tmp}"'))
-        db.session.commit()
-
-        # 2. Drop indexes that carried over to the temp table so the
-        #    new table can recreate them with the same names.
-        idx_rows = db.session.execute(text(
-            "SELECT name FROM sqlite_master "
-            "WHERE type='index' AND tbl_name=:t "
-            "AND name NOT LIKE 'sqlite_%'"
-        ), {'t': tmp}).fetchall()
-        for row in idx_rows:
-            db.session.execute(text(f'DROP INDEX IF EXISTS "{row[0]}"'))
-        db.session.commit()
-
-        # 3. Create the table fresh from current model metadata
-        model_table = db.metadata.tables.get(table)
-        if model_table is None:
-            # No model found -- undo rename and skip
-            db.session.execute(text(
-                f'ALTER TABLE "{tmp}" RENAME TO "{table}"'
-            ))
-            db.session.commit()
+        if 'user_id' not in {column['name'] for column in inspector.get_columns(table)}:
             continue
-        model_table.create(db.engine)
-
-        # 4. Copy data (only columns present in both old and new schema)
-        new_col_names = {col.name for col in model_table.columns}
-        copy_cols = [c for c in keep_cols if c in new_col_names]
-        cols_csv = ', '.join(f'"{c}"' for c in copy_cols)
-        db.session.execute(text(
-            f'INSERT INTO "{table}" ({cols_csv}) '
-            f'SELECT {cols_csv} FROM "{tmp}"'
-        ))
-        db.session.commit()
-
-        # 5. Drop the old copy
-        db.session.execute(text(f'DROP TABLE "{tmp}"'))
-        db.session.commit()
+        create_sql = _migration_table_sql(db, table)
+        definitions = []
+        removed = 0
+        identifier = r'(?:"user_id"|`user_id`|\[user_id\]|user_id)'
+        for definition in _sqlite_table_definitions(create_sql):
+            if re.match(rf'^{identifier}\s', definition, re.IGNORECASE):
+                removed += 1
+                continue
+            if re.match(
+                rf'^(?:CONSTRAINT\s+\S+\s+)?FOREIGN\s+KEY\s*\(\s*{identifier}\s*\)',
+                definition, re.IGNORECASE,
+            ):
+                continue
+            if re.search(r'\buser_id\b', definition, re.IGNORECASE):
+                raise RuntimeError(f'Cannot safely remove {table}.user_id from a mixed constraint')
+            definitions.append(definition)
+        if removed != 1:
+            raise RuntimeError(f'Could not safely identify {table}.user_id definition')
+        replacement = f'_{table}_single_user_new'
+        new_sql = (
+            f'CREATE TABLE "{replacement}" (\n' + ',\n'.join(definitions)
+            + ')' + create_sql[create_sql.rindex(')') + 1:]
+        )
+        removed_indexes = []
+        for index in inspector.get_indexes(table):
+            if 'user_id' in index['column_names']:
+                if index['column_names'] != ['user_id'] or index['unique']:
+                    raise RuntimeError(f'Cannot safely remove mixed ownership index on {table}')
+                removed_indexes.append(index['name'])
+        _rebuild_sqlite_table(
+            db, table, new_sql, replacement, 'single-user',
+            omitted_columns=('user_id',), omitted_indexes=tuple(removed_indexes),
+        )
         print(f"  Dropped column: {table}.user_id")
-
-    # Re-enable FK enforcement
-    db.session.execute(text('PRAGMA foreign_keys=ON'))
-    db.session.commit()
 
 
 def _migrate_msx_task_hva_column(db, inspector):
@@ -1603,12 +1617,7 @@ def _migrate_msx_task_hva_column(db, inspector):
     Rename untouched schemas in place. Partially migrated schemas already have
     authoritative HVA values, so remove only their obsolete required column.
     """
-    import sqlite3
-    from datetime import datetime, timezone
-    from pathlib import Path
-    from uuid import uuid4
-
-    from app.db_paths import backup_database
+    from app.services.migration_backups import create_migration_backup
 
     if 'msx_tasks' not in inspector.get_table_names():
         return
@@ -1626,25 +1635,9 @@ def _migrate_msx_task_hva_column(db, inspector):
     db.session.commit()
     connection = db.engine.raw_connection()
     raw = connection.driver_connection
-    backup = None
     backup_path = None
     try:
-        database_path = next(
-            row[2] for row in raw.execute('PRAGMA database_list') if row[1] == 'main'
-        )
-        if database_path:
-            timestamp = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')
-            source = Path(database_path)
-            backup_path = source.with_name(
-                f'{source.name}.task-hva-{timestamp}-{uuid4().hex}.bak'
-            )
-            if not backup_database(backup_path, src=source):
-                raise RuntimeError('Task classification backup failed verification')
-        else:
-            backup = sqlite3.connect(':memory:')
-            raw.backup(backup)
-            if backup.execute('PRAGMA integrity_check').fetchone()[0] != 'ok':
-                raise RuntimeError('Task classification backup failed verification')
+        backup_path = create_migration_backup(raw, 'task-hva')
         print(f"  Task classification backup: {backup_path or 'isolated in-memory copy'}")
 
         raw.execute('BEGIN IMMEDIATE')
@@ -1667,8 +1660,6 @@ def _migrate_msx_task_hva_column(db, inspector):
             f'Task classification migration failed; rolled back. Backup: {backup_path or "memory"}'
         ) from error
     finally:
-        if backup is not None:
-            backup.close()
         connection.close()
 
 
@@ -1703,59 +1694,8 @@ def _migrate_customer_favicon_columns(db, inspector):
 
 
 def _migrate_notes_nullable_customer(db, inspector):
-    """Make customer_id nullable on notes to support non-customer overview.
-    
-    SQLite doesn't support ALTER COLUMN, so we recreate the table with the
-    new schema and copy data over.
-    """
-    if 'notes' not in inspector.get_table_names():
-        return
-    
-    # Check if customer_id is already nullable
-    columns = inspector.get_columns('notes')
-    for col in columns:
-        if col['name'] == 'customer_id':
-            if col.get('nullable', True):
-                # Already nullable (or can't determine -- skip)
-                return
-            break
-    else:
-        # customer_id column not found, nothing to do
-        return
-    
-    print("Migration: Making customer_id nullable on notes...")
-    
-    db.session.execute(text('PRAGMA foreign_keys=OFF'))
-    db.session.commit()
-    
-    # Get existing columns for the copy
-    col_names = [c['name'] for c in columns]
-    col_list = ', '.join(col_names)
-    
-    db.session.execute(text('''
-        CREATE TABLE notes_new (
-            id INTEGER PRIMARY KEY,
-            customer_id INTEGER REFERENCES customers(id),
-            call_date DATETIME NOT NULL,
-            content TEXT NOT NULL,
-            created_at DATETIME NOT NULL,
-            updated_at DATETIME NOT NULL
-        )
-    '''))
-    
-    # Copy data (only columns that exist in both old and new)
-    new_cols = ['id', 'customer_id', 'call_date', 'content', 'created_at', 'updated_at']
-    shared = [c for c in new_cols if c in col_names]
-    shared_list = ', '.join(shared)
-    db.session.execute(text(f'INSERT INTO notes_new ({shared_list}) SELECT {shared_list} FROM notes'))
-    
-    db.session.execute(text('DROP TABLE notes'))
-    db.session.execute(text('ALTER TABLE notes_new RENAME TO notes'))
-    
-    db.session.execute(text('PRAGMA foreign_keys=ON'))
-    db.session.commit()
-    
-    print("  -> customer_id is now nullable on notes")
+    """Allow general notes without discarding any historical note columns or links."""
+    _make_column_nullable(db, inspector, 'notes', 'customer_id')
 
 
 def _rename_calllog_columns(db, inspector):
@@ -2030,85 +1970,81 @@ def _cleanup_total_revenue_rows(db, existing_tables):
                 print(f"  Cleaned {result.rowcount} 'Total' summary rows from {table}")
 
 
+def _parse_historical_acr(value: object) -> int | None:
+    """Parse a historical monthly amount without silently discarding unrecognized text."""
+    import re
+    from decimal import Decimal, localcontext
+
+    if value is None:
+        return None
+    cleaned = re.sub(r'[$,\s]', '', str(value))
+    match = re.fullmatch(r'([+-]?\d+(?:\.\d+)?)([kK]?)(?:/(?:mo|month))?', cleaned,
+                         re.IGNORECASE)
+    if not match:
+        raise RuntimeError('Unrecognized historical estimated ACR; original values preserved')
+    with localcontext() as context:
+        context.prec = max(len(match[1]) + 3, context.prec)
+        parsed = int(Decimal(match[1]) * (1000 if match[2] else 1))
+    if not -(2 ** 63) <= parsed < 2 ** 63:
+        raise RuntimeError('Historical estimated ACR exceeds SQLite integer range')
+    return parsed
+
+
 def _migrate_estimated_acr_to_int(db, inspector):
-    """Convert estimated_acr column from VARCHAR to INTEGER (monthly $ amount).
+    """Convert amounts transactionally, preserving schema and interrupted-migration evidence."""
+    import re
 
-    Parses values like '$500/mo', '$50K', '$50k/month', '500' into integers.
-    Idempotent: skips if column is already INTEGER type.
-
-    SQLite can't ALTER COLUMN, so we: rename old -> add new INTEGER -> copy
-    parsed values -> drop old.
-    """
+    inspector.clear_cache()
     if not _table_exists(inspector, 'engagements'):
         return
 
     # Check if column already has INTEGER affinity
     columns = {c['name']: c for c in inspector.get_columns('engagements')}
     col = columns.get('estimated_acr')
-    if not col:
+    old_column = columns.get('_estimated_acr_old')
+    if not col and not old_column:
         return
 
-    col_type = str(col['type']).upper()
-    if 'INT' in col_type:
+    col_type = str(col['type']).upper() if col else ''
+    if 'INT' in col_type and not old_column:
         return  # Already migrated
+    if old_column and '_estimated_acr_original' in columns:
+        raise RuntimeError('Conflicting estimated ACR recovery archives; nothing overwritten')
 
-    import re
-    print("  Migrating estimated_acr from VARCHAR to INTEGER...")
-    with db.engine.connect() as conn:
-        # Step 1: Rename old column
-        conn.execute(text("ALTER TABLE engagements RENAME COLUMN estimated_acr TO _estimated_acr_old"))
-
-        # Step 2: Add new INTEGER column
-        conn.execute(text("ALTER TABLE engagements ADD COLUMN estimated_acr INTEGER"))
-
-        # Step 3: Copy and convert values row by row
-        rows = conn.execute(
-            text("SELECT id, _estimated_acr_old FROM engagements WHERE _estimated_acr_old IS NOT NULL")
-        ).fetchall()
-
-        converted = 0
-        for row in rows:
-            try:
-                val = str(row[1]).strip()
-                num = None
-
-                # Try parsing as a plain number first
-                try:
-                    num = int(float(val))
-                except (ValueError, TypeError):
-                    pass
-
-                # If plain parse failed, try stripping currency formatting
-                if num is None:
-                    cleaned = re.sub(r'[$,\s]', '', val)
-                    cleaned = re.sub(r'/(mo(nth)?)?$', '', cleaned, flags=re.IGNORECASE)
-
-                    k_match = re.match(r'^(\d+(?:\.\d+)?)[kK]$', cleaned)
-                    if k_match:
-                        num = int(float(k_match.group(1)) * 1000)
-                    else:
-                        try:
-                            num = int(float(cleaned))
-                        except (ValueError, TypeError):
-                            print(f"  WARNING: Could not parse estimated_acr '{val}' "
-                                  f"for engagement {row[0]}, setting to NULL")
-                            continue
-
-                conn.execute(
-                    text("UPDATE engagements SET estimated_acr = :acr WHERE id = :id"),
-                    {"acr": num, "id": row[0]}
-                )
-                converted += 1
-            except Exception as e:
-                print(f"  WARNING: Failed to convert estimated_acr for engagement {row[0]} "
-                      f"(value={row[1]!r}): {e}")
-
-        # Step 4: Drop old column
-        conn.execute(text("ALTER TABLE engagements DROP COLUMN _estimated_acr_old"))
-        conn.commit()
-
-        if converted:
-            print(f"  Converted {converted} estimated_acr values to integer")
+    source = '_estimated_acr_old' if old_column else 'estimated_acr'
+    with db.engine.connect() as connection:
+        rows = connection.execute(text(
+            f'SELECT {"estimated_acr" if col else "NULL"}, "{source}" FROM engagements',
+        )).fetchall()
+    for current, original in rows:
+        parsed = _parse_historical_acr(original)
+        if old_column and current is not None and current != parsed:
+            raise RuntimeError('Conflicting interrupted estimated ACR values; nothing overwritten')
+    create_sql = _migration_table_sql(db, 'engagements')
+    if not col:
+        position = create_sql.index('(') + 1
+        create_sql = create_sql[:position] + 'estimated_acr INTEGER,\n' + create_sql[position:]
+    elif 'INT' not in col_type:
+        create_sql, count = re.subn(
+            r'((?:"estimated_acr"|estimated_acr)\s+)'
+            r'(?:VARCHAR(?:\(\d+\))?|TEXT|FLOAT|REAL)(?=\s|,|\))',
+            r'\1INTEGER', create_sql, count=1, flags=re.IGNORECASE,
+        )
+        if count != 1:
+            raise RuntimeError('Could not safely convert the historical estimated ACR type')
+    new_sql = _replacement_table_sql(create_sql, 'engagements', '_engagements_acr_new')
+    expression = f'_salesbuddy_historical_acr("{source}")'
+    _rebuild_sqlite_table(
+        db, 'engagements', new_sql, '_engagements_acr_new', 'estimated-acr',
+        expressions={'estimated_acr': expression},
+        sql_functions={'_salesbuddy_historical_acr': _parse_historical_acr},
+        renamed_columns=(
+            {'_estimated_acr_old': '_estimated_acr_original'} if old_column else None
+        ),
+    )
+    inspector.clear_cache()
+    db.session.expire_all()
+    print('  Converted estimated ACR while preserving engagement data and links')
 
 
 def _migrate_engagement_contacts(db, inspector):
@@ -2243,30 +2179,34 @@ def _migrate_alignment_tables(db, inspector):
             conn.commit()
         print("  Created table 'alignment_selections'")
     else:
-        # Feature evolved from (territory, seller) pairs to territory-only.
-        # The old schema has NOT NULL seller columns that block territory-only
-        # inserts. This table only exists on dev machines running this
-        # unmerged feature and holds easily re-entered alignment intent, so
-        # recreate it with the new schema when the old columns are present.
         cols = {c['name'] for c in inspector.get_columns('alignment_selections')}
         if 'seller_msx_user_id' in cols:
-            with db.engine.connect() as conn:
-                conn.execute(text("DROP TABLE alignment_selections"))
-                conn.execute(text("""
-                    CREATE TABLE alignment_selections (
-                        id INTEGER PRIMARY KEY,
-                        fy_label VARCHAR(10) NOT NULL,
-                        msx_territory_id VARCHAR(100) NOT NULL,
-                        territory_name VARCHAR(200) NOT NULL,
-                        active BOOLEAN NOT NULL DEFAULT 1,
-                        created_at DATETIME NOT NULL DEFAULT (CURRENT_TIMESTAMP),
-                        updated_at DATETIME NOT NULL DEFAULT (CURRENT_TIMESTAMP),
-                        CONSTRAINT uq_alignment_selection
-                            UNIQUE (fy_label, msx_territory_id)
-                    )
-                """))
-                conn.commit()
-            print("  Rebuilt 'alignment_selections' to territory-only schema")
+            with db.engine.connect() as connection:
+                duplicate = connection.execute(text(
+                    'SELECT 1 FROM alignment_selections GROUP BY fy_label, msx_territory_id '
+                    'HAVING COUNT(*)>1 LIMIT 1',
+                )).first()
+            if duplicate:
+                raise RuntimeError(
+                    'Conflicting historical territory selections require review; '
+                    'all original selections are preserved',
+                )
+            for column in ('seller_msx_user_id', 'seller_name'):
+                _make_column_nullable(db, inspector, 'alignment_selections', column)
+            inspector.clear_cache()
+            uniques = (
+                inspector.get_unique_constraints('alignment_selections')
+                + inspector.get_indexes('alignment_selections')
+            )
+            if not any(item.get('unique', True)
+                       and item['column_names'] == ['fy_label', 'msx_territory_id']
+                       for item in uniques):
+                with db.engine.begin() as connection:
+                    connection.execute(text(
+                        'CREATE UNIQUE INDEX uq_alignment_territory_migration '
+                        'ON alignment_selections(fy_label,msx_territory_id)',
+                    ))
+            print('  Preserved legacy alignment selections and optional seller metadata')
 
 
 def _migrate_u2c_official_import(db, inspector):

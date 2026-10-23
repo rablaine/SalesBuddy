@@ -44,6 +44,8 @@ SAFE_TABLES = set(CORE_TABLES) | {
 DIAGNOSTICS_URL = 'https://apim-notehelper.azure-api.net/diagnostics'
 CORPORATE_TENANT = '72f988bf-86f1-41af-91ab-2d7cd011db47'
 REPORT_RETRY_SECONDS = 300
+STATE_WRITE_RETRY_SECONDS = 2.0
+STATE_WRITE_RETRY_INTERVAL_SECONDS = 0.05
 
 
 class RehearsalError(RuntimeError):
@@ -76,9 +78,29 @@ def atomic_json(path: Path, data: dict) -> None:
             json.dump(data, handle, indent=2)
             handle.flush()
             os.fsync(handle.fileno())
-        os.replace(temporary, path)
+        retry_until = None
+        while True:
+            try:
+                os.replace(temporary, path)
+                if retry_until is not None:
+                    logger.info('State publication recovered after a Windows file lock: %s', path)
+                break
+            except OSError as error:
+                if os.name != 'nt' or getattr(error, 'winerror', None) not in {5, 32, 33}:
+                    raise
+                if retry_until is None:
+                    retry_until = time.monotonic() + STATE_WRITE_RETRY_SECONDS
+                    logger.warning('Windows file lock delayed state publication; retrying: %s', path)
+                remaining = retry_until - time.monotonic()
+                if remaining <= 0:
+                    logger.error('State publication remained blocked after bounded retries: %s', path)
+                    raise
+                time.sleep(min(STATE_WRITE_RETRY_INTERVAL_SECONDS, remaining))
     finally:
-        temporary.unlink(missing_ok=True)
+        try:
+            temporary.unlink(missing_ok=True)
+        except OSError:
+            logger.exception('Could not remove unpublished temporary state: %s', temporary)
 
 
 def startup_path(repo: Path) -> Path:
@@ -764,6 +786,33 @@ def restore(repo: Path, *, confirmed: bool = False, launch: bool = True) -> None
         raise
 
 
+def _launch_independent(repo: Path, argv: list[str]) -> None:
+    """Launch outside the updater's console/job, with independent file-backed output."""
+    log = repo / 'logs' / 'workspace-launch.log'
+    log.parent.mkdir(parents=True, exist_ok=True)
+    with log.open('ab', buffering=0) as output:
+        if os.name == 'nt':
+            subprocess.Popen(
+                argv, cwd=repo, stdin=subprocess.DEVNULL, stdout=output,
+                stderr=subprocess.STDOUT, close_fds=True,
+                creationflags=(subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+                               | subprocess.CREATE_BREAKAWAY_FROM_JOB),
+            )
+        else:
+            subprocess.Popen(
+                argv, cwd=repo, stdin=subprocess.DEVNULL, stdout=output,
+                stderr=subprocess.STDOUT, close_fds=True, start_new_session=True,
+            )
+
+
+def launch_desktop(repo: Path) -> None:
+    """Open the packaged shell independently; its existing startup/recovery gates still apply."""
+    shell = repo / 'electron-dist' / 'Sales Buddy.exe'
+    if not shell.is_file():
+        raise RuntimeError('The packaged desktop shell is unavailable')
+    _launch_independent(repo, [str(shell)])
+
+
 def launch_workspace(repo: Path) -> None:
     """Open the restored desktop or backend only after its durable recovery gate clears."""
     state = load_state(repo)
@@ -771,9 +820,9 @@ def launch_workspace(repo: Path) -> None:
         raise RuntimeError('Dismiss the recovery notice before opening the restored workspace')
     shell = repo / 'electron-dist' / 'Sales Buddy.exe'
     if shell.exists():
-        subprocess.Popen([str(shell)], cwd=repo)
+        launch_desktop(repo)
     else:
-        subprocess.Popen([str(_python(repo / 'venv')), '-m', 'app.supervisor'], cwd=repo)
+        _launch_independent(repo, [str(_python(repo / 'venv')), '-m', 'app.supervisor'])
 
 
 def failure_report(repo: Path, state: dict) -> dict:
@@ -1331,7 +1380,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('action', choices=[
         'prepare', 'apply', 'accept', 'wait-ready', 'restore', 'verify', 'fail',
-        'launch-recovery', 'recover', 'send-reports',
+        'launch-recovery', 'recover', 'send-reports', 'launch-desktop',
     ])
     parser.add_argument('--repo', type=Path, default=Path(__file__).resolve().parents[1])
     parser.add_argument('--target', default='origin/main')
@@ -1348,6 +1397,9 @@ def main() -> int:
     try:
         if args.action == 'send-reports':
             send_pending_reports(repo)
+            return 0
+        if args.action == 'launch-desktop':
+            launch_desktop(repo)
             return 0
         if args.action in {'restore', 'recover'} and args.wait_pid:
             _wait_for_parent(args.wait_pid)

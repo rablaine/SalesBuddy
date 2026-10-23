@@ -504,7 +504,10 @@ class TestMsxRoutes:
         note_form = Path('templates/note_form.html').read_text(encoding='utf-8')
         fill_my_day = Path('templates/fill_my_day.html').read_text(encoding='utf-8')
 
-        assert note_form.count('complete_on_create: true') == 2
+        msx_task_creator = note_form.split('function createTaskInMSX() {', 1)[1].split(
+            '\nfunction ', 1,
+        )[0]
+        assert 'complete_on_create: true' in msx_task_creator
         assert fill_my_day.count('complete_on_create: true') == 1
 
 

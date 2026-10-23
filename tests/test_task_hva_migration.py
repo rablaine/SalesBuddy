@@ -185,6 +185,30 @@ def test_owned_inventory_rebuild_failure_rolls_back_and_restores_foreign_keys(mi
     assert len(list(migration_db.directory.glob("*.owned-tasks-*.bak"))) == 1
 
 
+def test_unchanged_owned_inventory_failure_reuses_verified_backup(migration_db):
+    """Repeated failed startups must not write another full database snapshot each time."""
+    seed_tasks(migration_db, 'is_hva BOOLEAN NOT NULL DEFAULT 0')
+    with migration_db.engine.connect() as connection:
+        raw = connection.connection.driver_connection
+        raw.execute("INSERT INTO msx_tasks VALUES (7, 'linked', 'Demo', 3, 1, 'custom')")
+        raw.commit()
+        raw.set_authorizer(
+            lambda action, name, *args: sqlite3.SQLITE_DENY
+            if action == sqlite3.SQLITE_DROP_TABLE and name == "msx_tasks" else sqlite3.SQLITE_OK,
+        )
+        try:
+            for _ in range(121):
+                with pytest.raises(RuntimeError, match="failed; rolled back"):
+                    _migrate_owned_task_inventory(migration_db)
+        finally:
+            raw.set_authorizer(None)
+    backups = list(migration_db.directory.glob("*.owned-tasks-*.bak"))
+    assert len(backups) == 1
+    with closing(sqlite3.connect(backups[0])) as saved:
+        assert saved.execute('PRAGMA integrity_check').fetchone() == ('ok',)
+        assert saved.execute('SELECT subject FROM msx_tasks').fetchall() == [('Demo',)]
+
+
 @pytest.mark.parametrize('partial', [False, True])
 def test_upgrade_preserves_values_links_schema_backup_and_new_inserts(migration_db, partial):
     """Both deployed schema shapes retain rows and support HVA-only inserts."""
@@ -254,7 +278,11 @@ def test_upgrade_preserves_values_links_schema_backup_and_new_inserts(migration_
 def test_backup_failure_prevents_schema_changes(migration_db, monkeypatch):
     """Never change the schema if the required backup fails."""
     seed_tasks(migration_db, 'is_hok BOOLEAN NOT NULL, is_hva BOOLEAN NOT NULL DEFAULT 0')
-    monkeypatch.setattr('app.db_paths.backup_database', lambda *args, **kwargs: False)
+    def fail_backup(*args, **kwargs):
+        """Reject the shared verified-backup step before classification DDL can execute."""
+        raise RuntimeError('Migration backup failed verification')
+
+    monkeypatch.setattr('app.services.migration_backups.create_migration_backup', fail_backup)
     with pytest.raises(RuntimeError, match='rolled back') as error:
         _migrate_msx_task_hva_column(migration_db, inspect(migration_db.engine))
     assert 'backup failed verification' in str(error.value.__cause__)

@@ -3200,17 +3200,18 @@ def update_task(
         return {"success": False, "error": str(e)}
 
 
-def close_task(task_id: str) -> Dict[str, Any]:
+def close_task(task_id: str, *, actual_end: Optional[dt] = None) -> Dict[str, Any]:
     """
     Close a task in MSX by setting statecode=1 (Completed) and statuscode=5.
 
     Args:
         task_id: The MSX task GUID.
+        actual_end: Original UTC completion time when restoring a temporarily reopened task.
 
     Returns:
         Dict with success: bool and optional error message.
     """
-    return _set_task_completed(task_id, completed=True)
+    return _set_task_completed(task_id, completed=True, actual_end=actual_end)
 
 
 def reopen_task(task_id: str) -> Dict[str, Any]:
@@ -3218,7 +3219,9 @@ def reopen_task(task_id: str) -> Dict[str, Any]:
     return _set_task_completed(task_id, completed=False)
 
 
-def _set_task_completed(task_id: str, *, completed: bool) -> Dict[str, Any]:
+def _set_task_completed(
+    task_id: str, *, completed: bool, actual_end: Optional[dt] = None,
+) -> Dict[str, Any]:
     """Persist the task state and its matching Dataverse status reason together."""
     if _is_writeback_disabled():
         return dict(_WRITEBACK_BLOCKED)
@@ -3231,6 +3234,10 @@ def _set_task_completed(task_id: str, *, completed: bool) -> Dict[str, Any]:
         }
         if not completed:
             payload["actualend"] = None
+        elif actual_end is not None:
+            payload["actualend"] = actual_end.replace(
+                tzinfo=actual_end.tzinfo or tz.utc,
+            ).astimezone(tz.utc).isoformat()
         response = _msx_request(
             'PATCH',
             f"{CRM_BASE_URL}/tasks({task_id})",

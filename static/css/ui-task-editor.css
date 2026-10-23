@@ -3,11 +3,13 @@
 .sb-task-fields { display: grid; gap: 16px; }
 .sb-task-error { margin-top: 12px; color: var(--sb-ui-danger); font-size: 13px; }
 .sb-task-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.sb-task-rich { min-width: 0; }
 .sb-task-rich .ql-toolbar.ql-snow, .sb-task-rich .ql-container.ql-snow {
     border: 1px solid var(--sb-ui-control-line); color: var(--sb-ui-ink);
     font: 13px/1.5 var(--sb-ui-font);
 }
 .sb-task-rich .ql-toolbar { background: var(--sb-ui-context); }
+.sb-task-rich .ql-container.ql-snow { height: auto; }
 .sb-task-rich .ql-editor { min-height: 160px; max-height: 350px; color: var(--sb-ui-ink); background: var(--sb-ui-surface); }
 .sb-engagement-view .ql-editor.ql-blank::before,
 .sb-task-rich .ql-editor.ql-blank::before { color: var(--sb-ui-muted); }

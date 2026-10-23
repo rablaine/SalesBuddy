@@ -397,7 +397,8 @@ if ($NoLaunch) {
     Write-Host "Skipping launch (-NoLaunch)." -ForegroundColor DarkYellow
 } elseif ($RecoveryOwnedByCaller) {
     Write-Host "Launching Sales Buddy; Electron owns readiness and recovery." -ForegroundColor Yellow
-    Start-Process -FilePath $destExe
+    & $venvPy $coordinator launch-desktop --repo $repoRoot
+    if ($LASTEXITCODE -ne 0) { throw 'The desktop could not be launched independently.' }
 } else {
     Write-Host "Launching Sales Buddy..." -ForegroundColor Yellow
     $stateFile = Join-Path $repoRoot 'data\startup-state.json'
@@ -405,7 +406,8 @@ if ($NoLaunch) {
     if (Test-Path $stateFile) {
         $previousBoot = (Get-Content $stateFile -Raw | ConvertFrom-Json).boot_id
     }
-    Start-Process -FilePath $destExe
+    & $venvPy $coordinator launch-desktop --repo $repoRoot
+    if ($LASTEXITCODE -ne 0) { throw 'The desktop could not be launched independently.' }
     $deadline = [DateTime]::UtcNow.AddSeconds(60)
     $bootId = $null
     while ([DateTime]::UtcNow -lt $deadline) {

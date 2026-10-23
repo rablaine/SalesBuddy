@@ -4,7 +4,7 @@ import shutil
 import subprocess
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from unittest.mock import Mock
+from unittest.mock import Mock, call
 
 import pytest
 from bs4 import BeautifulSoup
@@ -221,12 +221,27 @@ def test_category_change_updates_msx_and_cached_classification(
     category = next(c for c in TASK_CATEGORIES
                     if c["is_hva"] == is_hva and c["value"] != task.task_category)
     update = Mock(return_value={"success": True})
+    reopen = Mock(return_value={"success": True})
+    close = Mock(return_value={"success": True})
+    operations = Mock()
+    operations.attach_mock(reopen, "reopen")
+    operations.attach_mock(update, "update")
+    operations.attach_mock(close, "close")
     monkeypatch.setattr("app.services.msx_api.update_task", update)
+    monkeypatch.setattr("app.services.msx_api.reopen_task", reopen)
+    monkeypatch.setattr("app.services.msx_api.close_task", close)
     response = client.post(f"/api/reports/hvas/{task.id}/category",
                            json={"category": category["value"]})
     assert response.status_code == 200
     assert response.json["category_name"] == category["label"]
     update.assert_called_once_with(task.msx_task_id, {"msp_taskcategory": category["value"]})
+    expected_calls = [call.update(task.msx_task_id, {"msp_taskcategory": category["value"]})]
+    if state == 1:
+        expected_calls = [
+            call.reopen(task.msx_task_id), *expected_calls,
+            call.close(task.msx_task_id, actual_end=before[1]),
+        ]
+    assert operations.mock_calls == expected_calls
     db.session.refresh(task)
     assert task.task_category == category["value"]
     assert task.task_category_name == category["label"]
@@ -236,6 +251,139 @@ def test_category_change_updates_msx_and_cached_classification(
     assert client.post(f"/api/reports/hvas/{task.id}/category",
                        json={"category": category["value"]}).json["success"]
     assert update.call_count == 1
+    assert operations.mock_calls == expected_calls
+
+
+@pytest.mark.parametrize("is_hva", [True, False])
+def test_completed_category_change_reopens_edits_and_recompletes_before_cache_commit(
+    client, hva_rows, monkeypatch, is_hva,
+):
+    """Use real client payloads, reject closed edits, and retain historical completion dates."""
+    from app.services import msx_api
+
+    task = hva_rows["rows"][1]
+    before = (task.statecode, task.statuscode, task.actual_end, task.due_date,
+              task.milestone_id, task.note_id, task.meeting_id)
+    category = next(c for c in TASK_CATEGORIES
+                    if c["is_hva"] == is_hva and c["value"] != task.task_category)
+    completed_at = task.actual_end.replace(tzinfo=timezone.utc).isoformat()
+    payloads = []
+    remote_state = [1]
+    original_commit = db.session.commit
+
+    def request(method, url, *, json_data):
+        """Model the actual MSX rule that a closed activity cannot change category."""
+        assert method == "PATCH" and url.endswith(f"/tasks({task.msx_task_id})")
+        payloads.append(json_data)
+        if "msp_taskcategory" in json_data:
+            assert remote_state[0] == 0, "Cannot update Closed or Cancelled Activity"
+        else:
+            remote_state[0] = json_data["statecode"]
+        return Mock(status_code=204)
+
+    def commit():
+        """Do not publish the category locally before MSX has completed every step."""
+        assert remote_state[0] == 1
+        assert payloads == [
+            {"statecode": 0, "statuscode": 2, "actualend": None},
+            {"msp_taskcategory": category["value"]},
+            {"statecode": 1, "statuscode": 5, "actualend": completed_at},
+        ]
+        original_commit()
+
+    monkeypatch.setattr(msx_api, "_msx_request", request)
+    monkeypatch.setattr(msx_api, "_is_writeback_disabled", lambda: False)
+    monkeypatch.setattr(db.session, "commit", commit)
+    response = client.post(f"/api/reports/hvas/{task.id}/category",
+                           json={"category": category["value"]})
+    assert response.status_code == 200 and response.json["success"] is True
+    db.session.refresh(task)
+    assert task.task_category == category["value"] and task.is_hva is is_hva
+    assert (task.statecode, task.statuscode, task.actual_end, task.due_date,
+            task.milestone_id, task.note_id, task.meeting_id) == before
+
+
+@pytest.mark.parametrize("failure", [
+    "reopen", "category", "complete", "category-and-complete", "cache",
+])
+def test_completed_category_failures_restore_completion_or_expose_partial_remote_changes(
+    client, hva_rows, monkeypatch, failure,
+):
+    """A failed category write still recloses; partial remote success never returns UI success."""
+    from app.services import msx_api
+
+    task = hva_rows["rows"][1]
+    before = (task.task_category, task.task_category_name, task.is_hva,
+              task.statecode, task.statuscode, task.actual_end)
+    category = next(c for c in TASK_CATEGORIES
+                    if c["is_hva"] and c["value"] != task.task_category)
+    stages = []
+
+    def request(method, url, *, json_data):
+        """Fail a selected stage without writing any actual MSX data."""
+        stage = ("category" if "msp_taskcategory" in json_data else
+                 "complete" if json_data["statecode"] == 1 else "reopen")
+        stages.append(stage)
+        failed = failure == stage or (
+            failure == "category-and-complete" and stage in {"category", "complete"}
+        )
+        return Mock(status_code=400 if failed else 204, text=f"{stage} denied")
+
+    monkeypatch.setattr(msx_api, "_msx_request", request)
+    monkeypatch.setattr(msx_api, "_is_writeback_disabled", lambda: False)
+    if failure == "cache":
+        monkeypatch.setattr(db.session, "commit", Mock(side_effect=SQLAlchemyError("Disk full")))
+    response = client.post(f"/api/reports/hvas/{task.id}/category",
+                           json={"category": category["value"]})
+    assert response.status_code == (500 if failure == "cache" else 502)
+    assert response.json["success"] is False
+    assert response.json.get("remote_changed", False) is (
+        failure in {"complete", "category-and-complete", "cache"}
+    )
+    assert stages == (["reopen"] if failure == "reopen" else ["reopen", "category", "complete"])
+    if failure in {"complete", "category-and-complete"}:
+        assert "may still be open" in response.json["error"]
+        assert "Refresh MSX tasks" in response.json["error"]
+    if failure in {"category", "category-and-complete"}:
+        assert "category denied" in response.json["error"]
+    db.session.refresh(task)
+    assert (task.task_category, task.task_category_name, task.is_hva,
+            task.statecode, task.statuscode, task.actual_end) == before
+
+
+def test_completed_category_unexpected_error_still_attempts_to_restore_completion(
+    hva_rows, monkeypatch,
+):
+    """An unexpected client exception must not skip the final completion attempt."""
+    from app.services.hva_inventory import change_hva_category
+
+    task = hva_rows["rows"][1]
+    monkeypatch.setattr("app.services.msx_api.reopen_task", Mock(return_value={"success": True}))
+    monkeypatch.setattr("app.services.msx_api.update_task",
+                        Mock(side_effect=RuntimeError("Unexpected client failure")))
+    close = Mock(return_value={"success": True})
+    monkeypatch.setattr("app.services.msx_api.close_task", close)
+    with pytest.raises(RuntimeError, match="Unexpected client failure"):
+        change_hva_category(task, TASK_CATEGORIES[0]["value"])
+    close.assert_called_once_with(task.msx_task_id, actual_end=task.actual_end)
+
+
+@pytest.mark.parametrize("completed_at", [
+    datetime(2026, 6, 30, 23, 59),
+    datetime(2026, 6, 30, 23, 59, tzinfo=timezone.utc),
+    datetime(2026, 7, 1, 1, 59, tzinfo=timezone(timedelta(hours=2))),
+])
+def test_recompletion_preserves_original_utc_period_in_msx_payload(monkeypatch, completed_at):
+    """Cached naive UTC and aware timestamps must not move work into another fiscal period."""
+    from app.services import msx_api
+
+    remote = Mock(return_value=Mock(status_code=204))
+    monkeypatch.setattr(msx_api, "_msx_request", remote)
+    monkeypatch.setattr(msx_api, "_is_writeback_disabled", lambda: False)
+    assert msx_api.close_task("task-guid", actual_end=completed_at)["success"]
+    assert remote.call_args.kwargs["json_data"] == {
+        "statecode": 1, "statuscode": 5, "actualend": "2026-06-30T23:59:00+00:00",
+    }
 
 
 @pytest.mark.parametrize("body", [
