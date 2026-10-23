@@ -241,17 +241,26 @@ def commit(repo: Path) -> str:
 
 def _db_module(repo: Path):
     """Load the existing path/backup implementation without importing the Flask app."""
-    from dotenv import load_dotenv
-
-    load_dotenv(repo / '.env')
     frozen = Path(__file__).with_name('db_paths.py')
-    source = frozen if Path(__file__).name == 'recover.py' else repo / 'app' / 'db_paths.py'
+    recovering = Path(__file__).name == 'recover.py'
+    if not recovering:
+        from dotenv import load_dotenv
+
+        load_dotenv(repo / '.env')
+    source = frozen if recovering else repo / 'app' / 'db_paths.py'
     spec = importlib.util.spec_from_file_location('_upgrade_db_paths', source)
     if spec is None or spec.loader is None:
         raise RuntimeError('Database backup implementation is unavailable')
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     module._repo_root = lambda: repo
+    if recovering:
+        manifest = read_json(frozen.parent / 'manifest.json')
+        if (not manifest or manifest.get('repo') != str(repo.resolve())
+                or not Path(manifest.get('database', '')).is_absolute()
+                or frozen.parent.name != manifest.get('attempt_id')):
+            raise RuntimeError('Frozen database configuration failed installation validation')
+        module.resolve_db_path = lambda: Path(manifest['database'])
     return module
 
 
@@ -266,16 +275,30 @@ def _digest(path: Path) -> str:
         return hashlib.file_digest(handle, 'sha256').hexdigest()
 
 
-def _tree_digest(directory: Path) -> str:
+def _tree_digest(directory: Path, *, ignore_cache: bool = False) -> str:
     """Verify snapshot file names and bytes, including empty-file boundaries."""
+    if directory.is_symlink() or directory.is_junction():
+        raise RuntimeError('Recovery snapshots cannot contain filesystem links')
+    pending = [directory]
+    files = []
+    while pending:
+        with os.scandir(pending.pop()) as entries:
+            for entry in entries:
+                if entry.is_symlink():
+                    raise RuntimeError('Recovery snapshots cannot contain filesystem links')
+                if entry.is_dir(follow_symlinks=False):
+                    folder = Path(entry.path)
+                    if folder.is_junction():
+                        raise RuntimeError('Recovery snapshots cannot contain filesystem links')
+                    if not (ignore_cache and entry.name == '__pycache__'):
+                        pending.append(folder)
+                elif entry.is_file(follow_symlinks=False):
+                    files.append(Path(entry.path))
     result = hashlib.sha256()
-    for path in sorted(directory.rglob('*')):
-        if path.is_symlink():
-            raise RuntimeError('Recovery snapshots cannot contain symbolic links')
-        if path.is_file():
-            result.update(str(path.relative_to(directory)).encode('utf-8'))
-            result.update(b'\0')
-            result.update(_digest(path).encode('ascii'))
+    for path in sorted(files):
+        result.update(str(path.relative_to(directory)).encode('utf-8'))
+        result.update(b'\0')
+        result.update(_digest(path).encode('ascii'))
     return result.hexdigest()
 
 
@@ -340,8 +363,21 @@ def _discard_incomplete_snapshot(point: Path) -> None:
         (point / name).unlink(missing_ok=True)
 
 
+def _prepare_recovery_runner(repo: Path, point: Path) -> str:
+    """Create a small stdlib-only launcher, without copying or scanning installed packages."""
+    started = time.monotonic()
+    _run(repo, [sys._base_executable, '-I', '-m', 'venv', '--without-pip',
+                str(point / 'runtime')])
+    _run(repo, [str(_python(point / 'runtime')), '-I', '-c',
+                'import sqlite3, venv, urllib.request'])
+    checksum = _tree_digest(point / 'runtime', ignore_cache=True)
+    logger.info('Independent recovery launcher prepared in %.1f seconds',
+                time.monotonic() - started)
+    return checksum
+
+
 def prepare(repo: Path, target: str = 'origin/main', *, shell_rebuild: bool = False) -> dict:
-    """Freeze code, runtime, desktop shell and DB before modifying an installed version."""
+    """Save code, database and a dependency-free recovery launcher before an update."""
     _assert_quiescent(repo)
     revision = commit(repo)
     if _run(repo, ['git', 'status', '--porcelain', '--untracked-files=no']):
@@ -376,6 +412,7 @@ def prepare(repo: Path, target: str = 'origin/main', *, shell_rebuild: bool = Fa
         'previous_commit': revision, 'target_commit': incoming, 'applied_commit': revision,
         'created_at': utc_timestamp(), 'recovery_ready': False, 'changes_started': False,
         'needs_shell_rebuild': shell_rebuild,
+        'runtime_mode': 'rebuild-on-recovery',
     }
     point = _point(repo, state)
     point.mkdir(parents=True, mode=0o700)
@@ -383,7 +420,7 @@ def prepare(repo: Path, target: str = 'origin/main', *, shell_rebuild: bool = Fa
     try:
         runtime = repo / 'venv'
         shell = repo / 'electron-dist'
-        required = sum(path.stat().st_size for folder in (runtime, shell)
+        required = sum(path.stat().st_size for folder in (shell,)
                        if folder.exists() for path in folder.rglob('*') if path.is_file())
         if shutil.disk_usage(repo).free < required + 64 * 1024 * 1024:
             raise RuntimeError('Not enough disk space to stage a recovery runtime')
@@ -392,14 +429,12 @@ def prepare(repo: Path, target: str = 'origin/main', *, shell_rebuild: bool = Fa
         if shutil.disk_usage(point).free < required:
             raise RuntimeError('Not enough free disk space for a complete recovery snapshot')
         if not _python(runtime).exists():
-            raise RuntimeError('The installed Python runtime cannot be backed up')
+            raise RuntimeError('The installed Python interpreter is unavailable')
         _run(repo, ['git', 'archive', '--format=zip', f'--output={point / "application.zip"}',
                     revision])
         state['code_sha256'] = _digest(point / 'application.zip')
-        shutil.copytree(runtime, point / 'runtime')
-        _run(repo, [str(_python(point / 'runtime')), '-c', 'import flask, sqlalchemy, dotenv'],
-             env={**os.environ, 'PYTHONDONTWRITEBYTECODE': '1', 'PYTHONNOUSERSITE': '1'})
-        state['runtime_sha256'] = _tree_digest(point / 'runtime')
+        state['runtime_sha256'] = _prepare_recovery_runner(repo, point)
+        state['runtime_ignores_cache'] = True
         state['shell_existed'] = shell.exists()
         if shell.exists():
             shutil.copytree(shell, point / 'shell')
@@ -447,6 +482,21 @@ def rehearse_database(repo: Path, source: Path, directory: Path) -> dict:
     return result
 
 
+def _record_dependencies(repo: Path, state: dict) -> None:
+    """Capture exact installed versions once, before any potentially partial pip mutation."""
+    point = _point(repo, state)
+    target = point / 'requirements-recovery.txt'
+    if state.get('dependencies_sha256'):
+        if _digest(target) != state['dependencies_sha256']:
+            raise RuntimeError('Saved dependency record failed verification')
+        return
+    requirements = _run(repo, [str(_python(repo / 'venv')), '-m', 'pip', 'freeze', '--all'])
+    if not requirements.strip():
+        raise RuntimeError('The installed dependency record is empty; package update stopped')
+    target.write_text(requirements + '\n', encoding='utf-8')
+    save_state(repo, state, state['phase'], dependencies_sha256=_digest(target))
+
+
 def apply_update(repo: Path) -> dict:
     """Apply code/dependencies, rehearse, then migrate live, leaving failures recoverable."""
     _assert_quiescent(repo)
@@ -472,6 +522,9 @@ def apply_update(repo: Path) -> dict:
             '--', 'requirements.txt',
         ])
         if requirements_changed or state.get('repair_dependencies'):
+            if state.get('runtime_mode') == 'rebuild-on-recovery':
+                _record_dependencies(repo, state)
+                save_state(repo, state, 'dependencies', dependencies_attempted=True)
             _run(repo, [str(_python(repo / 'venv')), '-m', 'pip', 'install',
                         '-r', 'requirements.txt'])
         save_state(repo, state, 'rehearsing')
@@ -661,27 +714,98 @@ def verify_recovery(repo: Path) -> dict:
             continue
         if _digest(point / file) != state[checksum]:
             raise RuntimeError('Recovery backup verification failed')
-    if _tree_digest(point / 'runtime') != state['runtime_sha256']:
+    if _tree_digest(
+        point / 'runtime', ignore_cache=state.get('runtime_ignores_cache', False),
+    ) != state['runtime_sha256']:
         raise RuntimeError('Recovery runtime verification failed')
     if state.get('shell_existed') and _tree_digest(point / 'shell') != state['shell_sha256']:
         raise RuntimeError('Recovery desktop shell verification failed')
-    _run(repo, [str(_python(point / 'runtime')), '-c', 'import flask, sqlalchemy'],
+    imports = ('import sqlite3, venv, urllib.request' if state.get('runtime_mode') ==
+               'rebuild-on-recovery' else 'import flask, sqlalchemy')
+    _run(repo, [str(_python(point / 'runtime')), '-I', '-c', imports],
          env={**os.environ, 'PYTHONDONTWRITEBYTECODE': '1'})
+    if state.get('dependencies_sha256'):
+        if _digest(point / 'requirements-recovery.txt') != state['dependencies_sha256']:
+            raise RuntimeError('Saved dependency record failed verification')
     _run(repo, ['git', 'cat-file', '-e', f'{state["previous_commit"]}^{{commit}}'])
     return state
 
 
-def _stage_recovery_tree(source: Path, target: Path, checksum: str) -> None:
+def _stage_recovery_tree(
+    source: Path, target: Path, checksum: str, *, ignore_cache: bool = False,
+) -> None:
     """Reuse verified staging or replace only an interrupted, owned staging copy."""
     if target.is_symlink():
         raise RuntimeError('Recovery staging cannot be a symbolic link')
     if target.exists():
-        if _tree_digest(target) == checksum:
+        if _tree_digest(target, ignore_cache=ignore_cache) == checksum:
             return
         shutil.rmtree(target)
-    shutil.copytree(source, target)
-    if _tree_digest(target) != checksum:
+    shutil.copytree(source, target,
+                    ignore=shutil.ignore_patterns('__pycache__') if ignore_cache else None)
+    if _tree_digest(target, ignore_cache=ignore_cache) != checksum:
         raise RuntimeError('Staged recovery files failed verification')
+
+
+def _prepare_runtime_restore(repo: Path, state: dict, staged: Path) -> str | None:
+    """Leave healthy packages alone, rebuilding only after pip mutation or package failure."""
+    if state.get('runtime_mode') != 'rebuild-on-recovery':
+        _stage_recovery_tree(
+            _point(repo, state) / 'runtime', staged, state['runtime_sha256'],
+            ignore_cache=state.get('runtime_ignores_cache', False),
+        )
+        return state['runtime_sha256']
+    if state.get('runtime_restore_sha256'):
+        checksum = state['runtime_restore_sha256']
+        if ((repo / f'venv.failed-{state["attempt_id"]}').exists()
+                and (repo / 'venv').exists()
+                and _tree_digest(repo / 'venv', ignore_cache=True) == checksum):
+            return checksum
+        if staged.exists() and _tree_digest(staged, ignore_cache=True) == checksum:
+            return checksum
+    repair = state.get('dependencies_attempted') or state.get('repair_dependencies')
+    startup_error = (state.get('startup_failure') or {}).get('error') or {}
+    repair = repair or startup_error.get('category') == 'dependency_missing'
+    if not repair:
+        try:
+            _run(repo, [str(_python(repo / 'venv')), '-I', '-c',
+                        'import flask, sqlalchemy, dotenv'])
+        except FileNotFoundError:
+            logger.warning('Installed interpreter is missing; rebuilding during recovery')
+            repair = True
+        except subprocess.CalledProcessError as error:
+            if not any(name in (error.stderr or '') for name in (
+                'ModuleNotFoundError', 'ImportError',
+            )):
+                raise
+            logger.warning('Installed package imports failed; rebuilding during recovery')
+            repair = True
+        if not repair:
+            logger.info('Recovery is keeping the unchanged Python environment')
+            return None
+    point = _point(repo, state)
+    if not state.get('dependencies_sha256'):
+        requirements = _run(repo, [
+            'git', 'show', f'{state["previous_commit"]}:requirements.txt',
+        ])
+        if not requirements.strip():
+            raise RuntimeError('Previous dependency requirements are unavailable')
+        (point / 'requirements-recovery.txt').write_text(requirements + '\n', encoding='utf-8')
+        save_state(repo, state, 'restoring', dependencies_sha256=_digest(
+            point / 'requirements-recovery.txt',
+        ))
+    if staged.is_symlink() or staged.is_junction():
+        raise RuntimeError('Recovery environment staging cannot be a filesystem link')
+    if staged.exists():
+        shutil.rmtree(staged)
+    logger.info('Rebuilding the previous Python environment during recovery')
+    _run(repo, [str(_python(point / 'runtime')), '-I', '-m', 'venv', str(staged)])
+    _run(repo, [str(_python(staged)), '-I', '-m', 'pip', 'install',
+                '-r', str(point / 'requirements-recovery.txt')])
+    _run(repo, [str(_python(staged)), '-I', '-c', 'import flask, sqlalchemy, dotenv'])
+    checksum = _tree_digest(staged, ignore_cache=True)
+    save_state(repo, state, 'restoring', runtime_restore_sha256=checksum)
+    return checksum
 
 
 def restore(repo: Path, *, confirmed: bool = False, launch: bool = True) -> None:
@@ -691,6 +815,7 @@ def restore(repo: Path, *, confirmed: bool = False, launch: bool = True) -> None
     _assert_quiescent(repo)
     state = verify_recovery(repo)
     point = _point(repo, state)
+    ignore_runtime_cache = state.get('runtime_ignores_cache', False)
     save_state(repo, state, 'restoring')
     try:
         failed = point / 'failed-state'
@@ -714,12 +839,7 @@ def restore(repo: Path, *, confirmed: bool = False, launch: bool = True) -> None
             )
         staged_runtime = repo / f'venv.restore-{state["attempt_id"]}'
         failed_runtime = repo / f'venv.failed-{state["attempt_id"]}'
-        runtime_restored = (
-            failed_runtime.exists() and (repo / 'venv').exists()
-            and _tree_digest(repo / 'venv') == state['runtime_sha256']
-        )
-        if not runtime_restored:
-            _stage_recovery_tree(point / 'runtime', staged_runtime, state['runtime_sha256'])
+        runtime_checksum = _prepare_runtime_restore(repo, state, staged_runtime)
         staged_shell = repo / f'electron-dist.restore-{state["attempt_id"]}'
         failed_shell = repo / f'electron-dist.failed-{state["attempt_id"]}'
         shell_restored = (
@@ -745,15 +865,18 @@ def restore(repo: Path, *, confirmed: bool = False, launch: bool = True) -> None
         # The caller has stopped the entire stack and exited the desktop shell.
         # Retain the failed runtime/shell rather than deleting either one.
         _run(repo, ['git', 'reset', '--hard', state['previous_commit']])
-        if not failed_runtime.exists():
-            os.replace(repo / 'venv', failed_runtime)
-        if (repo / 'venv').exists():
-            if _tree_digest(repo / 'venv') != state['runtime_sha256']:
-                raise RuntimeError('Runtime changed during recovery; preserved without overwriting')
-            if staged_runtime.exists():
-                shutil.rmtree(staged_runtime)
-        else:
-            os.replace(staged_runtime, repo / 'venv')
+        if runtime_checksum is not None:
+            if not failed_runtime.exists() and (repo / 'venv').exists():
+                os.replace(repo / 'venv', failed_runtime)
+            if (repo / 'venv').exists():
+                if _tree_digest(
+                    repo / 'venv', ignore_cache=ignore_runtime_cache,
+                ) != runtime_checksum:
+                    raise RuntimeError('Runtime changed during recovery; preserved without overwrite')
+                if staged_runtime.exists():
+                    shutil.rmtree(staged_runtime)
+            else:
+                os.replace(staged_runtime, repo / 'venv')
         if state.get('shell_existed'):
             if not failed_shell.exists() and (repo / 'electron-dist').exists():
                 os.replace(repo / 'electron-dist', failed_shell)
