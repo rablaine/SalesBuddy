@@ -8,6 +8,10 @@ brought the change into `main`, so the admin Updates card can show
 Format: `## M/D/YYYY - <merge-short-sha>`. See
 `scripts/tag-changelog.ps1` for the helper that fills this in.
 
+## 10/22/2026
+
+- Fix startup on older databases while preserving revenue links and historical audit records, without relaxing checks against migration-created damage.
+
 ## 10/22/2026 - e26ce2be
 
 - Check upgrades against a private database copy before changing your working data, and finish only when the new web server and worker are ready.
