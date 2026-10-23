@@ -8,7 +8,7 @@ brought the change into `main`, so the admin Updates card can show
 Format: `## M/D/YYYY - <merge-short-sha>`. See
 `scripts/tag-changelog.ps1` for the helper that fills this in.
 
-## 10/23/2026
+## 10/23/2026 - 77c91327
 
 - Preserve historical notes, milestones, account links and territory selections when upgrading older databases, and stop safely when old data needs review rather than silently discarding it.
 - Reclaim accumulated migration backups after successful startup, keeping the two newest verified copies per type, and reuse backups on unchanged failed retries instead of filling the drive.
