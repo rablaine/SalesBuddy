@@ -1341,7 +1341,7 @@ def launch_recovery(repo: Path, parent_pid: int | None = None) -> None:
         encoding='utf-8',
     )
     subprocess.run(
-        ['cmd.exe', '/c', 'start', '', '/min', str(launcher)],
+        ['cmd.exe', '/d', '/c', 'start', '', '/min', 'cmd.exe', '/d', '/c', str(launcher)],
         cwd=point, check=True, timeout=10,
     )
 

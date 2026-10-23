@@ -770,7 +770,10 @@ def test_recovery_handoff_does_not_import_the_broken_installed_dependencies(
     calls = []
     monkeypatch.setattr(subprocess, 'run', lambda *args, **kwargs: calls.append(args[0]))
     upgrade.launch_recovery(fixture.repo, parent_pid=12345)
-    assert calls == [['cmd.exe', '/c', 'start', '', '/min', str(point / 'launch-recovery.cmd')]]
+    assert calls == [[
+        'cmd.exe', '/d', '/c', 'start', '', '/min', 'cmd.exe', '/d', '/c',
+        str(point / 'launch-recovery.cmd'),
+    ]]
     command = (point / 'launch-recovery.cmd').read_text()
     assert str(upgrade._python(point / 'runtime')) in command
     assert 'recover --repo' in command
