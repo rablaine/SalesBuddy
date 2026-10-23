@@ -921,7 +921,55 @@ test('shell rebuild helper fallback launches through the independent desktop coo
   assert.match(helper, /-RecoveryOwnedByCaller/);
   assert.match(helper, /launch-recovery\r\nif errorlevel 1 .*--repo .*launch-desktop\r\n/);
   assert.doesNotMatch(helper, /if errorlevel 1 start /i);
+  assert.deepEqual(Array.from(h.children.at(-1).args.slice(0, -1)),
+    ['/d', '/c', 'start', '', '/min', 'cmd.exe', '/d', '/c']);
 });
+
+for (const exitCode of [0, 1]) {
+  test(`shell rebuild command window exits after helper returns ${exitCode}`,
+    {skip: process.platform !== 'win32'}, async () => {
+      const {spawnSync} = require('node:child_process');
+      const os = require('node:os');
+      const h = shellHarness();
+      await h.api.runUpdate('test', true);
+      const launcher = h.children.at(-1);
+      const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'Sales Buddy helper '));
+      const helper = path.join(directory, 'helper.cmd');
+      const marker = path.join(directory, 'parent.txt');
+      let helperPid;
+      try {
+        fs.writeFileSync(helper, '@echo off\r\n' +
+          `"${process.execPath}" -e "require('fs').writeFileSync(process.argv[1], ` +
+          `String(process.ppid))" "${marker}"\r\nexit /b ${exitCode}\r\n`);
+        const args = [...launcher.args.slice(0, -1), helper];
+        const result = spawnSync(launcher.file, args,
+          {cwd: directory, stdio: 'ignore', windowsHide: true, timeout: 10000});
+        assert.equal(result.error, undefined);
+        assert.equal(result.status, 0);
+        const deadline = Date.now() + 5000;
+        while (!fs.existsSync(marker) && Date.now() < deadline) {
+          await new Promise(resolve => setTimeout(resolve, 50));
+        }
+        assert.ok(fs.existsSync(marker), 'the independent helper must actually run');
+        helperPid = Number(fs.readFileSync(marker, 'utf8'));
+        assert.ok(Number.isInteger(helperPid) && helperPid > 0);
+        const alive = () => {
+          try { process.kill(helperPid, 0); return true; }
+          catch (error) { if (error.code === 'ESRCH') return false; throw error; }
+        };
+        while (alive() && Date.now() < deadline) {
+          await new Promise(resolve => setTimeout(resolve, 50));
+        }
+        assert.equal(alive(), false, 'the helper must not leave an idle cmd.exe behind');
+      } finally {
+        if (helperPid) {
+          try { process.kill(helperPid); }
+          catch (error) { if (error.code !== 'ESRCH') throw error; }
+        }
+        fs.rmSync(directory, {recursive: true, force: true, maxRetries: 20, retryDelay: 50});
+      }
+    });
+}
 
 test('retry of a complete pending snapshot never prepares a replacement recovery point', async () => {
   const h = shellHarness({upgrade: {phase: 'failed', recovery_ready: true}});
@@ -982,6 +1030,8 @@ for (const phase of ['failed', 'restored']) {
       assert.equal(h.requests.length, 0, 'even a healthy old backend cannot release the gate');
       assert.equal(h.children.length, 1);
       assert.equal(h.children[0].file, 'cmd.exe');
+      assert.deepEqual(Array.from(h.children[0].args.slice(0, -1)),
+        ['/d', '/c', 'start', '', '/min', 'cmd.exe', '/d', '/c']);
       assert.ok(h.commands.every(command => command.args.includes('verify')));
       assert.ok(h.openedWindows.every(win => !win.loaded.some(url => url.startsWith('http:'))));
       const status = decodeURIComponent(h.openedWindows.at(-1).loaded.at(-1));

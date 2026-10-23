@@ -255,7 +255,7 @@ async function handoffRecovery() {
     'if errorlevel 1 (\r\necho Recovery did not finish. Saved files have been retained.\r\npause\r\n)\r\n',
     'utf8');
   await new Promise((resolve, reject) => {
-    const launcher = spawn('cmd.exe', ['/c', 'start', '', '/min', helper],
+    const launcher = spawn('cmd.exe', ['/d', '/c', 'start', '', '/min', 'cmd.exe', '/d', '/c', helper],
       {cwd: frozen.point, stdio: 'ignore', windowsHide: true});
     const timer = setTimeout(() => reject(new Error('Recovery handoff timed out')), 10000);
     launcher.on('error', error => { clearTimeout(timer); reject(error); });
@@ -905,12 +905,13 @@ async function runRebuild(trigger) {
       isQuitting = true;
       exitShell();
     };
-    // `start "" /min "<helper>"` breaks the helper out of Electron's job object.
+    // Explicit cmd /c prevents START from using /k for a batch file and leaving
+    // an idle console behind. START still breaks the helper out of our job object.
     // Wait for the short-lived cmd launcher to exit (meaning `start` has fired
     // and the helper is now independent) before we quit; a safety timeout covers
     // the case where the exit event never arrives.
     const child = spawn(
-      'cmd.exe', ['/c', 'start', '', '/min', helperCmd],
+      'cmd.exe', ['/d', '/c', 'start', '', '/min', 'cmd.exe', '/d', '/c', helperCmd],
       { cwd: REPO_ROOT, stdio: 'ignore', windowsHide: true }
     );
     child.on('exit', finishExit);
