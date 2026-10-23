@@ -8,6 +8,12 @@ brought the change into `main`, so the admin Updates card can show
 Format: `## M/D/YYYY - <merge-short-sha>`. See
 `scripts/tag-changelog.ps1` for the helper that fills this in.
 
+## 10/23/2026
+
+- Get started with a compact two-page setup, choose your appearance, and save your SE specialty and annual compensation buckets before finishing. Sellers skip SE-specific setup.
+- Complete initial imports sooner with parallel milestone and revenue syncs and reliable account alias lookups, then move straight to the required setup selections.
+- Prevent premature meeting and U2C sync failures during setup, recover U2C when territories become ready, and show widget sync actions only when attention is needed.
+
 ## 10/23/2026 - 77c91327
 
 - Preserve historical notes, milestones, account links and territory selections when upgrading older databases, and stop safely when old data needs review rather than silently discarding it.
