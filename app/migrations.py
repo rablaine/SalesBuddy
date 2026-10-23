@@ -243,6 +243,8 @@ def run_migrations(db):
     if _table_exists(inspector, 'sync_status'):
         _add_column_if_not_exists(db, inspector, 'sync_status', 'heartbeat_at', 'DATETIME')
 
+    _migrate_legacy_revenue_parents(db)
+
     # Data cleanup: Remove "Total" summary rows from revenue data (imported from spreadsheet)
     _cleanup_total_revenue_rows(db, existing_tables)
 
@@ -1949,6 +1951,60 @@ def _migrate_se_territories(db, inspector):
             """))
             conn.commit()
         print("  Created table 'solution_engineers_territories'")
+
+
+def _migrate_legacy_revenue_parents(db) -> None:
+    """Repair missing revenue FK parent names without changing IDs, rows or constraints."""
+    import re
+
+    legacy_parents = {
+        ('customer_id', '_old_customers'): 'customers',
+        ('last_import_id', '_old_revenue_imports'): 'revenue_imports',
+        ('note_id', 'call_logs_backup'): 'notes',
+        ('note_id', '_old_call_logs'): 'notes',
+    }
+    # Repair the legacy child first so analysis rebuilds can validate inbound links.
+    tables = ('revenue_engagements', 'customer_revenue_data',
+              'product_revenue_data', 'revenue_analyses')
+    for table in tables:
+        inspector = inspect(db.engine)
+        existing = set(inspector.get_table_names())
+        if table not in existing:
+            continue
+        repairs = {
+            fk['referred_table']: legacy_parents[
+                (fk['constrained_columns'][0], fk['referred_table'])
+            ]
+            for fk in inspector.get_foreign_keys(table)
+            if len(fk['constrained_columns']) == 1
+            and fk['referred_columns'] == ['id']
+            and (fk['constrained_columns'][0], fk['referred_table']) in legacy_parents
+            and fk['referred_table'] not in existing
+        }
+        if not repairs:
+            continue
+        if any(parent not in existing for parent in repairs.values()):
+            raise RuntimeError(f'Cannot repair {table}: canonical revenue parent is missing')
+        with db.engine.connect() as connection:
+            new_sql = connection.execute(text(
+                'SELECT sql FROM sqlite_master WHERE type=:kind AND name=:table',
+            ), {'kind': 'table', 'table': table}).scalar_one()
+        for old_parent, canonical_parent in repairs.items():
+            new_sql, count = re.subn(
+                rf'(\bREFERENCES\s+)(?:"{old_parent}"|{old_parent})(?=\s*\()',
+                rf'\1"{canonical_parent}"', new_sql, flags=re.IGNORECASE,
+            )
+            if count != 1:
+                raise RuntimeError(f'Could not safely repair {table} parent {old_parent}')
+        replacement = f'_{table}_parents_new'
+        new_sql, count = re.subn(
+            rf'^(CREATE TABLE\s+)(?:"{table}"|{table})',
+            rf'\1"{replacement}"', new_sql, count=1, flags=re.IGNORECASE,
+        )
+        if count != 1:
+            raise RuntimeError(f'Could not safely prepare legacy revenue table {table}')
+        _rebuild_sqlite_table(db, table, new_sql, replacement, 'revenue-parents')
+        print(f"  Repaired legacy foreign-key parents for '{table}'")
 
 
 def _cleanup_total_revenue_rows(db, existing_tables):

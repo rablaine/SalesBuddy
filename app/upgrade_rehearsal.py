@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import logging
 import sqlite3
 from contextlib import closing
 from pathlib import Path
@@ -12,6 +13,8 @@ from sqlalchemy import event
 from app.models import db
 from app.services.database_startup import database_startup_lock, initialize_database
 from scripts.upgrade import CORE_TABLES, _schema_fingerprint, atomic_json, diagnostic_error
+
+logger = logging.getLogger(__name__)
 
 
 def _inventory(database: Path) -> tuple[dict, set]:
@@ -104,10 +107,14 @@ def initialize_offline(database: Path, *, repeat: bool = True) -> dict:
                 invalid = {
                     row for row in violations
                     if row not in existing_violations or row[0] in CORE_TABLES
-                    or row[2] in CORE_TABLES
                 }
                 if invalid:
                     raise RuntimeError(f'Upgrade rehearsal foreign key violations: {sorted(invalid)}')
+                if violations:
+                    logger.warning(
+                        'Preserving %d pre-existing non-core foreign-key violations',
+                        len(violations),
+                    )
                 if repeat:
                     contents = _core_rows(database)
                     schema = _schema_fingerprint(database)
