@@ -319,8 +319,10 @@ function Stop-Server {
     Write-Host "  Stopping server on port $Port..." -ForegroundColor Yellow
 
     # 1. Kill the supervisor tree first so it can't respawn the web child mid-stop.
-    $supervisors = Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction SilentlyContinue |
-        Where-Object { $_.CommandLine -and $_.CommandLine -match 'app\.supervisor' -and $_.ProcessId -ne $PID }
+    $installPattern = [regex]::Escape($RepoRoot) + '([\\/]|["\s]|$)'
+    $supervisors = Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction Stop |
+        Where-Object { $_.CommandLine -and $_.CommandLine -match $installPattern -and
+            $_.CommandLine -match 'app\.supervisor' -and $_.ProcessId -ne $PID }
     foreach ($sup in $supervisors) {
         Stop-ProcessTree -ProcessId $sup.ProcessId -ExcludePid $PID
     }
@@ -329,8 +331,22 @@ function Stop-Server {
     $conns = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
     if ($conns) {
         $procIds = @($conns | Select-Object -ExpandProperty OwningProcess -Unique)
-        foreach ($p in $procIds) { Stop-ProcessTree -ProcessId $p -ExcludePid $PID }
+        foreach ($p in $procIds) {
+            $owner = Get-CimInstance Win32_Process -Filter "ProcessId=$p" -ErrorAction Stop
+            if (-not $owner.CommandLine -or $owner.CommandLine -notmatch $installPattern) {
+                throw "Port $Port belongs to another application. Upgrade stopped without changing files."
+            }
+            Stop-ProcessTree -ProcessId $p -ExcludePid $PID
+        }
     }
+    # Coordinators and diagnostic senders use the same venv but are not backend children.
+    $backendPattern = '(?:app\.supervisor|app\.worker|waitress-serve\.exe|' +
+        '\s-m\s+(?:waitress|flask)(?:\s|$))'
+    Get-CimInstance Win32_Process -Filter "Name='python.exe' OR Name='pythonw.exe' OR Name='waitress-serve.exe'" -ErrorAction Stop |
+        Where-Object { $_.CommandLine -and $_.CommandLine -match $installPattern -and
+            $_.CommandLine -match $backendPattern -and
+            $_.ProcessId -ne $PID } |
+        ForEach-Object { Stop-ProcessTree -ProcessId $_.ProcessId -ExcludePid $PID }
 
     # 3. Verify the port is free.
     $retries = 0
@@ -338,9 +354,9 @@ function Stop-Server {
         Start-Sleep -Seconds 1
         $still = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
         if (-not $still) { return }
-        $still | ForEach-Object { Stop-ProcessTree -ProcessId $_.OwningProcess -ExcludePid $PID }
         $retries++
     }
+    throw "The backend did not stop. No upgrade files have been changed."
 }
 
 # Register salesbuddy:// URL protocol handler (idempotent, HKCU - no admin needed)
@@ -405,6 +421,15 @@ function Start-Server {
     param([int]$Port)
     $python = Join-Path $RepoRoot 'venv\Scripts\python.exe'
     if (-not (Test-Path $python)) { $python = 'python' }
+    $stateFile = Join-Path $RepoRoot 'data\upgrade-state.json'
+    if (Test-Path $stateFile) {
+        $upgrade = Get-Content $stateFile -Raw | ConvertFrom-Json
+        if ($upgrade.notification_pending) {
+            & $python (Join-Path $RepoRoot 'scripts\upgrade.py') launch-recovery --repo $RepoRoot
+            if ($LASTEXITCODE -ne 0) { throw 'The pending recovery notice could not be opened.' }
+            throw 'Automatic recovery is handling startup. Dismiss its notice when restoration finishes.'
+        }
+    }
     $serverArgs = @('-m', 'app.supervisor')
 
     Write-Host "  Starting supervisor (web + worker) on port $Port..." -ForegroundColor Yellow
@@ -433,87 +458,74 @@ function Start-Server {
     $psi.EnvironmentVariables['AZURE_CONFIG_DIR'] = $env:AZURE_CONFIG_DIR
     $psi.EnvironmentVariables['SALESBUDDY_HOME'] = $env:SALESBUDDY_HOME
     $psi.EnvironmentVariables['PORT'] = "$Port"
+    $bootId = [guid]::NewGuid().ToString()
+    $psi.EnvironmentVariables['SALESBUDDY_BOOT_ID'] = $bootId
 
     [System.Diagnostics.Process]::Start($psi) | Out-Null
 
-    # The supervisor spawns waitress + worker; poll for the web child to bind.
-    $bound = $false
-    for ($i = 0; $i -lt 15; $i++) {
-        Start-Sleep -Seconds 1
-        if (Test-ServerRunning -Port $Port) { $bound = $true; break }
-    }
-    if ($bound) {
-        Write-Host "  [OK] Server running at http://localhost:$Port" -ForegroundColor Green
-        Write-Host "  Logs: $logPath" -ForegroundColor DarkGray
-    } else {
-        Write-Host "  Server may still be starting..." -ForegroundColor Yellow
-        Write-Host "  Logs: $logPath" -ForegroundColor DarkGray
-    }
-}
-
-# One-time rename from legacy database filename
-function Invoke-DatabaseMigration {
-    $oldDb = Join-Path $RepoRoot 'data\notehelper.db'
-    $newDb = Join-Path $RepoRoot 'data\salesbuddy.db'
-    if ((Test-Path $oldDb) -and -not (Test-Path $newDb)) {
-        Move-Item $oldDb $newDb
-        Write-Host "  [OK] Renamed database: notehelper.db -> salesbuddy.db" -ForegroundColor Green
-    }
-
-    # Remove legacy DATABASE_URL from .env (the app default is correct)
-    $envFile = Join-Path $RepoRoot '.env'
-    if (Test-Path $envFile) {
-        $lines = Get-Content $envFile
-        $filtered = $lines | Where-Object { $_ -notmatch '^\s*DATABASE_URL\s*=' }
-        if ($filtered.Count -ne $lines.Count) {
-            Set-Content $envFile $filtered
-            Write-Host "  [OK] Removed DATABASE_URL from .env (using app default)" -ForegroundColor Green
-        }
-    }
-}
-
-# Backup the database
-function Backup-Database {
-    $dbFile = Resolve-SalesBuddyDbPath -RepoRoot $RepoRoot
-    if (Test-Path $dbFile) {
-        $timestamp = Get-Date -Format "yyyy-MM-dd_HHmmss"
-        $backupFile = Join-Path (Split-Path $dbFile -Parent) "salesbuddy_backup_$timestamp.db"
-        # WAL-safe snapshot (SQLite online-backup API) instead of a naive copy,
-        # so a live write can't leave the pre-update backup torn or stale.
-        if (Backup-SalesBuddyDb -RepoRoot $RepoRoot -SourceDb $dbFile -DestFile $backupFile) {
-            Write-Host "  [OK] Database backed up." -ForegroundColor Green
-        } else {
-            Write-Host "  [WARNING] Database backup failed (continuing)." -ForegroundColor Yellow
-        }
-    }
-}
-
-# Pull latest from git (handles stashing dirty files)
-function Sync-Updates {
-    $dirty = git status --porcelain
-    if ($dirty) {
-        Write-Host "  Stashing local changes..." -ForegroundColor Gray
-        git stash --quiet 2>$null
-    }
-
-    Write-Host "  Pulling latest changes..." -ForegroundColor Yellow
-    $pullOutput = git pull origin main 2>&1
+    $coordinator = Join-Path $RepoRoot 'scripts\upgrade.py'
+    & $python $coordinator wait-ready --repo $RepoRoot --boot-id $bootId --port $Port
     if ($LASTEXITCODE -ne 0) {
-        Write-Host "  [ERROR] git pull failed!" -ForegroundColor Red
-        Write-Host "  $pullOutput" -ForegroundColor Red
-        if ($dirty) { git stash pop --quiet 2>$null }
-        return $false
+        throw "Backend startup failed. Open Sales Buddy for recovery and diagnostic export. Logs: $logPath"
     }
-    Write-Host "  $pullOutput"
+    & $python $coordinator accept --repo $RepoRoot --boot-id $bootId --port $Port
+    if ($LASTEXITCODE -ne 0) { throw "The update could not be accepted as ready." }
+    Write-Host "  [OK] Web server and worker ready at http://localhost:$Port" -ForegroundColor Green
+    Write-Host "  Logs: $logPath" -ForegroundColor DarkGray
+}
 
-    if ($dirty) {
-        git stash pop --quiet 2>$null
-        if ($LASTEXITCODE -ne 0) {
-            Write-Host "  Stashed changes conflict with upstream - dropped." -ForegroundColor Yellow
-            git stash drop --quiet 2>$null
-        }
+function Invoke-SafeUpdate {
+    param([int]$Port)
+    $python = Join-Path $RepoRoot 'venv\Scripts\python.exe'
+    $coordinator = Join-Path $RepoRoot 'scripts\upgrade.py'
+    if (-not (Test-Path $coordinator)) {
+        throw 'The upgrade coordinator is missing. Repair the installation before updating.'
     }
-    return $true
+    Stop-Server -Port $Port
+    & git fetch origin main
+    if ($LASTEXITCODE -ne 0) { throw 'Fetching the update failed; no application files changed.' }
+    $desktop = Join-Path $RepoRoot 'electron-dist\Sales Buddy.exe'
+    $shellFiles = & git diff --name-only HEAD origin/main -- electron
+    if ($LASTEXITCODE -ne 0) { throw 'Could not determine whether the desktop shell needs rebuilding.' }
+    $shellRebuild = (Test-Path $desktop) -and [bool]$shellFiles
+    $prepareArgs = @('prepare', '--repo', $RepoRoot, '--target', 'origin/main')
+    if ($shellRebuild) { $prepareArgs += '--shell-rebuild' }
+    & $python $coordinator @prepareArgs
+    if ($LASTEXITCODE -ne 0) { throw 'Recovery preparation failed. The update was stopped.' }
+    $recovery = Get-Content (Join-Path $RepoRoot 'data\upgrade-state.json') -Raw | ConvertFrom-Json
+    $recoveryPoint = Join-Path (Split-Path $recovery.database -Parent) `
+        "upgrade-recovery\$($recovery.attempt_id)"
+    $recoveryPython = Join-Path $recoveryPoint 'runtime\Scripts\python.exe'
+    $recoveryRunner = Join-Path $recoveryPoint 'recover.py'
+    try {
+        & $python $coordinator apply --repo $RepoRoot
+        if ($LASTEXITCODE -ne 0) {
+            throw 'Update validation failed.'
+        }
+        if (Test-Path $desktop) {
+            & (Join-Path $RepoRoot 'scripts\migrate-to-electron.ps1') -SkipPull `
+                -Rebuild:$shellRebuild -RecoveryOwnedByCaller
+            if ($LASTEXITCODE -ne 0) {
+                throw 'The desktop update did not become ready.'
+            }
+        } else {
+            Start-Server -Port $Port
+        }
+    } catch {
+        Write-Host "  Update failed. Starting saved-version recovery..." -ForegroundColor Red
+        Stop-Server -Port $Port
+        if ((Get-FileHash $recoveryRunner -Algorithm SHA256).Hash.ToLowerInvariant() -ne
+            $recovery.runner_sha256 -or
+            (Get-FileHash (Join-Path $recoveryPoint 'db_paths.py') -Algorithm SHA256).Hash.ToLowerInvariant() -ne
+            $recovery.backup_helper_sha256) {
+            throw 'The saved recovery entry points failed verification. Nothing was restored.'
+        }
+        & $recoveryPython $recoveryRunner launch-recovery --repo $RepoRoot
+        if ($LASTEXITCODE -ne 0) {
+            throw 'Automatic recovery could not start. Do not use this installation; retain its logs.'
+        }
+        throw 'Update failed. Automatic recovery has started and diagnostics will be queued.'
+    }
 }
 
 # Install/update pip dependencies
@@ -525,32 +537,13 @@ function Install-Dependencies {
 
     # Run pip directly with --quiet. Suppress stderr (2>$null) because pip
     # writes [notice] upgrade nags there.
-    & $pipExe install -r $reqFile --quiet 2>$null
+    & $pipExe install -r $reqFile --quiet
 
     if ($LASTEXITCODE -ne 0) {
         Write-Host "  pip exited with code $LASTEXITCODE" -ForegroundColor Red
         return $false
     }
     return $true
-}
-
-# Run database migrations
-function Invoke-Migrations {
-    Write-Host "  Running migrations..." -ForegroundColor Yellow
-    $pythonExe = Join-Path $RepoRoot 'venv\Scripts\python.exe'
-    $migrationOutput = & $pythonExe -c "from app import create_app, db; from app.migrations import run_migrations; app = create_app(); app.app_context().push(); run_migrations(db)" 2>&1
-    $exitCode = $LASTEXITCODE
-    if ($migrationOutput) {
-        $migrationOutput | ForEach-Object { Write-Host "  $_" }
-    }
-    if ($exitCode -ne 0) {
-        Write-Host ""
-        Write-Host "  Migration error details above. Common causes:" -ForegroundColor Yellow
-        Write-Host "    - Database locked by another process (close other Sales Buddy instances)" -ForegroundColor Gray
-        Write-Host "    - Python version incompatibility (check package support for your Python version)" -ForegroundColor Gray
-        Write-Host "    - Corrupted database (restore from backup: data\salesbuddy.db.bak)" -ForegroundColor Gray
-    }
-    return $exitCode -eq 0
 }
 
 # ==============================================================================
@@ -585,15 +578,12 @@ if ($script:AzCliContextError) {
 if ($StopOnly) {
     $envConfig = Read-EnvFile
     $Port = if ($envConfig['PORT']) { [int]$envConfig['PORT'] } else { 5151 }
-    if (Test-ServerRunning -Port $Port) {
+    try {
         Stop-Server -Port $Port
-        if (-not (Test-ServerRunning -Port $Port)) {
-            Write-Host "  [OK] Server on port $Port stopped." -ForegroundColor Green
-        } else {
-            Write-Host "  [ERROR] Failed to stop server on port $Port." -ForegroundColor Red
-        }
-    } else {
-        Write-Host "  No server running on port $Port." -ForegroundColor Yellow
+        Write-Host "  [OK] Backend stopped." -ForegroundColor Green
+    } catch {
+        Write-Host "  [ERROR] $($_.Exception.Message)" -ForegroundColor Red
+        exit 1
     }
     Start-Sleep -Seconds 1
     exit 0
@@ -714,6 +704,7 @@ if ($hasNode) {
 }
 
 # -- Step 5: Create venv if missing -------------------------------------------
+$createdVenv = $false
 if (-not (Test-Path (Join-Path $RepoRoot 'venv\Scripts\python.exe'))) {
     Write-Host "  [SETUP] Creating virtual environment..." -ForegroundColor Yellow
     & python -m venv (Join-Path $RepoRoot 'venv')
@@ -723,15 +714,23 @@ if (-not (Test-Path (Join-Path $RepoRoot 'venv\Scripts\python.exe'))) {
         exit 1
     }
     Write-Host "  [OK] Virtual environment created." -ForegroundColor Green
+    $createdVenv = $true
 } else {
     Write-Host "  [OK] Virtual environment found." -ForegroundColor Green
 }
 
 # -- Step 6: Install dependencies ---------------------------------------------
-if (-not (Install-Dependencies)) {
-    Write-Host "  [ERROR] Failed to install dependencies." -ForegroundColor Red
-    Wait-WithMessage "Press any key to close..." "Red"
-    exit 1
+$dependencyCheck = Join-Path $RepoRoot 'venv\Scripts\python.exe'
+if (-not $createdVenv) {
+    & $dependencyCheck -c "import flask, sqlalchemy, dotenv"
+    $missingDependencies = $LASTEXITCODE -ne 0
+}
+if ($createdVenv) {
+    if (-not (Install-Dependencies)) {
+        Write-Host "  [ERROR] Failed to install dependencies." -ForegroundColor Red
+        Wait-WithMessage "Press any key to close..." "Red"
+        exit 1
+    }
 }
 Write-Host "  [OK] Dependencies installed." -ForegroundColor Green
 
@@ -937,34 +936,17 @@ if (-not $existingAutoStart) {
 # Decision Logic
 # ==============================================================================
 
-# -Force: Full update cycle (used by update.bat)
-if ($Force) {
+# Both launchers share the same verified snapshot and migration gates.
+if ($Force -or $hasUpdates) {
     Write-Host ""
     Write-Host "  Updating..." -ForegroundColor Cyan
 
-    if ($serverRunning) { Stop-Server -Port $Port }
-    Invoke-DatabaseMigration
-    Backup-Database
-
-    if ($isGitRepo) {
-        if (-not (Sync-Updates)) {
-            Write-Host "  Restarting server with current code..." -ForegroundColor Yellow
-            Start-Server -Port $Port
-            Wait-WithMessage "UPDATE FAILED - press any key to close..." "Red"
-            exit 1
-        }
-    }
-
-    if (-not (Install-Dependencies)) {
-        Write-Host "  [ERROR] pip install failed!" -ForegroundColor Red
-        Start-Server -Port $Port
-        Wait-WithMessage "UPDATE FAILED - press any key to close..." "Red"
-        exit 1
-    }
-
-    if (-not (Invoke-Migrations)) {
-        Write-Host "  [ERROR] Migrations failed!" -ForegroundColor Red
-        Start-Server -Port $Port
+    try {
+        if (-not $isGitRepo) { throw 'A healthy Git installation is required to update safely.' }
+        Invoke-SafeUpdate -Port $Port
+    } catch {
+        Write-Host "  [ERROR] $($_.Exception.Message)" -ForegroundColor Red
+        Write-Host "  No automatic database rollback was performed." -ForegroundColor Yellow
         Wait-WithMessage "UPDATE FAILED - press any key to close..." "Red"
         exit 1
     }
@@ -985,35 +967,20 @@ if ($serverRunning -and -not $hasUpdates) {
     exit 0
 }
 
-if ($hasUpdates) {
-    Write-Host ""
-    Write-Host "  Applying updates..." -ForegroundColor Cyan
-
-    if ($serverRunning) { Stop-Server -Port $Port }
-    Invoke-DatabaseMigration
-    Backup-Database
-
-    if (-not (Sync-Updates)) {
-        Write-Host "  Starting server with current code..." -ForegroundColor Yellow
-        Start-Server -Port $Port
-        Wait-WithMessage "UPDATE FAILED - press any key to close..." "Red"
-        exit 1
-    }
-
-    if (-not (Install-Dependencies)) {
-        Write-Host "  [ERROR] pip install failed!" -ForegroundColor Red
-    }
-
-    if (-not (Invoke-Migrations)) {
-        Write-Host "  [ERROR] Migrations failed!" -ForegroundColor Red
-    }
-}
-
 # Register protocol handler (idempotent)
 Register-ProtocolHandler
 
 # Start server
-Start-Server -Port $Port
+try {
+    if ($missingDependencies -and -not (Install-Dependencies)) {
+        throw 'Required dependencies could not be repaired.'
+    }
+    Start-Server -Port $Port
+} catch {
+    Write-Host "  [ERROR] $($_.Exception.Message)" -ForegroundColor Red
+    Wait-WithMessage "STARTUP FAILED - press any key to close..." "Red"
+    exit 1
+}
 Write-Host ""
 Write-Host "  Sales Buddy is running! Open in your browser:" -ForegroundColor Green
 Write-Host ""

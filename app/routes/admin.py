@@ -341,11 +341,11 @@ def api_shutdown_server():
 
 @admin_bp.route('/api/admin/update-apply', methods=['POST'])
 def api_update_apply():
-    """Trigger a full update cycle (stop → pull → install → migrate → restart).
+    """Request a guarded snapshot, update, rehearsal and verified restart.
 
     Spawns server.ps1 -Force as a fully detached process so it survives
     this server instance being killed.  Returns immediately; the client
-    should poll /health to detect when the new server is back up.
+    should poll /health for the fully ready replacement web server and worker.
     """
     if sys.platform != 'win32':
         return jsonify({'error': 'Update is only supported on Windows'}), 400
@@ -381,7 +381,7 @@ def api_update_apply():
     # Under the Electron shell, Electron owns the update: it owns the supervisor
     # process, so letting server.ps1 tear the tree down here would race with
     # Electron's own restart handler. Instead, drop a sentinel file the shell
-    # watches for; it runs git pull + pip install and relaunches itself. This
+    # watches for; it owns recovery preparation, validation and relaunch. This
     # works whether the click came from the Electron window or a browser tab.
     if _is_electron():
         try:
@@ -401,7 +401,7 @@ def api_update_apply():
             return jsonify({'error': f'Failed to request update: {e}'}), 500
         return jsonify({
             'success': True,
-            'message': 'Update started. Sales Buddy will restart momentarily.',
+            'message': 'Update requested. Preparing recovery and validating before restart.',
         })
 
     # Read PORT from .env so we can pass through elevation if needed
@@ -456,7 +456,7 @@ def api_update_apply():
 
     return jsonify({
         'success': True,
-        'message': 'Update started. The server will restart momentarily.',
+        'message': 'Update requested. Preparing recovery and validating before restart.',
     })
 
 

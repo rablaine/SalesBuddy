@@ -22,6 +22,10 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const http = require('http');
+const { randomUUID } = require('crypto');
+const { MAX_STARTUP_MS, startupDecision, trustedStatusEvent, diagnosticReport,
+  recoveryPoint, verifyRecoveryIntegrity,
+  bundledShellMatchesSource: verifyBundledShellSource } = require('./upgrade-safety');
 
 const APP_VERSION = require('./package.json').version;
 const DEV_CLIENT = process.argv.includes('--dev-client');
@@ -82,9 +86,216 @@ let tray = null;
 let isQuitting = false;
 let isUpdating = false;
 let isBooting = true;
-let restartTimer = null;
 let updateStatus = {};
 let inputFocusDiagnostics = null;
+let bootIdentity = {bootId: randomUUID(), commit: null, started: Date.now(), exited: false};
+let startupFailure = null;
+let statusActionBusy = false;
+let automaticRecoveryStarted = false;
+const STARTUP_STATE = path.join(REPO_ROOT, 'data', 'startup-state.json');
+const UPGRADE_STATE = path.join(REPO_ROOT, 'data', 'upgrade-state.json');
+const UPGRADE_SCRIPT = path.join(REPO_ROOT, 'scripts', 'upgrade.py');
+
+function readDurable(file) {
+  try {
+    const text = fs.readFileSync(file, 'utf8');
+    return text.length <= 262144 ? JSON.parse(text) : null;
+  } catch (_) { return null; }
+}
+
+function coordinator(action, args = []) {
+  return runStep(PYTHON, [UPGRADE_SCRIPT, '--repo', REPO_ROOT, action, ...args], REPO_ROOT);
+}
+
+function showFailure(reason = 'startup') {
+  if (automaticRecoveryStarted && !startupFailure) return;
+  startupFailure = reason;
+  isBooting = true;
+  isUpdating = false;
+  const pending = readDurable(UPGRADE_STATE);
+  if (!DEV_CLIENT && !automaticRecoveryStarted && pending?.recovery_ready &&
+      pending.changes_started && pending.phase !== 'ready' &&
+      !(pending.phase === 'restored' && !pending.notification_pending)) {
+    automaticRecoveryStarted = true;
+    startupFailure = null;
+    showUpdatingScreen('Restoring your previous version',
+      'The update failed. We are restoring your saved application and database. ' +
+      'Please wait; no action is needed. This window will close while recovery finishes.');
+    handoffRecovery().then(result => {
+      if (!result.ok) {
+        startupFailure = reason;
+        log(`Automatic recovery handoff stopped: ${result.message}`);
+        showUpdatingScreen('Automatic recovery needs attention', result.message);
+      }
+    }).catch(error => {
+      startupFailure = reason;
+      log(`Automatic recovery handoff failed: ${error.message}`);
+      showUpdatingScreen('Automatic recovery needs attention',
+        'Recovery could not start. Save a failure report. The workspace remains blocked.');
+    });
+    return;
+  }
+  showUpdatingScreen('Sales Buddy needs attention',
+    'The workspace could not start. Diagnostics can help identify the problem.');
+}
+
+function openReadyWorkspace() {
+  if (automaticRecoveryStarted) return;
+  isBooting = false;
+  startupFailure = null;
+  reloadAllWindows();
+  if (!shouldBootHidden() || pendingShowRequest) ensureWindow();
+}
+
+function acceptReadyWorkspace() {
+  if (automaticRecoveryStarted) return;
+  const pending = readDurable(UPGRADE_STATE);
+  if (!DEV_CLIENT && pending && pending.phase !== 'ready' && pending.phase !== 'restored') {
+    coordinator('accept', ['--boot-id', bootIdentity.bootId, '--port', String(PORT)])
+      .then(openReadyWorkspace).catch(() => showFailure('accept'));
+  } else {
+    openReadyWorkspace();
+  }
+}
+
+function bundledShellMatchesSource() {
+  if (!app.isPackaged) return true;
+  try {
+    const matches = verifyBundledShellSource(fs, __dirname, REPO_ROOT);
+    if (!matches) log('Packaged desktop source does not match installed source; startup blocked');
+    return matches;
+  } catch (error) {
+    log(`Packaged desktop source verification could not run (${error.code || error.name})`);
+    return false;
+  }
+}
+
+async function retryStartup() {
+  if (DEV_CLIENT) return;
+  automaticRecoveryStarted = false;
+  const failedOperation = startupFailure;
+  isUpdating = true;
+  isBooting = true;
+  startupFailure = null;
+  showUpdatingScreen('Starting Sales Buddy', 'Retrying the pending operation.');
+  try {
+    if (!stopStack()) throw new Error('Backend teardown did not complete');
+    const pending = readDurable(UPGRADE_STATE);
+    if (!pending && ['update', 'retry'].includes(failedOperation)) {
+      await runStep('git', ['fetch', 'origin', 'main'], REPO_ROOT);
+      await coordinator('prepare', ['--target', 'origin/main']);
+      await coordinator('apply');
+    }
+    if (pending && !['ready', 'restored'].includes(pending.phase)) {
+      if (!pending.recovery_ready) {
+        // prepare owns resumption of an incomplete snapshot; never replace a complete one.
+        await runStep('git', ['fetch', 'origin', 'main'], REPO_ROOT);
+        await coordinator('prepare', ['--target', 'origin/main',
+          ...(pending.needs_shell_rebuild ? ['--shell-rebuild'] : [])]);
+      }
+      if (pending.phase !== 'starting') await coordinator('apply');
+      if (pending.needs_shell_rebuild &&
+          (pending.failed_phase === 'shell' || !bundledShellMatchesSource())) {
+        await runRebuild('retry');
+        return;
+      }
+    }
+    isUpdating = false;
+    startStack();
+    waitForServer(acceptReadyWorkspace);
+  } catch (_) { showFailure('retry'); }
+}
+
+async function handoffRecovery() {
+  const state = readDurable(UPGRADE_STATE);
+  let frozen = recoveryPoint(fs, REPO_ROOT, state);
+  if (!frozen) return {ok: false, message: 'A verified recovery point is unavailable.'};
+  if (!verifyRecoveryIntegrity(fs, frozen, state)) {
+    return {ok: false,
+      message: 'Recovery integrity verification failed. Nothing was launched or restored.'};
+  }
+  try {
+    await runStep(frozen.python, [frozen.runner, '--repo', REPO_ROOT, 'verify'], frozen.point);
+  } catch (_) {
+    return {ok: false,
+      message: 'The saved recovery point could not pass verification. Nothing was launched or restored.'};
+  }
+  const confirmedState = readDurable(UPGRADE_STATE);
+  if (!confirmedState || confirmedState.attempt_id !== state.attempt_id ||
+      confirmedState.previous_commit !== state.previous_commit ||
+      confirmedState.database !== state.database ||
+      confirmedState.runner_sha256 !== state.runner_sha256 ||
+      confirmedState.backup_helper_sha256 !== state.backup_helper_sha256) {
+    return {ok: false, message: 'The recovery point changed. Nothing was launched or restored.'};
+  }
+  frozen = recoveryPoint(fs, REPO_ROOT, confirmedState);
+  if (!frozen) return {ok: false, message: 'The recovery point is no longer available.'};
+  if (!verifyRecoveryIntegrity(fs, frozen, confirmedState)) {
+    return {ok: false,
+      message: 'Recovery integrity verification failed. Nothing was launched or restored.'};
+  }
+  try {
+    await runStep(frozen.python, [frozen.runner, '--repo', REPO_ROOT, 'verify'], frozen.point);
+  } catch (_) {
+    return {ok: false,
+      message: 'The saved recovery point could not pass verification. Nothing was launched or restored.'};
+  }
+  if (!IS_WIN) return {ok: false, message: 'Recovery handoff requires Windows.'};
+  if (!stopStack()) return {ok: false, message: 'Backend teardown failed. Nothing was restored.'};
+  // Reject cmd expansion characters rather than interpolating untrusted paths into a helper.
+  if ([frozen.python, frozen.runner, frozen.point, REPO_ROOT]
+    .some(value => /["%!\r\n&|<>^]/.test(value))) {
+    return {ok: false, message: 'The recovery location cannot be launched safely.'};
+  }
+  const helper = path.join(frozen.point, 'launch-recovery.cmd');
+  fs.writeFileSync(helper, '@echo off\r\nchcp 65001 >nul\r\n' +
+    `"${frozen.python}" "${frozen.runner}" --repo "${REPO_ROOT}" recover ` +
+    `--parent-pid ${process.pid}\r\n` +
+    'if %errorlevel% equ 2 exit /b 0\r\n' +
+    'if errorlevel 1 (\r\necho Recovery did not finish. Saved files have been retained.\r\npause\r\n)\r\n',
+    'utf8');
+  await new Promise((resolve, reject) => {
+    const launcher = spawn('cmd.exe', ['/c', 'start', '', '/min', helper],
+      {cwd: frozen.point, stdio: 'ignore', windowsHide: true});
+    const timer = setTimeout(() => reject(new Error('Recovery handoff timed out')), 10000);
+    launcher.on('error', error => { clearTimeout(timer); reject(error); });
+    launcher.on('exit', code => {
+      clearTimeout(timer);
+      if (code !== 0) reject(new Error('Recovery handoff failed'));
+      else resolve();
+    });
+  });
+  isQuitting = true;
+  exitShell();
+  return {ok: true, message: 'Recovery was handed off for verification, not yet completed.'};
+}
+
+async function statusAction(action) {
+  if (statusActionBusy) return {ok: false, message: 'An action is already in progress.'};
+  statusActionBusy = true;
+  try {
+    if (action === 'export') {
+      const {canceled, filePath} = await dialog.showSaveDialog({
+        title: 'Save private failure report', defaultPath: 'salesbuddy-failure.json',
+        filters: [{name: 'JSON report', extensions: ['json']}],
+      });
+      if (canceled || !filePath) return {ok: false, message: 'Report save canceled.'};
+      const report = diagnosticReport(readDurable(STARTUP_STATE), readDurable(UPGRADE_STATE),
+        APP_VERSION, process.platform);
+      fs.writeFileSync(filePath, JSON.stringify(report, null, 2), 'utf8');
+      return {ok: true, message: 'Private failure report saved.'};
+    }
+    if (action === 'recover') return await handoffRecovery();
+    if (action === 'retry') {
+      await retryStartup();
+      return {ok: !startupFailure, message: startupFailure ? 'Retry failed. Save a failure report.'
+        : 'Readiness verification is in progress.'};
+    }
+    return {ok: false, message: 'Action unavailable.'};
+  } catch (_) {
+    return {ok: false, message: 'The action could not finish. The workspace remains blocked.'};
+  } finally { statusActionBusy = false; }
+}
 
 // Launch flags. --startup = an automatic launch (login autostart / installer
 // warm-up): honor the start-minimized preference. --minimized = force hidden
@@ -246,7 +457,8 @@ function buildStackEnv() {
   // SALESBUDDY_ELECTRON tells the backend it's running under the shell, so the
   // admin Update button delegates to Electron (sentinel file) instead of
   // spawning server.ps1 and fighting our supervisor.
-  const env = { ...process.env, PORT: String(PORT), SALESBUDDY_ELECTRON: '1' };
+  const env = { ...process.env, PORT: String(PORT), SALESBUDDY_ELECTRON: '1',
+    SALESBUDDY_BOOT_ID: bootIdentity.bootId };
   if (!env.AZURE_CONFIG_DIR) {
     const profileFolder =
       readFlaskEnv() === 'development' ? 'SalesBuddyDev' : 'SalesBuddy';
@@ -262,13 +474,20 @@ function buildStackEnv() {
 // ---------------------------------------------------------------------------
 
 function startStack() {
+  if (DEV_CLIENT) return;
+  bootIdentity = {bootId: randomUUID(), commit: null, started: Date.now(), exited: false};
+  startupFailure = null;
+  try {
+    bootIdentity.commit = execFileSync('git', ['rev-parse', 'HEAD'],
+      {cwd: REPO_ROOT, windowsHide: true, timeout: 10000}).toString().trim();
+    if (!/^[0-9a-f]{40,64}$/.test(bootIdentity.commit)) throw new Error('Invalid revision');
+  } catch (_) {
+    showFailure('revision');
+    return;
+  }
   if (!fs.existsSync(PYTHON)) {
     log(`ERROR: python not found at ${PYTHON}`);
-    dialog.showErrorBox(
-      'Sales Buddy',
-      `Python virtual environment not found at:\n${PYTHON}\n\n` +
-      'Run the installer or start.bat once to set it up.'
-    );
+    showFailure('runtime');
     return;
   }
 
@@ -276,7 +495,7 @@ function startStack() {
   const out = fs.openSync(STACK_LOG, 'a');
 
   log(`Starting supervisor: ${PYTHON} -m app.supervisor (PORT=${PORT})`);
-  supervisorProc = spawn(PYTHON, ['-m', 'app.supervisor'], {
+  const child = spawn(PYTHON, ['-m', 'app.supervisor'], {
     cwd: REPO_ROOT,
     env: buildStackEnv(),
     // Write stdout/stderr to a file (not a pipe) so nothing can deadlock on a
@@ -284,15 +503,19 @@ function startStack() {
     stdio: ['ignore', out, out],
     windowsHide: true,
   });
-
-  supervisorProc.on('exit', (code, signal) => {
+  supervisorProc = child;
+  child.on('error', () => {
+    if (supervisorProc !== child) return;
+    bootIdentity.exited = true;
+    if (!isQuitting && !isUpdating) showFailure('supervisor');
+  });
+  child.on('exit', (code, signal) => {
+    if (supervisorProc !== child) return;
     log(`Supervisor exited (code=${code} signal=${signal})`);
     supervisorProc = null;
     if (!isQuitting && !isUpdating) {
-      // The Python supervisor should not exit on its own; if it does, bring the
-      // whole stack back up after a short delay. Suppressed during an update -
-      // runUpdate() stops the stack on purpose and relaunches when done.
-      restartTimer = setTimeout(startStack, 2000);
+      bootIdentity.exited = true;
+      showFailure('supervisor');
     }
   });
 }
@@ -348,12 +571,11 @@ function sweepInstallBackendUntilPortFree(port, passes) {
 }
 
 function stopStack() {
-  if (restartTimer) { clearTimeout(restartTimer); restartTimer = null; }
   const pid = supervisorProc ? supervisorProc.pid : null;
   supervisorProc = null;
   if (!IS_WIN) {
     if (pid) { try { process.kill(-pid, 'SIGTERM'); } catch (_) {} }
-    return;
+    return true;
   }
   // Windows teardown MUST be synchronous and belt-and-suspenders. Two reasons:
   //   1. before-quit does not await async work, so a fire-and-forget taskkill
@@ -382,14 +604,16 @@ function stopStack() {
   // children taskkill /T can't see), retrying until port PORT is actually free.
   const freed = sweepInstallBackendUntilPortFree(PORT, 6);
   if (!freed) {
-    log(`WARNING: port ${PORT} still busy after teardown sweeps - the next ` +
-      `supervisor boot will self-heal via its pre-flight clear`);
+    log(`ERROR: port ${PORT} still busy after teardown sweeps`);
   }
   log('Stack stopped');
+  return freed;
 }
 
-function waitForServer(onReady, onSlow = () => {}) {
+function waitForServer(onReady, onSlow = () => {}, onFailure = showFailure) {
   const deadline = Date.now() + 60000;
+  const started = Date.now();
+  const identity = {...bootIdentity, recoveryStarted: isBooting ? bootIdentity.started : started};
   let stopped = false;
   let slow = false;
   let timer = null;
@@ -402,7 +626,14 @@ function waitForServer(onReady, onSlow = () => {}) {
   };
   const retry = () => {
     if (stopped) return;
-    if (isQuitting || isUpdating) return cancel();
+    if (isQuitting || isUpdating || automaticRecoveryStarted) return cancel();
+    const decision = DEV_CLIENT ? (Date.now() - started >= MAX_STARTUP_MS ? 'deadline' : 'wait')
+      : startupDecision(readDurable(STARTUP_STATE), null, identity, Date.now());
+    if (startupFailure || ['failed', 'deadline', 'exited'].includes(decision)) {
+      cancel();
+      onFailure(startupFailure || decision);
+      return;
+    }
     if (!slow && Date.now() >= deadline) {
       slow = true;
       log('Backend startup is taking longer than 60s; continuing readiness checks');
@@ -412,18 +643,37 @@ function waitForServer(onReady, onSlow = () => {}) {
   };
   const attempt = () => {
     if (stopped) return;
-    if (isQuitting || isUpdating) return cancel();
+    if (isQuitting || isUpdating || automaticRecoveryStarted) return cancel();
+    const decision = DEV_CLIENT ? (Date.now() - started >= MAX_STARTUP_MS ? 'deadline' : 'wait')
+      : startupDecision(readDurable(STARTUP_STATE), null, identity, Date.now());
+    if (startupFailure || ['failed', 'deadline', 'exited'].includes(decision)) {
+      cancel();
+      onFailure(startupFailure || decision);
+      return;
+    }
     let settled = false;
     const complete = (ready) => {
       if (settled || stopped) return;
+      if (automaticRecoveryStarted) return cancel();
       settled = true;
       if (!ready) return retry();
       cancel();
       onReady();
     };
     const req = http.get(HEALTH_URL, (res) => {
-      res.resume();
-      complete(res.statusCode === 200);
+      let body = '';
+      res.on('data', chunk => {
+        body += chunk;
+        if (body.length > 65536) { complete(false); req.destroy(); }
+      });
+      res.on('error', () => complete(false));
+      res.on('end', () => {
+        let health;
+        try { health = JSON.parse(body); } catch (_) { return complete(false); }
+        complete(res.statusCode === 200 && (DEV_CLIENT
+          ? health.status === 'healthy' && health.database === 'connected'
+          : startupDecision(readDurable(STARTUP_STATE), health, identity, Date.now()) === 'ready'));
+      });
     });
     request = req;
     req.on('error', (error) => {
@@ -453,11 +703,16 @@ function runStep(file, args, cwd) {
     log(`> ${file} ${args.join(' ')}`);
     execFile(
       file, args,
-      { cwd, windowsHide: true, maxBuffer: 16 * 1024 * 1024 },
+      { cwd, windowsHide: true, timeout: 20 * 60 * 1000, killSignal: 'SIGKILL',
+        maxBuffer: 16 * 1024 * 1024 },
       (err, stdout, stderr) => {
         if (stdout && stdout.trim()) log(stdout.trim());
         if (stderr && stderr.trim()) log(stderr.trim());
-        if (err) return reject(err);
+        if (err) {
+          const failure = new Error(err.killed ? 'Operation timed out' : 'Operation failed');
+          failure.code = Number.isInteger(err.code) ? err.code : null;
+          return reject(failure);
+        }
         resolve((stdout || '').trim());
       }
     );
@@ -475,9 +730,11 @@ function storedShellTheme() {
 }
 
 function statusScreenUrl(title, subtitle, theme) {
-  return renderStatusScreen(title, subtitle, theme || storedShellTheme() || {
+  return renderStatusScreen(title, subtitle, {...(theme || storedShellTheme() || {
     mode: nativeTheme && !nativeTheme.shouldUseDarkColors ? 'light' : 'dark',
-  });
+  }), failed: !!startupFailure, managed: !DEV_CLIENT,
+  recovering: automaticRecoveryStarted && !startupFailure,
+  recoveryAvailable: !DEV_CLIENT && !!recoveryPoint(fs, REPO_ROOT, readDurable(UPGRADE_STATE))});
 }
 
 function loadWindowUrl(win, url) {
@@ -511,7 +768,7 @@ function commandAvailable(cmd) {
 // re-runs this shell (picks up main.js changes) and re-spawns the stack (picks
 // up backend changes); DB migrations run automatically on the next boot.
 async function runUpdate(trigger, rebuildAfter = false) {
-  if (isUpdating) return;
+  if (isUpdating || DEV_CLIENT) return;
   isUpdating = true;
   log(`Update starting (trigger=${trigger})`);
   // Confirm git is reachable BEFORE tearing the backend down. On a fresh install
@@ -519,67 +776,44 @@ async function runUpdate(trigger, rebuildAfter = false) {
   // stopped the stack first and THEN failed the pull, the app would be left dead.
   // Missing git = no-op: leave the running version untouched.
   if (!commandAvailable('git')) {
-    log('Update aborted: git not found on PATH; leaving current version running');
+    log('Update aborted: git not found on PATH; no update changes applied');
     isUpdating = false;
     buildAppMenu();
     refreshTrayMenu();
     dialog.showErrorBox(
       'Sales Buddy Update',
       'Git was not found, so the update could not run.\n\n' +
-      'The current version will keep running. If updates keep failing, restart ' +
+      'No update changes were applied. If updates keep failing, restart ' +
       'your computer (so PATH refreshes) or reinstall Sales Buddy.'
     );
     return;
   }
   showUpdatingScreen();
-  // Never let a teardown error keep us from proceeding to relaunch - the next
-  // supervisor boot self-heals the port via its pre-flight clear regardless.
-  try { stopStack(); }
-  catch (e) { log(`stopStack error during update (continuing): ${(e && e.message) || e}`); }
   try {
-    // Discard any local changes to tracked files before pulling. Users have
-    // no reason to have edited the install-dir source, but half-finished prior
-    // updates, CRLF churn, or WorkIQ/build artifacts can leave the tree dirty
-    // and break `git pull --ff-only` with "local changes would be overwritten".
-    // fetch + reset --hard is equivalent to a fast-forward pull for a clean
-    // tree, and drops the local churn for a dirty one.
+    if (!stopStack()) throw new Error('Backend teardown did not complete');
     await runStep('git', ['fetch', 'origin', 'main'], REPO_ROOT);
-    await runStep('git', ['reset', '--hard', 'origin/main'], REPO_ROOT);
+    await coordinator('prepare', ['--target', 'origin/main',
+      ...(rebuildAfter ? ['--shell-rebuild'] : [])]);
     showUpdatingScreen('Installing the update',
-      'Updating app dependencies. Sales Buddy will restart automatically when this finishes.');
-    await runStep(
-      PYTHON, ['-m', 'pip', 'install', '-q', '-r', 'requirements.txt'], REPO_ROOT
-    );
+      'Verifying the update and database before restarting Sales Buddy.');
+    await coordinator('apply');
     if (rebuildAfter) {
       // The incoming update touches the Electron shell (a git pull alone won't
       // apply main.js changes bundled in the exe). Chain the shell rebuild in
       // the same motion instead of relaunching the stale shell. runRebuild owns
       // the relaunch/exit from here.
-      log('Update complete; chaining desktop-app rebuild');
+      log('Update applied; desktop-app rebuild pending');
       await runRebuild('update');
       return;
     }
-    log('Update complete; relaunching');
-    showUpdatingScreen('Restarting Sales Buddy', 'The update is ready. Opening your workspace again.');
+    log('Update applied; relaunching for readiness verification');
+    showUpdatingScreen('Restarting Sales Buddy', 'The new workspace must pass readiness checks.');
     isQuitting = true;
     relaunchVisible();
     exitShell();
   } catch (e) {
-    const msg = (e && e.message) || String(e);
-    log(`Update failed: ${msg}`);
-    isUpdating = false;
-    buildAppMenu();
-    refreshTrayMenu();
-    // Bring the backend back up FIRST, then tell the user. showErrorBox is a
-    // blocking modal - if we showed it before restarting, the app would sit dead
-    // behind the dialog the whole time the user reads it.
-    startStack();
-    reloadAllWindows();
-    dialog.showErrorBox(
-      'Sales Buddy Update',
-      `The update could not be completed:\n\n${msg}\n\n` +
-      'The current version will keep running.'
-    );
+    log('Update stopped before readiness was accepted');
+    showFailure('update');
   }
 }
 
@@ -597,14 +831,18 @@ async function runUpdate(trigger, rebuildAfter = false) {
 // backend down and the new shell boots it fresh - simpler and race-free.
 // May be called standalone (Danger Zone button) or chained from runUpdate.
 async function runRebuild(trigger) {
+  if (DEV_CLIENT) return;
   isUpdating = true; // idempotent: already true when chained from runUpdate
   log(`Shell rebuild starting (trigger=${trigger})`);
+  if (!stopStack()) {
+    await coordinator('fail', ['--phase', 'shell']).catch(() => {});
+    showFailure('shell');
+    return;
+  }
 
   if (!fs.existsSync(BUILD_SCRIPT) || !fs.existsSync(MIGRATE_SCRIPT)) {
-    log('Rebuild aborted: build.ps1 or migrate-to-electron.ps1 missing; relaunching');
-    isQuitting = true;
-    relaunchVisible();
-    exitShell();
+    await coordinator('fail', ['--phase', 'shell']).catch(() => {});
+    showFailure('shell');
     return;
   }
 
@@ -621,16 +859,8 @@ async function runRebuild(trigger) {
       REPO_ROOT
     );
   } catch (e) {
-    const msg = (e && e.message) || String(e);
-    log(`Shell rebuild (build phase) failed: ${msg}`);
-    dialog.showErrorBox(
-      'Sales Buddy',
-      `The desktop-app update could not be built:\n\n${msg}\n\n` +
-      'Sales Buddy will restart on the current version.'
-    );
-    isQuitting = true;
-    relaunchVisible();
-    exitShell();
+    await coordinator('fail', ['--phase', 'shell']).catch(() => {});
+    showFailure('shell');
     return;
   }
 
@@ -656,9 +886,24 @@ async function runRebuild(trigger) {
       '@echo off\r\n' +
       `cd /d "${REPO_ROOT}"\r\n` +
       `powershell.exe -ExecutionPolicy Bypass -NoProfile -File "${MIGRATE_SCRIPT}" ` +
-      `-SkipPull > "${rebuildLog}" 2>&1\r\n`
+      `-SkipPull -RecoveryOwnedByCaller > "${rebuildLog}" 2>&1\r\n` +
+      `if errorlevel 1 (\r\n"${PYTHON}" "${UPGRADE_SCRIPT}" --repo "${REPO_ROOT}" ` +
+      `fail --phase shell\r\n"${PYTHON}" "${UPGRADE_SCRIPT}" --repo "${REPO_ROOT}" ` +
+      `launch-recovery\r\nif errorlevel 1 start "" "${process.execPath}"\r\n)\r\n`
     );
-    const finishExit = () => { isQuitting = true; exitShell(); };
+    let settled = false;
+    let handoffTimer;
+    const finishExit = (code) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(handoffTimer);
+      if (code !== 0) {
+        coordinator('fail', ['--phase', 'shell']).catch(() => {}).finally(() => showFailure('shell'));
+        return;
+      }
+      isQuitting = true;
+      exitShell();
+    };
     // `start "" /min "<helper>"` breaks the helper out of Electron's job object.
     // Wait for the short-lived cmd launcher to exit (meaning `start` has fired
     // and the helper is now independent) before we quit; a safety timeout covers
@@ -669,23 +914,12 @@ async function runRebuild(trigger) {
     );
     child.on('exit', finishExit);
     child.on('error', (e) => {
-      log(`Restage launcher error: ${(e && e.message) || e}; relaunching current shell`);
-      isQuitting = true;
-      relaunchVisible();
-      exitShell();
+      finishExit(1);
     });
-    setTimeout(finishExit, 5000);
+    handoffTimer = setTimeout(() => finishExit(1), 10000);
   } catch (e) {
-    const msg = (e && e.message) || String(e);
-    log(`Failed to launch restage helper: ${msg}; relaunching current shell`);
-    dialog.showErrorBox(
-      'Sales Buddy',
-      'The desktop-app update could not be finished. Sales Buddy will restart on ' +
-      'the current version. You can retry from Admin > Danger Zone > Rebuild desktop app.'
-    );
-    isQuitting = true;
-    relaunchVisible();
-    exitShell();
+    await coordinator('fail', ['--phase', 'shell']).catch(() => {});
+    showFailure('shell');
   }
 }
 
@@ -848,7 +1082,8 @@ function openNewWindow(url) {
   } : {...WINDOW_OPTS, ...placement});
   windows.add(win);
   configureWindow(win);
-  loadWindowUrl(win, isUpdating ? statusScreenUrl(
+  loadWindowUrl(win, startupFailure ? statusScreenUrl(updateStatus.title, updateStatus.subtitle)
+    : isUpdating ? statusScreenUrl(
     updateStatus.title, updateStatus.subtitle
   ) : isBooting ? statusScreenUrl(
     'Starting Sales Buddy', 'Waiting for the local backend. This window will open automatically.'
@@ -881,6 +1116,13 @@ function ensureWindow() {
 // the close-to-tray-on-last-window rule.
 function configureWindow(win) {
   const wc = win.webContents;
+  wc.ipc.handle('shell:status-action', (event, action) => {
+    if (DEV_CLIENT || !startupFailure || !trustedStatusEvent(event, win) ||
+        !['retry', 'export', 'recover'].includes(action)) {
+      return {ok: false, message: 'Action unavailable.'};
+    }
+    return statusAction(action);
+  });
   inputFocusDiagnostics?.attach(win);
   function notifyLoading(loading) {
     if (win.isDestroyed() || wc.isDestroyed()) return;
@@ -1064,9 +1306,7 @@ function buildAppMenu() {
           label: 'Restart Backend',
           enabled: !isUpdating && !DEV_CLIENT,
           click: () => {
-            stopStack();
-            startStack();
-            reloadAllWindows();
+            retryStartup();
           },
         },
         { type: 'separator' },
@@ -1231,7 +1471,7 @@ function refreshTrayMenu() {
     { type: 'separator' },
     { label: 'Check for Updates', enabled: !isUpdating, click: () => checkForUpdates(true) },
     { label: 'Restart Backend', enabled: !isUpdating,
-      click: () => { stopStack(); startStack(); reloadAllWindows(); } },
+      click: () => { retryStartup(); } },
     { type: 'separator' },
     { label: 'Quit', click: () => { isQuitting = true; app.quit(); } },
   ]));
@@ -1256,22 +1496,27 @@ if (!app.requestSingleInstanceLock()) {
     // Group under one taskbar icon and identify our notifications on Windows.
     if (IS_WIN) app.setAppUserModelId('com.salesbuddy.desktop');
     buildAppMenu();
+    const pending = !DEV_CLIENT && readDurable(UPGRADE_STATE);
     if (!DEV_CLIENT) {
-      startStack();
+      if (pending && (pending.notification_pending ||
+          !['ready', 'restored', 'starting'].includes(pending.phase) ||
+          (pending.phase === 'starting' && pending.needs_shell_rebuild &&
+            !bundledShellMatchesSource()))) {
+        showFailure('pending-update');
+      } else {
+        startStack();
+      }
       createTray();
       startUpdateRequestWatcher();
     }
     if (!shouldBootHidden() || pendingShowRequest) ensureWindow();
     waitForServer(() => {
-      isBooting = false;
-      reloadAllWindows();
+      acceptReadyWorkspace();
       // Boot straight to the tray (no window) for an automatic launch when the
       // user asked to start minimized, or when forced (installer warm-up) -
       // unless a show was already requested during boot (e.g. the installer's
       // Finish launch fired a second-instance while we were still starting).
-      if (!shouldBootHidden() || pendingShowRequest) {
-        ensureWindow();
-      } else {
+      if (shouldBootHidden() && !pendingShowRequest) {
         log('Starting minimized to the system tray.');
       }
       // Quiet check shortly after boot: only prompts if an update is available.

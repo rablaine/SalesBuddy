@@ -52,3 +52,11 @@ test('build manifests include status assets and refresh the approved token snaps
   assert.match(fs.readFileSync(path.join(root, 'electron/build.ps1'), 'utf8'),
     /Copy-Item[\s\S]*theme-tokens\.css/);
 });
+
+test('automatic recovery is a progress state, not an actionable failure', () => {
+  const html = decodeURIComponent(statusScreenUrl('Restoring your previous version',
+    'Please wait; no action is needed.', {recovering: true, managed: true}));
+  assert.ok(html.includes('data-state="recovering"'));
+  assert.ok(html.includes('id="failure-actions" hidden'));
+  assert.match(html, /Please wait; no action is needed/);
+});

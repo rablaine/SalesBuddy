@@ -32,6 +32,7 @@
       "input-focus.ps1",
       "window-state.js",
       "status-screen.js",
+      "upgrade-safety.js",
       "status.html",
       "status.css",
       "status.js",

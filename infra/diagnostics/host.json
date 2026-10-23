@@ -1,0 +1,16 @@
+{
+  "version": "2.0",
+  "functionTimeout": "00:10:00",
+  "extensions": {
+    "http": {"routePrefix": "api", "maxOutstandingRequests": 100, "maxConcurrentRequests": 20},
+    "queues": {"batchSize": 1, "maxDequeueCount": 5, "visibilityTimeout": "00:01:00"}
+  },
+  "extensionBundle": {
+    "id": "Microsoft.Azure.Functions.ExtensionBundle",
+    "version": "[4.*, 5.0.0)"
+  },
+  "logging": {
+    "logLevel": {"default": "Warning", "Host.Results": "Warning"},
+    "applicationInsights": {"samplingSettings": {"isEnabled": true}}
+  }
+}

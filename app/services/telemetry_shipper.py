@@ -667,6 +667,12 @@ def start_flush_thread(
     def _flush_loop():
         while True:
             time.sleep(interval_seconds)
+            if app:
+                try:
+                    from scripts.upgrade import send_pending_reports
+                    send_pending_reports(Path(app.root_path).parent)
+                except (OSError, ValueError, RuntimeError):
+                    logger.exception('Saved diagnostic delivery could not run; reports remain queued')
             try:
                 flush_buffer()
             except Exception as e:

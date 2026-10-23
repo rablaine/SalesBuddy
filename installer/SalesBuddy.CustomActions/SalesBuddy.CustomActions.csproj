@@ -10,9 +10,12 @@
   </ItemGroup>
   <ItemGroup>
     <Content Include="CustomAction.config" CopyToOutputDirectory="PreserveNewest" />
+    <EmbeddedResource Include="..\..\scripts\upgrade.py"
+                      LogicalName="SalesBuddy.UpgradeCoordinator.py" />
   </ItemGroup>
   <ItemGroup>
     <Reference Include="System.IO.Compression.FileSystem" />
     <Reference Include="Microsoft.CSharp" />
+    <Reference Include="System.Web.Extensions" />
   </ItemGroup>
 </Project>

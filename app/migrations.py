@@ -109,12 +109,12 @@ def run_migrations(db):
     # Migration: Create opportunities table and add opportunity_id FK to milestones
     _migrate_opportunities_table(db, inspector)
 
-    # Migration: Make note_id nullable on msx_tasks (tasks can be created from milestone view)
-    _migrate_msx_tasks_nullable_note(db, inspector)
-
     # Migration: Store the task's actual MSX creation timestamp
     _migrate_msx_tasks_created_on(db, inspector)
     _migrate_owned_task_inventory(db)
+
+    # Repair legacy task parents before rebuilding the required-note schema.
+    _migrate_msx_tasks_nullable_note(db, inspector)
     
     # Migration: Create sync_status table for tracking sync completion
     _migrate_sync_status_table(db, inspector)
@@ -1213,55 +1213,40 @@ def _migrate_opportunities_table(db, inspector):
         )
 
 
-def _migrate_msx_tasks_nullable_note(db, inspector):
-    """
-    Make note_id nullable on msx_tasks table.
-    
-    Tasks can now be created directly from the milestone view page
-    without an associated call log. SQLite doesn't support ALTER COLUMN,
-    so we rebuild the table if note_id is currently NOT NULL.
-    """
+def _migrate_msx_tasks_nullable_note(db, inspector) -> None:
+    """Relax required task notes without retargeting inbound links or losing schema."""
+    import re
+
+    inspector.clear_cache()
     if not _table_exists(inspector, 'msx_tasks'):
         return
-    
-    # Check if note_id is currently NOT NULL
     columns = inspector.get_columns('msx_tasks')
     note_col = next((c for c in columns if c['name'] == 'note_id'), None)
-    
-    if note_col and note_col.get('nullable') == False:
-        print("  Making note_id nullable on msx_tasks...")
-        with db.engine.connect() as conn:
-            # SQLite requires table rebuild to change NOT NULL constraint
-            conn.execute(text("ALTER TABLE msx_tasks RENAME TO msx_tasks_old"))
-            conn.execute(text("""
-                CREATE TABLE msx_tasks (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    msx_task_id VARCHAR(50) NOT NULL UNIQUE,
-                    msx_task_url VARCHAR(2000),
-                    subject VARCHAR(500) NOT NULL,
-                    description TEXT,
-                    task_category INTEGER NOT NULL,
-                    task_category_name VARCHAR(100),
-                    duration_minutes INTEGER DEFAULT 60 NOT NULL,
-                    is_hva BOOLEAN DEFAULT 0 NOT NULL,
-                    due_date DATETIME,
-                    note_id INTEGER REFERENCES notes(id),
-                    milestone_id INTEGER NOT NULL REFERENCES milestones(id),
-                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL
-                )
-            """))
-            conn.execute(text("""
-                INSERT INTO msx_tasks (id, msx_task_id, msx_task_url, subject, description,
-                    task_category, task_category_name, duration_minutes, is_hva, due_date,
-                    note_id, milestone_id, created_at)
-                SELECT id, msx_task_id, msx_task_url, subject, description,
-                    task_category, task_category_name, duration_minutes, is_hva, due_date,
-                    note_id, milestone_id, created_at
-                FROM msx_tasks_old
-            """))
-            conn.execute(text("DROP TABLE msx_tasks_old"))
-            conn.commit()
-        print("    Made note_id nullable on msx_tasks")
+    if not note_col or note_col['nullable']:
+        return
+
+    with db.engine.connect() as connection:
+        create_sql = connection.execute(text(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='msx_tasks'",
+        )).scalar_one()
+    new_sql, relaxed = re.subn(
+        r'((?:"note_id"|note_id)\s+INTEGER)\s+NOT\s+NULL',
+        r'\1', create_sql, count=1, flags=re.IGNORECASE,
+    )
+    if relaxed != 1:
+        raise RuntimeError('Could not safely relax the MSX task note constraint')
+    new_sql, renamed = re.subn(
+        r'^(CREATE TABLE\s+)(?:"msx_tasks"|msx_tasks)',
+        r'\1"_msx_tasks_note_new"', new_sql, count=1, flags=re.IGNORECASE,
+    )
+    if renamed != 1:
+        raise RuntimeError('Could not safely prepare the nullable-note MSX task table')
+    _rebuild_sqlite_table(
+        db, 'msx_tasks', new_sql, '_msx_tasks_note_new', 'task-note-nullable',
+    )
+    inspector.clear_cache()
+    db.session.expire_all()
+    print('  Made note_id nullable on msx_tasks, preserving task links and schema')
 
 
 def _migrate_sync_status_table(db, inspector):

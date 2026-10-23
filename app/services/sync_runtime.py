@@ -186,10 +186,11 @@ def update(owner: dict, *, progress: dict | None = None,
         _replace(path, state)
 
 
-def worker_heartbeat() -> None:
+def worker_heartbeat(*, ready: bool = False) -> None:
     """Publish process liveness without competing with a domain database writer."""
     _replace(state_directory() / 'worker.json',
-             {'pid': os.getpid(), 'heartbeat_at': timestamp()})
+             {'pid': os.getpid(), 'heartbeat_at': timestamp(),
+              'boot_id': os.environ.get('SALESBUDDY_BOOT_ID'), 'ready': ready})
 
 
 def worker_state() -> dict | None:

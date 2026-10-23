@@ -8,7 +8,17 @@ const vm = require('node:vm');
 function shellHarness({ boot = false, minimized = false, cachedTheme = null,
   devClient = false, renderingPrefs = null, renderingReadError = null,
   renderingWriteError = null, renderingRenameError = null, restartChoice = 1,
-  windowState = null } = {}) {
+  windowState = null, startup = null, upgrade = null, teardownFree = true,
+  commandFailure = null } = {}) {
+  const bootId = '12345678-1234-4234-8234-123456789abc';
+  const commit = 'a'.repeat(40);
+  const commands = [];
+  const children = [];
+  const defaultStatus = () => ({schema_version: 1, state: 'ready', phase: 'ready',
+    boot_id: bootId, expected_commit: commit, started_at: new Date(0).toISOString(),
+    updated_at: new Date(now).toISOString(), children: [
+      {name: 'web', pid: 101, attempts: 1, ready: true},
+      {name: 'worker', pid: 102, attempts: 1, ready: true}]});
   let now = 0;
   let nextTimer = 0;
   const timers = new Map();
@@ -79,6 +89,8 @@ function shellHarness({ boot = false, minimized = false, cachedTheme = null,
       if (name === 'electron') return electron;
       if (name === './package.json') return { version: 'test' };
       if (name === './status-screen') return require('../../electron/status-screen');
+      if (name === './upgrade-safety') return require('../../electron/upgrade-safety');
+      if (name === 'crypto') return {randomUUID: () => bootId};
       if (name === './shell-theme') return require('../../electron/shell-theme');
       if (name === './shell-menu') return require('../../electron/shell-menu');
       if (name === './window-state') return require('../../electron/window-state');
@@ -92,7 +104,12 @@ function shellHarness({ boot = false, minimized = false, cachedTheme = null,
       };
       if (name === 'fs') return {
         readFileSync: file => {
-          if (file.endsWith('state.json')) {
+          if (file.endsWith('manifest.json')) return JSON.stringify(upgrade);
+          if (file.endsWith('recover.py')) return Buffer.from('frozen recovery runner');
+          if (file.endsWith('db_paths.py')) return Buffer.from('frozen backup helper');
+          if (file.endsWith('startup-state.json')) return JSON.stringify(startup || defaultStatus());
+          if (file.endsWith('upgrade-state.json')) return JSON.stringify(upgrade);
+          if (file.includes('window-state') && file.endsWith('state.json')) {
             if (windowState !== null) return JSON.stringify(windowState);
             throw Object.assign(new Error('not found'), {code: 'ENOENT'});
           }
@@ -121,12 +138,40 @@ function shellHarness({ boot = false, minimized = false, cachedTheme = null,
         openSync: () => 1, unlinkSync() {},
         appendFileSync: (_file, line) => logs.push(line),
       };
-      if (name === 'child_process') return { spawn: () => new EventEmitter() };
+      if (name === 'child_process') return {
+        spawn(file, args, options) {
+          const child = new EventEmitter();
+          child.pid = 100;
+          children.push({file, args, options, child});
+          return child;
+        },
+        execFileSync(file, args) {
+          if (args.includes('rev-parse')) return Buffer.from(commit);
+          if (args.some(arg => String(arg).includes('Get-NetTCPConnection'))) {
+            return Buffer.from(teardownFree ? 'FREE' : 'BUSY');
+          }
+          return Buffer.from('');
+        },
+        execFile(file, args, options, callback) {
+          commands.push({file, args, options});
+          callback(commandFailure && args.includes(commandFailure)
+            ? Object.assign(new Error('private failure'), {code: 1}) : null, '', '');
+        },
+      };
       if (name === 'http') return {
         get(url, callback) {
           const request = new EventEmitter();
           request.url = url;
-          request.respond = (statusCode) => callback({ statusCode, resume() {} });
+          request.respond = (statusCode, health = {status: 'healthy', database: 'connected',
+            worker_heartbeat_at: new Date(now).toISOString(), boot_id: bootId,
+            commit_full: commit, web_pid: 101, worker: 'alive', worker_boot_id: bootId,
+            worker_pid: 102, worker_ready: true}) => {
+            const response = new EventEmitter();
+            response.statusCode = statusCode;
+            callback(response);
+            response.emit('data', JSON.stringify(health));
+            response.emit('end');
+          };
           request.setTimeout = (_ms, handler) => { request.timeout = handler; };
           request.destroy = () => request.emit('error', new Error('request destroyed'));
           requests.push(request);
@@ -138,6 +183,7 @@ function shellHarness({ boot = false, minimized = false, cachedTheme = null,
     __dirname: path.join(__dirname, '..', '..', 'electron'),
     process: {
       env: {}, platform: 'win32',
+      pid: 200,
       argv: ['electron', 'main.js', ...(minimized ? ['--minimized', '--other'] : []),
         ...(devClient ? ['--dev-client'] : [])],
       stdout,
@@ -153,9 +199,11 @@ function shellHarness({ boot = false, minimized = false, cachedTheme = null,
     setInterval() {},
   });
   vm.runInContext(source + `
+    bootIdentity = {bootId: '${bootId}', commit: '${commit}', started: 0, exited: false};
     globalThis.api = {
       waitForServer, configureWindow, loadWindowUrl, openNewWindow, showWindow,
       ensureWindow, relaunchVisible, exitShell, buildAppMenu, createTray, refreshTrayMenu,
+      runUpdate, retryStartup, startStack, statusAction, showFailure,
       setUpdating: (value) => { isUpdating = value; },
       setQuitting: (value) => { isQuitting = value; },
       setBooting: (value) => { isBooting = value; },
@@ -171,6 +219,7 @@ function shellHarness({ boot = false, minimized = false, cachedTheme = null,
   }
   return {
     api: context.api, requests, logs, timers, tick, electron, openedWindows, stdout,
+    commands, children,
     renderingWrites, renderingRenames, dialogs, errors, relaunches, windowWrites, appEvents, exits,
     focusDiagnostics,
     accelerationDisabled: () => accelerationDisabled,
@@ -293,7 +342,10 @@ function fakeWindow() {
   const win = new EventEmitter();
   win.webContents = new EventEmitter();
   win.webContents.ipc = new EventEmitter();
-  win.webContents.ipc.handle = () => {};
+  win.ipcHandlers = new Map();
+  win.webContents.ipc.handle = (channel, handler) => win.ipcHandlers.set(channel, handler);
+  win.webContents.getURL = () => win.loaded.at(-1) || '';
+  win.webContents.mainFrame = {url: ''};
   win.webContents.send = () => {};
   win.webContents.isDestroyed = () => false;
   win.webContents.setWindowOpenHandler = () => {};
@@ -308,7 +360,11 @@ function fakeWindow() {
   win.maximize = () => { win.maximized = true; };
   win.show = () => { win.shown = true; };
   win.focus = () => {};
-  win.loadURL = (url) => { win.loaded.push(url); return Promise.resolve(); };
+  win.loadURL = (url) => {
+    win.loaded.push(url);
+    win.webContents.mainFrame.url = url;
+    return Promise.resolve();
+  };
   return win;
 }
 
@@ -537,6 +593,19 @@ test('minimized boot stays hidden through slow startup and readiness', () => {
   assert.equal(harness.openedWindows.length, 0);
 });
 
+test('a long-running healthy app can reconnect without restarting its original boot', () => {
+  const h = shellHarness({boot: true});
+  h.boot();
+  h.requests[0].respond(200);
+  h.tick(720000 + 1000);
+  let ready = false;
+  h.api.waitForServer(() => { ready = true; });
+  assert.equal(h.requests.length, 2);
+  h.requests[1].respond(200);
+  assert.equal(ready, true);
+  assert.equal(h.children.length, 1);
+});
+
 test('opening from tray during minimized boot is honored when the backend is ready', () => {
   const harness = shellHarness({ boot: true, minimized: true });
   harness.boot();
@@ -719,3 +788,199 @@ test('hidden startup waits to restore saved geometry until a window is requested
   assert.equal(win.maximized, true);
   assert.equal(win.shown, true);
 });
+
+test('managed startup rejects HTTP success without current worker identity', () => {
+  const h = shellHarness();
+  let ready = false;
+  h.api.waitForServer(() => { ready = true; });
+  h.requests[0].respond(200, {status: 'ok'});
+  assert.equal(ready, false);
+  h.tick(500);
+  h.requests[1].respond(200);
+  assert.equal(ready, true);
+});
+
+test('startup deadline surfaces failure instead of continuing indefinitely', () => {
+  const h = shellHarness();
+  let failure;
+  h.api.waitForServer(() => assert.fail('Unavailable'), () => {}, reason => { failure = reason; });
+  h.requests[0].respond(503);
+  h.tick(720000);
+  assert.equal(failure, 'deadline');
+  assert.equal(h.timers.size, 0);
+  assert.equal(h.requests.length, 1);
+});
+
+test('supervisor exit is terminal and never schedules a shell respawn', () => {
+  const h = shellHarness({boot: true});
+  h.boot();
+  h.children[0].child.emit('exit', 1, null);
+  assert.match(decodeURIComponent(h.openedWindows[0].loaded.at(-1)), /data-state="failed"/);
+  h.tick(720000);
+  assert.equal(h.children.length, 1);
+});
+
+test('update pipeline fetches then freezes recovery before applying and relaunching', async () => {
+  const h = shellHarness();
+  await h.api.runUpdate('test');
+  assert.deepEqual(h.commands.map(command => command.args.includes('fetch') ? 'fetch'
+    : command.args.includes('prepare') ? 'prepare'
+      : command.args.includes('apply') ? 'apply' : 'unexpected'), ['fetch', 'prepare', 'apply']);
+  assert.equal(h.relaunches.length, 1);
+  assert.equal(h.commands.some(command => command.args.includes('--hard')), false);
+  assert.ok(h.commands.every(command => command.options.timeout > 0));
+});
+
+test('teardown failure prevents fetch, snapshot, apply and relaunch', async () => {
+  const h = shellHarness({teardownFree: false});
+  await h.api.runUpdate('test');
+  assert.equal(h.commands.length, 0);
+  assert.equal(h.relaunches.length, 0);
+  assert.match(decodeURIComponent(h.openedWindows[0].loaded.at(-1)), /data-state="failed"/);
+});
+
+test('apply failure leaves the failure UI without restarting or claiming recovery', async () => {
+  const h = shellHarness({commandFailure: 'apply'});
+  await h.api.runUpdate('test');
+  assert.equal(h.relaunches.length, 0);
+  assert.equal(h.children.length, 0);
+  assert.equal(h.errors.length, 0);
+  const html = decodeURIComponent(h.openedWindows[0].loaded.at(-1));
+  assert.match(html, /data-state="failed"/);
+  assert.ok(!html.includes('recovers the current version'));
+});
+
+test('failure IPC rejects arbitrary documents, subframes, actions and all dev-client requests',
+  async () => {
+    const h = shellHarness({commandFailure: 'apply'});
+    await h.api.runUpdate('test');
+    const win = h.openedWindows[0];
+    const handler = win.ipcHandlers.get('shell:status-action');
+    const event = {sender: win.webContents, senderFrame: win.webContents.mainFrame};
+    for (const [request, action] of [[event, 'arbitrary'],
+      [{...event, senderFrame: {url: win._sbStatusUrl}}, 'export'],
+      [{...event, sender: {}}, 'retry']]) {
+      assert.equal((await handler(request, action)).ok, false);
+    }
+    const original = win.webContents.mainFrame.url;
+    win.webContents.mainFrame.url = 'http://localhost:5151/';
+    assert.equal((await handler(event, 'export')).ok, false);
+    win.webContents.mainFrame.url = original;
+    assert.equal((await handler(event, 'export')).ok, true);
+    assert.equal(h.dialogs.length, 0, 'export does not ask to restore or touch Flask');
+    const dev = shellHarness({devClient: true});
+    const devWindow = dev.api.openNewWindow();
+    assert.equal((await devWindow.ipcHandlers.get('shell:status-action')({
+      sender: devWindow.webContents, senderFrame: devWindow.webContents.mainFrame,
+    }, 'retry')).ok, false);
+  });
+
+test('pending startup acceptance precedes opening the backend', async () => {
+  const h = shellHarness({boot: true, upgrade: {phase: 'starting', recovery_ready: true}});
+  h.boot();
+  const win = h.openedWindows[0];
+  h.requests[0].respond(200);
+  assert.equal(win.loaded.some(url => url.startsWith('http:')), false);
+  assert.ok(h.commands.some(command => command.args.includes('accept')));
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(win.loaded.at(-1), 'http://localhost:5151/');
+});
+
+test('failed acceptance never opens the backend or reports a successful update', async () => {
+  const h = shellHarness({boot: true, upgrade: {phase: 'starting', recovery_ready: true},
+    commandFailure: 'accept'});
+  h.boot();
+  h.requests[0].respond(200);
+  await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(h.openedWindows[0].loaded.some(url => url.startsWith('http:')), false);
+  assert.match(decodeURIComponent(h.openedWindows[0].loaded.at(-1)), /data-state="failed"/);
+});
+
+test('shell build failure persists pending shell failure without relaunch or acceptance', async () => {
+  const h = shellHarness({commandFailure: '-SkipSign'});
+  await h.api.runUpdate('test', true);
+  const actions = h.commands.map(command => command.args);
+  assert.ok(actions.find(args => args.includes('prepare')).includes('--shell-rebuild'));
+  assert.ok(actions.some(args => args.includes('fail') && args.includes('shell')));
+  assert.equal(actions.some(args => args.includes('accept')), false);
+  assert.equal(h.relaunches.length, 0);
+  assert.match(decodeURIComponent(h.openedWindows[0].loaded.at(-1)), /data-state="failed"/);
+});
+
+test('retry of a complete pending snapshot never prepares a replacement recovery point', async () => {
+  const h = shellHarness({upgrade: {phase: 'failed', recovery_ready: true}});
+  await h.api.retryStartup();
+  assert.ok(h.commands.some(command => command.args.includes('apply')));
+  assert.equal(h.commands.some(command => command.args.includes('prepare')), false);
+  assert.equal(h.children.length, 1);
+  assert.equal(h.requests.length, 1);
+});
+
+test('retry of phase starting only restarts backend and waits for acceptance', async () => {
+  const h = shellHarness({upgrade: {phase: 'starting', recovery_ready: true}});
+  await h.api.retryStartup();
+  assert.equal(h.commands.length, 0);
+  assert.equal(h.children.length, 1);
+  assert.equal(h.requests.length, 1);
+  h.requests[0].respond(200);
+  assert.ok(h.commands.some(command => command.args.includes('accept')));
+});
+
+test('frozen recovery verification failure keeps Electron alive without confirmation or handoff',
+  async () => {
+    const {createHash} = require('node:crypto');
+    const repo = path.resolve(__dirname, '..', '..');
+    const upgrade = {phase: 'failed', recovery_ready: true, changes_started: true,
+      attempt_id: 'a'.repeat(32),
+      previous_commit: 'b'.repeat(40), repo, database: path.join(repo, 'data', 'salesbuddy.db'),
+      runner_sha256: createHash('sha256').update('frozen recovery runner').digest('hex'),
+      backup_helper_sha256: createHash('sha256').update('frozen backup helper').digest('hex')};
+    const h = shellHarness({upgrade, commandFailure: 'verify'});
+    const win = h.api.openNewWindow();
+    const result = await h.api.statusAction('recover');
+    assert.equal(result.ok, false);
+    assert.match(result.message, /could not pass verification/);
+    assert.equal(h.commands.length, 1);
+    assert.ok(h.commands[0].args.includes('verify'));
+    assert.match(h.commands[0].file, /upgrade-recovery[\\/]a{32}[\\/]runtime/);
+    assert.equal(h.dialogs.length, 0);
+    assert.equal(h.exits.length, 0);
+    assert.equal(h.children.length, 0);
+    assert.equal(win.isDestroyed(), false);
+  });
+
+for (const phase of ['failed', 'restored']) {
+  test(`automatic ${phase} recovery blocks boot and hands off without a confirmation dialog`,
+    async () => {
+      const {createHash} = require('node:crypto');
+      const repo = path.resolve(__dirname, '..', '..');
+      const upgrade = {phase, changes_started: true, recovery_ready: true,
+        notification_pending: phase === 'restored', attempt_id: 'a'.repeat(32),
+        previous_commit: 'b'.repeat(40), repo, database: path.join(repo, 'data', 'salesbuddy.db'),
+        runner_sha256: createHash('sha256').update('frozen recovery runner').digest('hex'),
+        backup_helper_sha256: createHash('sha256').update('frozen backup helper').digest('hex')};
+      const h = shellHarness({boot: true, upgrade});
+      h.boot();
+      await new Promise(setImmediate);
+      assert.equal(h.dialogs.length, 0);
+      assert.equal(h.requests.length, 0, 'even a healthy old backend cannot release the gate');
+      assert.equal(h.children.length, 1);
+      assert.equal(h.children[0].file, 'cmd.exe');
+      assert.ok(h.commands.every(command => command.args.includes('verify')));
+      assert.ok(h.openedWindows.every(win => !win.loaded.some(url => url.startsWith('http:'))));
+      const status = decodeURIComponent(h.openedWindows.at(-1).loaded.at(-1));
+      assert.ok(status.includes('data-state="recovering"'));
+      assert.ok(status.includes('id="failure-actions" hidden'));
+      assert.match(status, /no action is needed/);
+      h.api.showFailure('startup');
+      const repeated = decodeURIComponent(h.openedWindows.at(-1).loaded.at(-1));
+      assert.ok(repeated.includes('data-state="recovering"'),
+        'late startup callbacks must not replace recovery progress with action buttons');
+      h.children[0].child.emit('exit', 0);
+      await new Promise(setImmediate);
+      assert.deepEqual(h.exits, [0]);
+    });
+}

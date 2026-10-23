@@ -678,7 +678,92 @@ Two modes: **Import from Meeting** (summary only) and **Auto-fill** (summary + A
 
 ## Updating
 
-Double-click `update.bat`. It backs up the database, pulls latest code, installs new dependencies, runs migrations, and restarts. If anything fails, it rolls back automatically.
+Use the Admin update button in the desktop app, or double-click `update.bat`.
+Existing-install MSI upgrades use the same safety coordinator.
+
+Before changing application files, an upgrade saves a matched recovery point:
+the previous application revision, Python environment, desktop shell when present,
+and a verified SQLite online backup that includes committed WAL data. Tracked local
+source changes, an incomplete backup, insufficient disk space, or a backend that
+cannot be stopped prevent the update from proceeding.
+
+The new version rehearses its real database initialization on a private copy before
+touching the working database. It checks core identities and existing relationships,
+foreign keys, and a second initialization pass. Success requires the new web server
+and initialized worker, with matching revision, launch identity, process IDs and
+fresh heartbeat. An open port alone does not complete an update.
+
+### If startup or an update fails
+
+The desktop app stops retrying and shows **Sales Buddy needs attention**, even when
+Flask cannot start. Startup is limited to three attempts per child and a total
+12-minute readiness window.
+
+- Failed updates automatically restore the saved application, runtime, desktop
+  shell and database together, after verifying the snapshot and stopping the
+  failed backend. Changes made after the snapshot will not appear in the restored
+  database. The failed files are retained for investigation.
+- While restoration runs, the desktop explains that recovery is automatic and no
+  action is needed. The original sanitized failure report is saved and submitted
+  immediately, independently of restoration and optional contact requests.
+- After restoration, dismiss the notice or choose **Continue working**. No report
+  download or successful upload is required. The notice distinguishes diagnostics
+  accepted for review from reports saved locally for retry when offline or signed out.
+  **Contact me when a fix is available** sends a separate opt-in request referencing
+  the original report. The notice shows the Microsoft email when available.
+  Contact comes from the validated Microsoft sign-in; no email entry is needed.
+  Automatic reporting respects the telemetry opt-out.
+- **Retry startup** retries an ordinary startup failure. **Retry recovery** is
+  available if automatic recovery could not start; neither action replaces the
+  original complete recovery point.
+- **Save failure report** creates a developer-shareable JSON report without needing
+  the web server. It includes safe failure categories, code locations, startup
+  attempts and version/readiness metadata. It excludes raw logs, exception messages,
+  customer data, note text, record IDs, tokens, URLs and local filesystem paths.
+  Manual export remains optional. Automatic delivery contains only these same
+  allowlisted details, never the raw logs or retained recovery files.
+- If recovery itself fails, the screen still allows diagnostic export, but cannot
+  open the workspace. The failed database and its sidecars, code archive/local
+  patch, runtime and shell are retained.
+
+Do not delete the database or mix a database from one version with application
+files from another.
+
+Recovery points live under `upgrade-recovery` beside the configured database.
+Failed runtimes and shells are retained beside the install's corresponding folders
+so restoration can use same-volume renames even with a custom database drive.
+These files contain private application data and must not be sent as diagnostics.
+Two successful recovery points are retained; failed/recovered evidence is not
+automatically removed. Preparation checks space for the snapshot and recovery
+staging, so updates may require substantial additional free disk space.
+
+A plain `git pull` and the first launch of this safety feature get database rehearsal
+but cannot reconstruct a pre-pull application/runtime snapshot. In that case the
+desktop app honestly disables matched recovery. A new MSI can prepare its embedded
+coordinator against an existing compatible installation before updating it.
+These protections are intended for updates made **after this safety version is
+installed**. A restored older shell that predates this feature cannot enforce the
+pending recovery notice on a separate launch. Problems installing the first safety
+version require maintainer-assisted troubleshooting; no persistent launcher or
+shortcut interception is installed to retrofit older versions.
+Recovery does not undo external prerequisite changes, such as replacing the system
+Python installation; the saved interpreter must pass its import probe before any
+restore mutation is allowed.
+
+### Upgrade validation
+
+Focused upgrade regressions are in `tests/test_upgrade.py`,
+`tests/test_upgrade_history.py`, `tests/test_upgrade_scripts.py`,
+`tests/test_startup_readiness.py`, `tests/test_supervisor.py`,
+`tests/test_database_startup.py`, `tests/test_task_hva_migration.py`,
+`tests/test_electron_startup.py`, and `tests/test_installer_upgrade_safety.py`.
+The Windows end-to-end recovery test uses isolated data, real local Git history,
+the actual schema CLI and a copied runtime. It never runs against the development
+or production database. Before wider distribution, also smoke-test the packaged
+MSI on a representative existing installation, including automatic recovery,
+queued and accepted diagnostics, optional contact requests, canceled report exports,
+and dismissal without downloads. Diagnostics hosting and private-network deployment
+are documented in `infra/diagnostics/README.md`.
 
 ## Backups
 

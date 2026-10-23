@@ -20,6 +20,21 @@ pytestmark = pytest.mark.skipif(
 )
 
 
+@pytest.fixture(autouse=True)
+def isolated_update_install(tmp_path, monkeypatch):
+    """Keep update/shutdown sentinels away from the running development installation."""
+    import app.routes.admin as admin_routes
+
+    scripts = tmp_path / 'scripts'
+    scripts.mkdir()
+    (tmp_path / 'data').mkdir()
+    for name in ('server.ps1', 'migrate-to-electron.ps1', '_migrate_console_test.ps1'):
+        (scripts / name).write_text('# Isolated fixture; never executed.', encoding='utf-8')
+    monkeypatch.setattr(admin_routes, '__file__', str(tmp_path / 'app' / 'routes' / 'admin.py'))
+    monkeypatch.setattr(sys.modules[__name__], 'SENTINEL',
+                        tmp_path / 'data' / 'electron-update.request')
+
+
 class TestUpdateApplyElectron:
     """POST /api/admin/update-apply under the Electron shell."""
 
@@ -111,5 +126,3 @@ class TestMigrateToElectron:
             assert '_migrate_console_test.ps1' not in cmd
         finally:
             app.debug = prev_debug
-
-
