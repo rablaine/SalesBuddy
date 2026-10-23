@@ -5,8 +5,8 @@
     "Run it and walk away" migration. In order it:
       1. Locates this install (the repo this script lives in) and the packaged,
          signed Electron shell.
-      2. (Optional) git pull --ff-only to bring the backend current.
-      3. Stops the running Flask stack (supervisor + web + worker).
+      2. Stops the running Flask stack and checks that it is quiescent.
+      3. (Optional) prepares a recovery point and validates the backend upgrade.
       4. Stages the Electron shell into <install>\electron-dist\.
       5. Repoints the ON LOGON scheduled task to launch Electron (delete-before-create,
          so there is never a second login launcher fighting over the port).
@@ -31,7 +31,8 @@ param(
     [switch]$NoDesktop,
     [switch]$NoStartMenu,
     [switch]$NoAutoStart,
-    [switch]$NoLaunch
+    [switch]$NoLaunch,
+    [switch]$RecoveryOwnedByCaller
 )
 
 $ErrorActionPreference = 'Stop'
@@ -49,6 +50,77 @@ $destDir = Join-Path $repoRoot 'electron-dist'
 Write-Host "=== Migrate Sales Buddy to the Electron desktop app ===" -ForegroundColor Cyan
 Write-Host "Install: $repoRoot"
 
+$venvPy = Join-Path $repoRoot 'venv\Scripts\python.exe'
+$coordinator = Join-Path $repoRoot 'scripts\upgrade.py'
+trap {
+    Write-Host "ERROR: $($_.Exception.Message)" -ForegroundColor Red
+    $stateFile = Join-Path $repoRoot 'data\upgrade-state.json'
+    if (Test-Path $stateFile) {
+        $upgrade = Get-Content $stateFile -Raw | ConvertFrom-Json
+        if ($upgrade.recovery_ready -and $upgrade.changes_started -and
+            $upgrade.phase -notin @('ready', 'restoring', 'restored') -and
+            -not $upgrade.notification_pending) {
+            $point = Join-Path (Split-Path $upgrade.database -Parent) `
+                "upgrade-recovery\$($upgrade.attempt_id)"
+            $runner = Join-Path $point 'recover.py'
+            if ((Get-FileHash $runner -Algorithm SHA256).Hash.ToLowerInvariant() -ne
+                $upgrade.runner_sha256 -or
+                (Get-FileHash (Join-Path $point 'db_paths.py') -Algorithm SHA256).Hash.ToLowerInvariant() -ne
+                $upgrade.backup_helper_sha256) {
+                Write-Host 'The saved recovery entry points failed verification. Nothing was restored.' -ForegroundColor Red
+                exit 1
+            }
+            $savedPython = Join-Path $point 'runtime\Scripts\python.exe'
+            if ($upgrade.phase -ne 'failed') {
+                & $savedPython $runner fail --repo $repoRoot --phase shell
+                if ($LASTEXITCODE -ne 0) {
+                    Write-Host 'Could not record the shell failure; recovery files have been retained.' -ForegroundColor Red
+                }
+            }
+            if (-not $NoLaunch -and -not $RecoveryOwnedByCaller) {
+                & $serverScript -StopOnly
+                if ($LASTEXITCODE -ne 0) {
+                    Write-Host 'The backend could not stop. Automatic recovery remains blocked.' -ForegroundColor Red
+                    exit 1
+                }
+                & $savedPython $runner launch-recovery --repo $repoRoot
+                if ($LASTEXITCODE -ne 0) {
+                    Write-Host 'Automatic recovery could not start. Retain the recovery files and logs.' -ForegroundColor Red
+                    exit 1
+                }
+            }
+        }
+    }
+    Write-Host "The desktop migration did not finish. Recovery files have been retained." -ForegroundColor Yellow
+    exit 1
+}
+
+Write-Host "`nStopping the running Sales Buddy stack..." -ForegroundColor Yellow
+$serverScript = Join-Path $repoRoot 'scripts\server.ps1'
+& $serverScript -StopOnly
+if ($LASTEXITCODE -ne 0) { throw 'The backend could not be stopped safely.' }
+$installPattern = [regex]::Escape($repoRoot) + '([\\/]|["\s]|$)'
+Get-CimInstance Win32_Process -Filter "Name='Sales Buddy.exe'" -ErrorAction Stop |
+    Where-Object { $_.CommandLine -and $_.CommandLine -match $installPattern } |
+    ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction Stop }
+
+if (-not $SkipPull) {
+    if (-not (Test-Path $venvPy) -or -not (Test-Path $coordinator)) {
+        throw 'A working upgrade coordinator and existing runtime are required. Use the installer to repair first.'
+    }
+    Push-Location $repoRoot
+    try {
+        & git fetch origin main
+        if ($LASTEXITCODE -ne 0) { throw 'Fetching the update failed. No application files changed.' }
+        & $venvPy $coordinator prepare --repo $repoRoot --target origin/main --shell-rebuild
+        if ($LASTEXITCODE -ne 0) { throw 'Could not prepare a verified recovery point.' }
+        & $venvPy $coordinator apply --repo $repoRoot
+        if ($LASTEXITCODE -ne 0) { throw 'Backend upgrade validation failed. Open Sales Buddy for recovery.' }
+    } finally {
+        Pop-Location
+    }
+}
+
 # --- 1. Locate (or build) the packaged Electron shell ---
 # Option 1 distribution: the shell is built locally. Node is present on every
 # install (the installer ships it as a prereq), so we can build on demand.
@@ -56,8 +128,8 @@ if (-not $ElectronSource) {
     $ElectronSource = Join-Path $repoRoot 'electron\dist\win-unpacked'
 }
 # -Rebuild forces a fresh build from the CURRENT source. The MSI passes this on
-# every install/upgrade: the repo was just reset to origin/main, but the old
-# win-unpacked is gitignored (survives `git clean -fd`), so without this we'd
+# every install/upgrade: the repo has been updated, but the old
+# win-unpacked is gitignored, so without this we'd
 # re-stage the stale shell and never pick up new main.js. Only ever removes the
 # local build output, never an explicitly supplied -ElectronSource.
 if ($Rebuild -and -not $PSBoundParameters.ContainsKey('ElectronSource')) {
@@ -73,8 +145,7 @@ if (-not (Test-Path $srcExe)) {
         Write-Host "`nElectron shell not built yet - building it (this may take a minute)..." -ForegroundColor Yellow
         & $buildScript -SkipSign
         if ($LASTEXITCODE -ne 0) {
-            Write-Host "ERROR: Electron build failed." -ForegroundColor Red
-            exit 1
+            throw 'Electron build failed.'
         }
     }
 }
@@ -82,45 +153,8 @@ if (-not (Test-Path $srcExe)) {
     Write-Host "`nERROR: packaged Electron shell not found at:" -ForegroundColor Red
     Write-Host "  $srcExe" -ForegroundColor Red
     Write-Host "Build it first (electron\build.ps1) or pass -ElectronSource <win-unpacked path>." -ForegroundColor Yellow
-    exit 1
+    throw 'A complete desktop build is required before staging.'
 }
-
-# --- 2. Bring the backend current (best effort) ---
-if (-not $SkipPull) {
-    Write-Host "`nUpdating backend (git pull)..." -ForegroundColor Yellow
-    Push-Location $repoRoot
-    try {
-        & git pull --ff-only 2>&1 | Write-Host
-        if ($LASTEXITCODE -ne 0) {
-            Write-Host "  git pull skipped/failed (continuing with current code)." -ForegroundColor DarkYellow
-        }
-    } catch {
-        Write-Host "  git not available (continuing)." -ForegroundColor DarkYellow
-    } finally {
-        Pop-Location
-    }
-}
-
-# --- 3. Stop the running Flask stack ---
-Write-Host "`nStopping the running Sales Buddy stack..." -ForegroundColor Yellow
-$serverScript = Join-Path $repoRoot 'scripts\server.ps1'
-if (Test-Path $serverScript) {
-    try { & $serverScript -StopOnly 2>&1 | Out-Null } catch { }
-}
-# Belt and suspenders: tree-kill anything from THIS install still running
-# (scoped to the install path so we never touch another install or unrelated python).
-Get-CimInstance Win32_Process -Filter "Name='python.exe' OR Name='pythonw.exe' OR Name='waitress-serve.exe' OR Name='Sales Buddy.exe'" |
-    Where-Object { $_.CommandLine -and $_.CommandLine -match [regex]::Escape($repoRoot) } |
-    ForEach-Object {
-        # Route through cmd so taskkill's stderr (e.g. "process not found" when a
-        # PID exits between the enumeration and the kill) is swallowed at the cmd
-        # level. A bare `taskkill ... 2>$null` still surfaces as a terminating
-        # NativeCommandError under Windows PowerShell 5.1 + ErrorActionPreference=
-        # Stop ($PSNativeCommandUseErrorActionPreference is a 7.3+ no-op here),
-        # which aborted the whole migration right before the shortcut step -
-        # leaving no shortcuts and an "Electron"-named taskbar button (2026-07-23).
-        & cmd.exe /c "taskkill /PID $($_.ProcessId) /T /F >nul 2>&1"
-    }
 
 # --- 4. Stage the signed shell into <install>\electron-dist\ ---
 # Killing the shell above does NOT release its file handles instantly. Staging
@@ -148,7 +182,7 @@ $srcFileCount = (Get-ChildItem $ElectronSource -Recurse -File -ErrorAction Silen
 if (-not ((Test-Path (Join-Path $ElectronSource $exeName)) -and
           (Test-Path (Join-Path $ElectronSource 'icudtl.dat')) -and ($srcFileCount -ge 50))) {
     Write-Host "ERROR: shell build source is incomplete ($srcFileCount files)." -ForegroundColor Red
-    exit 1
+    throw 'The source desktop build is incomplete.'
 }
 
 $destExe = Join-Path $destDir $exeName
@@ -185,7 +219,7 @@ for ($attempt = 1; $attempt -le 3; $attempt++) {
 }
 if (-not $staged) {
     Write-Host "ERROR: could not fully stage the desktop shell after 3 attempts." -ForegroundColor Red
-    exit 1
+    throw 'The desktop shell could not be staged completely.'
 }
 
 # --- 5. Set login autostart -> Electron (per-user, no elevation) ---
@@ -353,19 +387,53 @@ if ((Test-Path $venvPy) -and (Test-Path $reqFile)) {
     catch { $flaskOk = $false }
     if (-not $flaskOk) {
         Write-Host "Backend dependencies missing - installing (one-time)..." -ForegroundColor Yellow
-        try { & $venvPy -m pip install -q -r $reqFile 2>&1 | Write-Host }
-        catch { Write-Host "  pip install error: $($_.Exception.Message)" -ForegroundColor Red }
+        & $venvPy -m pip install -q -r $reqFile
+        if ($LASTEXITCODE -ne 0) { throw 'Required backend dependencies could not be repaired.' }
     }
 }
 
 # --- 7. Launch Electron now ---
 if ($NoLaunch) {
     Write-Host "Skipping launch (-NoLaunch)." -ForegroundColor DarkYellow
+} elseif ($RecoveryOwnedByCaller) {
+    Write-Host "Launching Sales Buddy; Electron owns readiness and recovery." -ForegroundColor Yellow
+    Start-Process -FilePath $destExe
 } else {
     Write-Host "Launching Sales Buddy..." -ForegroundColor Yellow
+    $stateFile = Join-Path $repoRoot 'data\startup-state.json'
+    $previousBoot = $null
+    if (Test-Path $stateFile) {
+        $previousBoot = (Get-Content $stateFile -Raw | ConvertFrom-Json).boot_id
+    }
     Start-Process -FilePath $destExe
+    $deadline = [DateTime]::UtcNow.AddSeconds(60)
+    $bootId = $null
+    while ([DateTime]::UtcNow -lt $deadline) {
+        if (Test-Path $stateFile) {
+            $startup = Get-Content $stateFile -Raw | ConvertFrom-Json
+            if ($startup.boot_id -and $startup.boot_id -ne $previousBoot) {
+                $bootId = $startup.boot_id
+                break
+            }
+        }
+        Start-Sleep -Milliseconds 500
+    }
+    if (-not $bootId) { throw 'The new desktop backend did not publish a startup identity.' }
+    $config = Get-Content (Join-Path $repoRoot '.env') -ErrorAction Stop
+    $port = 5151
+    foreach ($line in $config) {
+        if ($line -match '^\s*PORT\s*=\s*(\d+)\s*$') { $port = [int]$Matches[1] }
+    }
+    & $venvPy $coordinator wait-ready --repo $repoRoot --boot-id $bootId --port $port
+    if ($LASTEXITCODE -ne 0) { throw 'The updated web server and worker did not become ready.' }
 }
 
-Write-Host "`n=== Migration complete ===" -ForegroundColor Green
+if ($NoLaunch) {
+    Write-Host "`n=== Desktop shell staged; startup readiness still required ===" -ForegroundColor Yellow
+} elseif ($RecoveryOwnedByCaller) {
+    Write-Host "`n=== Desktop shell launched; Electron owns readiness and recovery ===" -ForegroundColor Yellow
+} else {
+    Write-Host "`n=== Migration complete: web and worker ready ===" -ForegroundColor Green
+}
 Write-Host "Sales Buddy now runs as a desktop app (system tray + window)." -ForegroundColor Green
 Write-Host "It will start automatically the next time you log in." -ForegroundColor Green

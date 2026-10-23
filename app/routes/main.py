@@ -38,18 +38,18 @@ THEME_FAMILIES = {
 @main_bp.route('/health', methods=['GET'])
 def health_check():
     """
-    Health check endpoint for Azure App Service monitoring.
-    Returns 200 OK if app is healthy and can connect to database.
+    Return managed acceptance by default, or preliminary liveness for the supervisor.
     """
     try:
         # Test database connectivity with a simple query
         db.session.execute(db.text('SELECT 1'))
 
-        # Informational: worker process liveness. Does NOT affect web health -
-        # the web server is healthy whether or not the worker is running; the
-        # supervisor is responsible for restarting a dead worker.
+        # Preliminary probes must remain available before durable final readiness.
         worker = 'unknown'
+        worker_state = {}
         try:
+            from app.services.sync_runtime import worker_state as read_worker_state
+            worker_state = read_worker_state() or {}
             from app.services.sync_jobs import worker_health
             health = worker_health()
             worker = 'alive' if health['alive'] else (
@@ -57,19 +57,57 @@ def health_check():
         except Exception:
             worker = 'unknown'
 
-        return jsonify({
+        payload = {
             'status': 'healthy',
             'database': 'connected',
             'worker': worker,
             'commit': current_app.config.get('BOOT_COMMIT'),
+            'commit_full': current_app.config.get('BOOT_COMMIT_FULL'),
+            'boot_id': current_app.config.get('BOOT_ID'),
+            'web_pid': os.getpid(),
+            'worker_boot_id': worker_state.get('boot_id'),
+            'worker_pid': worker_state.get('pid'),
+            'worker_heartbeat_at': worker_state.get('heartbeat_at'),
+            'worker_ready': worker_state.get('ready') is True,
             'timestamp': datetime.now(timezone.utc).isoformat()
-        }), 200
-    except Exception as e:
+        }
+        boot_id = payload['boot_id']
+        if boot_id and request.args.get('startup') != '1':
+            from pathlib import Path
+            from scripts.upgrade import read_json, readiness_matches, startup_path
+
+            try:
+                repo = Path(__file__).resolve().parents[2]
+                state = read_json(startup_path(repo))
+                if state is not None and (
+                    state.get('schema_version') != 1
+                    or state.get('state') not in ('starting', 'ready', 'failed')
+                    or state.get('phase') not in (
+                        'preflight', 'starting', 'activating', 'ready', 'failed',
+                    )
+                    or not isinstance(state.get('children'), list)
+                    or not isinstance(state.get('boot_id'), str)
+                ):
+                    raise ValueError('Invalid startup readiness state structure')
+                accepted = readiness_matches(
+                    state, payload, boot_id, payload['commit_full'],
+                )
+            except Exception:
+                logging.getLogger(__name__).exception(
+                    'Startup readiness state could not be read; health remains unavailable'
+                )
+                accepted = False
+            if not accepted:
+                payload['status'] = 'starting'
+                payload['error'] = 'Startup readiness not confirmed'
+                return jsonify(payload), 503
+        return jsonify(payload), 200
+    except Exception:
         # Return 503 Service Unavailable if database is down
         return jsonify({
             'status': 'unhealthy',
             'database': 'disconnected',
-            'error': str(e),
+            'error': 'Database health check failed',
             'timestamp': datetime.now(timezone.utc).isoformat()
         }), 503
 

@@ -22,6 +22,8 @@ wheels/
 
 # Virtual Environment
 venv/
+venv.failed-*/
+venv.restore-*/
 ENV/
 env/
 .venv
@@ -137,6 +139,8 @@ electron/node_modules/
 electron/dist/
 electron/out/
 electron-dist/
+electron-dist.failed-*/
+electron-dist.restore-*/
 
 # Temp APIM policy files (may contain secrets)
 apim-policy*.json

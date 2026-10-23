@@ -25,7 +25,7 @@ def should_run_schedulers(role: str, supervised: bool) -> bool:
     return role == 'worker' or (role == 'web' and not supervised)
 
 
-def create_app():
+def create_app(*, defer_background_services: bool = False) -> Flask:
     """Create and configure the Flask application."""
     app = Flask(__name__, 
                 template_folder='../templates',
@@ -51,6 +51,10 @@ def create_app():
     # avoid two processes migrating at once. Only an UNSUPERVISED launch (bare
     # `flask run` / direct waitress) migrates here. Never under tests.
     _supervised = os.environ.get('SALESBUDDY_SUPERVISED', '').strip().lower() in ('1', 'true', 'yes')
+    if not os.environ.get('TESTING') and not app.config.get('TESTING') and not _supervised:
+        from pathlib import Path
+        from scripts.upgrade import startup_preflight
+        startup_preflight(Path(__file__).resolve().parent.parent)
     if not os.environ.get('TESTING') and not _supervised:
         try:
             migrate_db_to_new_location()
@@ -123,39 +127,11 @@ def create_app():
     from app import models
     
     # Create default user and preferences on app startup
-    from app.services.database_startup import database_startup_lock
+    from app.services.database_startup import database_startup_lock, initialize_database
 
     with app.app_context(), database_startup_lock(db.engine):
-        from app.models import User, UserPreference
-        from app.migrations import run_table_renames, run_migrations
-        
-        # Rename old tables (call_logs -> notes) before create_all
-        run_table_renames(db)
-        
-        # Ensure database tables exist
-        db.create_all()
-        
-        # Run idempotent migrations (safe to run every startup)
-        run_migrations(db)
-        from app.services.dashboard_templates import initialize_dashboard_templates
-        initialize_dashboard_templates()
-        
-        # Ensure the canonical single user (id=1) exists.
-        user = db.session.get(User, 1)
-        if not user:
-            user = User(
-                id=1,
-                email='user@localhost',
-                name='Local User',
-                is_admin=True,  # Single user has all permissions
-            )
-            db.session.add(user)
-            db.session.commit()
-            
-            # Create default preferences
-            pref = UserPreference()
-            db.session.add(pref)
-            db.session.commit()
+        from app.models import UserPreference
+        initialize_database(db)
 
         # Reconcile the shell-prefs bridge file to the stored preference so the
         # Electron shell reads the right start-minimized value at next boot
@@ -258,11 +234,6 @@ def create_app():
     from app.services.breadcrumbs import get_breadcrumbs
     app.jinja_env.globals["get_breadcrumbs"] = get_breadcrumbs
     
-    # Start MSX token refresh job (background thread)
-    # This keeps the az login token fresh for CRM API calls
-    from app.services.msx_auth import start_token_refresh_job
-    start_token_refresh_job(interval_seconds=300)  # Check every 5 minutes
-    
     # Capture the git commit hash at boot time (frozen in memory)
     import subprocess
     try:
@@ -274,6 +245,15 @@ def create_app():
         app.config['BOOT_COMMIT'] = boot_result.stdout.strip() or None
     except Exception:
         app.config['BOOT_COMMIT'] = None
+    try:
+        full_result = subprocess.run(
+            ['git', 'rev-parse', 'HEAD'], capture_output=True, text=True, timeout=5,
+            cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        )
+        app.config['BOOT_COMMIT_FULL'] = full_result.stdout.strip() or None
+    except Exception:
+        app.config['BOOT_COMMIT_FULL'] = None
+    app.config['BOOT_ID'] = os.environ.get('SALESBUDDY_BOOT_ID')
 
     # Capture commit date (YYYY-MM-DD) so the changelog viewer can show
     # "what just landed" after an update without depending on commit hashes.
@@ -314,13 +294,21 @@ def create_app():
         import logging
         logging.getLogger(__name__).warning(f"Could not record boot commit: {e}")
 
-    # Start background update checker (checks GitHub every 12 hours)
-    from app.services.update_checker import start_update_checker
-    start_update_checker(interval_seconds=43200)
+    if not defer_background_services and not _supervised:
+        start_background_services(app)
+    elif _supervised and os.environ.get('SALESBUDDY_ROLE', 'web') == 'web':
+        if not app.config.get('TESTING') and not os.environ.get('TESTING'):
+            from app.services.lifecycle import init_lifecycle_logging
+            init_lifecycle_logging(app, [], role='web')
+    return app
 
-    # Start telemetry flush thread (buffers events, flushes to App Insights every 30s)
-    from app.services.telemetry_shipper import start_flush_thread
-    start_flush_thread(app)
+
+def start_background_services(app: Flask) -> None:
+    """Start process services once, preserving role and specialty scheduler gates."""
+    if app.config.get('TESTING') or os.environ.get('TESTING'):
+        return
+    if app.extensions.get('salesbuddy_background_services'):
+        return
 
     # Start Copilot daily action items (sync on startup if stale, then daily at 6 AM)
     # In Flask debug mode, the reloader starts the app twice. Only run background
@@ -343,6 +331,13 @@ def create_app():
         and not _os.environ.get('WERKZEUG_RUN_MAIN')
     )
     if not app.config.get('TESTING') and not _is_reloader_parent:
+        app.extensions['salesbuddy_background_services'] = True
+        from app.services.msx_auth import start_token_refresh_job
+        start_token_refresh_job(interval_seconds=300)
+        from app.services.update_checker import start_update_checker
+        start_update_checker(interval_seconds=43200)
+        from app.services.telemetry_shipper import start_flush_thread
+        start_flush_thread(app)
         schedulers_started = ['update_checker', 'telemetry_flush']
 
         # Heavy background jobs (MSX / WorkIQ / meeting sync) run in the worker
@@ -386,5 +381,3 @@ def create_app():
         # tagged by role so their run markers don't collide.
         from app.services.lifecycle import init_lifecycle_logging
         init_lifecycle_logging(app, schedulers_started, role=_role)
-
-    return app

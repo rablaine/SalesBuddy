@@ -17,7 +17,7 @@ namespace SalesBuddy.CustomActions
     /// All external processes run with CreateNoWindow=true (no terminal windows).
     /// Status text updates are pushed to the MSI progress page in real time.
     /// </summary>
-    public class InstallerActions
+    public partial class InstallerActions
     {
         // =====================================================================
         // Configuration
@@ -87,10 +87,8 @@ namespace SalesBuddy.CustomActions
                         $"AutoStart={autoStart}");
             session.Log($"Repo ref: {repoRef}");
 
-            // An existing checkout means this run is really a migration (Flask ->
-            // desktop) rather than a first-time install. The steps converge, but
-            // we use this for the status text.
-            bool existingInstall = Directory.Exists(Path.Combine(installDir, ".git"));
+            // Damaged existing installs also require the guarded upgrade path.
+            bool existingInstall = HasExistingInstallation(installDir);
             session.Log($"Existing install detected: {existingInstall}");
 
             // Pre-scan installed tools to rebalance the progress bar.
@@ -132,6 +130,11 @@ namespace SalesBuddy.CustomActions
 
             try
             {
+                // Existing installs must never enter the fresh-install bootstrap path.
+                if (existingInstall)
+                    return UpgradeExistingInstallation(
+                        session, installDir, repoRef, startMenu, desktop, autoStart);
+
                 // Refresh PATH so we can find already-installed tools
                 PathHelper.RefreshPath();
 
@@ -188,16 +191,7 @@ namespace SalesBuddy.CustomActions
                     return ActionResult.Failure;
                 }
 
-                // Snapshot the database to a location OUTSIDE installDir before we
-                // touch anything. If a later step nukes the clone dir (corrupted
-                // repo fallback), this snapshot is how we get the user's data back.
-                SnapshotDatabase(session, installDir);
-
-                // Stop any running Sales Buddy (shell + backend) BEFORE we touch
-                // the repo, venv, or shell. A running app holds file handles that
-                // make git clean, pip install, and the shell restage race and leave
-                // a corrupt install (observed 2026-07-17: half-staged electron-dist
-                // + a dependency-less venv). No-op on a fresh box.
+                // Prove no installation process can race source/runtime setup.
                 ProcessRunner.UpdateStatus(session, "Closing Sales Buddy if it's running...");
                 StopRunningApp(session, installDir);
 
@@ -206,12 +200,6 @@ namespace SalesBuddy.CustomActions
                 CloneOrUpdateRepo(session, installDir, repoRef);
                 AdvanceProgress(session, WeightClone);
 
-                // If the repo step left an empty or missing database (e.g. a nuke
-                // fallback removed data/), restore it from the snapshot BEFORE
-                // migrations run - otherwise the app would create a fresh empty
-                // schema and silently wipe the user's data.
-                RestoreDatabaseIfMissing(session, installDir);
-
                 // Step 7: Python environment (venv + pip install, ~2.5 min)
                 ProcessRunner.UpdateStatus(session,
                     "Installing Python dependencies... this typically takes 2-3 minutes");
@@ -219,7 +207,7 @@ namespace SalesBuddy.CustomActions
                     () => SetupPythonEnv(session, installDir),
                     WeightVenv, targetSeconds: 150, reserveTicks: 2);
 
-                // Step 8: Configure app (.env + migrations)
+                // Step 8: Create first-install configuration.
                 ProcessRunner.UpdateStatus(session, "Configuring application...");
                 ConfigureApp(session, installDir);
                 AdvanceProgress(session, WeightConfig);
@@ -247,7 +235,6 @@ namespace SalesBuddy.CustomActions
                         CreateShortcuts(session, installDir, startMenu, desktop);
                     if (autoStart)
                         ConfigureAutoStartTask(session, installDir);
-                    StartServer(session, installDir);
                 }
 
                 // Always register the daily backup task. It runs every day
@@ -269,16 +256,9 @@ namespace SalesBuddy.CustomActions
                 // data lives outside the install dir, so it can't race the MSI's
                 // file commit. Only when the Electron shell staged cleanly - the
                 // web fallback path already started its own server above.
-                if (electronOk)
-                {
-                    ProcessRunner.UpdateStatus(session, "Starting Sales Buddy...");
-                    // Warm up hidden in the tray (--startup --minimized) so the
-                    // Python supervisor cold-starts during the Exit page without a
-                    // window popping up mid-install. The Exit dialog's LaunchApp
-                    // then launches with no args, firing the shell's
-                    // second-instance handler to pop the (already booted) window.
-                    LaunchDesktopApp(session, installDir, "--startup --minimized");
-                }
+                ProcessRunner.UpdateStatus(session, "Starting and verifying Sales Buddy...");
+                using (var coordinator = new UpgradeCoordinator(installDir))
+                    LaunchAndVerify(session, installDir, coordinator, electronOk, accept: false);
 
                 // Step 12: Done
                 AdvanceProgress(session, WeightFinish);
@@ -296,7 +276,8 @@ namespace SalesBuddy.CustomActions
             {
                 session.Log($"FATAL: {ex}");
                 ProcessRunner.UpdateStatus(session,
-                    "Installation failed. Check the log for details.");
+                    "Installation failed. Open Sales Buddy for startup diagnostics or use " +
+                    "explicit recovery. Check the installer log; do not delete your installation.");
                 return ActionResult.Failure;
             }
         }
@@ -1008,7 +989,7 @@ Write-Host 'winget installation complete.'
         // =====================================================================
 
         /// <summary>
-        /// Clone the Sales Buddy repo or update an existing clone.
+        /// Bootstrap only a new checkout. Existing installs use the coordinator.
         /// Disables Git Credential Manager prompts (public repo).
         /// </summary>
         private static void CloneOrUpdateRepo(Session session, string installDir, string repoRef)
@@ -1018,83 +999,18 @@ Write-Host 'winget installation complete.'
             Environment.SetEnvironmentVariable("GCM_INTERACTIVE", "never");
 
             string gitDir = Path.Combine(installDir, ".git");
-            if (Directory.Exists(gitDir))
-            {
-                // Verify repo is healthy before attempting update
-                int checkCode = ProcessRunner.Run(session, "git",
-                    "rev-parse --verify HEAD",
-                    workingDirectory: installDir);
-                if (checkCode != 0)
-                {
-                    // Corrupted repo (e.g., partial delete from failed uninstall).
-                    // Aggressively remove - kill git processes, clear read-only, retry.
-                    session.Log("WARNING: Git repo is corrupted, removing.");
-                    ForceDeleteDirectory(session, gitDir);
-                }
-                else
-                {
-                    // Existing healthy repo - fetch and reset
-                    ProcessRunner.UpdateStatus(session,
-                        "Updating Sales Buddy repository...");
-                    session.Log("Repository exists, pulling latest.");
-                    ProcessRunner.Run(session, "git",
-                        "-c credential.helper= fetch origin",
-                        workingDirectory: installDir);
-                    ProcessRunner.Run(session, "git",
-                        $"reset --hard origin/{repoRef}",
-                        workingDirectory: installDir);
-                    ProcessRunner.Run(session, "git",
-                        "clean -fd",
-                        workingDirectory: installDir);
-                    session.Log("Repository ready.");
-                    return;
-                }
-            }
+            if (HasExistingInstallation(installDir))
+                throw new InvalidOperationException(
+                    "Existing installation requires the guarded upgrade coordinator.");
 
             if (Directory.Exists(installDir) && !Directory.Exists(gitDir))
             {
-                // Directory exists but not a git repo (MSI created it for icon.ico,
-                // or corrupted .git was removed above).
+                // MSI already created this new directory for icon.ico.
                 ProcessRunner.UpdateStatus(session,
                     "Initializing Sales Buddy repository...");
                 session.Log("Directory exists, initializing git repo in-place.");
-                ProcessRunner.Run(session, "git", "init",
-                    workingDirectory: installDir);
-                ProcessRunner.Run(session, "git",
-                    $"remote add origin {RepoUrl}",
-                    workingDirectory: installDir);
-                ProcessRunner.Run(session, "git",
-                    "-c credential.helper= fetch origin",
-                    workingDirectory: installDir);
-                ProcessRunner.Run(session, "git",
-                    $"checkout -f -B main origin/{repoRef}",
-                    workingDirectory: installDir);
-            }
-            else if (Directory.Exists(gitDir))
-            {
-                // .git STILL exists (couldn't delete it). Nuclear option:
-                // back up the database, nuke install dir, fresh clone, restore DB.
-                session.Log("WARNING: .git survived deletion. Nuking install dir.");
-                string dbBackupPath = BackupDatabase(session, installDir);
-                ForceDeleteDirectory(session, installDir);
-                // Fall through to fresh clone, then restore below
-                if (!Directory.Exists(installDir))
-                {
-                    ProcessRunner.UpdateStatus(session,
-                        "Cloning Sales Buddy repository...");
-                    PathHelper.RefreshPath();
-                    int exitCode = ProcessRunner.Run(session, "git",
-                        $"-c credential.helper= clone {RepoUrl} \"{installDir}\"");
-                    if (exitCode != 0)
-                    {
-                        throw new InvalidOperationException(
-                            $"git clone failed with exit code {exitCode}");
-                    }
-                }
-                CheckoutRef(session, installDir, repoRef);
-                RestoreDatabase(session, installDir, dbBackupPath);
-                session.Log("Repository ready.");
-                return;
+                RequireSuccess(session, "git", "init", installDir);
+                RequireSuccess(session, "git", $"remote add origin {RepoUrl}", installDir);
             }
 
             if (!Directory.Exists(installDir))
@@ -1119,16 +1035,12 @@ Write-Host 'winget installation complete.'
         /// <summary>
         /// Point the working tree at the requested git ref (default "main").
         /// Fetches first so the ref is present even on a just-cloned repo, then
-        /// hard-checks it out onto the local "main" branch used for builds.
+        /// checks it out onto the new local "main" branch used for builds.
         /// </summary>
         private static void CheckoutRef(Session session, string installDir, string repoRef)
         {
-            ProcessRunner.Run(session, "git",
-                "-c credential.helper= fetch origin",
-                workingDirectory: installDir);
-            ProcessRunner.Run(session, "git",
-                $"checkout -f -B main origin/{repoRef}",
-                workingDirectory: installDir);
+            RequireSuccess(session, "git", "-c credential.helper= fetch origin", installDir);
+            RequireSuccess(session, "git", $"checkout -B main origin/{repoRef}", installDir);
         }
 
         /// <summary>
@@ -1181,85 +1093,6 @@ Write-Host 'winget installation complete.'
             session.Log($"WARNING: Could not force-delete {path}.");
         }
 
-        /// <summary>
-        /// Back up data/salesbuddy.db to %TEMP% if it exists. Returns the
-        /// temp path (or null if no DB found).
-        /// </summary>
-        private static string BackupDatabase(Session session, string installDir)
-        {
-            string dbPath = ResolveDbPath(installDir);
-            if (!File.Exists(dbPath))
-            {
-                session.Log("No database to back up.");
-                return null;
-            }
-            string tempPath = Path.Combine(
-                Path.GetTempPath(), "salesbuddy_db_backup.db");
-            try
-            {
-                File.Copy(dbPath, tempPath, overwrite: true);
-                session.Log($"Database backed up to {tempPath}.");
-                return tempPath;
-            }
-            catch (Exception ex)
-            {
-                session.Log($"WARNING: Could not back up database: {ex.Message}");
-                return null;
-            }
-        }
-
-        /// <summary>
-        /// Restore a previously backed-up database into data/salesbuddy.db.
-        /// </summary>
-        private static void RestoreDatabase(
-            Session session, string installDir, string backupPath)
-        {
-            if (backupPath == null || !File.Exists(backupPath))
-                return;
-            string dbPath = ResolveDbPath(installDir);
-            string dataDir = Path.GetDirectoryName(dbPath);
-            if (!string.IsNullOrEmpty(dataDir) && !Directory.Exists(dataDir))
-                Directory.CreateDirectory(dataDir);
-            try
-            {
-                File.Copy(backupPath, dbPath, overwrite: true);
-                session.Log($"Database restored from {backupPath}.");
-                // NOTE: intentionally do NOT delete the backup. It is a safety
-                // net that must survive across install attempts (a failed install
-                // that leaves an empty DB should still be recoverable next run).
-            }
-            catch (Exception ex)
-            {
-                session.Log($"WARNING: Could not restore database: {ex.Message}");
-            }
-        }
-
-        // =====================================================================
-        // Database safety net (July 2026)
-        //
-        // The prod DB lives INSIDE the clone dir (data/salesbuddy.db). Any
-        // "nuke and re-clone" fallback in CloneOrUpdateRepo destroys it, and the
-        // app recreates an empty schema on first launch - silently wiping the
-        // user's data (observed 2026-07-17). These helpers guarantee the DB is
-        // snapshotted OUTSIDE the clone dir before anything destructive runs, and
-        // restored if the post-clone DB is missing or empty. The snapshots live
-        // under %LOCALAPPDATA%\SalesBuddy-backups\preinstall so they survive a
-        // full installDir nuke.
-        // =====================================================================
-
-        // A real DB with data is tens of MB. A freshly-created (never-opened)
-        // SQLite file is ~4 KB; a schema-only DB is larger but we only ever
-        // compare BEFORE migrations run, so anything this small is "empty".
-        private const long EmptyDbThreshold = 64 * 1024; // 64 KB
-        private const int SafeguardKeep = 6;
-
-        private static string SafeguardDir()
-        {
-            string local = Environment.GetFolderPath(
-                Environment.SpecialFolder.LocalApplicationData);
-            return Path.Combine(local, "SalesBuddy-backups", "preinstall");
-        }
-
         /// <summary>The production DB location: a sibling of the install dir under
         /// %LOCALAPPDATA%\SalesBuddy-data that survives any install-dir deletion.</summary>
         private static string ExternalDbPath()
@@ -1305,176 +1138,6 @@ Write-Host 'winget installation complete.'
         }
 
         /// <summary>
-        /// Copy the live DB to the safeguard dir (outside installDir) before any
-        /// destructive install step. No-op if the DB is missing or empty. Prunes
-        /// to the newest SafeguardKeep snapshots. Never throws.
-        /// </summary>
-        private static void SnapshotDatabase(Session session, string installDir)
-        {
-            try
-            {
-                string dbPath = ResolveDbPath(installDir);
-                if (!File.Exists(dbPath))
-                {
-                    session.Log("Safeguard: no database to snapshot.");
-                    return;
-                }
-                long len = new FileInfo(dbPath).Length;
-                if (len < EmptyDbThreshold)
-                {
-                    session.Log($"Safeguard: database is empty ({len} bytes); not snapshotting.");
-                    return;
-                }
-                string dir = SafeguardDir();
-                Directory.CreateDirectory(dir);
-                string dest = Path.Combine(dir,
-                    $"salesbuddy-{DateTime.Now:yyyyMMdd-HHmmss}.db");
-                File.Copy(dbPath, dest, overwrite: true);
-                session.Log($"Safeguard: snapshotted database to {dest} ({len} bytes).");
-
-                // Prune old snapshots, keep the newest SafeguardKeep.
-                var snaps = new List<FileInfo>();
-                foreach (string f in Directory.GetFiles(dir, "salesbuddy-*.db"))
-                    snaps.Add(new FileInfo(f));
-                snaps.Sort((a, b) => b.LastWriteTimeUtc.CompareTo(a.LastWriteTimeUtc));
-                for (int i = SafeguardKeep; i < snaps.Count; i++)
-                {
-                    try { snaps[i].Delete(); }
-                    catch (Exception ex) { session.Log($"Safeguard prune skip {snaps[i].Name}: {ex.Message}"); }
-                }
-            }
-            catch (Exception ex)
-            {
-                session.Log($"Safeguard snapshot failed (non-fatal): {ex.Message}");
-            }
-        }
-
-        /// <summary>
-        /// If data/salesbuddy.db is missing or empty after the repo step, restore
-        /// it from the newest good backup (safeguard dir, then the legacy temp
-        /// backup). This must run BEFORE migrations so the app never lays a fresh
-        /// empty schema over recoverable data. Never throws.
-        /// </summary>
-        private static void RestoreDatabaseIfMissing(Session session, string installDir)
-        {
-            try
-            {
-                string dbPath = ResolveDbPath(installDir);
-                bool needRestore = !File.Exists(dbPath)
-                    || new FileInfo(dbPath).Length < EmptyDbThreshold;
-                if (!needRestore)
-                {
-                    session.Log("DB present and non-empty after repo step; no restore needed.");
-                    return;
-                }
-
-                string source = FindNewestGoodBackup(session);
-                if (source == null)
-                {
-                    session.Log("No good DB backup found; a fresh database will be created.");
-                    return;
-                }
-
-                string dataDir = Path.GetDirectoryName(dbPath);
-                if (!string.IsNullOrEmpty(dataDir)) Directory.CreateDirectory(dataDir);
-                // Clear any stale WAL/SHM so SQLite doesn't merge junk over the
-                // restored file.
-                foreach (string ext in new[] { "-wal", "-shm" })
-                {
-                    try { File.Delete(dbPath + ext); } catch { }
-                }
-                File.Copy(source, dbPath, overwrite: true);
-                session.Log($"Restored DB from backup {source} " +
-                    $"({new FileInfo(source).Length} bytes) - empty/missing DB recovered.");
-            }
-            catch (Exception ex)
-            {
-                session.Log($"Restore-if-missing failed (non-fatal): {ex.Message}");
-            }
-        }
-
-        /// <summary>
-        /// Find the newest non-empty DB backup across the safeguard dir, the
-        /// uninstall backups, and the legacy temp backup. Returns null if none
-        /// qualify.
-        /// </summary>
-        private static string FindNewestGoodBackup(Session session)
-        {
-            var candidates = new List<string>();
-
-            // 1. Safeguard snapshots (taken at the start of an install).
-            try
-            {
-                string dir = SafeguardDir();
-                if (Directory.Exists(dir))
-                    candidates.AddRange(Directory.GetFiles(dir, "salesbuddy-*.db"));
-            }
-            catch (Exception ex) { session.Log($"Safeguard scan skip: {ex.Message}"); }
-
-            // 2. Uninstall backups (%TEMP%\salesbuddy-uninstall-*.db). CRITICAL:
-            //    a MajorUpgrade removes the OLD product FIRST, and that uninstall
-            //    copies the live DB here right before deleting it - so this is
-            //    usually the FRESHEST good copy of the user's data. Omitting this
-            //    source is exactly what let a stale 7/17 safeguard snapshot
-            //    overwrite good FY27 data on 2026-07-22.
-            try
-            {
-                candidates.AddRange(
-                    Directory.GetFiles(Path.GetTempPath(), "salesbuddy-uninstall-*.db"));
-            }
-            catch (Exception ex) { session.Log($"Uninstall-backup scan skip: {ex.Message}"); }
-
-            // 3. Legacy single temp backup.
-            string legacy = Path.Combine(Path.GetTempPath(), "salesbuddy_db_backup.db");
-            if (File.Exists(legacy)) candidates.Add(legacy);
-
-            // Pick the most RECENT non-empty backup, ranked by the timestamp
-            // embedded in the filename. File mtime is unreliable here: File.Copy
-            // preserves the SOURCE file's mtime, so a copy of an old DB looks old
-            // even when it was written moments ago.
-            string best = null;
-            DateTime bestTime = DateTime.MinValue;
-            foreach (string c in candidates)
-            {
-                try
-                {
-                    if (new FileInfo(c).Length < EmptyDbThreshold) continue;
-                    DateTime rec = BackupRecency(c);
-                    if (rec > bestTime) { bestTime = rec; best = c; }
-                }
-                catch { }
-            }
-            if (best != null)
-                session.Log($"Best DB backup: {best} (recency {bestTime:yyyy-MM-dd HH:mm:ss}).");
-            else
-                session.Log("No good DB backup found across safeguard/uninstall/legacy sources.");
-            return best;
-        }
-
-        /// <summary>
-        /// Recency of a backup file, from a yyyyMMdd-HHmmss stamp in its filename
-        /// (how our snapshots/uninstall backups are named). Falls back to the file
-        /// mtime when no stamp is present (e.g. the legacy backup).
-        /// </summary>
-        private static DateTime BackupRecency(string path)
-        {
-            try
-            {
-                string name = Path.GetFileNameWithoutExtension(path);
-                var m = System.Text.RegularExpressions.Regex.Match(name, @"(\d{8})-(\d{6})");
-                if (m.Success && DateTime.TryParseExact(
-                        m.Groups[1].Value + m.Groups[2].Value, "yyyyMMddHHmmss",
-                        System.Globalization.CultureInfo.InvariantCulture,
-                        System.Globalization.DateTimeStyles.None, out DateTime ts))
-                {
-                    return ts;
-                }
-            }
-            catch { }
-            try { return new FileInfo(path).LastWriteTime; } catch { return DateTime.MinValue; }
-        }
-
-        /// <summary>
         /// Create a Python virtual environment and install dependencies.
         /// </summary>
         private static void SetupPythonEnv(Session session, string installDir)
@@ -1505,7 +1168,7 @@ Write-Host 'winget installation complete.'
 
                 ProcessRunner.UpdateStatus(session,
                     "Creating Python virtual environment...");
-                ProcessRunner.Run(session, pythonExe, $"-m venv \"{venvDir}\"");
+                RequireSuccess(session, pythonExe, $"-m venv \"{venvDir}\"", installDir);
                 if (!File.Exists(venvPython))
                     throw new InvalidOperationException("Failed to create venv.");
                 session.Log("Virtual environment created.");
@@ -1520,8 +1183,7 @@ Write-Host 'winget installation complete.'
             {
                 ProcessRunner.UpdateStatus(session,
                     "Installing Python dependencies... this typically takes 2-3 minutes");
-                ProcessRunner.Run(session, pipExe,
-                    $"install -r \"{reqFile}\"");
+                RequireSuccess(session, pipExe, $"install -r \"{reqFile}\"", installDir);
                 session.Log("Dependencies installed.");
 
                 // Verify the venv is actually usable. A partial/interrupted pip
@@ -1534,10 +1196,10 @@ Write-Host 'winget installation complete.'
                     session.Log("Backend deps missing after install - retrying pip once.");
                     ProcessRunner.UpdateStatus(session,
                         "Repairing Python dependencies...");
-                    ProcessRunner.Run(session, venvPython, $"-m pip install -r \"{reqFile}\"");
-                    session.Log(VenvImportsFlask(session, venvPython)
-                        ? "Backend deps present after retry."
-                        : "WARNING: backend deps STILL missing after retry.");
+                    RequireSuccess(session, venvPython,
+                        $"-m pip install -r \"{reqFile}\"", installDir);
+                    if (!VenvImportsFlask(session, venvPython))
+                        throw new InvalidOperationException("Backend dependencies failed verification.");
                 }
                 else
                 {
@@ -1546,7 +1208,7 @@ Write-Host 'winget installation complete.'
             }
             else
             {
-                session.Log($"WARNING: requirements.txt not found at {reqFile}");
+                throw new InvalidOperationException($"requirements.txt not found at {reqFile}");
             }
         }
 
@@ -1568,13 +1230,12 @@ Write-Host 'winget installation complete.'
         }
 
         /// <summary>
-        /// Create .env file from template and run database migrations.
+        /// Create first-install configuration. The supervisor initializes the database.
         /// </summary>
         private static void ConfigureApp(Session session, string installDir)
         {
             var envFile = Path.Combine(installDir, ".env");
             var exampleFile = Path.Combine(installDir, ".env.example");
-            var venvPython = Path.Combine(installDir, "venv", "Scripts", "python.exe");
 
             // Create .env from example if it doesn't exist
             if (!File.Exists(envFile) && File.Exists(exampleFile))
@@ -1589,22 +1250,6 @@ Write-Host 'winget installation complete.'
 
                 File.WriteAllText(envFile, content);
                 session.Log(".env created.");
-            }
-
-            // Run migrations
-            if (File.Exists(venvPython))
-            {
-                ProcessRunner.UpdateStatus(session, "Running database migrations...");
-                string migrationCmd =
-                    "from app import create_app, db; " +
-                    "from app.migrations import run_migrations; " +
-                    "app = create_app(); " +
-                    "app.app_context().push(); " +
-                    "run_migrations(db)";
-                ProcessRunner.Run(session, venvPython,
-                    $"-c \"{migrationCmd}\"",
-                    workingDirectory: installDir);
-                session.Log("Migrations complete.");
             }
         }
 
@@ -1707,23 +1352,11 @@ Write-Host 'winget installation complete.'
             if (!autoStart) opts += " -NoAutoStart";
 
             // First pass: full rebuild of the shell from source.
-            ProcessRunner.Run(session, "powershell.exe", baseArgs + " -Rebuild" + opts,
+            int exitCode = ProcessRunner.Run(session, "powershell.exe", baseArgs + " -Rebuild" + opts,
                 workingDirectory: installDir);
 
             string exe = Path.Combine(installDir, "electron-dist", "Sales Buddy.exe");
-            if (!File.Exists(exe))
-            {
-                // The build usually succeeds but STAGING can lose a transient race
-                // (AV scanning the fresh exe / a lingering file lock) and never
-                // populate electron-dist -> web fallback (observed 2026-07-23:
-                // win-unpacked built fine, electron-dist empty). Retry WITHOUT
-                // -Rebuild so we reuse the already-built shell and just re-stage.
-                session.Log("Electron exe missing after first pass - retrying stage (no rebuild).");
-                ProcessRunner.Run(session, "powershell.exe", baseArgs + opts,
-                    workingDirectory: installDir);
-            }
-
-            bool ok = File.Exists(exe);
+            bool ok = exitCode == 0 && File.Exists(exe);
             session.Log($"Electron setup {(ok ? "succeeded" : "did NOT produce the exe")}: {exe}");
             return ok;
         }
@@ -1840,31 +1473,66 @@ Write-Host 'winget installation complete.'
         /// </summary>
         private static void StopRunningApp(Session session, string installDir)
         {
-            string installLower = installDir.TrimEnd('\\').ToLowerInvariant();
-
-            // 1. Electron shell processes (unique product name; kills main + helpers).
-            foreach (var p in SafeGetProcesses("Sales Buddy"))
-            {
-                TryKill(session, p);
+            string escapedRoot = installDir.TrimEnd('\\').Replace("'", "''") + "\\";
+            string script = @"
+$ErrorActionPreference = 'Stop'
+$root = '" + escapedRoot + @"'
+function Get-InstallProcesses {
+    $all = @(Get-CimInstance Win32_Process -ErrorAction Stop)
+    $owned = @{}
+    foreach ($item in $all) {
+        if ($item.ProcessId -eq $PID) { continue }
+        $path = [string]$item.ExecutablePath
+        $command = [string]$item.CommandLine
+        $appProcess = $item.Name -in @('Sales Buddy.exe', 'python.exe', 'pythonw.exe',
+                                      'waitress-serve.exe')
+        $launcher = $item.Name -in @('powershell.exe', 'pwsh.exe', 'wscript.exe',
+                                    'cscript.exe') -and
+                    $command -match '(server\.ps1|run-hidden\.vbs|startup\.ps1)'
+        if ($path.StartsWith($root, [StringComparison]::OrdinalIgnoreCase) -or
+            (($appProcess -or $launcher) -and
+             $command.IndexOf($root, [StringComparison]::OrdinalIgnoreCase) -ge 0)) {
+            $owned[[int]$item.ProcessId] = $item
+        }
+        elseif ($item.Name -in @('Sales Buddy.exe', 'python.exe', 'pythonw.exe',
+                                'waitress-serve.exe') -and !$path -and !$command) {
+            throw 'Cannot establish process ownership. Close Sales Buddy and retry.'
+        }
+    }
+    do {
+        $added = $false
+        foreach ($item in $all) {
+            if ($item.ProcessId -ne $PID -and
+                $owned.ContainsKey([int]$item.ParentProcessId) -and
+                !$owned.ContainsKey([int]$item.ProcessId)) {
+                $owned[[int]$item.ProcessId] = $item
+                $added = $true
             }
+        }
+    } while ($added)
+    @($owned.Values)
+}
+for ($attempt = 0; $attempt -lt 6; $attempt++) {
+    $owned = @(Get-InstallProcesses)
+    if (!$owned.Count) { exit 0 }
+    # Stop parents first so supervisors cannot restart their children.
+    foreach ($item in ($owned | Sort-Object CreationDate)) {
+        $process = Get-Process -Id $item.ProcessId -ErrorAction SilentlyContinue
+        if ($process) {
+            Stop-Process -Id $item.ProcessId -Force -ErrorAction Stop
+            if (!$process.WaitForExit(5000)) { throw 'An install process did not exit.' }
+        }
+    }
+    Start-Sleep -Milliseconds 500
+}
+if (@(Get-InstallProcesses).Count) { throw 'Sales Buddy processes are still running.' }
+";
+            int exitCode = ProcessRunner.RunPowerShell(session, script);
+            if (exitCode != 0)
+                throw new InvalidOperationException(
+                    "Cannot prove Sales Buddy has stopped. No upgrade was applied. " +
+                    "Close the desktop app and its backend, then retry.");
 
-            // 2. Backend python / waitress launched from THIS install's venv.
-            foreach (var name in new[] { "python", "pythonw", "waitress-serve" })
-            {
-                foreach (var p in SafeGetProcesses(name))
-                {
-                    string path = "";
-                    try { path = (p.MainModule?.FileName ?? "").ToLowerInvariant(); }
-                    catch { /* cross-bitness / access denied - can't confirm, so skip */ }
-                    if (path.Length > 0 && path.StartsWith(installLower))
-                    {
-                        TryKill(session, p);
-                    }
-                }
-            }
-
-            // 3. Wait (up to ~10s) for the shell exe handle to release so the later
-            //    restage can delete it cleanly instead of half-copying over a lock.
             string exe = Path.Combine(installDir, "electron-dist", "Sales Buddy.exe");
             for (int i = 0; i < 20 && File.Exists(exe); i++)
             {
@@ -1874,6 +1542,13 @@ Write-Host 'winget installation complete.'
                 }
                 catch { Thread.Sleep(500); }
             }
+            if (File.Exists(exe))
+            {
+                // Failure to release the shell is fatal, never a best-effort warning.
+                using (File.Open(exe, FileMode.Open, FileAccess.ReadWrite, FileShare.None)) { }
+            }
+            string sentinel = Path.Combine(installDir, "data", "shutdown.request");
+            if (File.Exists(sentinel)) File.Delete(sentinel);
             session.Log("StopRunningApp: complete.");
         }
 
@@ -1934,10 +1609,10 @@ Write-Host 'winget installation complete.'
             // Use wscript + VBS launcher so the autostart never flashes a console
             // window at login. powershell.exe -WindowStyle Hidden still flashes briefly;
             // wscript starts the process with no console at all.
-            ProcessRunner.Run(session, "schtasks.exe",
+            RequireSuccess(session, "schtasks.exe",
                 $"/create /tn \"SalesBuddy-AutoStart\" " +
                 $"/tr \"wscript.exe \\\"{vbsLauncher}\\\" \\\"{serverScript}\\\"\" " +
-                $"/sc ONLOGON /rl LIMITED /f");
+                $"/sc ONLOGON /rl LIMITED /f", installDir);
             session.Log("Auto-start task created.");
         }
 
@@ -1962,10 +1637,10 @@ Write-Host 'winget installation complete.'
             // powershell.exe -WindowStyle Hidden still produces.
             // Daily at 11:00 AM matches what scripts/backup.ps1 -Setup
             // and scripts/server.ps1 register.
-            ProcessRunner.Run(session, "schtasks.exe",
+            RequireSuccess(session, "schtasks.exe",
                 $"/create /tn \"SalesBuddy-DailyBackup\" " +
                 $"/tr \"wscript.exe \\\"{vbsLauncher}\\\" \\\"{backupScript}\\\" -Silent\" " +
-                $"/sc DAILY /st 11:00 /rl LIMITED /f");
+                $"/sc DAILY /st 11:00 /rl LIMITED /f", installDir);
             session.Log("Daily backup task created.");
         }
 
@@ -1973,7 +1648,7 @@ Write-Host 'winget installation complete.'
         /// Start the Sales Buddy supervisor (which spawns the web server and the
         /// background worker) in the background.
         /// </summary>
-        private static void StartServer(Session session, string installDir)
+        private static void StartServer(Session session, string installDir, string bootId = null)
         {
             int port = GetPortFromEnv(installDir);
             var python = Path.Combine(installDir, "venv", "Scripts",
@@ -1981,8 +1656,7 @@ Write-Host 'winget installation complete.'
 
             if (!File.Exists(python))
             {
-                session.Log("python.exe not found. Server not started.");
-                return;
+                throw new InvalidOperationException("python.exe not found. Server not started.");
             }
 
             var psi = new ProcessStartInfo
@@ -1996,8 +1670,10 @@ Write-Host 'winget installation complete.'
             // The supervisor reads the port from the environment and passes it
             // through to the web child it spawns.
             psi.EnvironmentVariables["PORT"] = port.ToString();
+            if (bootId != null) psi.EnvironmentVariables["SALESBUDDY_BOOT_ID"] = bootId;
 
-            Process.Start(psi);
+            if (Process.Start(psi) == null)
+                throw new InvalidOperationException("The supervisor did not start.");
             session.Log($"Supervisor (web + worker) started on port {port}.");
         }
 

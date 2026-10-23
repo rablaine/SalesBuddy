@@ -17,6 +17,12 @@
       <p class="shell-description" id="status-description">Waiting for the local backend. This window will open automatically.</p>
       <div class="shell-progress" role="progressbar" aria-label="Waiting for Sales Buddy" aria-describedby="status-description"><span></span></div>
       <p class="shell-state" role="status" aria-live="polite" id="status-detail">Checking the local backend automatically</p>
+      <div class="shell-actions" id="failure-actions" hidden aria-busy="false">
+        <button type="button" data-status-action="retry">Retry startup</button>
+        <button type="button" data-status-action="export">Save failure report</button>
+        <button type="button" data-status-action="recover" hidden>Retry recovery</button>
+      </div>
+      <p class="shell-action-feedback" id="action-feedback" role="status" aria-live="polite"></p>
       <div class="shell-help"><span>Need more detail?</span><p>Use <strong>Help &gt; Open Logs Folder</strong> in the desktop menu. You can keep this window open while the app gets ready.</p></div>
     </section>
   </main>

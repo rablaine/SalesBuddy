@@ -134,10 +134,14 @@ function Start-DevFlask {
     $prevFlaskEnv = $env:FLASK_ENV
     $prevAzureConfigDir = $env:AZURE_CONFIG_DIR
     $prevSupervised = $env:SALESBUDDY_SUPERVISED
+    $prevDevStack = $env:SALESBUDDY_DEV_STACK
+    $prevBootId = $env:SALESBUDDY_BOOT_ID
 
     $env:FLASK_ENV = 'development'
     $env:AZURE_CONFIG_DIR = Join-Path $env:USERPROFILE 'SalesBuddyDev\.azure'
     $env:SALESBUDDY_SUPERVISED = '1'
+    $env:SALESBUDDY_DEV_STACK = '1'
+    Remove-Item Env:\SALESBUDDY_BOOT_ID -ErrorAction SilentlyContinue
 
     Write-Host "Starting dev flask on port $Port (FLASK_ENV=development)" -ForegroundColor Cyan
     Write-Host "Azure config dir: $env:AZURE_CONFIG_DIR" -ForegroundColor DarkGray
@@ -177,6 +181,10 @@ function Start-DevFlask {
         else { $env:AZURE_CONFIG_DIR = $prevAzureConfigDir }
         if ($null -eq $prevSupervised) { Remove-Item Env:\SALESBUDDY_SUPERVISED -ErrorAction SilentlyContinue }
         else { $env:SALESBUDDY_SUPERVISED = $prevSupervised }
+        if ($null -eq $prevDevStack) { Remove-Item Env:\SALESBUDDY_DEV_STACK -ErrorAction SilentlyContinue }
+        else { $env:SALESBUDDY_DEV_STACK = $prevDevStack }
+        if ($null -eq $prevBootId) { Remove-Item Env:\SALESBUDDY_BOOT_ID -ErrorAction SilentlyContinue }
+        else { $env:SALESBUDDY_BOOT_ID = $prevBootId }
     }
 }
 

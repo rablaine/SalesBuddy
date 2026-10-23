@@ -17,5 +17,13 @@ h1 { margin: 0 0 12px; font-size: 28px; font-weight: 600; line-height: 1.25; }
 .shell-help p { margin: 6px 0 0; color: var(--sb-ui-muted); }
 .shell-help strong { color: var(--sb-ui-ink); font-weight: 500; }
 .shell-footer { min-height: 32px; border-top: 1px solid var(--sb-ui-line); font-size: 12px; }
+[hidden] { display: none !important; }
+.shell-actions { display: flex; gap: 10px; margin-bottom: 12px; }
+.shell-actions button { font: inherit; padding: 7px 12px; border: 1px solid var(--sb-ui-line); background: var(--sb-ui-context); color: var(--sb-ui-ink); cursor: pointer; }
+.shell-actions button:hover { background: var(--sb-ui-raised); }
+.shell-actions button:focus-visible { outline: 2px solid var(--sb-ui-accent); outline-offset: 3px; }
+.shell-actions button:disabled { opacity: .6; cursor: wait; }
+.shell-action-feedback { color: var(--sb-ui-muted); min-height: 1.55em; }
+body[data-state="failed"] .shell-progress { display: none; }
 @keyframes pending { from { transform: translateX(-100%); } to { transform: translateX(390%); } }
 @media (prefers-reduced-motion: reduce) { .shell-progress span { animation: none; width: 100%; opacity: .55; } }

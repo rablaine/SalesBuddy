@@ -9,9 +9,35 @@ from pathlib import Path
 from typing import Iterator
 
 from sqlalchemy.engine import Engine
+from flask_sqlalchemy import SQLAlchemy
 
 logger = logging.getLogger(__name__)
 STARTUP_LOCK_TIMEOUT_SECONDS = 300
+
+
+def initialize_database(db: SQLAlchemy) -> None:
+    """Initialize schema and canonical records inside the caller's startup lock.
+
+    The caller owns the Flask application context and startup lock. This helper
+    deliberately does not reconcile shell files or start background services so
+    the upgrade rehearsal can safely use it against an isolated database.
+    """
+    from app.migrations import run_migrations, run_table_renames
+    from app.models import User, UserPreference
+    from app.services.dashboard_templates import initialize_dashboard_templates
+
+    run_table_renames(db)
+    db.create_all()
+    run_migrations(db)
+    initialize_dashboard_templates()
+    if db.session.get(User, 1) is None:
+        db.session.add(User(
+            id=1, email='user@localhost', name='Local User', is_admin=True,
+        ))
+        db.session.commit()
+    if UserPreference.query.first() is None:
+        db.session.add(UserPreference())
+        db.session.commit()
 
 
 @contextmanager

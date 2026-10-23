@@ -14,6 +14,31 @@
 
 const { ipcRenderer } = require('electron');
 
+// The main process independently authenticates the exact bundled document and main frame.
+window.addEventListener('DOMContentLoaded', () => {
+  if (window !== window.top || !location.href.startsWith('data:text/html')) return;
+  const actions = document.getElementById('failure-actions');
+  if (!actions) return;
+  actions.addEventListener('click', async event => {
+    const button = event.target.closest('button[data-status-action]');
+    if (!button || !actions.contains(button)) return;
+    const feedback = document.getElementById('action-feedback');
+    const buttons = [...actions.querySelectorAll('button')];
+    actions.setAttribute('aria-busy', 'true');
+    buttons.forEach(item => { item.disabled = true; });
+    feedback.textContent = 'Working...';
+    try {
+      const result = await ipcRenderer.invoke('shell:status-action', button.dataset.statusAction);
+      feedback.textContent = result?.message || 'Action unavailable.';
+    } catch (_) {
+      feedback.textContent = 'The action could not finish. Nothing was restored automatically.';
+    } finally {
+      actions.setAttribute('aria-busy', 'false');
+      buttons.forEach(item => { item.disabled = false; });
+    }
+  });
+});
+
 function startInputFocusDiagnostics() {
   if (window !== window.top) return;
   const targetIds = new Set([

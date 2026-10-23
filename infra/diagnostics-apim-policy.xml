@@ -1,0 +1,67 @@
+<policies>
+  <inbound>
+    <base />
+    <validate-jwt header-name="Authorization" require-scheme="Bearer"
+                  failed-validation-httpcode="401" failed-validation-error-message="Microsoft sign-in required"
+                  require-expiration-time="true" require-signed-tokens="true"
+                  output-token-variable-name="diagnosticCaller">
+      <openid-config url="https://login.microsoftonline.com/72f988bf-86f1-41af-91ab-2d7cd011db47/.well-known/openid-configuration" />
+      <audiences><audience>https://management.azure.com</audience></audiences>
+      <issuers>
+        <issuer>https://sts.windows.net/72f988bf-86f1-41af-91ab-2d7cd011db47/</issuer>
+        <issuer>https://login.microsoftonline.com/72f988bf-86f1-41af-91ab-2d7cd011db47/v2.0</issuer>
+      </issuers>
+      <required-claims>
+        <claim name="tid" match="all"><value>72f988bf-86f1-41af-91ab-2d7cd011db47</value></claim>
+      </required-claims>
+    </validate-jwt>
+    <choose>
+      <when condition="@(string.IsNullOrEmpty(((Jwt)context.Variables[&quot;diagnosticCaller&quot;]).Claims.GetValueOrDefault(&quot;oid&quot;, &quot;&quot;)))">
+        <return-response>
+          <set-status code="401" reason="Microsoft sign-in required" />
+        </return-response>
+      </when>
+    </choose>
+    <rate-limit calls="60" renewal-period="60" />
+    <set-header name="X-MS-CLIENT-PRINCIPAL-ID" exists-action="delete" />
+    <set-header name="X-MS-CLIENT-PRINCIPAL" exists-action="delete" />
+    <set-header name="X-MS-CLIENT-PRINCIPAL-NAME" exists-action="delete" />
+    <set-header name="X-MS-CLIENT-PRINCIPAL-IDP" exists-action="delete" />
+    <set-header name="X-SalesBuddy-Rate-Key" exists-action="override">
+      <value>@{
+        var caller = (Jwt)context.Variables["diagnosticCaller"];
+        var identity = caller.Claims.GetValueOrDefault("oid", "");
+        var bytes = System.Security.Cryptography.SHA256.Create().ComputeHash(System.Text.Encoding.UTF8.GetBytes(identity));
+        return BitConverter.ToString(bytes).Replace("-", "").ToLowerInvariant();
+      }</value>
+    </set-header>
+    <check-header name="Content-Type" failed-check-httpcode="415" failed-check-error-message="JSON required" ignore-case="true">
+      <value>application/json</value>
+    </check-header>
+    <!-- Operations have no APIM request schema. The header gate and backend enforce JSON. -->
+    <validate-content unspecified-content-type-action="ignore" max-size="16384" size-exceeded-action="prevent" />
+    <set-header name="X-SalesBuddy-Contact" exists-action="delete" />
+    <choose>
+      <when condition="@(context.Operation.Id == &quot;followups&quot;)">
+        <set-header name="X-SalesBuddy-Contact" exists-action="override">
+          <value>@{
+            var caller = (Jwt)context.Variables["diagnosticCaller"];
+            foreach (var key in new [] { "preferred_username", "upn", "email", "unique_name" }) {
+              var candidate = caller.Claims.GetValueOrDefault(key, "");
+              if (candidate.Length &lt;= 254 &amp;&amp; System.Text.RegularExpressions.Regex.IsMatch(candidate, @"^[A-Za-z0-9.!#$%&amp;'*+/=?^_`{|}~-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$")) {
+                return candidate;
+              }
+            }
+            return "";
+          }</value>
+        </set-header>
+      </when>
+    </choose>
+    <set-backend-service base-url="https://func-salesbuddy-diag-private.azurewebsites.net" />
+    <rewrite-uri template="@(context.Operation.Id == &quot;followups&quot; ? &quot;/api/followups&quot; : &quot;/api/reports&quot;)" copy-unmatched-params="false" />
+    <authentication-managed-identity resource="api://e59cf4a7-76d2-4014-b10b-2cbcd2b41297" />
+  </inbound>
+  <backend><forward-request timeout="20" /></backend>
+  <outbound><base /></outbound>
+  <on-error><base /></on-error>
+</policies>

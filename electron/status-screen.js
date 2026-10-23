@@ -9,7 +9,8 @@ function escapeHtml(value) {
 }
 
 function statusScreenUrl(title, subtitle, theme = {}) {
-  const state = /longer than usual/.test(subtitle || '') ? 'slow'
+  const state = theme.recovering ? 'recovering'
+    : theme.failed ? 'failed' : /longer than usual/.test(subtitle || '') ? 'slow'
     : /Reconnecting/.test(title || '') ? 'reconnecting'
     : /Building/.test(title || '') ? 'building'
     : /Starting/.test(title || '') ? 'starting' : 'updating';
@@ -31,6 +32,10 @@ function statusScreenUrl(title, subtitle, theme = {}) {
     .replace('data-sb-mode="dark"', `data-sb-mode="${config.mode}"`)
     .replace('data-sb-family="graphite"', `data-sb-family="${config.family}"`)
     .replace('data-state="starting"', `data-state="${config.state}"`)
+    .replace('id="failure-actions" hidden',
+      `id="failure-actions"${theme.failed && theme.managed ? '' : ' hidden'}`)
+    .replace('data-status-action="recover" hidden',
+      `data-status-action="recover"${theme.recoveryAvailable ? '' : ' hidden'}`)
     .replace('Starting Sales Buddy</h1>', `${escapeHtml(config.title)}</h1>`)
     .replace('Waiting for the local backend. This window will open automatically.</p>',
       `${escapeHtml(config.subtitle)}</p>`);

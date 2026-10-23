@@ -12,6 +12,53 @@ from app.migrations import _migrate_msx_task_hva_column
 from app.services.database_startup import database_startup_lock
 
 
+def test_shared_initializer_orders_schema_and_seeds_idempotently(monkeypatch):
+    """Rehearsal and live startup share schema setup without shell side effects."""
+    from flask import Flask
+    from app.models import db, User, UserPreference
+    from app.services.database_startup import initialize_database
+
+    app = Flask(__name__)
+    app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///:memory:'
+    app.config['TESTING'] = True
+    db.init_app(app)
+    calls = []
+    monkeypatch.setattr('app.migrations.run_table_renames', lambda database: calls.append('rename'))
+    monkeypatch.setattr('app.migrations.run_migrations', lambda database: calls.append('migrate'))
+    monkeypatch.setattr(
+        'app.services.dashboard_templates.initialize_dashboard_templates',
+        lambda: calls.append('templates'),
+    )
+    original_create_all = db.create_all
+
+    def create_all() -> None:
+        """Record ordering while creating a real isolated schema."""
+        calls.append('create')
+        original_create_all()
+
+    def forbidden(*args, **kwargs) -> None:
+        """Reject shell writes and background startup during rehearsal."""
+        pytest.fail('Shared initializer must not start services or reconcile shell files')
+
+    monkeypatch.setattr(db, 'create_all', create_all)
+    monkeypatch.setattr('app.services.shell_prefs.reconcile_shell_prefs', forbidden)
+    monkeypatch.setattr('app.start_background_services', forbidden)
+    with app.app_context(), database_startup_lock(db.engine):
+        initialize_database(db)
+        initialize_database(db)
+        assert calls == ['rename', 'create', 'migrate', 'templates'] * 2
+        assert db.session.get(User, 1).email == 'user@localhost'
+        assert User.query.count() == 1
+        assert UserPreference.query.count() == 1
+        # Preferences must also be repaired if the canonical user already exists.
+        UserPreference.query.delete()
+        db.session.commit()
+        initialize_database(db)
+        assert UserPreference.query.count() == 1
+        db.session.remove()
+        db.engine.dispose()
+
+
 def _upgrade_in_process(url, acquired, release) -> None:
     """Run a real upgrade in a separate process, pausing while holding the lock."""
     engine = create_engine(url, connect_args={'timeout': 0.001})
