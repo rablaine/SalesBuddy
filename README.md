@@ -687,10 +687,23 @@ Use the Admin update button in the desktop app, or double-click `update.bat`.
 Existing-install MSI upgrades use the same safety coordinator.
 
 Before changing application files, an upgrade saves a matched recovery point:
-the previous application revision, Python environment, desktop shell when present,
+the previous application revision, a small independent recovery launcher, desktop shell when present,
 and a verified SQLite online backup that includes committed WAL data. Tracked local
 source changes, an incomplete backup, insufficient disk space, or a backend that
 cannot be stopped prevent the update from proceeding.
+
+Normal updates do not copy, checksum, or reinstall the Python package environment.
+The recovery launcher uses the installed base Python and standard library only,
+without Flask or other application dependencies. Before an update attempts package
+installation, it saves the current exact package versions and records the attempt,
+including installations that fail partway through. Code-only recovery leaves healthy
+packages untouched. Recovery rebuilds a clean environment only after a package
+installation attempt or a diagnosed package failure, keeping failed files for
+investigation. If no exact package record exists, repair uses the previous commit's
+requirements. Rebuilding may need package-feed connectivity and take longer; a
+failed rebuild stops recovery explicitly rather than opening a broken workspace.
+Previously saved full-environment recovery points remain supported. Every update
+still takes a fresh verified database backup and runs the migration checks below.
 
 The new version rehearses its real database initialization on a private copy before
 touching the working database. It checks core identities and existing relationships,
@@ -710,8 +723,8 @@ Flask cannot start. Startup is limited to three attempts per child and a total
 - Updated and restored desktops launch independently of the updater's console and
   process job. Closing that terminal does not close the app or system tray.
   Launcher output is saved to `logs/workspace-launch.log` rather than the terminal.
-- Failed updates automatically restore the saved application, runtime, desktop
-  shell and database together, after verifying the snapshot and stopping the
+- Failed updates automatically restore the saved application, desktop shell and
+  database, repairing Python packages only when needed, after verifying the snapshot and stopping the
   failed backend. Changes made after the snapshot will not appear in the restored
   database. The failed files are retained for investigation.
 - While restoration runs, the desktop explains that recovery is automatic and no

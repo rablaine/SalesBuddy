@@ -8,6 +8,7 @@ import sqlite3
 import subprocess
 import sys
 import time
+import zipfile
 from contextlib import closing
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -21,6 +22,22 @@ from scripts import upgrade
 
 OLD = 'a' * 40
 NEW = 'b' * 40
+
+
+def test_tree_digest_preserves_existing_manifest_checksums(tmp_path):
+    """Faster enumeration must keep the exact checksum format for older recovery runners."""
+    for name in ('a.txt', 'a/nested.txt', 'Z.data', 'empty', '__pycache__/generated.pyc'):
+        path = tmp_path / name
+        path.parent.mkdir(exist_ok=True)
+        path.write_bytes(b'' if name == 'empty' else name.encode())
+    expected = upgrade.hashlib.sha256()
+    for path in sorted(tmp_path.rglob('*')):
+        if path.is_file():
+            expected.update(str(path.relative_to(tmp_path)).encode('utf-8'))
+            expected.update(b'\0')
+            expected.update(upgrade._digest(path).encode('ascii'))
+    assert upgrade._tree_digest(tmp_path) == expected.hexdigest()
+    assert upgrade._tree_digest(tmp_path, ignore_cache=True) != expected.hexdigest()
 
 
 @pytest.fixture
@@ -57,6 +74,14 @@ def installation(tmp_path, monkeypatch):
     def run(_repo, argv, **_kwargs):
         """Emulate checked commands while exercising actual snapshots and filesystem swaps."""
         control['calls'].append(argv)
+        if 'venv' in argv and '-m' in argv:
+            target = upgrade._python(Path(argv[-1]))
+            target.parent.mkdir(parents=True)
+            target.write_bytes(b'isolated interpreter')
+        if 'freeze' in argv:
+            return 'Flask==3.1.0\nSQLAlchemy==2.0.0\npython-dotenv==1.0.0'
+        if argv[:2] == ['git', 'show']:
+            return 'Flask==3.1.0\nSQLAlchemy==2.0.0\npython-dotenv==1.0.0'
         if argv[:3] == ['git', 'rev-parse', 'HEAD']:
             return control['revision']
         if argv[:2] == ['git', 'status']:
@@ -87,7 +112,9 @@ def installation(tmp_path, monkeypatch):
             if phase == 'migrating':
                 with closing(sqlite3.connect(database)) as connection, connection:
                     connection.execute('PRAGMA user_version=2')
-        if control['fail'] == 'dependencies' and 'pip' in argv:
+        if 'install' in argv and 'pip' in argv and 'venv.restore-' in argv[0]:
+            (Path(argv[0]).parent.parent / 'package.txt').write_text('old dependencies')
+        if control['fail'] == 'dependencies' and 'install' in argv and 'pip' in argv:
             raise subprocess.CalledProcessError(1, argv, stderr='private installation details')
         return ''
 
@@ -96,6 +123,19 @@ def installation(tmp_path, monkeypatch):
     monkeypatch.setattr(upgrade, 'recovery_contact_email', lambda: None)
     return SimpleNamespace(repo=repo, database=database, control=control,
                            real_db_module=real_db_module, real_sender=real_sender)
+
+
+def make_legacy_point(fixture) -> dict:
+    """Model an existing full-runtime recovery point without changing production defaults."""
+    state = upgrade.prepare(fixture.repo)
+    point = upgrade._point(fixture.repo, state)
+    shutil.rmtree(point / 'runtime')
+    shutil.copytree(fixture.repo / 'venv', point / 'runtime')
+    state.pop('runtime_mode')
+    state.pop('runtime_ignores_cache')
+    state['runtime_sha256'] = upgrade._tree_digest(point / 'runtime')
+    upgrade.save_state(fixture.repo, state, 'prepared')
+    return state
 
 
 def test_prepare_freezes_a_verified_matched_point(installation):
@@ -116,7 +156,7 @@ def test_prepare_freezes_a_verified_matched_point(installation):
         ('recover.py', 'runner_sha256'), ('db_paths.py', 'backup_helper_sha256'),
     ):
         assert upgrade._digest(point / name) == state[key]
-    assert upgrade._tree_digest(point / 'runtime') == state['runtime_sha256']
+    assert upgrade._tree_digest(point / 'runtime', ignore_cache=True) == state['runtime_sha256']
     assert upgrade._tree_digest(point / 'shell') == state['shell_sha256']
     with closing(sqlite3.connect(point / 'database.db')) as connection:
         assert connection.execute('PRAGMA integrity_check').fetchone() == ('ok',)
@@ -140,6 +180,292 @@ def test_prepare_folds_uncheckpointed_wal_without_writing_to_the_source(installa
             upgrade._point(fixture.repo, state) / 'database.db',
         )) as backup:
             assert backup.execute('SELECT id FROM notes ORDER BY id').fetchall() == [(21,), (22,)]
+
+
+def test_normal_updates_never_scan_copy_or_install_the_live_environment(
+    installation, monkeypatch,
+):
+    """The regular update path is independent of installed environment size."""
+    fixture = installation
+    digest = upgrade._tree_digest
+    copytree = shutil.copytree
+
+    def checked_digest(path, **kwargs):
+        """Reject expensive traversal of the installed packages."""
+        assert Path(path) != fixture.repo / 'venv'
+        return digest(path, **kwargs)
+
+    def checked_copy(source, target, *args, **kwargs):
+        """Reject copying installed dependencies."""
+        assert Path(source) != fixture.repo / 'venv'
+        return copytree(source, target, *args, **kwargs)
+
+    monkeypatch.setattr(upgrade, '_tree_digest', checked_digest)
+    monkeypatch.setattr(shutil, 'copytree', checked_copy)
+    first = upgrade.prepare(fixture.repo)
+    first_point = upgrade._point(fixture.repo, first)
+    upgrade.save_state(fixture.repo, first, 'ready', accepted_at=upgrade.utc_timestamp())
+    with closing(sqlite3.connect(fixture.database)) as connection, connection:
+        connection.execute("INSERT INTO notes VALUES (22, 11, 'Newly saved note')")
+    second = upgrade.prepare(fixture.repo)
+    second_point = upgrade._point(fixture.repo, second)
+    assert second['runtime_mode'] == 'rebuild-on-recovery'
+    assert not (second_point / 'runtime' / 'package.txt').exists()
+    with closing(sqlite3.connect(second_point / 'database.db')) as connection:
+        assert connection.execute('SELECT COUNT(*) FROM notes').fetchone()[0] == 2
+    with closing(sqlite3.connect(first_point / 'database.db')) as connection:
+        assert connection.execute('SELECT COUNT(*) FROM notes').fetchone()[0] == 1
+    upgrade.apply_update(fixture.repo)
+    upgrade.restore(fixture.repo, confirmed=True, launch=False)
+    assert (fixture.repo / 'venv' / 'package.txt').read_text() == 'old dependencies'
+    assert not any('pip' in call for call in fixture.control['calls'])
+    assert not (fixture.repo / f'venv.failed-{second["attempt_id"]}').exists()
+
+
+def test_package_changes_are_recorded_before_pip_and_rebuilt_only_during_recovery(
+    installation, monkeypatch,
+):
+    """A partial pip installation cannot destroy the previous exact dependency record."""
+    fixture = installation
+    upgrade.prepare(fixture.repo)
+    fixture.control.update(requirements=True, fail='dependencies')
+    original = upgrade._run
+
+    def inspect_install(repo, argv, **kwargs):
+        """Prove crash-recovery state is already durable at the moment pip starts."""
+        if 'install' in argv and argv[0] == str(upgrade._python(fixture.repo / 'venv')):
+            saved = upgrade.load_state(repo)
+            assert saved['dependencies_attempted'] is True
+            assert upgrade._digest(
+                upgrade._point(repo, saved) / 'requirements-recovery.txt',
+            ) == saved['dependencies_sha256']
+        return original(repo, argv, **kwargs)
+
+    monkeypatch.setattr(upgrade, '_run', inspect_install)
+    with pytest.raises(subprocess.CalledProcessError):
+        upgrade.apply_update(fixture.repo)
+    state = upgrade.load_state(fixture.repo)
+    point = upgrade._point(fixture.repo, state)
+    assert state['dependencies_attempted'] is True
+    assert 'Flask==3.1.0' in (point / 'requirements-recovery.txt').read_text()
+    assert upgrade._digest(point / 'requirements-recovery.txt') == state['dependencies_sha256']
+    calls = fixture.control['calls']
+    assert next(i for i, call in enumerate(calls) if 'freeze' in call) < next(
+        i for i, call in enumerate(calls) if 'install' in call)
+    fixture.control['fail'] = None
+    upgrade.restore(fixture.repo, confirmed=True, launch=False)
+    assert (fixture.repo / 'venv' / 'package.txt').read_text() == 'old dependencies'
+    assert any('install' in call and 'venv.restore-' in call[0] for call in calls)
+
+
+def test_retry_never_overwrites_the_pre_install_dependency_record(installation):
+    """Retrying a partial install retains versions from before the first pip attempt."""
+    fixture = installation
+    upgrade.prepare(fixture.repo)
+    fixture.control.update(requirements=True, fail='dependencies')
+    for _ in range(2):
+        with pytest.raises(subprocess.CalledProcessError):
+            upgrade.apply_update(fixture.repo)
+    assert sum('freeze' in call for call in fixture.control['calls']) == 1
+    assert upgrade.load_state(fixture.repo)['dependencies_attempted'] is True
+
+
+def test_dependency_capture_failure_cannot_start_package_installation(installation, monkeypatch):
+    """An unavailable pip inventory leaves packages untouched and recovery usable."""
+    fixture = installation
+    upgrade.prepare(fixture.repo)
+    fixture.control['requirements'] = True
+    original = upgrade._run
+
+    def missing_inventory(repo, argv, **kwargs):
+        """Model pip failing before it has permission to change installed packages."""
+        if 'freeze' in argv:
+            raise subprocess.CalledProcessError(1, argv, stderr='pip inventory unavailable')
+        return original(repo, argv, **kwargs)
+
+    monkeypatch.setattr(upgrade, '_run', missing_inventory)
+    with pytest.raises(subprocess.CalledProcessError):
+        upgrade.apply_update(fixture.repo)
+    assert not upgrade.load_state(fixture.repo).get('dependencies_attempted')
+    assert not any('install' in call for call in fixture.control['calls'])
+    upgrade.restore(fixture.repo, confirmed=True, launch=False)
+    assert upgrade.load_state(fixture.repo)['phase'] == 'restored'
+
+
+def test_tampered_dependency_record_blocks_restore_before_any_mutation(installation):
+    """Recovery must not install from a changed package record."""
+    fixture = installation
+    state = upgrade.prepare(fixture.repo)
+    fixture.control['requirements'] = True
+    upgrade.apply_update(fixture.repo)
+    point = upgrade._point(fixture.repo, state)
+    (point / 'requirements-recovery.txt').write_text('unexpected-package==1.0')
+    with pytest.raises(RuntimeError, match='dependency record failed verification'):
+        upgrade.restore(fixture.repo, confirmed=True, launch=False)
+    assert fixture.control['revision'] == NEW
+    assert not (point / 'failed-state').exists()
+
+
+@pytest.mark.parametrize('problem', ['missing-package', 'unrelated-error', 'startup-package-error'])
+def test_code_only_recovery_repairs_only_diagnosed_dependency_failures(
+    installation, monkeypatch, problem,
+):
+    """Missing packages justify repair; unrelated process failures must remain visible."""
+    fixture = installation
+    state = upgrade.prepare(fixture.repo)
+    upgrade.apply_update(fixture.repo)
+    if problem == 'startup-package-error':
+        upgrade.save_state(fixture.repo, state, 'failed', startup_failure={
+            'error': {'category': 'dependency_missing'},
+        })
+    original = upgrade._run
+
+    def fail_import(repo, argv, **kwargs):
+        """Model a package import failure without making the independent launcher fail."""
+        if (argv[0] == str(upgrade._python(fixture.repo / 'venv')) and '-c' in argv
+                and problem != 'startup-package-error'):
+            message = ('ModuleNotFoundError: No module named flask' if problem ==
+                       'missing-package' else 'PermissionError: interpreter blocked')
+            raise subprocess.CalledProcessError(1, argv, stderr=message)
+        return original(repo, argv, **kwargs)
+
+    monkeypatch.setattr(upgrade, '_run', fail_import)
+    if problem == 'unrelated-error':
+        with pytest.raises(subprocess.CalledProcessError):
+            upgrade.restore(fixture.repo, confirmed=True, launch=False)
+        assert not any('pip' in call for call in fixture.control['calls'])
+        assert fixture.control['revision'] == NEW
+    else:
+        upgrade.restore(fixture.repo, confirmed=True, launch=False)
+        assert any(call[:2] == ['git', 'show'] for call in fixture.control['calls'])
+        assert any('install' in call for call in fixture.control['calls'])
+        assert fixture.control['revision'] == OLD
+
+
+def test_failed_package_rebuild_preserves_live_environment_and_can_retry(installation):
+    """A failed download cannot replace the live environment or claim completed recovery."""
+    fixture = installation
+    initial = upgrade.prepare(fixture.repo)
+    fixture.control['requirements'] = True
+    upgrade.apply_update(fixture.repo)
+    fixture.control['fail'] = 'dependencies'
+    with pytest.raises(subprocess.CalledProcessError):
+        upgrade.restore(fixture.repo, confirmed=True, launch=False)
+    assert upgrade.load_state(fixture.repo)['phase'] == 'failed'
+    assert fixture.control['revision'] == NEW
+    assert not (fixture.repo / f'venv.failed-{initial["attempt_id"]}').exists()
+    assert (fixture.repo / 'venv' / 'package.txt').read_text() == 'old dependencies'
+    fixture.control['fail'] = None
+    upgrade.restore(fixture.repo, confirmed=True, launch=False)
+    assert upgrade.load_state(fixture.repo)['phase'] == 'restored'
+
+
+def test_legacy_full_environment_recovery_remains_supported(installation):
+    """Already-created recovery points still restore their original complete runtime."""
+    fixture = installation
+    state = make_legacy_point(fixture)
+    upgrade.apply_update(fixture.repo)
+    (fixture.repo / 'venv' / 'package.txt').write_text('damaged legacy environment')
+    upgrade.restore(fixture.repo, confirmed=True, launch=False)
+    assert (fixture.repo / 'venv' / 'package.txt').read_text() == 'old dependencies'
+    assert not any('pip' in call for call in fixture.control['calls'])
+    assert upgrade.load_state(fixture.repo)['attempt_id'] == state['attempt_id']
+
+
+@pytest.mark.skipif(os.name != 'nt', reason='Windows desktop environment recovery')
+def test_recovery_rebuilds_with_real_pip_from_recorded_versions_offline(
+    installation, monkeypatch, tmp_path,
+):
+    """Exercise real venv creation and pip without downloading packages or changing user data."""
+    fixture = installation
+    wheels = tmp_path / 'wheels'
+    wheels.mkdir()
+    for distribution, version, module in (
+        ('Flask', '3.1.0', 'flask'), ('SQLAlchemy', '2.0.0', 'sqlalchemy'),
+        ('python_dotenv', '1.0.0', 'dotenv'),
+    ):
+        metadata = f'{distribution}-{version}.dist-info'
+        files = {
+            f'{module}/__init__.py': f"__version__ = '{version}'\n",
+            f'{metadata}/METADATA': (
+                f'Metadata-Version: 2.1\nName: {distribution}\nVersion: {version}\n'
+            ),
+            f'{metadata}/WHEEL': (
+                'Wheel-Version: 1.0\nGenerator: isolated-upgrade-test\n'
+                'Root-Is-Purelib: true\nTag: py3-none-any\n'
+            ),
+        }
+        files[f'{metadata}/RECORD'] = ''.join(f'{name},,\n' for name in files)
+        with zipfile.ZipFile(wheels / f'{distribution}-{version}-py3-none-any.whl', 'w') as wheel:
+            for name, content in files.items():
+                wheel.writestr(name, content)
+    monkeypatch.setenv('PIP_NO_INDEX', '1')
+    monkeypatch.setenv('PIP_FIND_LINKS', str(wheels))
+    mocked = upgrade._run
+
+    def run(repo, argv, **kwargs):
+        """Use actual offline Python tooling only for bootstrap and staged repair."""
+        if (('-m' in argv and 'venv' in argv)
+                or ('pip' in argv and 'venv.restore-' in argv[0])):
+            return subprocess.run(
+                argv, cwd=repo, capture_output=True, text=True, check=True, timeout=120,
+                **kwargs,
+            ).stdout.strip()
+        return mocked(repo, argv, **kwargs)
+
+    monkeypatch.setattr(upgrade, '_run', run)
+    state = upgrade.prepare(fixture.repo)
+    fixture.control['requirements'] = True
+    upgrade.apply_update(fixture.repo)
+    upgrade.restore(fixture.repo, confirmed=True, launch=False)
+    result = subprocess.run(
+        [str(upgrade._python(fixture.repo / 'venv')), '-I', '-c',
+         'import flask, sqlalchemy, dotenv; '
+         'print(flask.__version__, sqlalchemy.__version__, dotenv.__version__)'],
+        capture_output=True, text=True, check=True, timeout=30,
+    )
+    assert result.stdout.strip() == '3.1.0 2.0.0 1.0.0'
+    assert upgrade.load_state(fixture.repo)['phase'] == 'restored'
+    assert (fixture.repo / f'venv.failed-{state["attempt_id"]}' / 'package.txt').exists()
+
+
+def test_generated_launcher_bytecode_does_not_break_recovery(installation):
+    """The small launcher can regenerate disposable Python startup caches."""
+    fixture = installation
+    first = upgrade.prepare(fixture.repo)
+    first_point = upgrade._point(fixture.repo, first)
+    frozen_cache = first_point / 'runtime' / '__pycache__'
+    frozen_cache.mkdir()
+    (frozen_cache / 'startup.pyc').write_bytes(b'generated during Python startup')
+    upgrade.verify_recovery(fixture.repo)
+
+
+def test_legacy_runtime_snapshot_checksums_remain_strict(installation):
+    """Old manifests retain the original checksum rules, including bytecode files."""
+    fixture = installation
+    state = upgrade.prepare(fixture.repo)
+    del state['runtime_ignores_cache']
+    upgrade.save_state(fixture.repo, state, 'prepared')
+    cache = upgrade._point(fixture.repo, state) / 'runtime' / '__pycache__'
+    cache.mkdir()
+    (cache / 'unexpected.pyc').write_bytes(b'unexpected addition to an old-format snapshot')
+    with pytest.raises(RuntimeError, match='runtime verification failed'):
+        upgrade.verify_recovery(fixture.repo)
+
+
+def test_pruning_old_launchers_does_not_break_newer_recovery(installation):
+    """Each point owns its small independent recovery launcher."""
+    fixture = installation
+    points = []
+    for index in range(4):
+        state = upgrade.prepare(fixture.repo)
+        points.append(upgrade._point(fixture.repo, state))
+        upgrade.save_state(fixture.repo, state, 'ready', accepted_at=str(index))
+        upgrade._prune_successful_points(fixture.repo, state)
+    assert not points[0].exists() and not points[1].exists()
+    assert points[2].exists() and points[3].exists()
+    assert upgrade._python(points[3] / 'runtime').exists()
+    upgrade.verify_recovery(fixture.repo)
 
 
 @pytest.mark.parametrize('failure', ['dirty', 'space', 'backup'])
@@ -244,6 +570,7 @@ def test_restore_recovers_all_components_and_preserves_failed_data(installation)
     """Restoration returns code, runtime, shell and SQLite together, retaining later notes."""
     fixture = installation
     initial = upgrade.prepare(fixture.repo)
+    fixture.control['requirements'] = True
     upgrade.apply_update(fixture.repo)
     (fixture.repo / 'venv' / 'package.txt').write_text('new dependencies')
     (fixture.repo / 'electron-dist' / 'Sales Buddy.exe').write_bytes(b'new shell')
@@ -321,7 +648,7 @@ def test_interrupted_staging_is_recreated_from_verified_artifacts(
 ):
     """A partially copied staging folder is repairable without replacing the recovery point."""
     fixture = installation
-    upgrade.prepare(fixture.repo)
+    make_legacy_point(fixture)
     upgrade.apply_update(fixture.repo)
     copytree = shutil.copytree
     failed_once = False
@@ -492,7 +819,7 @@ def test_rehearsal_retry_cannot_reuse_a_stale_success_result(installation):
 
 @pytest.mark.skipif(os.name != 'nt', reason='The desktop uses a relocatable Windows venv')
 def test_real_git_and_frozen_runtime_recover_a_broken_install(tmp_path, monkeypatch, request):
-    """Exercise real checkout, real schema CLI, and external-runtime recovery end to end."""
+    """Restore code and data through the stdlib launcher without replacing healthy packages."""
     root = Path(__file__).parents[1]
     repo = tmp_path / 'real-install'
     repo.mkdir()
@@ -518,7 +845,13 @@ def test_real_git_and_frozen_runtime_recover_a_broken_install(tmp_path, monkeypa
     shutil.copy2(root / 'scripts' / 'upgrade.py', repo / 'scripts' / 'upgrade.py')
     shutil.copy2(root / 'requirements.txt', repo / 'requirements.txt')
     (repo / '.gitignore').write_text('venv/\nvenv.*/\nelectron-dist*/\ndata/\n__pycache__/\n')
-    shutil.copytree(Path(sys.prefix), repo / 'venv')
+    subprocess.run(
+        [sys.executable, '-m', 'venv', '--without-pip', '--system-site-packages',
+         str(repo / 'venv')], check=True, capture_output=True, text=True,
+    )
+    (repo / 'venv' / 'Lib' / 'site-packages' / 'fixture-dependencies.pth').write_text(
+        str(Path(sys.prefix) / 'Lib' / 'site-packages'), encoding='utf-8',
+    )
     (repo / 'venv' / 'runtime-version.txt').write_text('old runtime')
     (repo / 'electron-dist').mkdir()
     (repo / 'electron-dist' / 'Sales Buddy.exe').write_bytes(b'old isolated test shell')
@@ -549,11 +882,16 @@ def test_real_git_and_frozen_runtime_recover_a_broken_install(tmp_path, monkeypa
     target = git('rev-parse', 'HEAD')
     git('update-ref', 'refs/remotes/origin/main', target)
     git('checkout', '--detach', previous)
+    started = time.monotonic()
     state = upgrade.prepare(repo, shell_rebuild=True)
+    print(f'Code-only recovery preparation: {time.monotonic() - started:.2f} seconds')
     point = upgrade._point(repo, state)
+    assert state['runtime_mode'] == 'rebuild-on-recovery'
+    assert not (point / 'runtime' / 'runtime-version.txt').exists()
+    assert not list((point / 'runtime').rglob('flask'))
+    original_interpreter = upgrade._python(repo / 'venv').stat().st_ino
     applied = upgrade.apply_update(repo)
     assert applied['phase'] == 'starting' and git('rev-parse', 'HEAD') == target
-    (repo / 'venv' / 'runtime-version.txt').write_text('failed new runtime')
     (repo / 'electron-dist' / 'Sales Buddy.exe').write_bytes(b'failed new isolated test shell')
     (repo / 'app' / 'db_paths.py').write_text('This is deliberately invalid Python.')
     (repo / 'scripts' / 'upgrade.py').write_text('This is deliberately invalid Python too.')
@@ -580,12 +918,19 @@ assert namespace['recover_update'](Path(sys.argv[2]))
     recovered = subprocess.run(
         [str(upgrade._python(point / 'runtime')), '-c', recovery_code,
          str(point / 'recover.py'), str(repo)],
-        cwd=repo, env={**os.environ, 'SALESBUDDY_TELEMETRY_OPT_OUT': 'true'},
+        cwd=repo, env={
+            **{key: value for key, value in os.environ.items()
+               if key != 'PYTHONDONTWRITEBYTECODE'},
+            'SALESBUDDY_TELEMETRY_OPT_OUT': 'true',
+        },
         capture_output=True, text=True, timeout=240,
     )
     assert recovered.returncode == 0, recovered.stdout + recovered.stderr
+    assert upgrade._tree_digest(point / 'runtime', ignore_cache=True) == state['runtime_sha256']
     assert git('rev-parse', 'HEAD') == previous
     assert (repo / 'venv' / 'runtime-version.txt').read_text() == 'old runtime'
+    assert upgrade._python(repo / 'venv').stat().st_ino == original_interpreter
+    assert not (repo / f'venv.failed-{state["attempt_id"]}').exists()
     assert (repo / 'electron-dist' / 'Sales Buddy.exe').read_bytes() == b'old isolated test shell'
     with closing(sqlite3.connect(database)) as connection:
         assert connection.execute('PRAGMA integrity_check').fetchone() == ('ok',)
