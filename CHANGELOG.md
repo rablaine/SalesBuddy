@@ -8,7 +8,7 @@ brought the change into `main`, so the admin Updates card can show
 Format: `## M/D/YYYY - <merge-short-sha>`. See
 `scripts/tag-changelog.ps1` for the helper that fills this in.
 
-## 10/23/2026
+## 10/23/2026 - 52c75821
 
 - Get started with a compact two-page setup, choose your appearance, and save your SE specialty and annual compensation buckets before finishing. Sellers skip SE-specific setup.
 - Complete initial imports sooner with parallel milestone and revenue syncs and reliable account alias lookups, then move straight to the required setup selections.
