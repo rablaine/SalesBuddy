@@ -8,6 +8,11 @@ brought the change into `main`, so the admin Updates card can show
 Format: `## M/D/YYYY - <merge-short-sha>`. See
 `scripts/tag-changelog.ps1` for the helper that fills this in.
 
+## 10/22/2026
+
+- Check upgrades against a private database copy before changing your working data, and finish only when the new web server and worker are ready.
+- *Electron Shell Update* - Clearly show automatic recovery after a failed update, restore the saved application and database, and submit sanitized diagnostics without requiring a manual download. Optionally request a personal follow-up when a fix is available.
+
 ## 10/22/2026 - efb6d23d
 
 - Keep unfinished notes and edits when closing the editor, open drafts directly, and protect recovery with explicit discard actions and safer save retries.
