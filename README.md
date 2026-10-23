@@ -231,6 +231,11 @@ standalone UI iterations using entirely fictional data. See the
   Complete open or unknown-status HVAs directly from their row with an inline
   confirmation. Completion updates MSX and retains the local activity and its
   links; completed and canceled activities have no completion action.
+  Category changes on completed tasks temporarily reopen the task, update its
+  category, then complete it again with its recorded completion date before
+  reporting success. Failed category changes still attempt to restore completion.
+  If completion cannot be restored, the report warns that the task may remain open
+  and requires an MSX refresh rather than claiming success or offering a blind retry.
 - **Fill My Day** - select a date and explicitly fetch external meetings, customer matches, WorkIQ summaries and AI enrichment. The native review keeps note HTML, topic toggles, matched milestone context, task fields and per-note saves. Task creation writes to MSX immediately; note saving remains separate. Back restores the review without repeating requests, unmatched meetings sort in their disclosure, and failed requests retain review entries for retry.
 - **Note Templates** - create and edit reusable rich-text content in native manual forms with persistent formatting and save commands. Original name/content fields, formatting and Settings/default associations remain intact. Cancel protects drafts, Back restores content and editor context, and failed saves retain entries for retry. Note insertion still supports Replace or Add to top; executable markup is removed at display boundaries without rewriting saved template HTML.
 - **Search Notes** - persistent native controls keep the original note-content substring search and customer, seller, territory and any-selected-topic filters. Results retain seller/customer grouping, excerpts and links; empty searches retain recent history, and Back restores controls and reading position. Search submits explicitly by GET, Clear Filters preserves seller-mode scope, and no date filters, relevance ranking, paging or exports are added.
@@ -699,6 +704,12 @@ The desktop app stops retrying and shows **Sales Buddy needs attention**, even w
 Flask cannot start. Startup is limited to three attempts per child and a total
 12-minute readiness window.
 
+- Brief Windows locks on startup/recovery state files are retried for up to two
+  seconds without losing the last complete state. Persistent access failures and
+  other I/O errors still surface as failures.
+- Updated and restored desktops launch independently of the updater's console and
+  process job. Closing that terminal does not close the app or system tray.
+  Launcher output is saved to `logs/workspace-launch.log` rather than the terminal.
 - Failed updates automatically restore the saved application, runtime, desktop
   shell and database together, after verifying the snapshot and stopping the
   failed backend. Changes made after the snapshot will not appear in the restored
@@ -737,6 +748,18 @@ Two successful recovery points are retained; failed/recovered evidence is not
 automatically removed. Preparation checks space for the snapshot and recovery
 staging, so updates may require substantial additional free disk space.
 
+Loose migration `.bak` files beside the database have a separate retention policy.
+After successful database initialization, Sales Buddy keeps the two newest verified
+backups per recognized migration type and removes older copies, including existing
+backup piles from earlier versions. Failed initialization does not trigger cleanup.
+Unchanged migration retries reuse a verified snapshot instead of creating another
+full copy; reuse checks schema, records and committed WAL data, not just file size
+or the main database file. Changed data requires a new snapshot.
+Cleanup verifies the current database and retained copies, excludes linked or
+journaled archives, and logs file-access failures without blocking startup.
+It does not touch matched updater recovery points, fiscal-year databases, manual
+repair backups or scheduled OneDrive backups.
+
 A plain `git pull` and the first launch of this safety feature get database rehearsal
 but cannot reconstruct a pre-pull application/runtime snapshot. In that case the
 desktop app honestly disables matched recovery. A new MSI can prepare its embedded
@@ -752,11 +775,42 @@ restore mutation is allowed.
 
 ### Upgrade validation
 
+Historical SQLite migrations preserve the original table definition instead of
+recreating old tables from today's model. Rebuilds take a verified backup, copy and
+check retained values, and replace the table inside one explicit transaction.
+They preserve extra historical columns, indexes, triggers, inbound relationships,
+views and AUTOINCREMENT high-water marks. They do not rename the original parent
+to a temporary name, which would redirect SQLite child foreign keys.
+
+The historical regression matrix covers ownership removal, optional note/action
+relationships, date-only notes, pre-MSX milestones, text TPIDs, estimated ACR
+conversion and seller-scoped territory selections, including interrupted numeric
+conversions and combined old schema shapes. Tests run real startup repeatedly with
+synthetic records and kill a migration subprocess after its original table is
+dropped to verify SQLite crash recovery and a successful retry.
+Recovered ACR source text is archived in the same transaction so it remains
+available as evidence without blocking later edits to the converted amount.
+
+Malformed dates or numeric values, contradictory partial conversions, and
+conflicting territory selections stop the upgrade rather than erase evidence.
+Customer consolidation must also pass the updater's existing core-ID and
+relationship preservation checks; duplicate customer IDs are not silently removed
+from a live installation. These cases require maintainer review. This is not a
+blanket cleanup of existing orphaned rows or abandoned replacement tables.
+
 Focused upgrade regressions are in `tests/test_upgrade.py`,
 `tests/test_upgrade_history.py`, `tests/test_upgrade_scripts.py`,
 `tests/test_startup_readiness.py`, `tests/test_supervisor.py`,
 `tests/test_database_startup.py`, `tests/test_task_hva_migration.py`,
+`tests/test_historical_migration_hardening.py`,
+`tests/test_migration_backups.py`,
+`tests/test_startup_lifecycle.py`,
 `tests/test_electron_startup.py`, and `tests/test_installer_upgrade_safety.py`.
+Windows lifecycle tests hold a real non-delete-sharing file handle during supervisor
+publication and close an actual hidden launcher console with a kill-on-close job.
+The Electron check copies an existing complete runtime into an isolated directory,
+excludes the real application, and runs a windowless heartbeat fixture. It never
+launches the installed application or accesses its database.
 The Windows end-to-end recovery test uses isolated data, real local Git history,
 the actual schema CLI and a copied runtime. It never runs against the development
 or production database. Before wider distribution, also smoke-test the packaged

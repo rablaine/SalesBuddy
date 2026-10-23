@@ -12,6 +12,24 @@ from flask import Flask
 from flask.testing import FlaskClient
 
 
+def test_action_item_description_sizes_its_grid_row_without_covering_following_fields() -> None:
+    """Quill must not resolve 100% height against a row that also contains its toolbar."""
+    root = Path(__file__).parents[1]
+    css = (root / "static" / "css" / "ui-task-editor.css").read_text("utf-8")
+    containers = re.findall(r"\.sb-task-rich \.ql-container\.ql-snow\s*\{([^}]+)\}", css)
+    assert any("height: auto" in rule for rule in containers)
+    rich = re.search(r"\.sb-task-rich\s*\{([^}]+)\}", css)
+    assert rich is not None
+    assert "min-width: 0" in rich.group(1)
+    editor = re.search(r"\.sb-task-rich \.ql-editor\s*\{([^}]+)\}", css)
+    assert editor is not None
+    assert "max-height: 350px" in editor.group(1)
+    template = (root / "templates" / "note_form.html").read_text("utf-8")
+    soup = BeautifulSoup(template, "html.parser")
+    assert soup.select_one("#engTaskFlyout .sb-task-rich #engTaskDescriptionEditor")
+    assert soup.select_one('#engTaskFlyout label[for="engTaskTarget"]')
+
+
 def test_note_editor_fits_available_shell_space_without_clipping_status() -> None:
     """Electron chrome must reduce the scroll pane, not push its bottom off screen."""
     css = (Path(__file__).parents[1] / "static" / "css" / "ui-note-form.css").read_text("utf-8")

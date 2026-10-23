@@ -172,7 +172,8 @@ def test_cli_start_checks_both_children_and_never_uses_the_full_app_factory():
     assert 'if ($Force -or $hasUpdates)' in source
 
 
-def test_electron_owned_migration_does_not_run_a_second_readiness_or_recovery_coordinator():
+@pytest.mark.parametrize('launch_exit', [0, 1])
+def test_electron_owned_migration_does_not_run_a_second_readiness_or_recovery_coordinator(launch_exit):
     """Execute the actual launch section and refuse even one competing readiness poll."""
     result = run_powershell(r"""
         $ErrorActionPreference = 'Stop'
@@ -182,9 +183,17 @@ def test_electron_owned_migration_does_not_run_a_second_readiness_or_recovery_co
         $RecoveryOwnedByCaller = $true
         $repoRoot = 'C:\isolated-fixture'
         $destExe = 'C:\isolated-fixture\electron-dist\Sales Buddy.exe'
+        $venvPy = 'Invoke-FixturePython'
+        $coordinator = 'isolated-upgrade.py'
         $script:launches = 0
         $script:messages = [System.Collections.Generic.List[string]]::new()
-        function Start-Process { $script:launches++ }
+        function Start-Process { throw 'A desktop must not inherit this console' }
+        function Invoke-FixturePython {
+            if ($args[1] -ne 'launch-desktop' -or $args[2] -ne '--repo' -or
+                $args[3] -ne $repoRoot) { throw 'Unexpected independent launch arguments' }
+            $script:launches++
+            $global:LASTEXITCODE = [int]$env:LAUNCH_EXIT
+        }
         function Test-Path { return $false }
         function Start-Sleep { throw 'A second coordinator waited for the failed desktop' }
         function Write-Host { $script:messages.Add([string]$args[0]) }
@@ -192,11 +201,66 @@ def test_electron_owned_migration_does_not_run_a_second_readiness_or_recovery_co
         try { Invoke-Expression $launch } catch { $errorText = $_.Exception.Message }
         @{ launches = $script:launches; error = $errorText;
            messages = @($script:messages) } | ConvertTo-Json -Compress
-    """, SOURCE_FILE=str(ROOT / 'scripts' / 'migrate-to-electron.ps1'))
-    assert result['error'] is None
+    """, SOURCE_FILE=str(ROOT / 'scripts' / 'migrate-to-electron.ps1'), LAUNCH_EXIT=str(launch_exit))
+    assert result['error'] == (
+        'The desktop could not be launched independently.' if launch_exit else None
+    )
     assert result['launches'] == 1
     assert any('readiness and recovery' in message for message in result['messages'])
     assert not any('web and worker ready' in message for message in result['messages'])
+
+
+@pytest.mark.parametrize('launch_exit', [0, 1])
+def test_migration_owned_launch_preserves_fresh_identity_and_readiness_checks(launch_exit):
+    """Launch independently without accepting a stale boot or hiding launch failures."""
+    result = run_powershell(r"""
+        $ErrorActionPreference = 'Stop'
+        $source = Get-Content -LiteralPath $env:SOURCE_FILE -Raw
+        $launch = $source.Substring($source.IndexOf('# --- 7. Launch Electron now ---'))
+        $NoLaunch = $false
+        $RecoveryOwnedByCaller = $false
+        $repoRoot = 'C:\isolated-fixture'
+        $venvPy = 'Invoke-FixturePython'
+        $coordinator = 'isolated-upgrade.py'
+        $script:events = [System.Collections.Generic.List[string]]::new()
+        $script:stateReads = 0
+        function Start-Process { throw 'A desktop must not inherit this console' }
+        function Test-Path { return $true }
+        function Get-Content {
+            param($Path, [switch]$Raw, $ErrorAction)
+            if ($Path.EndsWith('startup-state.json')) {
+                $script:stateReads++
+                if ($script:stateReads -eq 1) {
+                    $script:events.Add('read-old')
+                    return '{"boot_id":"old-boot"}'
+                }
+                $script:events.Add('read-new')
+                return '{"boot_id":"new-boot"}'
+            }
+            return 'PORT=54321'
+        }
+        function Invoke-FixturePython {
+            $script:events.Add([string]$args[1])
+            if ($args[1] -eq 'launch-desktop') {
+                $global:LASTEXITCODE = [int]$env:LAUNCH_EXIT
+            } elseif ($args[1] -eq 'wait-ready' -and $args[5] -eq 'new-boot' -and
+                      $args[7] -eq '54321') {
+                $global:LASTEXITCODE = 0
+            } else { throw 'Unexpected launcher or readiness arguments' }
+        }
+        function Start-Sleep { throw 'The fresh identity should be immediately available' }
+        function Write-Host { }
+        $errorText = $null
+        try { Invoke-Expression $launch } catch { $errorText = $_.Exception.Message }
+        @{ events = @($script:events); error = $errorText } | ConvertTo-Json -Compress
+    """, SOURCE_FILE=str(ROOT / 'scripts' / 'migrate-to-electron.ps1'), LAUNCH_EXIT=str(launch_exit))
+    assert result['error'] == (
+        'The desktop could not be launched independently.' if launch_exit else None
+    )
+    assert result['events'] == (
+        ['read-old', 'launch-desktop'] if launch_exit else
+        ['read-old', 'launch-desktop', 'read-new', 'wait-ready']
+    )
 
 
 def test_backend_shutdown_does_not_kill_repair_or_diagnostic_python_processes():

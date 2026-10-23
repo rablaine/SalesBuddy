@@ -25,6 +25,7 @@ def initialize_database(db: SQLAlchemy) -> None:
     from app.migrations import run_migrations, run_table_renames
     from app.models import User, UserPreference
     from app.services.dashboard_templates import initialize_dashboard_templates
+    from app.services.migration_backups import prune_migration_backups
 
     run_table_renames(db)
     db.create_all()
@@ -38,6 +39,7 @@ def initialize_database(db: SQLAlchemy) -> None:
     if UserPreference.query.first() is None:
         db.session.add(UserPreference())
         db.session.commit()
+    prune_migration_backups(db.engine)
 
 
 @contextmanager

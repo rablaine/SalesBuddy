@@ -212,7 +212,7 @@ def test_project_links_and_discussions_survive_migration_reruns(
         _migrate_initiative_project_links(migration_db)
         assert _rows(migration_db, 'manager_initiative_items') == items_before
         assert _rows(migration_db, 'manager_discussed_points') == history_before
-    assert len(list(migration_db.directory.glob('*.bak'))) == (4 if force_rebuild else 1)
+    assert len(list(migration_db.directory.glob('*.bak'))) == (2 if force_rebuild else 1)
 
 
 def test_full_startup_migrations_preserve_existing_project_links_and_discussions():

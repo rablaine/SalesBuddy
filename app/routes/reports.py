@@ -2186,7 +2186,8 @@ def api_hvas():
 @bp.post('/api/reports/hvas/<int:task_id>/category')
 def update_hva_category(task_id: int) -> Response | tuple[Response, int]:
     """Update an owned task's MSX category and keep the local HVA classification in sync."""
-    from app.services.msx_api import TASK_CATEGORIES, update_task
+    from app.services.hva_inventory import change_hva_category
+    from app.services.msx_api import TASK_CATEGORIES
 
     data = request.get_json(silent=True)
     code = data.get('category') if isinstance(data, dict) else None
@@ -2199,11 +2200,12 @@ def update_hva_category(task_id: int) -> Response | tuple[Response, int]:
         logger.info('Category change rejected for missing or unowned task %s', task_id)
         return jsonify(success=False, error='Owned task not found. Refresh MSX tasks.'), 404
     if task.task_category != code:
-        result = update_task(task.msx_task_id, {'msp_taskcategory': code})
+        result = change_hva_category(task, code)
         if not result.get('success'):
             error = result.get('error') or 'MSX could not update this task category.'
             logger.warning('MSX category update failed for task %s: %s', task_id, error)
-            return jsonify(success=False, error=error), 502
+            return jsonify(success=False, error=error,
+                           remote_changed=result.get('remote_changed', False)), 502
     try:
         task.task_category = code
         task.task_category_name = category['label']

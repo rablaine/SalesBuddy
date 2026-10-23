@@ -134,6 +134,19 @@ def test_pre_fix_candidate_changes_exactly_the_historical_mapping():
             legacy.pre_fix_source(invalid)
 
 
+def test_pre_fix_candidate_leaves_other_domains_legacy_repairs_intact():
+    """Revenue may use the same parent mapping without becoming part of the task regression."""
+    source = (
+        'def revenue_repair():\n    repairs = {\n' + legacy.FIX_LINE + '    }\n\n'
+        'def _migrate_owned_task_inventory(db):\n    repairs = {\n'
+        + legacy.FIX_LINE + '    }\n'
+    )
+    candidate = legacy.pre_fix_source(source)
+    assert candidate.startswith(source.split('def _migrate_owned_task_inventory')[0])
+    assert candidate.count(legacy.FIX_LINE) == 1
+    assert legacy.FIX_LINE not in candidate.split('def _migrate_owned_task_inventory')[1]
+
+
 def test_addon_zip_complete_and_fenced_to_existing_kit(tmp_path):
     """The transferable deliverable contains checksummed helpers and no shell, DB or credentials."""
     repo = Path(__file__).parents[1]

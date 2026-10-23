@@ -8,6 +8,14 @@ brought the change into `main`, so the admin Updates card can show
 Format: `## M/D/YYYY - <merge-short-sha>`. See
 `scripts/tag-changelog.ps1` for the helper that fills this in.
 
+## 10/23/2026
+
+- Preserve historical notes, milestones, account links and territory selections when upgrading older databases, and stop safely when old data needs review rather than silently discarding it.
+- Reclaim accumulated migration backups after successful startup, keeping the two newest verified copies per type, and reuse backups on unchanged failed retries instead of filling the drive.
+- *Electron Shell Update* - Tolerate brief Windows startup-state file locks and keep the app running when the updater terminal closes.
+- Keep the action item description editor from covering the fields below it.
+- Change categories on completed HVAs while keeping them completed and preserving recorded completion dates.
+
 ## 10/22/2026 - 22668a00
 
 - Fix startup on older databases while preserving revenue links and historical audit records, without relaxing checks against migration-created damage.

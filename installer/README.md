@@ -68,6 +68,28 @@ Builds a signed MSI installer for Sales Buddy using WiX v5 and C# custom actions
 
 ## Disposable-VM desktop recovery smoke test
 
+Before packaging, run the offline historical migration checks from the repository:
+
+```powershell
+& .\venv\Scripts\Activate.ps1
+pytest tests\test_historical_migration_hardening.py tests\test_upgrade_history.py tests\test_revenue_parent_migration.py tests\test_initiative_project_migration.py tests\test_task_hva_migration.py tests\test_migration_backups.py tests\test_database_startup.py
+```
+
+These tests use disposable synthetic SQLite databases, not the developer's or
+installed user's database. They cover repeated real initialization, preservation of
+old records/schema objects, rollback on invalid data, and a real process death
+between dropping an original table and renaming its replacement. Rehearsal failure
+tests invoke the actual private-copy updater path and require the source database
+to remain byte-for-byte unchanged. Duplicate customer identities and conflicting
+legacy selections remain blocked for review, not automatically deleted or reset.
+This complements, rather than replaces, the packaged Windows recovery smoke test.
+Migration snapshot writers share `app/services/migration_backups.py`: register new
+backup labels there rather than creating independent timestamped snapshots.
+Successful initialization prunes recognized loose migration archives to the two
+newest verified copies per type. Failed initialization retains evidence, and
+unchanged retries reuse an existing verified copy. Recovery-point retention remains
+separate; manual, fiscal-year and scheduled backups are not migration archives.
+
 For an unauthenticated fresh Windows VM, build an unsigned shell into a separate output folder,
 then run the kit builder with that folder and the destination ZIP:
 
@@ -108,6 +130,18 @@ After a caller-owned migration launches Electron, Electron alone owns readiness 
 The helper must not wait for another boot or overwrite an active/completed recovery.
 Backend shutdown targets backend roles, not every Python process in the installation:
 the update coordinator, repair process and diagnostic sender must survive shutdown.
+
+Both migration launch paths and the shell-rebuild fallback use the coordinator's
+`launch-desktop` action. On Windows, desktop/restored-workspace launches detach from
+the helper console, start a new process group and break away from its job, with
+stdin disconnected and output saved to `logs/workspace-launch.log`. Launch policy
+failures are surfaced, never retried with an attached process. Closing an updater
+terminal must not close the app or tray.
+State publication retries only Windows access/sharing/lock failures during atomic
+replacement, for at most two seconds. It preserves the prior complete state and
+reports persistent failures rather than silently dropping an update.
+Run `pytest tests\test_startup_lifecycle.py tests\test_upgrade_scripts.py` for the
+native lock, actual console/job lifetime and launch-ownership regressions.
 
 Windows managed children use CPython's own venv-aware direct-launch pattern, and Waitress runs
 as a Python module. This preserves virtual-environment packages while ensuring the process ID

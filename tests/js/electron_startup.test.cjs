@@ -28,6 +28,7 @@ function shellHarness({ boot = false, minimized = false, cachedTheme = null,
   const renderingWrites = [];
   const renderingRenames = [];
   const windowWrites = [];
+  const helperWrites = [];
   const appEvents = new EventEmitter();
   const exits = [];
   const dialogs = [];
@@ -124,6 +125,7 @@ function shellHarness({ boot = false, minimized = false, cachedTheme = null,
             ? JSON.stringify(cachedTheme) : '';
         },
         writeFileSync(file, value) {
+          if (file.endsWith('shell-rebuild-helper.cmd')) helperWrites.push({file, value});
           if (file.endsWith('state.json.tmp')) windowWrites.push({file, value});
           if (file.endsWith('rendering-preferences.json.tmp')) {
             if (renderingWriteError) throw renderingWriteError;
@@ -220,7 +222,8 @@ function shellHarness({ boot = false, minimized = false, cachedTheme = null,
   return {
     api: context.api, requests, logs, timers, tick, electron, openedWindows, stdout,
     commands, children,
-    renderingWrites, renderingRenames, dialogs, errors, relaunches, windowWrites, appEvents, exits,
+    renderingWrites, renderingRenames, dialogs, errors, relaunches, windowWrites, helperWrites,
+    appEvents, exits,
     focusDiagnostics,
     accelerationDisabled: () => accelerationDisabled,
     quitCount: () => quitCount,
@@ -908,6 +911,16 @@ test('shell build failure persists pending shell failure without relaunch or acc
   assert.equal(actions.some(args => args.includes('accept')), false);
   assert.equal(h.relaunches.length, 0);
   assert.match(decodeURIComponent(h.openedWindows[0].loaded.at(-1)), /data-state="failed"/);
+});
+
+test('shell rebuild helper fallback launches through the independent desktop coordinator', async () => {
+  const h = shellHarness();
+  await h.api.runUpdate('test', true);
+  assert.equal(h.helperWrites.length, 1);
+  const helper = h.helperWrites[0].value;
+  assert.match(helper, /-RecoveryOwnedByCaller/);
+  assert.match(helper, /launch-recovery\r\nif errorlevel 1 .*--repo .*launch-desktop\r\n/);
+  assert.doesNotMatch(helper, /if errorlevel 1 start /i);
 });
 
 test('retry of a complete pending snapshot never prepares a replacement recovery point', async () => {
