@@ -25,11 +25,12 @@
                 const reviewMode = !autoOpen;
                 const reviewStatus = document.getElementById('setupReviewStatus');
                 welcomeModal.addEventListener('sb:dialog-before-close', event => {
-                    if (importRunning || signInActive ||
-                        (!reviewMode && event.detail.reason !== 'finished')) {
-                        event.preventDefault();
-                        if (reviewMode) reviewStatus.textContent =
-                            'Finish or cancel the active sign-in or import before closing setup.';
+                    if (setupCloseAllowed) return;
+                    event.preventDefault();
+                    if (reviewMode) {
+                        const reason = getCloseBlockReason();
+                        if (reason) reviewStatus.textContent = reason;
+                        else void finishSetup();
                     }
                 });
                 if (reviewMode) {
@@ -37,17 +38,30 @@
                     document.getElementById('setupReviewClose').classList.remove('sb-setup-hidden');
                     document.getElementById('setupWizardEyebrow').textContent = 'Setup review';
                     reviewStatus.textContent =
-                        'Reviewing setup does not change your data. Sign-in and import run only when selected.';
+                        'SE setup changes save when you close this review. Sign-in and imports run only when selected.';
                 }
                 document.getElementById('setupReviewClose').addEventListener('click',
-                    () => window.SBDialog.close(welcomeModal, 'review'));
+                    finishSetup);
                 let selectedRole = '{{ user_role }}';  // Updated after the account import auto-detect
+                let seSetupDirty = !reviewMode;
+                let seSetupSaving = false;
+                let seSetupLoading = false;
+                let finishing = false;
+                let setupCloseAllowed = false;
+                let seBucketsLoaded = false;
+                let availableOnboardBuckets = [];
+                let selectedOnboardBuckets = new Set();
+                const seSpecialty = document.getElementById('onboardSeSpecialty');
+                const seSetupStatus = document.getElementById('onboardSeSetupStatus');
+                const reloadBucketsBtn = document.getElementById('onboardReloadBuckets');
                 const milestonesSyncState = '{{ milestones_sync_state }}';
                 const revenueSyncState = '{{ revenue_sync_state }}';
 
                 const stepBadge = document.getElementById('onboardingStepBadge');
-                const progressBar = document.getElementById('onboardingProgress');
                 const nextBtn = document.getElementById('onboardNextBtn');
+                const nextAction = document.getElementById('onboardNextAction');
+                const nextReason = document.getElementById('onboardNextReason');
+                const reviewClose = document.getElementById('setupReviewClose');
                 const backBtn = document.getElementById('onboardBackBtn');
 
 
@@ -59,7 +73,6 @@
                     const el = document.getElementById('onboardingStep' + step);
                     if (el) el.classList.remove('sb-setup-hidden');
                     stepBadge.textContent = 'Step ' + step + ' of ' + totalSteps;
-                    setWizardProgress(step === 1 ? 0 : 20);
 
                     // Back button visibility
                     if (step > 1) backBtn.classList.remove('sb-setup-hidden');
@@ -75,18 +88,10 @@
                     // Surface anything already finished on an earlier run
                     if (step === 2) {
                         hydrateImportState();
-                        setWizardProgress(importProgressPct());
                     }
                     // Disable next if step requires completion
                     updateNextButton();
-                }
-
-                // Step 2 carries three imports, so the bar tracks how many have landed.
-                function importProgressPct() {
-                    if (accountsImported && milestonesImported && revenueImported) return 100;
-                    if (accountsImported && milestonesImported) return 85;
-                    if (accountsImported) return 50;
-                    return 20;
+                    if (!reviewMode) scrollToSetupSelections();
                 }
 
                 // A returning user may have some phases done already. Show those as
@@ -112,64 +117,141 @@
                     }
                 }
 
-                function setWizardProgress(pct) {
-                    progressBar.style.width = pct + '%';
-                    progressBar.setAttribute('aria-valuenow', String(pct));
+                function updateNextButton() {
+                    backBtn.disabled = seSetupSaving || finishing;
+                    const reason = getNextBlockReason();
+                    nextBtn.disabled = Boolean(reason);
+                    nextReason.textContent = reason;
+                    nextAction.setAttribute('tabindex', reason ? '0' : '-1');
+                    const closeReason = getCloseBlockReason();
+                    reviewClose.disabled = Boolean(closeReason);
+                    reviewClose.title = closeReason || 'Close setup review';
                 }
 
-                function updateNextButton() {
-                    if (reviewMode) {
-                        nextBtn.disabled = importRunning || signInActive;
-                        return;
+                function getNextBlockReason() {
+                    if (importRunning || signInActive || seSetupSaving || finishing) {
+                        return getCloseBlockReason();
                     }
-                    if (currentStep === 1) {
-                        nextBtn.disabled = !(authCompleted && vpnVerified);
-                        return;
-                    }
+                    if (currentStep === 1) return reviewMode || (authCompleted && vpnVerified)
+                        ? '' : 'Sign in to Azure and connect to VPN before continuing.';
                     const allDone = accountsImported && milestonesImported && revenueImported;
-                    // Everything is automatic now, so hold them here until it all lands.
-                    // The exception is a failure: accounts alone make the app usable, so
-                    // don't trap someone whose milestone or revenue sync keeps dying.
                     const escapeHatch = accountsImported && importFailed && !importRunning;
-                    nextBtn.disabled = !(allDone || escapeHatch);
+                    if (!reviewMode && !(allDone || escapeHatch)) {
+                        return 'Complete the account, milestone and revenue imports before finishing setup.';
+                    }
+                    return getSeSetupBlockReason();
+                }
+
+                function needsSeSetup() {
+                    return selectedRole !== 'dss' && accountsImported
+                        && (revenueImported || importFailed);
+                }
+
+                function getSeSetupBlockReason() {
+                    if (!needsSeSetup()) return '';
+                    if (seSetupLoading) return 'Loading your saved buckets. Please wait.';
+                    if (!seBucketsLoaded) return 'Retry loading your compensation buckets before finishing setup.';
+                    if (!availableOnboardBuckets.length) {
+                        return 'No compensation buckets are available. Retry the revenue import before finishing setup.';
+                    }
+                    if (!seSpecialty.value && !selectedOnboardBuckets.size) {
+                        return 'Choose an SE specialty and at least one compensation bucket.';
+                    }
+                    if (!seSpecialty.value) return 'Choose an SE specialty.';
+                    if (!selectedOnboardBuckets.size) return 'Choose at least one compensation bucket.';
+                    return '';
+                }
+
+                function getCloseBlockReason() {
+                    if (importRunning || signInActive) {
+                        return 'Finish or cancel the active sign-in or import before closing.';
+                    }
+                    if (seSetupSaving || finishing) return 'Saving your setup. Please wait.';
+                    return getSeSetupBlockReason();
                 }
 
                 nextBtn.addEventListener('click', async () => {
+                    if (nextBtn.disabled) return;
                     if (currentStep < totalSteps) {
                         showStep(currentStep + 1);
-                    } else if (reviewMode) {
-                        window.SBDialog.close(welcomeModal, 'review');
                     } else {
-                        // Finish and dismiss the dialog.
-                        await dismissOnboarding();
-                        nextBtn.blur();
-                        modal.hide();
-                        window.location.reload();
+                        await finishSetup();
                     }
                 });
 
                 backBtn.addEventListener('click', () => {
-                    if (currentStep > 1) showStep(currentStep - 1);
+                    if (!backBtn.disabled && currentStep > 1) showStep(currentStep - 1);
                 });
 
-                async function dismissOnboarding() {
+                async function finishSetup() {
+                    const reason = getCloseBlockReason();
+                    if (reason || (!reviewMode && nextBtn.disabled)) return;
+                    finishing = true;
+                    updateSeSetupControls();
                     try {
-                        await fetch('/api/preferences/dismiss-welcome-modal', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' }
-                        });
-                        // Guided tour disabled - plumbing kept but not triggered
-                        // var tourCompleted = {{ 'true' if guided_tour_completed else 'false' }};
-                        // if (!tourCompleted) {
-                        //     localStorage.setItem('salesbuddy_start_tour', '1');
-                        // }
-                    } catch (err) {
-                        console.error('Failed to dismiss onboarding:', err);
+                        if (needsSeSetup() && seSetupDirty && !await saveSeSetup()) return;
+                        if (!reviewMode) {
+                            const result = await readSeSetup('/api/preferences/dismiss-welcome-modal', {
+                                method: 'POST',
+                                headers: {'Content-Type': 'application/json'},
+                            });
+                            if (result.first_run_modal_dismissed !== true) {
+                                throw new Error('The server did not confirm setup completion.');
+                            }
+                        }
+                        setupCloseAllowed = true;
+                        nextBtn.blur();
+                        if (reviewMode) window.SBDialog.close(welcomeModal, 'review');
+                        else {
+                            modal.hide();
+                            window.location.reload();
+                        }
+                    } catch (error) {
+                        console.error('Failed to finish onboarding:', error);
+                        reviewStatus.textContent = 'Could not finish setup. Please try again. ' + error.message;
+                        setSeSetupStatus(reviewStatus.textContent, true);
+                    } finally {
+                        setupCloseAllowed = false;
+                        finishing = false;
+                        updateSeSetupControls();
                     }
                 }
 
-                // --- Step 1: Dark Mode Toggle ---
+                // --- Step 1: Appearance ---
                 // Role is auto-detected once accounts are imported (no manual selection)
+
+                const onboardThemeFamily = document.getElementById('onboardThemeFamily');
+                const onboardThemeResult = document.getElementById('onboardThemeResult');
+                onboardThemeFamily.value = htmlElement.getAttribute('data-sb-family') || 'graphite';
+                onboardThemeFamily.addEventListener('change', async () => {
+                    if (onboardThemeFamily.disabled) return;
+                    const family = onboardThemeFamily.value;
+                    const previous = htmlElement.getAttribute('data-sb-family') || 'graphite';
+                    if (family === previous) return;
+                    onboardThemeFamily.disabled = true;
+                    onboardThemeResult.setAttribute('role', 'status');
+                    onboardThemeResult.textContent = 'Saving...';
+                    try {
+                        const response = await fetch('/api/preferences/theme-family', {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({theme_family: family}),
+                        });
+                        const data = await response.json();
+                        if (!response.ok || data.error || data.theme_family !== family) {
+                            throw new Error(data.error || 'The selected theme was not confirmed.');
+                        }
+                        htmlElement.setAttribute('data-sb-family', family);
+                        onboardThemeResult.textContent = 'Saved.';
+                    } catch (error) {
+                        console.error('Failed to save onboarding theme:', error);
+                        onboardThemeFamily.value = previous;
+                        onboardThemeResult.setAttribute('role', 'alert');
+                        onboardThemeResult.textContent = 'Could not save theme. Try again. ' + error.message;
+                    } finally {
+                        onboardThemeFamily.disabled = false;
+                    }
+                });
 
                 const onboardDarkToggle = document.getElementById('onboardDarkModeToggle');
                 if (onboardDarkToggle) {
@@ -617,7 +699,6 @@
                             summaryDiv.classList.remove('sb-setup-hidden');
                         }
                         setPhaseState('accounts', 'done', finalSummary && finalSummary.duration ? 'Done in ' + finalSummary.duration + 's' : 'Done');
-                        setWizardProgress(importProgressPct());
                         updateNextButton();
                         return true;
                     } catch (err) {
@@ -683,7 +764,6 @@
                             summaryDiv.classList.remove('sb-setup-hidden');
                         }
                         setPhaseState('milestones', 'done', completeSummary && completeSummary.duration ? 'Done in ' + completeSummary.duration + 's' : 'Done');
-                        setWizardProgress(importProgressPct());
                         updateNextButton();
                         return true;
                     } catch (err) {
@@ -695,6 +775,8 @@
                 }
 
                 async function runRevenue() {
+                    seBucketsLoaded = false;
+                    seSetupDirty = true;
                     setPhaseState('revenue', 'running', 'Starting sync...');
                     setPhaseProgress('revenue', 0);
                     setPhaseSummary('revenue', '');
@@ -725,16 +807,6 @@
                             summaryDiv.classList.remove('sb-setup-hidden');
                         }
                         setPhaseState('revenue', 'done', finalResult && finalResult.duration_s ? 'Done in ' + finalResult.duration_s + 's' : 'Done');
-                        // Offer the bucket picker. Nothing is pre-selected - an empty
-                        // selection means "show everything", and the user narrows it.
-                        try {
-                            const bucketsResp = await fetch('/api/revenue/buckets');
-                            const buckets = await bucketsResp.json();
-                            if (buckets && buckets.length > 0) {
-                                renderOnboardBucketPicker(buckets);
-                            }
-                        } catch (e) { /* best effort */ }
-                        setWizardProgress(importProgressPct());
                         updateNextButton();
                         return true;
                     } catch (err) {
@@ -745,12 +817,9 @@
                     }
                 }
 
-                // Accounts must land first so the other two have something to attach to.
-                // Milestones and revenue then run one at a time on purpose: both write
-                // heavily to SQLite, and on a slower disk the revenue bulk write can hold
-                // the lock past busy_timeout and fail the other with "database is locked".
+                // Accounts land first; the shared worker coordinates concurrent sync writes.
                 async function startImport() {
-                    if (importRunning) return;
+                    if (importRunning || seSetupSaving || finishing) return;
                     importRunning = true;
                     importFailed = false;
                     document.getElementById('importAllInitial').classList.add('sb-setup-hidden');
@@ -760,23 +829,24 @@
                     try {
                         const ready = accountsImported || await runAccounts();
                         if (ready) {
-                            // A failed phase returns false rather than throwing, so a bad
-                            // milestone sync still lets revenue have its turn.
-                            if (!milestonesImported) await runMilestones();
-                            if (!revenueImported) await runRevenue();
+                            const imports = [];
+                            if (!milestonesImported) imports.push(runMilestones());
+                            if (!revenueImported) imports.push(runRevenue());
+                            await Promise.all(imports);
                         }
                     } finally {
                         window.removeEventListener('beforeunload', warnOnLeave);
                         if (window.hideBrainrotToggle) window.hideBrainrotToggle();
                         importRunning = false;
-                        setWizardProgress(importProgressPct());
+                        await loadSeSetup();
                         updateNextButton();
+                        scrollToSetupSelections();
                     }
                 }
 
                 // Retrying one failed phase shouldn't re-run the ones that succeeded.
                 async function retryPhase(fn) {
-                    if (importRunning) return;
+                    if (importRunning || seSetupSaving || finishing) return;
                     importRunning = true;
                     importFailed = false;
                     window.addEventListener('beforeunload', warnOnLeave);
@@ -785,9 +855,17 @@
                     } finally {
                         window.removeEventListener('beforeunload', warnOnLeave);
                         importRunning = false;
-                        setWizardProgress(importProgressPct());
+                        await loadSeSetup();
                         updateNextButton();
+                        scrollToSetupSelections();
                     }
+                }
+
+                function scrollToSetupSelections() {
+                    if (currentStep !== 2 || importRunning || !accountsImported
+                        || (!(milestonesImported && revenueImported) && !importFailed)) return;
+                    const body = document.getElementById('onboardingBody');
+                    body.scrollTop = body.scrollHeight;
                 }
 
                 document.getElementById('onboardStartImport').addEventListener('click', startImport);
@@ -796,19 +874,122 @@
                 document.getElementById('phaseRevenueRetry').addEventListener('click', () => retryPhase(runRevenue));
 
                 // Bucket picker shown once revenue lands, mirroring the import page.
-                // Built with DOM calls rather than innerHTML since bucket names are data.
-                function renderOnboardBucketPicker(buckets) {
-                    const card = document.getElementById('onboardBucketPickerCard');
-                    const listEl = document.getElementById('onboardBucketList');
-                    if (!card || !listEl) return;
-                    card.classList.remove('sb-setup-hidden');
-                    listEl.innerHTML = '';
+                function setSeSetupStatus(message, error = false) {
+                    seSetupStatus.textContent = message;
+                    seSetupStatus.setAttribute('role', error ? 'alert' : 'status');
+                }
 
-                    let selected = new Set();
+                function updateSeSetupControls() {
+                    const busy = seSetupSaving || seSetupLoading || finishing;
+                    seSpecialty.disabled = busy;
+                    document.getElementById('onboardBucketList').querySelectorAll('input')
+                        .forEach(input => { input.disabled = busy; });
+                    reloadBucketsBtn.disabled = busy;
+                    updateNextButton();
+                }
+
+                async function readSeSetup(url, options) {
+                    const response = await fetch(url, options);
+                    const data = await response.json();
+                    if (!response.ok || data?.error || data?.success === false) {
+                        throw new Error(data?.error || 'The server could not confirm SE setup.');
+                    }
+                    return data;
+                }
+
+                async function loadSeSetup() {
+                    const visible = selectedRole !== 'dss' && accountsImported && !importRunning
+                        && (revenueImported || importFailed);
+                    document.getElementById('onboardBucketPickerCard')
+                        .classList.toggle('sb-setup-hidden', !visible);
+                    if (!visible || seBucketsLoaded || seSetupLoading) return;
+                    seSetupLoading = true;
+                    reloadBucketsBtn.classList.add('sb-setup-hidden');
+                    setSeSetupStatus('Loading your saved buckets...');
+                    updateSeSetupControls();
                     try {
-                        const saved = JSON.parse(localStorage.getItem('salesbuddy_revenue_bucket_filter'));
-                        if (saved && Array.isArray(saved)) selected = new Set(saved);
-                    } catch (e) {}
+                        const buckets = revenueImported
+                            ? await readSeSetup('/api/revenue/buckets') : [];
+                        const saved = await readSeSetup('/api/revenue/compensated-buckets');
+                        if (![buckets, saved].every(values => Array.isArray(values)
+                            && values.every(value => typeof value === 'string'))) {
+                            throw new Error('The server returned an invalid bucket list.');
+                        }
+                        availableOnboardBuckets = buckets;
+                        selectedOnboardBuckets = new Set(saved.filter(value => buckets.includes(value)));
+                        renderOnboardBucketPicker(buckets);
+                        seBucketsLoaded = true;
+                        setSeSetupStatus(buckets.length ? ''
+                            : 'No revenue buckets are available yet. Retry the revenue import to select your buckets and finish setup.');
+                    } catch (error) {
+                        console.error('Failed to load onboarding SE setup:', error);
+                        setSeSetupStatus('Could not load your buckets. ' + error.message, true);
+                        reloadBucketsBtn.classList.remove('sb-setup-hidden');
+                    } finally {
+                        seSetupLoading = false;
+                        updateSeSetupControls();
+                    }
+                }
+
+                function markSeSetupChanged() {
+                    seSetupDirty = true;
+                    setSeSetupStatus('');
+                    updateSeSetupControls();
+                }
+
+                async function saveSeSetup() {
+                    if (seSetupSaving || getSeSetupBlockReason()) return false;
+                    seSetupSaving = true;
+                    setSeSetupStatus('Saving SE setup...');
+                    updateSeSetupControls();
+                    try {
+                        const post = payload => ({
+                            method: 'POST', headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify(payload),
+                        });
+                        const specialty = await readSeSetup('/api/preferences/se-specialty',
+                            post({se_specialty: seSpecialty.value}));
+                        if (specialty.se_specialty !== seSpecialty.value) {
+                            throw new Error('Your specialty was not confirmed.');
+                        }
+                        const confirmation = await readSeSetup('/api/revenue/compensated-buckets',
+                            post({buckets: [...selectedOnboardBuckets], confirm_for_fiscal_year: true}));
+                        if (confirmation.success !== true || !/^FY\d{2}$/.test(confirmation.fiscal_year)
+                            || !Number.isInteger(confirmation.taxonomy_version)
+                            || confirmation.taxonomy_version < 0) {
+                            throw new Error('Your fiscal-year bucket confirmation was not returned.');
+                        }
+                        seSetupDirty = false;
+                        setSeSetupStatus('SE setup saved for ' + confirmation.fiscal_year + '.');
+                        try {
+                            localStorage.setItem('salesbuddy_revenue_bucket_filter',
+                                JSON.stringify([...selectedOnboardBuckets]));
+                            localStorage.setItem('salesbuddy_revenue_bucket_taxonomy_version',
+                                String(confirmation.taxonomy_version));
+                        } catch (error) {
+                            console.error('Failed to cache onboarding buckets:', error);
+                            setSeSetupStatus('SE setup is saved, but this browser\'s revenue filter could not be updated.');
+                        }
+                        return true;
+                    } catch (error) {
+                        console.error('Failed to save onboarding SE setup:', error);
+                        setSeSetupStatus('Could not save SE setup. Your specialty may have been saved. Try finishing again. ' + error.message, true);
+                        return false;
+                    } finally {
+                        seSetupSaving = false;
+                        updateSeSetupControls();
+                    }
+                }
+
+                seSpecialty.addEventListener('change', markSeSetupChanged);
+                reloadBucketsBtn.addEventListener('click', loadSeSetup);
+
+                // Bucket labels are imported data, so construct them as text.
+                function renderOnboardBucketPicker(buckets) {
+                    const listEl = document.getElementById('onboardBucketList');
+                    listEl.replaceChildren();
+                    if (!buckets.length) return;
+                    const selected = selectedOnboardBuckets;
 
                     const search = document.createElement('input');
                     search.type = 'text';
@@ -841,12 +1022,8 @@
 
                     function save() {
                         const sel = rows.filter(r => r.cb.checked).map(r => r.cb.value);
-                        localStorage.setItem('salesbuddy_revenue_bucket_filter', JSON.stringify(sel));
-                        fetch('/api/revenue/compensated-buckets', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify(sel),
-                        }).catch(() => {});
+                        selectedOnboardBuckets = new Set(sel);
+                        markSeSetupChanged();
                     }
 
                     buckets.forEach(b => {
@@ -899,6 +1076,11 @@
                     showSignInState('signInInitial');
                     if (onboardDarkToggle) onboardDarkToggle.checked =
                         htmlElement.getAttribute('data-sb-mode') === 'dark';
+                    if (!onboardThemeFamily.disabled) {
+                        onboardThemeFamily.value = htmlElement.getAttribute('data-sb-family') || 'graphite';
+                        onboardThemeResult.textContent = '';
+                        onboardThemeResult.setAttribute('role', 'status');
+                    }
 
                     // Returning user with data: if they're still signed in, skip the auth step.
                     if (startStep === 1 && (accountsImported || milestonesImported || revenueImported)) {
@@ -931,22 +1113,14 @@
                         document.getElementById('importIncompleteWarning').classList.remove('sb-setup-hidden');
                     }
 
-                    // Resuming with revenue already loaded: offer the picker straight away.
-                    if (revenueImported) {
-                        fetch('/api/revenue/buckets')
-                            .then(r => r.json())
-                            .then(buckets => {
-                                if (buckets && buckets.length) renderOnboardBucketPicker(buckets);
-                            })
-                            .catch(() => {});
-                    }
-
                     modal.show();
+                    await loadSeSetup();
+                    if (!reviewMode) scrollToSetupSelections();
                     return true;
                 }
 
                 window.openSetupWizard = () => {
-                    if (welcomeModal.open || importRunning || signInActive) {
+                    if (welcomeModal.open || importRunning || signInActive || seSetupSaving || finishing) {
                         return Promise.resolve(false);
                     }
                     return initWizard();

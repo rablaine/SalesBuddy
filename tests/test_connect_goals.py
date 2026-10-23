@@ -147,6 +147,11 @@ def test_setup_accepts_any_confirmed_compensation_buckets(
         assert state['selected_buckets'] == selected
         assert state['reasons'] == []
         assert json.loads(UserPreference.query.first().compensated_buckets) == selected
+        preference = UserPreference.query.first()
+        assert preference.compensated_buckets_fiscal_year == state['fiscal_year']
+        assert preference.compensated_buckets_confirmed_taxonomy_version == (
+            preference.bucket_taxonomy_version
+        )
     page = _goals_dashboard_page(client)
     assert len(page.select('.db-widget .sb-goals-section')) == 4
     assert page.select_one('[data-widget-requirement]') is None
@@ -163,6 +168,46 @@ def test_connect_goals_dashboard_shows_widget_setup_gate(client, dashboard_sourc
     page = _goals_dashboard_page(client)
     assert len(page.select('.db-widget [data-widget-requirement]')) == 4
     assert 'Confirm your FY27 compensation buckets' in page.get_text()
+
+
+@pytest.mark.parametrize('specialty', ['data', 'infra', 'apps_ai', 'other'])
+def test_seller_setup_does_not_require_se_choices(
+    client, app, specialty, dashboard_sources_ready,
+):
+    """Sellers use all available buckets regardless of a saved SE specialty or stale scope."""
+    with app.app_context():
+        pref = UserPreference.query.first()
+        original = (
+            pref.user_role, pref.se_specialty, pref.compensated_buckets,
+            pref.compensated_buckets_fiscal_year,
+            pref.compensated_buckets_confirmed_taxonomy_version,
+        )
+        pref.user_role = 'dss'
+        pref.se_specialty = specialty
+        pref.compensated_buckets = json.dumps(['Retired bucket'])
+        pref.compensated_buckets_fiscal_year = 'FY26'
+        pref.compensated_buckets_confirmed_taxonomy_version = None
+        db.session.commit()
+        try:
+            setup = connect_goals.get_setup_state(date(2026, 10, 23))
+            assert setup['ready'] is True
+            assert setup['reasons'] == []
+            assert setup['selected_buckets'] == setup['available_buckets']
+            assert pref.compensated_buckets == json.dumps(['Retired bucket'])
+            assert pref.se_specialty == specialty
+            assert client.get(
+                '/api/reports/dashboards/requirements/compensation_buckets',
+            ).json['setup']['ready'] is True
+            page = _goals_dashboard_page(client)
+            assert page.select_one('[data-widget-requirement]') is None
+            assert len(page.select('.db-widget .sb-goals-section')) == 4
+        finally:
+            (
+                pref.user_role, pref.se_specialty, pref.compensated_buckets,
+                pref.compensated_buckets_fiscal_year,
+                pref.compensated_buckets_confirmed_taxonomy_version,
+            ) = original
+            db.session.commit()
 
 
 def test_connect_goals_template_renders_action_metrics(client, app, dashboard_sources_ready):

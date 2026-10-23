@@ -7,11 +7,157 @@ associations on re-sync.
 """
 import pytest
 import json
+from threading import Barrier, Lock
+from types import SimpleNamespace
 
 from app.models import (
     db, Customer, Seller, Territory, POD, Vertical,
     SolutionEngineer, SyncStatus, User,
 )
+
+
+@pytest.fixture
+def alias_import(app, monkeypatch, tmp_path):
+    """Use real import orchestration and alias parsing with isolated source responses."""
+    from app.services import account_sync, msx_api
+
+    accounts = {
+        f"account-{index}": {
+            "accountid": f"account-{index}",
+            "name": f"Alias Account {index}",
+            "msp_mstopparentid": str(650000 + index),
+            "_ownerid_value": f"owner-{index % 4}",
+        }
+        for index in range(5)
+    }
+    monkeypatch.setattr(app, "instance_path", str(tmp_path / "instance"))
+    (tmp_path / "data").mkdir()
+    monkeypatch.setattr(account_sync, "scan_init", lambda: {
+        "success": True, "account_ids": list(accounts),
+    })
+    monkeypatch.setattr(account_sync, "_par_query_accounts", lambda ids, *_args: {
+        account_id: accounts[account_id] for account_id in ids
+    })
+    monkeypatch.setattr(account_sync, "_par_query_teams", lambda *_args: {
+        "account_sellers": {}, "unique_sellers": {}, "account_ses": {},
+    })
+    requests = []
+
+    def request(method, url):
+        """Return directory data through the real get_user_info parser."""
+        assert method == "GET"
+        user_id = url.split("systemusers(", 1)[1].split(")", 1)[0]
+        requests.append(user_id)
+        return SimpleNamespace(status_code=200, json=lambda: {
+            "domainname": f"{user_id}@microsoft.com",
+            "fullname": f"Owner {user_id}",
+        })
+
+    monkeypatch.setattr(msx_api, "_msx_request", request)
+    return account_sync, msx_api, accounts, requests
+
+
+class TestAccountAliasResolution:
+    """Alias workers expose their progress, results and unexpected failures."""
+
+    def test_each_alias_reports_progress_and_populates_owner(self, app, alias_import):
+        """Four unique owners produce four lookups and four visible progress updates."""
+        sync, _api, _accounts, requests = alias_import
+        with app.app_context():
+            events = [json.loads(event.removeprefix("data: "))
+                      for event in sync.sync_accounts_stream(skip_aura=True)]
+            assert events[-1]["complete"] is True
+            assert events[-1]["summary"]["customers_created"] == 5
+            for index in range(5):
+                customer = Customer.query.filter_by(tpid=650000 + index).one()
+                assert customer.dae_alias == f"owner-{index % 4}"
+                assert customer.dae_name == f"Owner owner-{index % 4}"
+
+        assert sorted(requests) == [f"owner-{index}" for index in range(4)]
+        progress = [event for event in events
+                    if event.get("message", "").startswith("Resolving aliases")]
+        assert [event["message"] for event in progress] == [
+            f"Resolving aliases ({index}/4)..." for index in range(5)
+        ]
+        assert [event["progress"] for event in progress] == [88, 88, 89, 90, 90]
+        assert not any("error" in event for event in events)
+
+    def test_alias_lookups_still_run_in_parallel(self, app, alias_import, monkeypatch):
+        """All three workers enter directory work before any of them completes."""
+        sync, api, _accounts, requests = alias_import
+        request = api._msx_request
+        barrier = Barrier(3, timeout=5)
+        lock = Lock()
+        entered = 0
+
+        def parallel_request(method, url):
+            """Hold the first three lookups until all worker slots are active."""
+            nonlocal entered
+            with lock:
+                entered += 1
+                position = entered
+            if position <= 3:
+                barrier.wait()
+            return request(method, url)
+
+        monkeypatch.setattr(api, "_msx_request", parallel_request)
+        with app.app_context():
+            events = [json.loads(event.removeprefix("data: "))
+                      for event in sync.sync_accounts_stream(skip_aura=True)]
+        assert events[-1]["complete"] is True
+        assert len(requests) == 4
+        assert entered == 4
+
+    def test_worker_exception_fails_import_explicitly(
+        self, app, alias_import, monkeypatch, caplog,
+    ):
+        """A crashed resolver cannot leave the import waiting or report success."""
+        sync, _api, _accounts, _requests = alias_import
+
+        def fail_lookup(_user_id):
+            """Simulate an unexpected resolver failure outside its normal API contract."""
+            raise RuntimeError("Alias worker crashed")
+
+        monkeypatch.setattr(sync, "get_user_info", fail_lookup)
+        with app.app_context():
+            events = [json.loads(event.removeprefix("data: "))
+                      for event in sync.sync_accounts_stream(skip_aura=True)]
+            assert Customer.query.count() == 0
+            status = SyncStatus.query.filter_by(sync_type="accounts").one()
+            assert status.success is False
+        assert "resolving aliases" in events[-1]["error"]
+        assert "Alias worker crashed" in events[-1]["error"]
+        assert not any(event.get("complete") for event in events)
+        assert not any(event.get("message") == "Creating PODs..." for event in events)
+        assert "Alias worker crashed" in caplog.text
+
+    def test_missing_directory_users_remain_logged_and_nonfatal(
+        self, app, alias_import, monkeypatch, caplog,
+    ):
+        """A normal not-found response preserves existing best-effort owner enrichment."""
+        sync, api, _accounts, _requests = alias_import
+        monkeypatch.setattr(api, "_msx_request",
+                            lambda *_args: SimpleNamespace(status_code=404))
+        with app.app_context():
+            events = [json.loads(event.removeprefix("data: "))
+                      for event in sync.sync_accounts_stream(skip_aura=True)]
+            assert events[-1]["complete"] is True
+            assert Customer.query.filter_by(tpid=650000).one().dae_alias is None
+        assert "Failed to look up systemuser" in caplog.text
+        assert any(event.get("message") == "Resolving aliases (4/4)..." for event in events)
+
+    def test_no_missing_aliases_skips_directory_work(self, app, alias_import):
+        """Imports with no owners do not create an empty alias-resolution phase."""
+        sync, _api, accounts, requests = alias_import
+        for account in accounts.values():
+            account.pop("_ownerid_value")
+        with app.app_context():
+            events = [json.loads(event.removeprefix("data: "))
+                      for event in sync.sync_accounts_stream(skip_aura=True)]
+        assert events[-1]["complete"] is True
+        assert requests == []
+        assert not any(event.get("message", "").startswith("Resolving aliases")
+                       for event in events)
 
 
 class TestImportAccountsUpsert:

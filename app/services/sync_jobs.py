@@ -73,7 +73,8 @@ OPERATIONS = {
                           'meetings', {'date': None}, recovery_safe=True),
     'meeting-aura': Operation('Meeting sync',
                               'Pulls meeting details for today and the next four business days.',
-                              'meetings', {'anchor': None, 'days_ahead': 4}, recovery_safe=True),
+                              'meetings', {'anchor': None, 'days_ahead': 4},
+                              needs_customers=True, recovery_safe=True),
     'copilot-actions': Operation('Copilot actions', 'Refresh suggested daily action items.',
                                  'copilot-actions', {}),
     'favicons': Operation('Customer favicons', 'Refresh icons for configured websites.',
@@ -180,6 +181,10 @@ def validate_options(operation: str, options: dict | None) -> dict:
         from app.services.sql_motions_sync import active_customers
         if not active_customers():
             raise SyncAdmissionError('No active customers with valid TPIDs. Import accounts first.')
+    elif operation == 'u2c':
+        from app.services.u2c_pull import TERRITORIES_REQUIRED_ERROR, get_territory_codes
+        if not get_territory_codes():
+            raise SyncAdmissionError(TERRITORIES_REQUIRED_ERROR)
     elif operation in ('fabric', 'fabric-revenue', 'revenue', 'marketing'):
         from app.services.revenue_pull import get_customer_tpids
         if not get_customer_tpids():
@@ -376,8 +381,7 @@ def _execute_operation(operation: str, options: dict) -> dict:
         return consume_stream(sync_marketing_stream())
     if operation == 'u2c':
         from app.services.scheduled_sync import run_u2c_import
-        return run_u2c_import(**options) or {
-            'success': True, 'skipped': True, 'message': 'Already up to date.'}
+        return run_u2c_import(**options)
     if operation in ('fabric', 'fabric-revenue'):
         from app.services.fabric_consumption import (
             refresh_fabric_revenue, sync_fabric_360,
@@ -445,10 +449,10 @@ def _run_operation(operation: str, options: dict) -> dict:
                                                  'Sync reported failed or partial results.',
                                                  result=result)
         if operation == 'milestones':
-            from app.services.scheduled_sync import _revenue_sync_due
+            from app.services.scheduled_sync import _revenue_sync_due, _u2c_import_due
             for followup, followup_options in (
                 ('marketing', {}), ('revenue', {}) if _revenue_sync_due() else (None, {}),
-                ('u2c', {'force': False}),
+                ('u2c', {'force': False}) if _u2c_import_due() else (None, {}),
             ):
                 if followup:
                     try:
@@ -629,7 +633,9 @@ def operation_schedules() -> dict[str, dict[str, Any]]:
     schedules['u2c'] = {
         'label': f'Every {U2C_IMPORT_INTERVAL_HOURS} hours',
         'detail': f'Checked at startup and every five minutes, and after milestone syncs. '
-                  f'Failed imports are eligible again after {U2C_RETRY_INTERVAL_HOURS} hour.',
+                  f'Requires configured sales territories. Failed imports are eligible again '
+                  f'after {U2C_RETRY_INTERVAL_HOURS} hour, except missing-territory setup '
+                  f'failures, which can retry as soon as territories are available.',
     }
     schedules['fabric'] = {
         'label': f'Every {FABRIC_SYNC_INTERVAL_DAYS} days' if is_data_se() else 'On demand',
@@ -645,7 +651,8 @@ def operation_schedules() -> dict[str, dict[str, Any]]:
                   'Requires active customer TPIDs; failed attempts wait one hour.',
     }
     for key, hour, detail in (
-        ('meeting-aura', meeting_hour, 'Catches up at startup when cached meetings are stale '
+        ('meeting-aura', meeting_hour, 'Requires imported customers. '
+         'Catches up at startup when cached meetings are stale '
          'or missing. Automatically queued after Account Sync finishes successfully, '
          'unless its skip_aura option is true.'),
         ('copilot-actions', copilot_hour, 'Catches up at startup when due. Requires completed '

@@ -27,7 +27,7 @@
         <p data-sync-label>{{ instance.sync.name }}</p>
         <progress class="db-sync-progress" max="100" aria-label="{{ instance.sync.name }}"{% if instance.sync.error %} hidden{% endif %}></progress>
         <p class="db-muted{% if instance.sync.error %} db-error{% endif %}" data-sync-message role="status" aria-live="polite">{{ instance.sync.error or 'Preparing the data for this widget...' }}</p>
-        <div class="db-sync-actions">
+        <div class="db-sync-actions" data-widget-sync-actions{% if not instance.sync.error %} hidden{% endif %}>
             <button type="button" class="db-command" data-widget-sync-retry{% if not instance.sync.error %} hidden{% endif %}>Retry sync</button>
             <a class="db-command" href="{{ url_for('jobs.sync_console') }}">Sync Status</a>
         </div>

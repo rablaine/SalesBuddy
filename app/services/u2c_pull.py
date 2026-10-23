@@ -35,6 +35,10 @@ from typing import Any, Optional
 import requests
 
 logger = logging.getLogger(__name__)
+TERRITORIES_REQUIRED_ERROR = (
+    "No territories configured. Add your sales territories in Sales Buddy "
+    "before importing the official snapshot."
+)
 
 
 class U2CPullError(Exception):
@@ -586,10 +590,7 @@ def pull_u2c_milestones(fq_label: str,
     """
     codes = territories if territories is not None else get_territory_codes()
     if not codes:
-        raise U2CPullError(
-            "No territories configured. Add your sales territories in Sales Buddy "
-            "before importing the official snapshot."
-        )
+        raise U2CPullError(TERRITORIES_REQUIRED_ERROR)
 
     fiscal_year, due_quarter = msxi_quarter_labels(fq_label)
     session = requests.Session()

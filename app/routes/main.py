@@ -1248,8 +1248,6 @@ def preferences():
 
     return render_template('settings.html',
                          pref=pref,
-                         theme_families=THEME_FAMILIES,
-                         se_specialties=SE_SPECIALTIES,
                          templates=templates,
                          workiq_prompt=workiq_prompt,
                          default_workiq_prompt=DEFAULT_SUMMARY_PROMPT,
@@ -2224,6 +2222,9 @@ def inject_preferences():
     return dict(
         dark_mode=dark_mode,
         theme_family=pref.theme_family if pref else 'graphite',
+        theme_families=THEME_FAMILIES,
+        se_specialties=SE_SPECIALTIES,
+        se_specialty=pref.se_specialty if pref else None,
         loading_indicator_enabled=pref.loading_indicator_enabled if pref else True,
         loading_indicator_brightness=pref.loading_indicator_brightness if pref else 100,
         dark_mode_unset=dark_mode_unset,

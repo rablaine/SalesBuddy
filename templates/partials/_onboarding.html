@@ -11,18 +11,21 @@
             <button class="sb-dialog-close sb-setup-hidden" id="setupReviewClose" type="button"
                     aria-label="Close setup review"><i class="bi bi-x-lg" aria-hidden="true"></i></button>
         </header>
-        <div class="sb-dialog-body">
-            <div class="sb-setup-progress">
-                <div id="onboardingProgress" role="progressbar" aria-label="Setup progress"
-                     aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" style="width: 0%"></div>
-            </div>
+        <div class="sb-dialog-body" id="onboardingBody">
             <div class="onboarding-step" id="onboardingStep1">
                 <p class="sb-setup-intro">Let's get you set up! This wizard will walk you through connecting to MSX, enabling AI-powered features, and importing your data.</p>
                 <section class="sb-setup-section sb-setup-theme">
-                    <div>
-                        <h3><i class="bi bi-moon-stars"></i> Choose Your Theme</h3>
+                    <div class="sb-setup-theme-copy">
+                        <h3><label for="onboardThemeFamily"><i class="bi bi-moon-stars"></i> Choose Your Theme</label></h3>
                         <p class="sb-setup-muted">You can always change this later in <i class="bi bi-gear"></i> Settings</p>
+                        <p class="sb-setup-muted" id="onboardThemeResult" role="status" aria-live="polite"></p>
                     </div>
+                    <select class="sb-record-field sb-setup-theme-picker" id="onboardThemeFamily"
+                            aria-describedby="onboardThemeResult">
+                        {% for value, label in theme_families.items() %}
+                        <option value="{{ value }}"{{ ' selected' if theme_family == value else '' }}>{{ label }}</option>
+                        {% endfor %}
+                    </select>
                     <label class="sb-theme-switch" for="onboardDarkModeToggle">
                         <span><i class="bi bi-sun-fill" aria-hidden="true"></i> Light</span>
                         <input class="sb-theme-switch-input" type="checkbox" role="switch"
@@ -91,8 +94,8 @@
                 </section>
             </div>
             <div class="onboarding-step sb-setup-hidden" id="onboardingStep2">
-                <p>Sales Buddy will pull everything it needs from MSX and MSXI - your accounts, milestones, and revenue. Each one runs in turn; you don't need to do anything else.</p>
-                <p class="sb-setup-muted"><i class="bi bi-shield-lock"></i> Requires VPN and takes about 8 minutes. If you get disconnected, reconnect and retry whichever step failed.</p>
+                <p>Sales Buddy will pull everything it needs from MSX and MSXI - your accounts first, then milestones and revenue together. You don't need to do anything else.</p>
+                <p class="sb-setup-muted"><i class="bi bi-shield-lock"></i> Requires VPN and usually takes a few minutes. If you get disconnected, reconnect and retry whichever step failed.</p>
                 <div id="importAllInitial" class="sb-setup-section">
                     <div id="importIncompleteWarning" class="sb-setup-notice sb-setup-hidden">
                         <i class="bi bi-exclamation-triangle"></i> <span id="importIncompleteText"></span>
@@ -122,17 +125,34 @@
                     </section>
                     {% endfor %}
                 </div>
-                {% if user_role != 'dss' %}
                 <section class="sb-setup-section sb-setup-hidden" id="onboardBucketPickerCard">
-                    <h3><i class="bi bi-funnel"></i> Select Your Buckets</h3>
-                    <p class="sb-setup-muted">Check the service comp groupings you're compensated on to filter your revenue views across the app. Leave them all unchecked to see every bucket. You can change this later from Revenue Import.</p>
-                    <div id="onboardBucketList">
-                        <p class="sb-setup-status sb-setup-muted" role="status">
-                            <span class="sb-setup-spinner" aria-hidden="true"></span> Loading buckets...
-                        </p>
+                    <h3><i class="bi bi-person-workspace"></i> Your SE Setup</h3>
+                    <div class="sb-setup-se-columns">
+                        <div class="sb-setup-se-specialty">
+                            <label class="sb-record-field-label" for="onboardSeSpecialty">SE specialty</label>
+                            <select class="sb-record-field sb-setup-specialty" id="onboardSeSpecialty">
+                                <option value="">Choose your specialty</option>
+                                {% for value, label in se_specialties.items() %}
+                                <option value="{{ value }}"{{ ' selected' if first_run_modal_dismissed and se_specialty == value else '' }}>{{ label }}</option>
+                                {% endfor %}
+                            </select>
+                            <p class="sb-setup-muted">Choose Other if your specialty is not listed. You can change this in Settings.</p>
+                        </div>
+                        <div class="sb-setup-se-buckets">
+                            <h3><i class="bi bi-funnel"></i> Select Your Buckets</h3>
+                            <p class="sb-setup-muted">Select the service comp groupings you're compensated on. Finishing setup saves your scope for this fiscal year and unlocks widgets that need it. You can change this later from Revenue Import.</p>
+                            <div id="onboardBucketList">
+                                <p class="sb-setup-status sb-setup-muted" role="status">
+                                    <span class="sb-setup-spinner" aria-hidden="true"></span> Loading buckets...
+                                </p>
+                            </div>
+                        </div>
                     </div>
+                    <p class="sb-setup-muted" id="onboardSeSetupStatus" role="status" aria-live="polite"></p>
+                    <button class="sb-dialog-button sb-setup-hidden" id="onboardReloadBuckets" type="button">
+                        <i class="bi bi-arrow-clockwise"></i> Retry Loading Buckets
+                    </button>
                 </section>
-                {% endif %}
             </div>
         </div>
         <footer class="sb-dialog-footer">
@@ -140,9 +160,14 @@
             <button type="button" class="sb-dialog-button sb-setup-hidden" id="onboardBackBtn">
                 <i class="bi bi-arrow-left"></i> Back
             </button>
-            <button type="button" class="sb-dialog-button sb-setup-primary" id="onboardNextBtn" disabled>
-                Next <i class="bi bi-arrow-right"></i>
-            </button>
+            <span class="sb-setup-action" id="onboardNextAction" tabindex="0"
+                  aria-describedby="onboardNextReason">
+                <button type="button" class="sb-dialog-button sb-setup-primary" id="onboardNextBtn"
+                        aria-describedby="onboardNextReason" disabled>
+                    Next <i class="bi bi-arrow-right"></i>
+                </button>
+                <span class="sb-setup-action-reason" id="onboardNextReason" role="tooltip"></span>
+            </span>
         </footer>
     </div>
 </dialog>

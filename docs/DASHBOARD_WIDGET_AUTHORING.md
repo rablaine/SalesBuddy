@@ -281,7 +281,10 @@ The common flow is:
 5. Refresh the widget when ready without publishing a draft or changing its layout.
 
 Progress supports measured percent or an indeterminate state. Failures remain
-visible, with explicit retry and a Sync Status link. A successful empty import is
+visible, with explicit retry and a Sync Status link. While preparing, queued or
+running, show only progress and the automatic-update message, not sync actions.
+Show the actions after an error and hide them again when retry begins.
+A successful empty import is
 ready; a missing, skipped, partial or invalid-for-period import is not automatically
 equivalent to valid empty data. Do not trigger an endless resync for zero results.
 
@@ -291,6 +294,17 @@ equivalent to valid empty data. Do not trigger an endless resync for zero result
 The current setup implementation is **compensation-buckets-specific**: readiness
 uses `available_buckets`, and the shared setup UI uses fiscal-year confirmation
 and the existing Connect Goals save flow.
+
+SE onboarding collects an explicit specialty (including Other) and saves it with
+annual bucket confirmation when the user finishes or closes an edited setup review.
+The exit action stays disabled until both a specialty and at least one available
+bucket are selected, with a hover and keyboard-focus explanation. Failed or empty
+revenue imports must be retried before an SE can finish bucket setup. An unchanged
+review does not write preferences. Bucket confirmation uses the same preference
+endpoints and records the current fiscal year and taxonomy version.
+Sellers do not need SE specialty or compensated
+bucket choices: the shared setup check uses all available buckets without changing
+their stored SE preferences. Fiscal-year support and source readiness still apply.
 
 Reuse `'compensation_buckets'` only when that is genuinely the requirement.
 For a different prerequisite, extend the readiness state, form renderer, validated

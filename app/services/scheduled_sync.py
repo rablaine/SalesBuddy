@@ -361,35 +361,42 @@ def _u2c_process_lock():
         handle.close()
 
 
-def _u2c_import_due() -> bool:
-    """True when the official U2C baseline is due for a refresh.
-
-    Keyed off SyncStatus rather than a calendar so a machine that was off still
-    catches up on its next run, exactly like ``_revenue_sync_due``.
-    """
+def _u2c_import_skip_reason() -> str | None:
+    """Check readiness and cadence against the last actual source attempt."""
     from app.models import SyncStatus
+    from app.services.u2c_pull import TERRITORIES_REQUIRED_ERROR, get_territory_codes
 
-    status = SyncStatus.get_status('u2c_import')
-    state = status.get('state')
-    if state == 'in_progress':
-        return False
-    completed = status.get('completed_at')
-    if not completed:
-        return True
+    if not get_territory_codes():
+        return 'needs_territories'
+    if SyncStatus.get_status('u2c_import').get('state') == 'in_progress':
+        return 'in_progress'
+    # Skipped queue jobs are not source attempts and must not reset the retry clock.
+    status = SyncStatus.query.filter_by(sync_type='u2c_import').first()
+    if status is None or status.completed_at is None:
+        return None
+    completed = status.completed_at
+    if status.success is False and TERRITORIES_REQUIRED_ERROR in (status.details or ''):
+        return None
     if completed.tzinfo is None:
         completed = completed.replace(tzinfo=timezone.utc)
 
     age_hours = (datetime.now(timezone.utc) - completed).total_seconds() / 3600
-    threshold = (U2C_RETRY_INTERVAL_HOURS if state == 'failed'
+    failed = status.success is False
+    threshold = (U2C_RETRY_INTERVAL_HOURS if failed
                  else U2C_IMPORT_INTERVAL_HOURS)
     if age_hours < threshold:
         logger.debug("U2C import last ran %.1fh ago (threshold %dh), skipping",
                      age_hours, threshold)
-        return False
-    return True
+        return 'retry_cooldown' if failed else 'up_to_date'
+    return None
 
 
-def run_u2c_import(force: bool = False) -> dict | None:
+def _u2c_import_due() -> bool:
+    """Refresh once territories are ready, respecting genuine failure cooldowns."""
+    return _u2c_import_skip_reason() is None
+
+
+def run_u2c_import(force: bool = False) -> dict:
     """Run one U2C refresh while holding the cross-process write lock."""
     with _u2c_process_lock() as acquired:
         if not acquired:
@@ -401,7 +408,7 @@ def run_u2c_import(force: bool = False) -> dict | None:
         return _run_u2c_import_locked(force)
 
 
-def _run_u2c_import_locked(force: bool = False) -> dict | None:
+def _run_u2c_import_locked(force: bool = False) -> dict:
     """Refresh the official U2C baseline and record its SyncStatus.
 
     Always re-matches the current snapshot against local milestones first -
@@ -423,8 +430,19 @@ def _run_u2c_import_locked(force: bool = False) -> dict | None:
         logger.exception("Error re-matching U2C snapshot items")
         raise
 
-    if not force and not _u2c_import_due():
-        return None
+    reason = _u2c_import_skip_reason()
+    if reason == 'needs_territories' or (not force and reason is not None):
+        messages = {
+            'needs_territories': 'Waiting for sales territories. Import accounts or configure '
+                                 'your sales territories first.',
+            'in_progress': 'A U2C refresh is already in progress.',
+            'retry_cooldown': 'The previous U2C import failed. Automatic retry is waiting for '
+                              f'the {U2C_RETRY_INTERVAL_HOURS}-hour cooldown. '
+                              'You can retry manually now.',
+            'up_to_date': 'The last U2C import succeeded and is not due for refresh yet.',
+        }
+        return {'success': True, 'skipped': True, 'reason': reason,
+                'message': messages[reason]}
 
     if not SyncStatus.try_mark_started('u2c_import'):
         return {

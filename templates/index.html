@@ -1125,6 +1125,8 @@
     }
 
     function checkAuraSync() {
+        const setup = document.getElementById('welcomeModal');
+        if (setup?.dataset.sbAutoOpen === 'true') return;
         return meetingRefresh.check();
     }
 
