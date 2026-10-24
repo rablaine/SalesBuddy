@@ -50,6 +50,7 @@
         .map(selector => root.querySelector(selector));
     let pending = false, submitting = false, baseline = '', scrapeData = null;
     let photoButton = null, discardAction = null, restoring = false;
+    let notePreview = null;
     function values() {
         return {contact_name: get('contact_name').value, contact_title: get('contact_title').value,
             contact_email: get('contact_email').value,
@@ -141,13 +142,58 @@
     contactForm.addEventListener('input', save);
     contactForm.addEventListener('change', save);
     panes.forEach(pane => pane.addEventListener('scroll', save, {passive: true}));
+    function openNotePreview(link) {
+        try {
+            if (!notePreview) {
+                notePreview = window.SBRecordDialog.create('partnerNotePreview', {
+                    statusText: 'Open the full page to edit this note.',
+                    errorText: 'Unable to load this note. Retry or open the full page.',
+                    loadUrl: noteId => `/api/note/${noteId}/detail`,
+                    fullUrl: noteId => `/note/${noteId}`,
+                    fragmentSelector: '[data-sb-note-detail]',
+                    identityAttribute: 'data-sb-note-id',
+                    mount: content => window.SBNoteActions.mount(content),
+                });
+            }
+            notePreview.open({
+                id: Number(link.closest('[data-note-id]').dataset.noteId),
+                title: link.dataset.recordTitle,
+            });
+        } catch (error) {
+            notice(new Error(
+                'Could not open the note preview. Try again or open the note in a new tab.',
+                {cause: error}));
+        }
+    }
     root.addEventListener('click', event => {
         const link = event.target.closest('a[href]');
         if (link) {
             if (pending) event.preventDefault();
-            else save();
+            else {
+                save();
+                if (link.dataset.partnerNotePreview !== undefined && !event.defaultPrevented
+                    && event.button === 0 && !event.ctrlKey && !event.metaKey
+                    && !event.shiftKey && !event.altKey) {
+                    event.preventDefault();
+                    if (dirty()) {
+                        discard(() => {
+                            window.SBDialog.close(contactDialog, 'discard');
+                            save();
+                            openNotePreview(link);
+                        });
+                    } else openNotePreview(link);
+                }
+            }
+            return;
         }
         if (pending) return;
+        const note = event.target.closest('[data-note-id]');
+        if (note && !event.defaultPrevented && !link && event.button === 0
+            && !event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey
+            && !event.target.closest('button,input,select,textarea')) {
+            note.querySelector('a').click();
+            return;
+        }
         const edit = event.target.closest('[data-edit-contact]');
         if (edit) openContact(partner.contacts.find(c => c.id === Number(edit.dataset.editContact)));
         const remove = event.target.closest('[data-delete-contact]');
@@ -173,7 +219,8 @@
     });
     document.addEventListener('click', event => {
         const link = event.target.closest('a[href]');
-        if (!link || event.button > 0 || event.ctrlKey || event.metaKey || event.shiftKey
+        if (!link || event.defaultPrevented || event.button > 0 || event.ctrlKey
+            || event.metaKey || event.shiftKey
             || event.altKey || link.target === '_blank' || link.hasAttribute('download')) return;
         if (pending) event.preventDefault();
         else if (dirty()) {
