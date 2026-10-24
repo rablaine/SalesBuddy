@@ -226,9 +226,8 @@ assertions also occur in activity, contact, seller, milestone, favicon, team,
 calendar-planning, and view tests.
 
 Update the Bootstrap-native guidance in
-[.impeccable.md](../.impeccable.md),
-[project instructions](../.github/copilot-instructions.md), and
-[the Connect scorecard plan](../docs/PLAN_CONNECT_GOALS_SCORECARD.md)
+[.impeccable.md](../.impeccable.md) and
+[project instructions](../.github/copilot-instructions.md)
 when the new implementation is selected. Otherwise future work will reintroduce it.
 
 Do **not** remove unrelated startup uses of the word "bootstrap": Azure profile

@@ -1,11 +1,10 @@
 # FY27 Data Motions Implementation Tracker
 
-Working checklist for [section 2 of the proactive engagement feasibility assessment](./FY27_PROACTIVE_ENGAGEMENT_FEASIBILITY.md#2-feasibility-across-all-proposed-motions).
+**Status:** Current scope complete. User confirmed on October 23, 2026 that no
+further refinements are planned. Future development will be scoped as needed.
 
-Check **Coded** when the intended report/widget works and has been verified.
-Check **Added** when it is placed on your FY27 Data Motions dashboard.
-Check a motion's heading when both are complete for the scope you chose.
-Dashboard placement stays unchecked until you confirm it.
+This document records delivered reports, widgets, validation and known scope
+boundaries. Manual workflows and data limitations below are not a follow-up backlog.
 
 ## Checklist
 
@@ -29,7 +28,7 @@ Dashboard placement stays unchecked until you confirm it.
 - **Revenue cutoffs:** Exclude combined Other Analytics plus ADF totals below $50,
   or below $100 with positive
   Fabric spend, using unrounded three-month net totals.
-- **Notes / follow-up:** One row per customer, source-product columns and Fabric Capacity
+- **Notes:** One row per customer, source-product columns and Fabric Capacity
   revenue, grouped by current seller. Months count once per customer across all saved
   product rows, including products outside the modernization families. Missing product
   spend is $0. Summary totals sum customer-level monthly averages, even when customers
@@ -54,7 +53,7 @@ Dashboard placement stays unchecked until you confirm it.
   Details widgets backed by the same source, with a widget-only $2,000/month minimum
   combined AI, Databases and non-Fabric Analytics footprint. Available for Data SEs
   and sellers. The report retains customers below that minimum.
-- **Notes / follow-up:** Display AI, Databases and Other Analytics (excluding Fabric) from the
+- **Notes:** Display AI, Databases and Other Analytics (excluding Fabric) from the
   source-defined strategic pillar feed. Exclude positive monthly net Fabric ACR in the
   current partial month or previous three months. Divide four-month totals by 4.
   Missing customer/month observations count as $0. The report's All customers option
@@ -73,7 +72,7 @@ Dashboard placement stays unchecked until you confirm it.
   The source summary combines Data Engineering and Data Science.
 - **Report/widget:** Fabric expansion, Summary / Details. Links to Fabric Consumption
   > Capacity overview > F-SKU audit, one row per customer.
-- **Notes / follow-up:** Single Power BI-led queue (80%+ Power BI consumption).
+- **Notes:** Single Power BI-led queue (80%+ Power BI consumption).
   Only customers with paid F-SKUs qualify; Details shows their largest F-SKU
   with P/Trial context, average capacity utilization, PBI share, and
   known workloads above 1%, with optional seller grouping in the viewer Filters panel.
@@ -90,7 +89,7 @@ Dashboard placement stays unchecked until you confirm it.
   Engagement creation and trial -> F-SKU conversion tracking remain manual.
 - **Report/widget:** Trial to Paid, Summary / Details. Links to Fabric Consumption
   > Capacity overview > Trial to Paid audit. The broader Trial audit remains available.
-- **Notes / follow-up:** Counts distinct customers, not capacities. No additional
+- **Notes:** Counts distinct customers, not capacities. No additional
   Fabric ACR filter is imposed. Details lists each customer once, split below/at-or-above 0.1%
   average trial utilization. Tables show Customer, Avg used and average observed history days
   across trials, using the saved source's trailing 15-day window. Customer links
@@ -124,7 +123,7 @@ Dashboard placement stays unchecked until you confirm it.
   One row per current account with zero RTI usage and positive Event Hubs,
   Stream Analytics or IoT net ACR. Customers already using RTI are excluded.
   No minimum spend cutoff.
-- **Notes / follow-up:** Native rolling 28-day RTI CU-hours and workload share stay
+- **Notes:** Native rolling 28-day RTI CU-hours and workload share stay
   separate from ACR across the last three complete calendar months,
   divided by three. The current month is excluded. Missing revenue observations count as $0;
   missing RTI measurements count as 0. IoT includes IoT-prefixed products and Device Update
@@ -147,7 +146,7 @@ Dashboard placement stays unchecked until you confirm it.
 - **Report/widget:** Existing Whitespace Analysis calculation, plus Summary/Details widgets
   and a SalesIQ read tool. Details shows Customer, AI, Analytics, Apps and Total / mo.
   Analytics includes Fabric; totals and ranking use only those three adjacent pillars.
-- **Notes / follow-up:** Customer/seller filters and seller grouping apply to both
+- **Notes:** Customer/seller filters and seller grouping apply to both
   widget variants. Focus whitespace excludes customers with the target pillar,
   independently of the displayed spend columns, and hides the focused pillar's
   zero-only column. The report link selects Databases
@@ -173,7 +172,7 @@ Dashboard placement stays unchecked until you confirm it.
   complete queue and SalesIQ tool. One atomic SQL Motions sync also pulls the Arc
   version feed. Customer/seller scope carries into the report; sellers only display
   when explicitly grouped. Source details retain freshness and quality caveats.
-- **Notes / follow-up:** October 21 live source audit matched all 206 active dev
+- **Notes:** October 21 live source audit matched all 206 active dev
   customers: 56 had next SQL expiration dates and 44 positive expiration amounts.
   The glossary defines install base as license cores with SA, not server counts.
   A second ADS Accelerate Arc source supplies SQL 2016 discovery evidence on 26
@@ -200,7 +199,7 @@ Dashboard placement stays unchecked until you confirm it.
   widget presentation and saved analyzer query. Pending Databases alerts at priority
   20+ with Expansion Outreach or Check-in actions qualify. Monitor-only and handled
   alerts do not. Growth and risk counts and monthly impact estimates stay separate.
-- **Notes / follow-up:** Click-through opens Revenue Analyzer's focused preset with
+- **Notes:** Click-through opens Revenue Analyzer's focused preset with
   every matching row, before the normal top-50 limit, and preserves customer/seller
   scope without changing bucket preferences. No standalone report or new scoring.
   Verified 216 scoped Python and 37 JavaScript tests plus live report/widget parity:
@@ -221,21 +220,14 @@ Dashboard placement stays unchecked until you confirm it.
   SalesIQ tool. The same SQL Motions sync loads both report sources atomically.
   The EOS view includes only version discovery and subscription evidence;
   account renewal signals belong in SQL Renewals.
-- **Notes / follow-up:** This replaces the initial Arc bridge tile placeholder.
+- **Notes:** This replaces the initial Arc bridge tile placeholder.
   Customer-confirmed Arc/ESU bridge, migrate, modernize and deferred paths remain
-  follow-ups, not automatic qualification. Live cohort: 26 customers and 295
+  manual workflows, not automatic qualification. Live cohort: 26 customers and 295
   source-defined counts. User approved the saved placement and ten-widget FY27
   Data Motions v1 template on October 21, 2026. The template installs once on upgrade
   and remains available for independent copies.
 
-## Before checking a motion complete
-
-- The agreed cohort and date window are clear.
-- Report, widget, and read tool share the same calculations where applicable.
-- Customer/Seller filters affect the entire calculation, not just visible rows.
-- Missing data is distinguishable from zero or confirmed absence.
-- Relevant scoped tests pass and the widget works with live dev data.
-- The chosen variation is added to the intended dashboard and the layout is saved.
+## Delivery boundaries
 
 Customers may qualify for several motions. Do not add motion counts together
 and label the result unique customers.
