@@ -64,7 +64,7 @@
                     <thead><tr>{{ heading('Name') }}{{ heading('Note date', 'number') }}</tr></thead>
                     <tbody>{% for call in partner.notes|sort(attribute='call_date', reverse=True) %}
                         <tr data-note-id="{{ call.id }}">
-                            <td data-sb-sort-value="{{ call.customer.name if call.customer else '' }}"><a href="{{ url_for('notes.note_view', id=call.id) }}">{% if call.customer %}{{ customer_favicon(call.customer) }} {{ call.customer.name }}{% else %}No Customer{% endif %}</a><p class="part-excerpt">{{ call.content|striptags|truncate(150, true) }}</p></td>
+                            <td data-sb-sort-value="{{ call.customer.name if call.customer else '' }}"><a href="{{ url_for('notes.note_view', id=call.id) }}" data-partner-note-preview data-record-title="{{ call.customer.name if call.customer else 'General Note' }} - {{ call.call_date.strftime('%b %d, %Y') }}">{% if call.customer %}{{ customer_favicon(call.customer) }} {{ call.customer.name }}{% else %}No Customer{% endif %}</a><p class="part-excerpt">{{ call.content|striptags|truncate(150, true) }}</p></td>
                             <td data-sb-sort-value="{{ call.call_date.timestamp() }}">{{ call.call_date.strftime('%b %d, %Y') }}{% if call.call_date.hour != 0 or call.call_date.minute != 0 %} {{ call.call_date.strftime('%I:%M %p') }}{% endif %}</td>
                         </tr>{% endfor %}</tbody>
                 </table>
@@ -134,6 +134,21 @@
         <footer class="sb-dialog-footer">{{ close('Keep editing') }}<button type="button" class="sb-dialog-button" id="partnerDiscardConfirm">Discard changes</button></footer>
     </dialog>
 </section>
+<dialog id="partnerNotePreview" class="sb-dialog sb-dialog-record" aria-labelledby="partnerNotePreviewTitle" data-sb-backdrop-close="true">
+    <div class="sb-dialog-shell">
+        <header class="sb-dialog-header">
+            <div class="sb-dialog-heading"><div class="sb-dialog-eyebrow">Note preview</div><h2 id="partnerNotePreviewTitle" data-sb-record-title>Note</h2></div>
+            <a href="#" class="sb-dialog-button" data-sb-record-full-link><i class="bi bi-arrows-fullscreen" aria-hidden="true"></i> Full Page</a>
+            <button type="button" class="sb-dialog-close" data-sb-dialog-close aria-label="Close note preview" autofocus><i class="bi bi-x-lg" aria-hidden="true"></i></button>
+        </header>
+        <div class="sb-dialog-body">
+            <div class="sb-record-state" data-sb-record-loading role="status">Loading note...</div>
+            <div class="sb-record-state" data-sb-record-error hidden><p role="alert">Unable to load this note. Retry or open the full page.</p><button type="button" class="sb-dialog-button" data-sb-record-retry>Retry</button></div>
+            <div data-sb-record-content></div>
+        </div>
+        <footer class="sb-dialog-footer"><small data-sb-record-status role="status">Open the full page to edit this note.</small></footer>
+    </div>
+</dialog>
 <script type="application/json" id="partnerDetailData">{{ {
     'id': partner.id, 'name': partner.name, 'website': partner.website or '',
     'overview': partner.overview, 'rating': partner.rating,

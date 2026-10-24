@@ -29,6 +29,8 @@
 .part-contacts th:nth-child(4) { width: 9%; }
 .part-contacts th:last-child { width: 17%; }
 .part-notes table { min-width: 400px; }
+.part-notes tr[data-note-id] { cursor: pointer; }
+.part-notes tr[data-note-id]:hover { background: var(--sb-ui-raised); }
 .part-notes td:first-child { width: 72%; }
 .part-notes td:last-child { color: var(--sb-ui-muted); font-variant-numeric: tabular-nums; }
 .part-excerpt { color: var(--sb-ui-muted); margin: 5px 0 0; }

@@ -2,6 +2,7 @@
 
 import json
 from unittest.mock import patch
+from urllib.parse import urlsplit
 
 import pytest
 from bs4 import BeautifulSoup
@@ -54,6 +55,14 @@ def test_detail_complete_native_contract(client, detail_records):
     assert root.select_one('a[href^="/specialties/"]')
     assert root.select_one('a[href="mailto:p@example.test"]')
     assert root.select_one('a[href^="/note/"]')
+    note_link = root.select_one('[data-note-id] a[data-partner-note-preview]')
+    assert note_link['href'] == f"/note/{note_link.find_parent('tr')['data-note-id']}"
+    assert note_link['data-record-title']
+    preview = parsed.select_one('dialog#partnerNotePreview.sb-dialog-record')
+    assert preview['aria-labelledby'] == 'partnerNotePreviewTitle'
+    for control in ('title', 'full-link', 'loading', 'error', 'retry', 'content', 'status'):
+        assert preview.select_one(f'[data-sb-record-{control}]')
+    assert preview.select_one('[data-sb-dialog-close]')
     assert root.select_one('.contact-photo-wrap img')['src'].endswith('crop')
     assert root.select_one('.contact-photo-wrap')['data-full-src'].endswith('full')
     assert root.select_one(f'[data-edit-contact="{primary}"]')
@@ -75,8 +84,12 @@ def test_detail_complete_native_contract(client, detail_records):
     data = json.loads(parsed.select_one('#partnerDetailData').text)
     assert data['contacts'][0]['name'] == "O'Brien"
     assert data['failure'] is None
-    for filename in ('ui-partner-detail.js', 'ui-table-sort.js', 'ui-dialog.js', 'share.js'):
-        assert len(parsed.select(f'script[src$="/{filename}"]')) == 1
+    for filename in ('ui-partner-detail.js', 'ui-table-sort.js', 'ui-dialog.js', 'share.js',
+                     'ui-record-dialog.js', 'ui-note-actions.js'):
+        assert sum(
+            urlsplit(script['src']).path.endswith(f'/{filename}')
+            for script in parsed.select('script[src]')
+        ) == 1
     for dialog_id in ('shareModal', 'shareImportReviewModal', 'addContactModal',
                       'deletePartnerDialog', 'deleteContactDialog', 'contactPhotoModal',
                       'scrapeDomainModal', 'scrapeReviewModal', 'partnerDiscardDialog'):

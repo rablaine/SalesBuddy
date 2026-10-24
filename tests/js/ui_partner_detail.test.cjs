@@ -7,6 +7,7 @@ const source = fs.readFileSync(require.resolve('../../static/js/ui-partner-detai
 
 function harness({website = '', failure = null, response, saved} = {}) {
     const nodes = new Map(), events = {}, requests = [], destinations = [], errors = [];
+    const previews = [], previewSelections = [], noteMounts = [];
     function node(tag = 'div', props = {}) {
         const n = {tag, events: {}, children: [], dataset: {}, attrs: {}, hidden: false,
             disabled: false, checked: false, open: false, value: '', textContent: '',
@@ -93,6 +94,11 @@ function harness({website = '', failure = null, response, saved} = {}) {
         addEventListener(type, fn) { (events['doc:' + type] ??= []).push(fn); }},
         addEventListener(type, fn) { (events[type] ??= []).push(fn); },
         SBTableSort: {mount() {}},
+        SBRecordDialog: {create(id, options) {
+            previews.push({id, options});
+            return {open(selection) { previewSelections.push(selection); }};
+        }},
+        SBNoteActions: {mount(content) { noteMounts.push(content); }},
         SBDialog: {open(value) { (typeof value === 'string' ? nodes.get(value) : value).open = true; },
             close(value, reason = 'button') {
                 const dialog = typeof value === 'string' ? nodes.get(value) : value;
@@ -121,9 +127,94 @@ function harness({website = '', failure = null, response, saved} = {}) {
         (events[type] || []).forEach(fn => fn(e)); return e;
     };
     return {nodes, root, window: rootWindow, requests, destinations, errors, fire, emit,
-        panes, photo, contactForm, deleteForm, share, node};
+        panes, photo, contactForm, deleteForm, share, node,
+        previews, previewSelections, noteMounts};
 }
 const settle = async () => { for (let n = 0; n < 20; n++) await Promise.resolve(); };
+
+function linkedNote(h) {
+    const row = h.node('tr', {dataset: {noteId: '9'}});
+    const cell = h.node('td'), excerpt = h.node('p'), date = h.node('td');
+    const link = h.node('a', {href: '/note/9',
+        dataset: {partnerNotePreview: '', recordTitle: 'Customer - Oct 23, 2026'}});
+    link.click = () => {
+        const click = h.fire(h.root, 'click', {target: link});
+        const event = h.emit('doc:click', click);
+        if (!event.defaultPrevented) h.destinations.push(link.href);
+    };
+    cell.append(link, excerpt);
+    row.append(cell, date);
+    h.root.append(row);
+    return {row, cell, excerpt, date, link};
+}
+
+test('note rows and links reuse the standard preview and retain the full-page destination', () => {
+    const h = harness(), note = linkedNote(h);
+    for (const target of [note.excerpt, note.date, note.cell]) {
+        h.fire(h.root, 'click', {target});
+    }
+    note.link.click();
+    assert.deepEqual(h.destinations, []);
+    assert.equal(h.previewSelections.length, 4);
+    assert.equal(h.previewSelections[0].id, 9);
+    assert.equal(h.previewSelections[0].title, 'Customer - Oct 23, 2026');
+    assert.equal(h.previews.length, 1);
+    assert.equal(h.previews[0].id, 'partnerNotePreview');
+    const options = h.previews[0].options;
+    assert.equal(options.loadUrl(9), '/api/note/9/detail');
+    assert.equal(options.fullUrl(9), note.link.href);
+    assert.equal(options.fragmentSelector, '[data-sb-note-detail]');
+    assert.equal(options.identityAttribute, 'data-sb-note-id');
+    options.mount('note content');
+    assert.deepEqual(h.noteMounts, ['note content']);
+    assert.equal(h.window.history.state.sbPartnerDetail.id, 6);
+    assert.equal(h.requests.length, 0);
+});
+
+test('modified note clicks retain native navigation without creating a preview', () => {
+    const h = harness(), note = linkedNote(h);
+    for (const extra of [{ctrlKey: true}, {metaKey: true},
+        {shiftKey: true}, {altKey: true}, {button: 1}, {defaultPrevented: true}]) {
+        for (const target of [note.excerpt, note.link]) {
+            const event = h.fire(h.root, 'click', {target, ...extra});
+            assert.equal(event.defaultPrevented, extra.defaultPrevented || false);
+        }
+    }
+    assert.deepEqual(h.destinations, []);
+    assert.equal(h.previews.length, 0);
+});
+
+test('note row respects pending writes and unsaved contact confirmation', () => {
+    const h = harness(), note = linkedNote(h);
+    h.fire(h.nodes.get('addContactBtn'), 'click');
+    h.nodes.get('contact_name').value = 'Unsaved contact';
+    h.fire(h.root, 'click', {target: note.excerpt});
+    assert.deepEqual(h.destinations, []);
+    assert.equal(h.nodes.get('partnerDiscardDialog').open, true);
+    h.fire(h.nodes.get('partnerDiscardConfirm'), 'click');
+    assert.equal(h.previewSelections.length, 1);
+    assert.deepEqual(h.destinations, []);
+
+    const pending = harness(), pendingNote = linkedNote(pending);
+    pending.fire(pending.contactForm, 'submit');
+    pending.fire(pending.root, 'click', {target: pendingNote.date});
+    assert.deepEqual(pending.destinations, []);
+    assert.equal(pending.previews.length, 0);
+});
+
+test('preview setup errors are visible and clicking again retries', () => {
+    const h = harness(), note = linkedNote(h);
+    const controller = h.window.SBRecordDialog;
+    h.window.SBRecordDialog = {create() { throw new Error('Unavailable'); }};
+    note.link.click();
+    assert.equal(h.nodes.get('partnerNotice').hidden, false);
+    assert.match(h.nodes.get('partnerNotice').textContent, /Could not open the note preview/);
+    assert.equal(h.errors.length, 1);
+    assert.deepEqual(h.destinations, []);
+    h.window.SBRecordDialog = controller;
+    note.link.click();
+    assert.equal(h.previewSelections.length, 1);
+});
 
 test('domain normalization, exact selected payload and malformed Back validation', () => {
     assert.equal(api.normalizeDomain(' HTTPS://WWW.Example.Test/path '), 'example.test');
