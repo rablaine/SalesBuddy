@@ -69,6 +69,20 @@ def utc_timestamp() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+@contextmanager
+def _timed_stage(name: str) -> Generator[None, None, None]:
+    """Log elapsed upgrade work without recording commands or application records."""
+    started = time.monotonic()
+    logger.info('Upgrade stage started: %s', name)
+    try:
+        yield
+    except Exception:
+        logger.error('Upgrade stage failed: %s seconds=%.3f', name, time.monotonic() - started)
+        raise
+    else:
+        logger.info('Upgrade stage completed: %s seconds=%.3f', name, time.monotonic() - started)
+
+
 def atomic_json(path: Path, data: dict) -> None:
     """Publish complete state or fail explicitly without replacing the last good state."""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -430,18 +444,21 @@ def prepare(repo: Path, target: str = 'origin/main', *, shell_rebuild: bool = Fa
             raise RuntimeError('Not enough free disk space for a complete recovery snapshot')
         if not _python(runtime).exists():
             raise RuntimeError('The installed Python interpreter is unavailable')
-        _run(repo, ['git', 'archive', '--format=zip', f'--output={point / "application.zip"}',
-                    revision])
-        state['code_sha256'] = _digest(point / 'application.zip')
+        with _timed_stage('application recovery snapshot'):
+            _run(repo, ['git', 'archive', '--format=zip', f'--output={point / "application.zip"}',
+                        revision])
+            state['code_sha256'] = _digest(point / 'application.zip')
         state['runtime_sha256'] = _prepare_recovery_runner(repo, point)
         state['runtime_ignores_cache'] = True
         state['shell_existed'] = shell.exists()
         if shell.exists():
-            shutil.copytree(shell, point / 'shell')
-            state['shell_sha256'] = _tree_digest(point / 'shell')
+            with _timed_stage('desktop shell recovery snapshot'):
+                shutil.copytree(shell, point / 'shell')
+                state['shell_sha256'] = _tree_digest(point / 'shell')
         if database.exists():
-            _snapshot_database(repo, database, point / 'database.db')
-            state['database_sha256'] = _digest(point / 'database.db')
+            with _timed_stage('database recovery snapshot'):
+                _snapshot_database(repo, database, point / 'database.db')
+                state['database_sha256'] = _digest(point / 'database.db')
         shutil.copy2(Path(__file__), point / 'recover.py')
         shutil.copy2(repo / 'app' / 'db_paths.py', point / 'db_paths.py')
         state['runner_sha256'] = _digest(point / 'recover.py')
@@ -509,7 +526,8 @@ def apply_update(repo: Path) -> dict:
         raise RuntimeError('Acknowledge recovery before applying another update')
     point = _point(repo, state)
     try:
-        verify_recovery(repo)
+        with _timed_stage('recovery snapshot verification'):
+            verify_recovery(repo)
         if commit(repo) not in {
             state['previous_commit'], state['target_commit'], state.get('applied_commit'),
         }:
@@ -528,15 +546,17 @@ def apply_update(repo: Path) -> dict:
             _run(repo, [str(_python(repo / 'venv')), '-m', 'pip', 'install',
                         '-r', 'requirements.txt'])
         save_state(repo, state, 'rehearsing')
-        result = rehearse_database(repo, database_path(repo), point / 'trial')
+        with _timed_stage('database migration rehearsal'):
+            result = rehearse_database(repo, database_path(repo), point / 'trial')
         save_state(repo, state, 'migrating', rehearsal=result)
         environment = {**os.environ, 'TESTING': 'true', 'SALESBUDDY_SUPERVISED': '1'}
         result_path = point / 'live-result.json'
         result_path.unlink(missing_ok=True)
         try:
-            _run(repo, [str(_python(repo / 'venv')), '-m', 'app.upgrade_rehearsal',
-                        '--database', str(database_path(repo)), '--result', str(result_path),
-                        '--live'], env=environment)
+            with _timed_stage('live database initialization'):
+                _run(repo, [str(_python(repo / 'venv')), '-m', 'app.upgrade_rehearsal',
+                            '--database', str(database_path(repo)), '--result', str(result_path),
+                            '--live'], env=environment)
         except subprocess.CalledProcessError:
             result = read_json(result_path)
             if result and result.get('error'):

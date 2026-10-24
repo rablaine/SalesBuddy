@@ -8,6 +8,10 @@ brought the change into `main`, so the admin Updates card can show
 Format: `## M/D/YYYY - <merge-short-sha>`. See
 `scripts/tag-changelog.ps1` for the helper that fills this in.
 
+## 10/23/2026
+
+- Open the app sooner after updates by checking startup readiness more frequently, while keeping database backups and safety checks.
+
 ## 10/23/2026 - f27f5901
 
 - Preview associated notes from a partner page without leaving it, with a link to the full note.

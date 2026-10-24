@@ -24,6 +24,33 @@ OLD = 'a' * 40
 NEW = 'b' * 40
 
 
+@pytest.mark.parametrize('fails', [False, True])
+def test_upgrade_stage_timing_reports_success_or_failure(monkeypatch, caplog, fails):
+    """Timing logs measure monotonic elapsed work and never hide a failed operation."""
+    clock = [100.0]
+    monkeypatch.setattr(upgrade.time, 'monotonic', lambda: clock[0])
+
+    def run_stage():
+        """Advance a deterministic clock inside the measured operation."""
+        with upgrade._timed_stage('database migration rehearsal'):
+            clock[0] += 1.25
+            if fails:
+                raise RuntimeError('private failure details')
+
+    with caplog.at_level('INFO', logger='scripts.upgrade'):
+        if fails:
+            with pytest.raises(RuntimeError, match='private failure details'):
+                run_stage()
+        else:
+            run_stage()
+    outcome = 'failed' if fails else 'completed'
+    assert 'Upgrade stage started: database migration rehearsal' in caplog.text
+    assert f'Upgrade stage {outcome}: database migration rehearsal seconds=1.250' in caplog.text
+    assert 'private failure details' not in caplog.text
+    if fails:
+        assert 'Upgrade stage completed' not in caplog.text
+
+
 def test_tree_digest_preserves_existing_manifest_checksums(tmp_path):
     """Faster enumeration must keep the exact checksum format for older recovery runners."""
     for name in ('a.txt', 'a/nested.txt', 'Z.data', 'empty', '__pycache__/generated.pyc'):
@@ -123,6 +150,32 @@ def installation(tmp_path, monkeypatch):
     monkeypatch.setattr(upgrade, 'recovery_contact_email', lambda: None)
     return SimpleNamespace(repo=repo, database=database, control=control,
                            real_db_module=real_db_module, real_sender=real_sender)
+
+
+@pytest.mark.parametrize('fails', [False, True])
+def test_update_pipeline_logs_measured_safety_stages(installation, caplog, fails):
+    """Actual update stages emit timing logs, including terminal rehearsal failure."""
+    fixture = installation
+    with caplog.at_level('INFO', logger='scripts.upgrade'):
+        upgrade.prepare(fixture.repo)
+        if fails:
+            fixture.control['fail'] = 'rehearsing'
+            with pytest.raises(upgrade.RehearsalError):
+                upgrade.apply_update(fixture.repo)
+        else:
+            upgrade.apply_update(fixture.repo)
+    for stage in (
+        'application recovery snapshot', 'desktop shell recovery snapshot',
+        'database recovery snapshot', 'recovery snapshot verification',
+    ):
+        assert f'Upgrade stage completed: {stage} seconds=' in caplog.text
+    if fails:
+        assert 'Upgrade stage failed: database migration rehearsal seconds=' in caplog.text
+        assert 'Upgrade stage completed: database migration rehearsal' not in caplog.text
+        assert 'Upgrade stage started: live database initialization' not in caplog.text
+    else:
+        for stage in ('database migration rehearsal', 'live database initialization'):
+            assert f'Upgrade stage completed: {stage} seconds=' in caplog.text
 
 
 def make_legacy_point(fixture) -> dict:
