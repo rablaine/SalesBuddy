@@ -8,6 +8,10 @@ brought the change into `main`, so the admin Updates card can show
 Format: `## M/D/YYYY - <merge-short-sha>`. See
 `scripts/tag-changelog.ps1` for the helper that fills this in.
 
+## 10/24/2026
+
+- *Electron Shell Update* - Dim the window controls along with the rest of the app when a modal is open.
+
 ## 10/23/2026 - b3f2c0f7
 
 - Open the app sooner after updates by checking startup readiness more frequently, while keeping database backups and safety checks.

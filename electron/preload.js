@@ -432,6 +432,28 @@ function createFindBar() {
 
 window.addEventListener('DOMContentLoaded', createFindBar);
 
+function shellCaptionOverlay(theme) {
+  const dialogs = [...document.querySelectorAll('dialog:modal')];
+  if (!dialogs.length) return undefined;
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = 1;
+  const context = canvas.getContext('2d', {willReadFrequently: true});
+  const backdrops = dialogs.map(dialog => getComputedStyle(dialog, '::backdrop'));
+  function composite(base) {
+    context.globalAlpha = 1;
+    context.fillStyle = base;
+    context.fillRect(0, 0, 1, 1);
+    for (const backdrop of backdrops) {
+      context.globalAlpha = Number(backdrop.opacity);
+      context.fillStyle = backdrop.backgroundColor;
+      context.fillRect(0, 0, 1, 1);
+    }
+    const pixel = context.getImageData(0, 0, 1, 1).data;
+    return '#' + [...pixel].slice(0, 3).map(n => n.toString(16).padStart(2, '0')).join('');
+  }
+  return {color: composite(theme.color), symbolColor: composite(theme.symbolColor)};
+}
+
 function mountShellTitleBar() {
   if (process.platform !== 'win32' || window !== window.top) return;
   if (document.getElementById('sb-shell-titlebar')) return;
@@ -481,13 +503,14 @@ function mountShellTitleBar() {
   }
   function syncTheme() {
     try {
-      ipcRenderer.send('shell:theme', {
+      const theme = {
         mode: root.dataset.sbMode,
         family: root.dataset.sbFamily,
         color: color('--sb-ui-header'),
         symbolColor: color('--sb-ui-ink'),
         backgroundColor: color('--sb-ui-canvas'),
-      });
+      };
+      ipcRenderer.send('shell:theme', {...theme, captionOverlay: shellCaptionOverlay(theme)});
     } catch (error) {
       console.error('Could not synchronize Sales Buddy shell theme:', error);
     }
@@ -497,6 +520,15 @@ function mountShellTitleBar() {
     if (themeReady) syncTheme();
   }).observe(root, {
     attributes: true, attributeFilter: ['data-sb-mode', 'data-sb-family'],
+  });
+  new MutationObserver(records => {
+    const affectsDialog = node => node.nodeType === 1 &&
+      (node.matches('dialog') || node.querySelector('dialog'));
+    if (themeReady && records.some(record => record.type === 'attributes'
+      ? record.target.matches('dialog')
+      : [...record.addedNodes, ...record.removedNodes].some(affectsDialog))) syncTheme();
+  }).observe(document.body, {
+    childList: true, subtree: true, attributes: true, attributeFilter: ['open', 'class', 'style'],
   });
   new MutationObserver(() => {
     const nextTitle = document.title || 'Sales Buddy';
