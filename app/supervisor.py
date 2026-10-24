@@ -26,6 +26,8 @@ Restart safety:
   Exhaustion stops both children and leaves a durable failed boot status.
 - Initial acceptance and each recovery window have a shared 720-second deadline,
   including bounded offline preflight and schema-stamp verification.
+- Pending readiness is polled every half second; accepted operation and established
+  child health failures retain the normal ten-second polling interval.
 """
 from __future__ import annotations
 
@@ -51,6 +53,7 @@ logger = logging.getLogger(__name__)
 
 # Tunables
 POLL_INTERVAL_SECONDS = 10
+STARTUP_POLL_INTERVAL_SECONDS = 0.5
 STARTUP_GRACE_SECONDS = 360       # five-minute schema lock wait plus startup overhead
 MAX_HEALTH_FAILURES = 3           # consecutive failed probes => hung => restart
 CRASH_LOOP_MAX = 5                # restarts within the window before backoff kicks in
@@ -150,6 +153,7 @@ class StartupStatus:
 
         self.repo = repo
         self.path = startup_path(repo)
+        self._started_at = self._phase_started_at = time.monotonic()
         self.data = {
             'schema_version': 1, 'state': 'starting', 'phase': 'preflight',
             'boot_id': boot_id, 'expected_commit': expected_commit,
@@ -165,6 +169,7 @@ class StartupStatus:
         """Replace status without exception messages or application records."""
         from scripts.upgrade import atomic_json, diagnostic_error
 
+        previous_phase = self.data['phase']
         self.data.update(
             state=state, phase=phase, updated_at=_utc_timestamp(),
             activation_allowed=activation_allowed,
@@ -179,6 +184,14 @@ class StartupStatus:
             details = getattr(error, 'upgrade_diagnostic', None)
             self.data['error'] = details if isinstance(details, dict) else diagnostic_error(error)
         atomic_json(self.path, self.data)
+        if phase != previous_phase:
+            now = time.monotonic()
+            logger.info(
+                'Startup transition: previous_phase=%s phase=%s phase_seconds=%.3f '
+                'total_seconds=%.3f',
+                previous_phase, phase, now - self._phase_started_at, now - self._started_at,
+            )
+            self._phase_started_at = now
 
 
 def _repo_root() -> Path:
@@ -478,6 +491,18 @@ class Supervisor:
             HEALTH_TIMEOUT_SECONDS, self._readiness_deadline - time.monotonic(),
         ))
 
+    def _poll_wait(self) -> float:
+        """Poll pending readiness promptly without shortening hang detection intervals."""
+        wait = self.poll_interval
+        if self._readiness_deadline is not None:
+            established_failure = any(
+                child.startup_complete and child.health_failures for child in self.children
+            )
+            if not established_failure:
+                wait = min(wait, STARTUP_POLL_INTERVAL_SECONDS)
+            wait = min(wait, max(0, self._readiness_deadline - time.monotonic()))
+        return wait
+
     def _publish(self, error: Optional[BaseException] = None) -> None:
         """Publish readiness only when every current child is healthy."""
         ready = bool(self.children) and all(
@@ -596,10 +621,7 @@ class Supervisor:
                     self._check_deadline()
                     self._check(child, now)
                 self._publish()
-                wait = self.poll_interval
-                if self._readiness_deadline is not None:
-                    wait = min(wait, max(0, self._readiness_deadline - time.monotonic()))
-                self.stop_event.wait(wait)
+                self.stop_event.wait(self._poll_wait())
         except Exception as error:
             for child in self.children:
                 child.ready = False

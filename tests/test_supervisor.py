@@ -121,6 +121,80 @@ def test_probes_use_only_remaining_startup_budget(monkeypatch):
         supervisor.probe_timeout()
 
 
+@pytest.mark.parametrize(('accepted', 'established_failure', 'interval', 'expected'), [
+    (False, False, 10, 0.5),
+    (True, False, 10, 10),
+    (False, True, 10, 10),
+    (False, False, 0.1, 0.1),
+    (False, False, 0, 0),
+])
+def test_poll_wait_speeds_startup_without_accelerating_hang_restarts(
+    monkeypatch, accepted, established_failure, interval, expected,
+):
+    """Only pending readiness gets fast polling, never established failure detection."""
+    monkeypatch.setattr(sup.time, 'monotonic', lambda: 0.0)
+    child = FakeChild('web')
+    child.start(now=0)
+    child.startup_complete = established_failure
+    child.health_failures = int(established_failure)
+    supervisor = sup.Supervisor([child], poll_interval=interval)
+    if accepted:
+        supervisor._readiness_deadline = None
+    assert supervisor._poll_wait() == expected
+
+
+def test_fast_poll_wait_still_respects_overall_deadline(monkeypatch):
+    """The half-second startup wait cannot overrun the remaining acceptance budget."""
+    clock = [0.0]
+    monkeypatch.setattr(sup.time, 'monotonic', lambda: clock[0])
+    supervisor = sup.Supervisor([])
+    clock[0] = sup.STARTUP_DEADLINE_SECONDS - 0.125
+    assert supervisor._poll_wait() == 0.125
+
+
+def test_startup_handshake_completes_in_fast_ticks_then_returns_to_normal(
+    monkeypatch, tmp_path, caplog,
+):
+    """Exercise the real run loop through liveness, activation and final acceptance."""
+    clock = [0.0]
+    monkeypatch.setattr(sup.time, 'monotonic', lambda: clock[0])
+    web = FakeChild('web', health=False)
+    worker = FakeChild('worker', health=False)
+    for child in (web, worker):
+        original_start = child.start
+        monkeypatch.setattr(
+            child, 'start', lambda original=original_start: original(now=clock[0]),
+        )
+    status = sup.StartupStatus(tmp_path, 'boot', None)
+    worker.readiness_check = lambda: status.data['activation_allowed']
+    waits = []
+    stopped = False
+
+    def wait(seconds):
+        """Make children live after the first tick and stop after final acceptance."""
+        nonlocal stopped
+        waits.append(seconds)
+        clock[0] += seconds
+        if len(waits) == 1:
+            web._health = worker._health = True
+        elif len(waits) == 2:
+            assert status.data['phase'] == 'activating'
+            assert status.data['children'][1]['ready'] is False
+        else:
+            assert status.data['phase'] == 'ready'
+            stopped = True
+
+    stop_event = SimpleNamespace(is_set=lambda: stopped, wait=wait)
+    with caplog.at_level('INFO', logger='app.supervisor'):
+        sup.Supervisor([web, worker], status=status, stop_event=stop_event).run()
+    assert waits == [0.5, 0.5, 10]
+    assert web.starts == worker.starts == 1
+    assert web.terminates == worker.terminates == 1
+    assert 'phase=activating' in caplog.text
+    assert 'phase=ready' in caplog.text
+    assert 'total_seconds=1.000' in caplog.text
+
+
 def test_startup_timeout_stops_both_children_and_persists_failure(monkeypatch, tmp_path):
     """Overall timeout is terminal even when each child's retry budget remains."""
     import json

@@ -711,6 +711,18 @@ foreign keys, and a second initialization pass. Success requires the new web ser
 and initialized worker, with matching revision, launch identity, process IDs and
 fresh heartbeat. An open port alone does not complete an update.
 
+Pending startup readiness is checked every half second instead of waiting for the
+normal ten-second monitoring tick between worker activation and final acceptance.
+Accepted operation and consecutive health failures in an already initialized child
+keep the normal monitoring interval. Startup deadlines, retry budgets and all
+database safety checks are unchanged.
+
+For startup performance diagnosis, `logs/electron-main.log` records elapsed update
+stages for recovery snapshots, snapshot verification, migration rehearsal and live
+database initialization. `logs/electron-stack.log` records supervisor phase
+transitions with phase and total elapsed seconds. Timings use a monotonic clock
+and contain no application records.
+
 ### If startup or an update fails
 
 The desktop app stops retrying and shows **Sales Buddy needs attention**, even when
