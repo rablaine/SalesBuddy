@@ -123,6 +123,8 @@ opens the existing Windows-native File/Edit/View/Window/Help dropdowns and keeps
 Back/Forward actions and keyboard shortcuts. Once a dropdown is open, moving
 across the menu headings switches dropdowns without another click or a hover dwell.
 Only the open menu stays highlighted while switching.
+Modal backdrops also dim the native window controls, restoring their theme colors
+when the last modal closes.
 Clicking a menu heading while a dropdown is open collapses it.
 The title and menu are mounted before the page's first paint so navigation
 does not briefly expose content underneath the window controls.

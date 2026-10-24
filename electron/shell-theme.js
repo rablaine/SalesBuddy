@@ -1,12 +1,18 @@
 // Only the local app and shell-owned recovery document may update window chrome.
 const TITLE_BAR_HEIGHT = 32;
 
+function validColor(color) {
+  return typeof color === 'string' && /^#[0-9a-f]{6}$/i.test(color);
+}
+
 function validTheme(theme) {
   return theme && ['light', 'dark'].includes(theme.mode) &&
     ['graphite', 'midnight', 'harbor', 'carbon'].includes(theme.family) &&
     ['color', 'symbolColor', 'backgroundColor'].every(
-      key => typeof theme[key] === 'string' && /^#[0-9a-f]{6}$/i.test(theme[key])
-    );
+      key => validColor(theme[key])
+    ) && (theme.captionOverlay === undefined ||
+      (theme.captionOverlay && validColor(theme.captionOverlay.color) &&
+        validColor(theme.captionOverlay.symbolColor)));
 }
 
 function trustedThemeFrame(win, frame, port) {
@@ -42,11 +48,15 @@ function attachShellTheme(win, port, log, onApplied = () => {}) {
     }
     try {
       win.setTitleBarOverlay({
-        color: theme.color, symbolColor: theme.symbolColor, height: TITLE_BAR_HEIGHT,
+        color: theme.captionOverlay?.color || theme.color,
+        symbolColor: theme.captionOverlay?.symbolColor || theme.symbolColor,
+        height: TITLE_BAR_HEIGHT,
       });
       win.setBackgroundColor(theme.backgroundColor);
       win._sbTheme = {mode: theme.mode, family: theme.family};
-      onApplied(theme);
+      // Modal dimming is transient and must not become the next startup palette.
+      const {captionOverlay, ...baseTheme} = theme;
+      onApplied(baseTheme);
     } catch (error) {
       log(`Could not apply shell theme: ${error.message}`);
     }
