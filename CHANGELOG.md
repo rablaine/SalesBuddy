@@ -8,6 +8,10 @@ brought the change into `main`, so the admin Updates card can show
 Format: `## M/D/YYYY - <merge-short-sha>`. See
 `scripts/tag-changelog.ps1` for the helper that fills this in.
 
+## 10/23/2026
+
+- Preview associated notes from a partner page without leaving it, with a link to the full note.
+
 ## 10/23/2026 - 06c59e7f
 
 - Speed up normal updates by leaving Python packages untouched and rebuilding them only when recovery needs it, while keeping database backups and migration checks.
