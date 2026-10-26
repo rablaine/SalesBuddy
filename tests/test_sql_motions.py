@@ -107,6 +107,7 @@ def test_renewals_keep_all_future_dates_and_unknown_amounts(sql_rows):
     assert report['rows'][0]['install_base_cores'] == 64
     assert report['rows'][0]['monthly_opportunity'] == 200
     assert report['notices'] == ['Source caveat']
+    assert report['data_warning'] is None
     assert sql_motions.get_sql_renewals_widget() == report
     assert sql_motions.get_sql_renewals_widget(customer_ids=())['count'] == 0
     assert sql_motions.get_sql_renewals_widget(customer_ids=(stale.id,))['count'] == 0
@@ -139,6 +140,7 @@ def test_eos_uses_exact_version_all_discovered_and_subscription_grain(sql_rows):
     report = sql_motions.get_sql_motion_report('eos')
     assert [row['id'] for row in report['rows']] == [matched.id, smaller.id]
     assert report['discovered_count'] == 12
+    assert report['data_warning'] == sql_motions.SQL_2016_DATA_WARNING
     assert report['rows'][0]['subscription_count'] == 2
     assert len(report['rows'][0]['subscriptions']) == 2
     assert all('expiration_date' not in row and 'expiration_amount' not in row
@@ -261,6 +263,26 @@ def test_report_api_widget_tool_and_scope_parity(client, sql_rows, motion):
     assert page.select_one('#reportExportBtnGroup')
     assert page.select_one('[data-sb-sync-progress="sql-motions"]')
     assert page.select_one('h1').text == report['title']
+    warning = page.select_one('[data-sb-data-quality="incorrect"]')
+    watermark = page.select_one('.sb-sql-data-watermark')
+    assert bool(watermark) == (motion == 'eos')
+    if watermark:
+        assert watermark['aria-hidden'] == 'true'
+        assert watermark.text.strip() == 'DATA INCORRECT'
+        assert 'sb-data-watermark' in watermark['class']
+        assert 'sb-data-watermarked' in watermark.parent['class']
+    if motion == 'eos':
+        assert warning['role'] == 'alert'
+        assert sql_motions.SQL_2016_DATA_WARNING in warning.get_text(' ', strip=True)
+        assert sql_motions.SQL_2016_DATA_WARNING in page.text
+    else:
+        assert warning is None
+    export_script = next(script.text for script in page.select('script')
+                         if 'const EXPORT_WARNING' in script.text)
+    assert (
+        'const EXPORT_WARNING = "SQL Server 2016 data is known to be incorrect.'
+        in export_script
+    ) == (motion == 'eos')
     context_text = page.select_one('.sb-sql-source-context').text
     if motion == 'renewals':
         assert 'SQL license snapshot' in context_text
@@ -290,10 +312,15 @@ def test_report_api_widget_tool_and_scope_parity(client, sql_rows, motion):
         first,
     ]
     assert client.get(f'/api{path}?customer_scope=1').json['count'] == 0
+    assert client.get(f'/api{path}?customer_scope=1').json['data_warning'] == (
+        sql_motions.SQL_2016_DATA_WARNING if motion == 'eos' else None
+    )
     grouped = BeautifulSoup(client.get(
         scoped['destination'] + '&group_by_seller=true',
     ).data, 'html.parser')
     assert len(grouped.select('.db-report-seller-heading')) == 1
+    assert bool(grouped.select_one('[data-sb-data-quality="incorrect"]')) == (motion == 'eos')
+    assert bool(grouped.select_one('.sb-sql-data-watermark')) == (motion == 'eos')
     assert grouped.select_one('.db-report-seller-heading th')['colspan'] == (
         '6' if motion == 'renewals' else '3'
     )
@@ -329,6 +356,14 @@ def test_grouping_validation_and_no_remote_get(client, monkeypatch, motion):
     response = client.get(f'/reports/sql-{motion}')
     assert response.status_code == 200
     assert 'No SQL snapshot yet' in response.text
+    page = BeautifulSoup(response.data, 'html.parser')
+    assert bool(page.select_one('[data-sb-data-quality="incorrect"]')) == (motion == 'eos')
+    assert bool(page.select_one('.sb-sql-data-watermark')) == (motion == 'eos')
+    data = client.get(f'/api/reports/sql-{motion}').json
+    for variant in ('metric', 'detailed'):
+        widget = BeautifulSoup(render_widget('sql_motion', data, variant), 'html.parser')
+        assert bool(widget.select_one('[data-sb-data-quality="incorrect"]')) == (motion == 'eos')
+        assert bool(widget.select_one('.db-sql-data-watermark')) == (motion == 'eos')
 
 
 @pytest.mark.parametrize('motion', ['renewals', 'eos'])
@@ -345,10 +380,26 @@ def test_widget_seller_visibility_only_when_grouped(sql_rows, motion, variant):
     assert 'Source notes in full report.' not in flat.text
     assert 'Source caveat' not in flat.text
     assert not flat.select('.db-report-seller, .db-report-seller-heading')
+    warning = flat.select_one('[data-sb-data-quality="incorrect"]')
+    watermark = flat.select_one('.db-sql-data-watermark')
+    assert bool(watermark) == (motion == 'eos')
+    if watermark:
+        assert watermark['aria-hidden'] == 'true'
+        assert watermark.text == 'DATA INCORRECT'
+        assert 'sb-data-watermark' in watermark['class']
+        assert 'sb-data-watermarked' in watermark.parent['class']
+        assert watermark.parent.has_attr('class')
+        assert 'db-sql-data-incorrect' in watermark.parent['class']
+    assert bool(warning) == (motion == 'eos')
+    if warning:
+        assert warning['role'] == 'alert'
+        assert sql_motions.SQL_2016_DATA_WARNING in warning.get_text(' ', strip=True)
     grouped = BeautifulSoup(
         render_widget('sql_motion', data, variant, group_by_seller=True), 'html.parser',
     )
     assert 'Source notes in full report.' not in grouped.text
+    assert bool(grouped.select_one('[data-sb-data-quality="incorrect"]')) == (motion == 'eos')
+    assert bool(grouped.select_one('.db-sql-data-watermark')) == (motion == 'eos')
     if variant == 'detailed':
         assert len(grouped.select('.db-report-seller')) == 1
         assert grouped.select_one('.db-report-seller-heading th')['colspan'] == '3'
@@ -387,6 +438,11 @@ def test_catalog_shared_readiness_preview_and_navigation(client, sql_rows):
     sql_rows.arc(saved)
     db.session.commit()
     catalog = {item['key']: item for item in get_widget_catalog()}
+    assert catalog['sql.eos']['title'].endswith('(data incorrect)')
+    assert 'Known incorrect data' in catalog['sql.eos']['description']
+    assert '(data incorrect)' not in catalog['sql.renewals']['title']
+    hub = BeautifulSoup(client.get('/reports').data, 'html.parser')
+    assert '(data incorrect)' in hub.select_one('a[href="/reports/sql-eos"]').text
     for motion in ('renewals', 'eos'):
         key = f'sql.{motion}'
         assert WIDGET_SOURCES[key] == ('sql-motions',)

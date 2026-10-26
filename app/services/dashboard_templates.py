@@ -36,7 +36,7 @@ DASHBOARD_TEMPLATES = {
         'subtitle': 'Track and action your FY27 goals and proactively engage your customers',
         'description': (
             'Find Fabric and database acquisition, expansion and modernization prospects, '
-            'upcoming renewals, and SQL 2016 discovery signals.'
+            'and upcoming renewals. The retained SQL 2016 discovery data is incorrect.'
         ),
         'content_width': 'wide',
         'display_style': 'cards',

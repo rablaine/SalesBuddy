@@ -3930,8 +3930,6 @@ def query_pod_ses_from_account(account_id: str) -> Dict[str, Any]:
             filter_query=filter_query,
             top=100
         )
-        from app.services.msx_health_probe import record_msp_accountteams_call
-        record_msp_accountteams_call(result)
         
         if not result.get("success"):
             logger.warning(f"Pod SE query failed: {result.get('error')}")
@@ -3983,8 +3981,6 @@ def find_account_seller(account_id: str) -> Dict[str, Any]:
             filter_query=filter_query,
             top=100
         )
-        from app.services.msx_health_probe import record_msp_accountteams_call
-        record_msp_accountteams_call(result)
         
         if not result.get("success"):
             logger.warning(f"Seller query failed: {result.get('error')}")
@@ -4535,8 +4531,6 @@ def find_my_territories(atu_filter: Optional[str] = None) -> Dict[str, Any]:
             filter_query=f"_msp_systemuserid_value eq {user_id}",
             top=500  # Get up to 500 assignments
         )
-        from app.services.msx_health_probe import record_msp_accountteams_call
-        record_msp_accountteams_call(team_result)
         
         if not team_result.get("success"):
             return team_result
@@ -5045,8 +5039,6 @@ def get_pod_team_members(sample_account_id: str) -> Dict[str, Any]:
             filter_query=f"_msp_accountid_value eq {sample_account_id}",
             top=50
         )
-        from app.services.msx_health_probe import record_msp_accountteams_call
-        record_msp_accountteams_call(team_result)
         
         if not team_result.get("success"):
             return team_result

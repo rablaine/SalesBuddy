@@ -299,9 +299,9 @@ WIDGET_DEFINITIONS = {
             supported_filters=(*FILTER_LABELS, 'group_by_seller'), specialty='data',
         ),
         WidgetDefinition(
-            'sql.eos', 'SQL 2016 EOS / ESU',
-            'Customers with explicit SQL Server 2016 discovery. ESU protection is unknown. '
-            'One shared SQL Motions sync also loads renewals.',
+            'sql.eos', 'SQL 2016 EOS / ESU (data incorrect)',
+            'Known incorrect data. Do not rely on the SQL 2016 counts or customer lists. '
+            'Retained for reference; the shared SQL Motions sync also loads renewals.',
             'SQL 2016 EOS / ESU', _report_variants('partials/widgets/sql_motion.html'),
             get_sql_eos_widget, scope='SQL Server 2016 / Arc All Discovered',
             supported_filters=(*FILTER_LABELS, 'group_by_seller'), specialty='data',

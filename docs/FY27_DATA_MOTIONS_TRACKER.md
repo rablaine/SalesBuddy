@@ -209,6 +209,11 @@ boundaries. Manual workflows and data limitations below are not a follow-up back
 
 ### 10. [x] SQL 2016 EOS / ESU
 
+- **Known data issue:** SQL Server 2016 counts and customer lists are incorrect.
+  Do not rely on them. The report, both widget variants, SalesIQ/API and exports
+  retain a visible warning. Saved records, widget keys and the shared SQL Motions
+  sync remain intact to preserve SQL Renewals and existing dashboards.
+
 - [x] Coded
 - [x] Added to dashboard
 - **Starting scope:** Explicit SQL Server 2016 version observations with positive

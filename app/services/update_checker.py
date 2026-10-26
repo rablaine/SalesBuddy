@@ -249,6 +249,42 @@ def get_changelog_state() -> dict:
         }
 
 
+def get_commit_dates(commits: list[str]) -> dict[str, str | None]:
+    """Resolve full or unambiguous abbreviated hashes to recorded Git commit dates."""
+    dates: dict[str, str | None] = {commit: None for commit in commits}
+    prefixes = {
+        commit: commit.lower() for commit in dates
+        if re.fullmatch(r'[0-9a-fA-F]{7,40}', commit)
+    }
+    if not prefixes:
+        return dates
+    try:
+        result = subprocess.run(
+            ['git', 'log', '--all', '--format=%H%x09%cs'],
+            capture_output=True, text=True, timeout=5, check=True, cwd=_get_repo_root(),
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        logger.warning('Commit date lookup failed: %s', type(exc).__name__)
+        return dates
+
+    history = {}
+    for line in result.stdout.splitlines():
+        commit, separator, commit_date = line.partition('\t')
+        if not separator or not re.fullmatch(r'[0-9a-f]{40}', commit) or not re.fullmatch(
+            r'\d{4}-\d{2}-\d{2}', commit_date,
+        ):
+            logger.warning('Commit date lookup returned malformed Git history')
+            continue
+        history[commit] = commit_date
+    for commit, prefix in prefixes.items():
+        matches = [sha for sha in history if sha.startswith(prefix)]
+        if len(matches) == 1:
+            dates[commit] = history[matches[0]]
+        else:
+            logger.info('No unique Git history match for boot commit %s', commit)
+    return dates
+
+
 def get_local_head_date() -> str | None:
     """Return the commit date (YYYY-MM-DD) of the local HEAD, or None."""
     try:

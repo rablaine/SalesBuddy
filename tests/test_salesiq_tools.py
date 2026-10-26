@@ -74,6 +74,10 @@ class TestToolCoverage:
         """Customer history has a read tool over the same paginated event feed."""
         assert 'get_customer_timeline' in self._tool_names()
 
+    def test_usage_metrics_tool_exists(self):
+        """App adoption insights stay queryable through the shared read registry."""
+        assert 'get_usage_metrics' in self._tool_names()
+
     # -- Core entities -------------------------------------------------------
 
     def test_customer_tool_exists(self):

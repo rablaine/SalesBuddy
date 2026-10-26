@@ -52,6 +52,27 @@
     outline-offset: 3px;
 }
 
+.sb-data-watermarked { position: relative; isolation: isolate; container-type: inline-size; }
+.sb-data-watermark {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    display: grid;
+    place-items: center;
+    color: var(--sb-ui-warning);
+    opacity: 0.25;
+    pointer-events: none;
+    user-select: none;
+}
+.sb-data-watermark span {
+    font-size: clamp(20px, 8cqw, 72px);
+    font-weight: 800;
+    line-height: 1;
+    letter-spacing: 0.08em;
+    white-space: nowrap;
+    transform: rotate(-18deg);
+}
+
 .sb-status-strip {
     border-bottom: 1px solid var(--sb-ui-line);
     background: var(--sb-ui-context);

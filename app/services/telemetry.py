@@ -15,6 +15,7 @@ use?" or "which API calls fail most often?"
 """
 from __future__ import annotations
 
+import logging
 import os
 import time
 from typing import Optional
@@ -23,6 +24,7 @@ from urllib.parse import urlparse
 from flask import Flask, Request, g, request
 from werkzeug.wrappers import Response
 
+logger = logging.getLogger(__name__)
 
 # ===========================================================================
 # Category mapping -- keeps the analytics view clean
@@ -116,6 +118,22 @@ def _should_log(path: str) -> bool:
     return not any(path.startswith(prefix) for prefix in _EXCLUDE_PREFIXES)
 
 
+def _is_page_view(req: Request, response: Response) -> bool:
+    """Count successful HTML documents, including user-opened record dialogs, not fragments."""
+    if (
+        req.method != 'GET'
+        or req.path.startswith('/api/')
+        or req.url_rule is None
+        or not 200 <= response.status_code < 300
+        or response.mimetype != 'text/html'
+        or response.is_streamed
+        or 'prefetch' in (req.headers.get('Sec-Purpose', '') + req.headers.get('Purpose', ''))
+    ):
+        return False
+    prefix = response.get_data()[:512].lstrip().lower()
+    return prefix.startswith(b'<!doctype html') or prefix.startswith(b'<html')
+
+
 def _extract_entity(req: Request) -> tuple[Optional[str], Optional[int]]:
     """Extract entity_type and entity_id from the current request.
 
@@ -207,6 +225,7 @@ def init_telemetry(app: Flask) -> None:
             db.session.add(event)
             db.session.commit()
         except Exception:
+            logger.exception('Could not record local request telemetry')
             # Telemetry must never break the actual request.
             try:
                 from app.models import db
@@ -232,8 +251,10 @@ def init_telemetry(app: Flask) -> None:
                 is_api=is_api,
                 app_mode=app_mode,
                 feature=request.endpoint or '',
+                page=request.url_rule.rule if request.url_rule else '',
+                is_page_view=_is_page_view(request, response),
             )
         except Exception:
-            pass  # Central telemetry must never break the request
+            logger.exception('Could not queue central request telemetry')
 
         return response

@@ -8,6 +8,12 @@ brought the change into `main`, so the admin Updates card can show
 Format: `## M/D/YYYY - <merge-short-sha>`. See
 `scripts/tag-changelog.ps1` for the helper that fills this in.
 
+## 10/26/2026
+
+- Fix customer contact Auto-fill results and keep long contact review lists scrollable.
+- Rework usage metrics around daily activity, install versions and commit dates, roles, specialties and page popularity. Retire the account-team availability check and reuse existing sign-ins without automatic prompts.
+- Flag incorrect SQL Server 2016 data in reports, widgets, SalesIQ and exports without disrupting SQL Renewals or saved dashboards.
+
 ## 10/26/2026 - 92592f3d
 
 - Remember dashboard filters and reapply them to widget data when returning from a report or reopening the dashboard.
@@ -589,7 +595,7 @@ Format: `## M/D/YYYY - <merge-short-sha>`. See
 
 ## 5/7/2026 - 95517f9
 
-- Improved the MSX Account Team endpoint probe. Probes now return in seconds instead of minutes when the endpoint is hung, classify timeouts as real failures (not VPN drops), and every real account-sync call to the same endpoint now contributes a free up/down signal to telemetry.
+- Improved account-sync availability reporting (retired in the usage metrics update).
 
 ## 5/6/2026 - 3aee1d7
 
@@ -601,7 +607,7 @@ Format: `## M/D/YYYY - <merge-short-sha>`. See
 
 ## 5/5/2026 - 6506fe0
 
-- Added background telemetry that probes the MSX Account Teams endpoint hourly so we can monitor when the recurring outage is happening.
+- Added service availability telemetry (retired in the usage metrics update).
 
 ## 5/5/2026 - d79313e
 

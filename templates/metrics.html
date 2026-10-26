@@ -27,27 +27,24 @@
     font-size: 0.85rem;
   }
 
-  .probe-bar { display: flex; align-items: stretch; gap: 1px; height: 18px; }
-  .probe-bar-cell { flex: 1; min-width: 4px; border-radius: 1px; }
-  .probe-bar-cell.ok { background: #28a745; }
-  .probe-bar-cell.outage { background: #dc3545; }
-  .probe-bar-cell.skipped_no_token { background: #adb5bd; }
-  .probe-bar-cell.skipped_no_vpn { background: #6c757d; }
-  .probe-bar-cell.error { background: #ffc107; }
-  .probe-bar-cell.no-data { background: #e9ecef; }
-  [data-bs-theme="dark"] .probe-bar-cell.no-data { background: #343a40; }
+  .uptime-bar { display: flex; align-items: stretch; gap: 1px; height: 18px; }
+  .uptime-bar-cell { flex: 1; min-width: 4px; border-radius: 1px; }
+  .uptime-bar-cell.ok { background: #28a745; }
+  .uptime-bar-cell.outage { background: #dc3545; }
+  .uptime-bar-cell.no-data { background: #e9ecef; }
+  [data-bs-theme="dark"] .uptime-bar-cell.no-data { background: #343a40; }
 
-  .probe-status-banner {
+  .metric-status-banner {
     padding: 1rem 1.25rem;
     border-radius: 4px;
     margin-bottom: 1rem;
     font-size: 1rem;
   }
-  .probe-status-banner.healthy { background: var(--sb-ui-selection, #d4edda); color: var(--sb-ui-accent, #155724); border: 1px solid var(--sb-ui-line, #c3e6cb); }
-  .probe-status-banner.outage  { background: var(--sb-ui-danger-bg, #f8d7da);  color: var(--sb-ui-danger, #721c24);  border: 1px solid var(--sb-ui-danger, #f5c6cb); }
-  .probe-status-banner.no-data,
-  .probe-status-banner.unknown { background: var(--sb-ui-context, #e2e3e5); color: var(--sb-ui-muted, #383d41); border: 1px solid var(--sb-ui-line, #d6d8db); }
-  .probe-status-banner.loading { background: var(--sb-ui-context); color: var(--sb-ui-muted); border: 1px dashed var(--sb-ui-line); }
+  .metric-status-banner.healthy { background: var(--sb-ui-selection, #d4edda); color: var(--sb-ui-accent, #155724); border: 1px solid var(--sb-ui-line, #c3e6cb); }
+  .metric-status-banner.outage  { background: var(--sb-ui-danger-bg, #f8d7da);  color: var(--sb-ui-danger, #721c24);  border: 1px solid var(--sb-ui-danger, #f5c6cb); }
+  .metric-status-banner.no-data,
+  .metric-status-banner.unknown { background: var(--sb-ui-context, #e2e3e5); color: var(--sb-ui-muted, #383d41); border: 1px solid var(--sb-ui-line, #d6d8db); }
+  .metric-status-banner.loading { background: var(--sb-ui-context); color: var(--sb-ui-muted); border: 1px dashed var(--sb-ui-line); }
 
   .legend-dot { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: middle; }
 
@@ -57,6 +54,14 @@
     padding: 0.5rem 0;
   }
   .sb-admin-loading .sb-admin-busy { width: 1rem; height: 1rem; border-width: .15em; vertical-align: -2px; margin-right: 6px; }
+  .metric-definitions { margin: 16px 0; color: var(--sb-ui-muted); font-size: 13px; }
+  .metric-summary { display: flex; gap: 32px; margin: 0; flex-wrap: wrap; }
+  .metric-summary div { min-width: 140px; }
+  .metric-summary dt { color: var(--sb-ui-muted); font-size: 12px; font-weight: 400; }
+  .metric-summary dd { margin: 0; font-size: 24px; font-variant-numeric: tabular-nums; }
+  [data-card="install_inventory"] .sb-admin-table-region { max-height: 480px; overflow: auto; }
+  [data-card="install_inventory"] td { overflow-wrap: anywhere; }
+  [data-card="install_inventory"] :is(th, td):nth-child(-n+2) { max-width: 300px; }
 </style>
 {% endblock %}
 
@@ -104,15 +109,56 @@
   </div>
 </div>
 
-<!-- 1. DAU card (top of page - this is the headline metric) -->
+<p class="metric-definitions">
+  DAU means unique anonymous installs opening at least one successful page in a UTC day.
+  Background sync, polling, redirects, failed requests and install profiles do not count.
+  Record dialogs count as page opens; background HTML fragments do not.
+  These are installs, not identifiable people. The selected range includes today.
+  Page-based activity starts with this telemetry update; older request traffic is not backfilled.
+  Reporting installs include background-only installs; their last active time stays empty.
+  Versions are the full Git commit loaded at startup, not an un-restarted checkout.
+  Unknown roles and specialties remain explicit for older installs.
+</p>
 <section class="sb-admin-section metric-card">
-  <div class="sb-admin-section-heading">Daily active users</div>
+  <h2 class="sb-admin-section-heading">Usage overview</h2>
+  <div class="sb-admin-section-content">
+    <div data-card="activity_summary" data-render="activity_summary" class="sb-admin-loading">
+      <span class="sb-admin-busy" role="status"></span>Loading...
+    </div>
+  </div>
+</section>
+
+<section class="sb-admin-section metric-card">
+  <div class="sb-admin-section-heading">Daily active installs (DAU)</div>
   <div class="sb-admin-section-content">
     <div data-card="dau" data-render="dau_line" class="sb-admin-loading">
       <span class="sb-admin-busy" role="status"></span>Loading...
     </div>
   </div>
 </section>
+
+{% for key, title in [
+  ('page_loads', 'Pages opened - total loads and unique active installs'),
+  ('install_inventory', 'Unique installs - version, role, specialty and last activity'),
+  ('installs_by_role', 'Reporting installs by role'),
+  ('se_specialties', 'SE specialty mix - sellers excluded'),
+  ('app_versions', 'Latest version per reporting install'),
+] %}
+<section class="sb-admin-section metric-card">
+  <h2 class="sb-admin-section-heading">{{ title }}</h2>
+  <div class="sb-admin-section-content">
+    <div data-card="{{ key }}" class="sb-admin-loading">
+      <span class="sb-admin-busy" role="status"></span>Loading...
+    </div>
+    {% if key == 'app_versions' %}
+    <p class="sb-admin-small sb-admin-text-muted sb-admin-mt-2 sb-admin-mb-0">
+      Commit dates come from local Git history, not push times. Unknown means no unique
+      commit match is available.
+    </p>
+    {% endif %}
+  </div>
+</section>
+{% endfor %}
 
 <!-- 2. WorkIQ uptime card -->
 <section class="sb-admin-section metric-card">
@@ -121,7 +167,7 @@
     <small class="sb-admin-text-muted">last {{ days }}d</small>
   </div>
   <div class="sb-admin-section-content">
-    <div id="workiq-summary" class="probe-status-banner loading">
+    <div id="workiq-summary" class="metric-status-banner loading">
       <span class="sb-admin-busy sb-admin-busy-small" role="status"></span>
       Loading WorkIQ status...
     </div>
@@ -146,49 +192,14 @@
   </div>
 </section>
 
-<!-- 3. MSX Account Teams probe -->
-<section class="sb-admin-section metric-card">
-  <div class="sb-admin-section-heading sb-admin-d-flex sb-admin-align-items-center sb-admin-justify-content-between">
-    <span><i class="bi bi-shield-check"></i> MSX Account Teams probe</span>
-    <small class="sb-admin-text-muted">last {{ days }}d</small>
-  </div>
-  <div class="sb-admin-section-content">
-    <div id="probe-summary" class="probe-status-banner loading">
-      <span class="sb-admin-busy sb-admin-busy-small" role="status"></span>
-      Loading probe status...
-    </div>
-    <div class="sb-admin-grid">
-      <div class="sb-admin-col-md-4">
-        <h6 class="sb-admin-text-muted sb-admin-mb-2">Result counts</h6>
-        <div data-card="probe_status" class="sb-admin-loading">
-          <span class="sb-admin-busy" role="status"></span>Loading...
-        </div>
-      </div>
-      <div class="sb-admin-col-md-8">
-        <h6 class="sb-admin-text-muted sb-admin-mb-2">Hourly timeline</h6>
-        <div data-card="probe_timeline" data-render="probe_timeline" class="sb-admin-loading">
-          <span class="sb-admin-busy" role="status"></span>Loading...
-        </div>
-      </div>
-    </div>
-    <hr>
-    <h6 class="sb-admin-text-muted sb-admin-mb-2">Recent probe events</h6>
-    <div data-card="probe_recent" class="sb-admin-loading">
-      <span class="sb-admin-busy" role="status"></span>Loading...
-    </div>
-  </div>
-</section>
-
 {% set ported_cards = [
-  ('installs_by_role', 'Installs by role (last 30d)', None),
   ('flag_adoption',    'Feature flag adoption (last 30d)', None),
   ('adoption_by_role', 'Adoption by role: SE vs DSS (last 30d)', None),
   ('entity_counts',    'Entity-count distribution by role (last 30d)', None),
-  ('top_features',     'Top 30 features', None),
+  ('top_features',     'Top 30 request endpoints - includes API and background activity', None),
   ('reports',          'Reports - which ones get opened', None),
   ('power_features',   'Power-feature adoption', None),
   ('errors',           'Error rate & latency by feature', None),
-  ('app_versions',     'App version distribution (last 30d)', None),
 ] %}
 
 {% for key, title, render_mode in ported_cards %}
@@ -249,13 +260,22 @@
       return '<p class="sb-admin-text-muted sb-admin-small sb-admin-mb-0">No data in window.</p>';
     }
     const cols = Object.keys(rows[0]);
-    const types = cols.map(c => rows.every(r => r[c] == null ||
+    const types = cols.map(c => c === 'commit_date' ? 'date' : rows.every(r => r[c] == null ||
       typeof r[c] === 'number') ? 'number' : 'text');
+    const labels = {
+      instance_id: 'Anonymous install', app_version: 'Boot commit', user_role: 'Role',
+      se_specialty: 'SE specialty', last_seen_utc: 'Last seen (UTC)',
+      last_active_utc: 'Last page activity (UTC)', page_loads: 'Page loads',
+      active_installs: 'Active installs', feature: 'Page / endpoint', page: 'Route template',
+      commit_date: 'Commit date',
+    };
     const head = cols.map((c, i) =>
-      `<th data-sb-sort-type="${types[i]}">${escapeHtml(c)}</th>`).join('');
+      `<th data-sb-sort-type="${types[i]}">${escapeHtml(labels[c] || c.replace(/_/g, ' '))}</th>`).join('');
     const body = rows.map(r => {
-      const cells = cols.map(c =>
-        `<td data-sb-sort-value="${escapeHtml(r[c])}">${escapeHtml(r[c])}</td>`).join('');
+      const cells = cols.map(c => {
+        const value = c === 'commit_date' && r[c] == null ? 'Unknown' : r[c];
+        return `<td data-sb-sort-value="${escapeHtml(r[c])}">${escapeHtml(value)}</td>`;
+      }).join('');
       return `<tr>${cells}</tr>`;
     }).join('');
     return `
@@ -268,36 +288,17 @@
       </div>`;
   }
 
-  function renderProbeTimeline(rows) {
-    if (!rows || rows.length === 0) {
-      return '<p class="sb-admin-text-muted sb-admin-small sb-admin-mb-0">No probe events yet in this window.</p>';
-    }
-    const cells = rows.map(r => {
-      const result = r.result || 'error';
-      const tip = `${escapeHtml(r.timestamp)} - ${escapeHtml(result)} (${escapeHtml(r.events)})`;
-      return `<div class="probe-bar-cell ${escapeHtml(result)}" title="${tip}"></div>`;
-    }).join('');
-    return `
-      <div class="probe-bar sb-admin-mb-2">${cells}</div>
-      <div class="sb-admin-small sb-admin-text-muted">
-        <span class="legend-dot" style="background:#28a745;"></span> ok
-        <span class="legend-dot" style="background:#dc3545; margin-left:8px;"></span> outage
-        <span class="legend-dot" style="background:#adb5bd; margin-left:8px;"></span> no token
-        <span class="legend-dot" style="background:#6c757d; margin-left:8px;"></span> no vpn
-        <span class="legend-dot" style="background:#ffc107; margin-left:8px;"></span> error
-      </div>`;
+  function renderActivitySummary(rows) {
+    const row = rows && rows[0];
+    if (!row) return '<p class="sb-admin-text-muted">No page activity in this window.</p>';
+    return '<dl class="metric-summary">' + [
+      ['Active today (UTC)', row.active_today],
+      ['Active in selected range', row.active_installs],
+      ['Page loads in selected range', row.page_loads],
+    ].map(([label, value]) =>
+      `<div><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value ?? 0)}</dd></div>`
+    ).join('') + '</dl>';
   }
-
-  function renderProbeSummary(summary) {
-    const banner = document.getElementById('probe-summary');
-    if (!banner || !summary) return;
-    banner.className = 'probe-status-banner ' + (summary.state || 'unknown');
-    banner.innerHTML = `
-      <strong>${escapeHtml(summary.label)}</strong>
-      <div class="sb-admin-small">${escapeHtml(summary.detail)}</div>
-    `;
-  }
-
   // WorkIQ uptime: bucket the (timestamp, status, events) rows into one
   // cell per hour across the window. Each cell is colored by the worst
   // status we saw that hour (server_down > ok > no data) so a single
@@ -338,9 +339,9 @@
         cls = 'no-data';
         tip = `${iso}:00 - no calls`;
       }
-      cells.push(`<div class="probe-bar-cell ${cls}" title="${escapeHtml(tip)}"></div>`);
+      cells.push(`<div class="uptime-bar-cell ${cls}" title="${escapeHtml(tip)}"></div>`);
     }
-    return `<div class="probe-bar sb-admin-mb-2">${cells.join('')}</div>`;
+    return `<div class="uptime-bar sb-admin-mb-2">${cells.join('')}</div>`;
   }
 
   function renderWorkIQSummary(rows) {
@@ -348,7 +349,7 @@
     if (!banner) return;
     const r = (rows && rows[0]) || null;
     if (!r || r.total === 0 || r.total === null) {
-      banner.className = 'probe-status-banner no-data';
+      banner.className = 'metric-status-banner no-data';
       banner.innerHTML = '<strong>No WorkIQ calls in this window.</strong>';
       return;
     }
@@ -357,7 +358,7 @@
     let state = 'healthy';
     if (down > 0 && pct !== null && pct < 99) state = 'outage';
     else if (down > 0) state = 'unknown';
-    banner.className = 'probe-status-banner ' + state;
+    banner.className = 'metric-status-banner ' + state;
     banner.innerHTML = `
       <strong>${escapeHtml(pct)}% uptime</strong>
       <div class="sb-admin-small">${escapeHtml(r.ok)} ok / ${escapeHtml(down)} server_down across ${escapeHtml(r.total)} calls</div>
@@ -398,9 +399,15 @@
 
     // Format date labels using UTC because the KQL bins by UTC day. A
     // local-tz format would show "4/28" for the 4/29 UTC bin in PST.
+    const weekdayFormatter = new Intl.DateTimeFormat('en-US', {
+      weekday: 'short', timeZone: 'UTC',
+    });
+    const tooltipFormatter = new Intl.DateTimeFormat('en-US', {
+      weekday: 'long', month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC',
+    });
     const labels = dates.map(d => {
       const dt = new Date(d);
-      return (dt.getUTCMonth() + 1) + '/' + dt.getUTCDate();
+      return [weekdayFormatter.format(dt), (dt.getUTCMonth() + 1) + '/' + dt.getUTCDate()];
     });
 
     const totalData = dates.map(d => {
@@ -453,11 +460,14 @@
             // Shared tooltip showing every series for the hovered day.
             mode: 'index',
             intersect: false,
+            callbacks: {
+              title: items => tooltipFormatter.format(new Date(dates[items[0].dataIndex])) + ' (UTC)',
+            },
           },
         },
         scales: {
           x: {
-            ticks: { color: colors.muted, autoSkip: false, maxRotation: 0 },
+            ticks: { color: colors.muted, autoSkip: true, maxTicksLimit: 14, maxRotation: 0 },
             grid: { color: colors.grid },
           },
           y: {
@@ -483,12 +493,6 @@
     dauChart.update('none');
   }).observe(document.documentElement, {attributes: true, attributeFilter: ['data-sb-mode']});
 
-  function probeUnavailable(message) {
-    const banner = document.getElementById('probe-summary');
-    banner.className = 'probe-status-banner unknown';
-    banner.textContent = message;
-  }
-
   function loadCard(el) {
     const cardId = el.getAttribute('data-card');
     const renderMode = el.getAttribute('data-render');
@@ -499,8 +503,8 @@
           el.innerHTML = renderAuthRequired();
         } else if (data.error) {
           el.innerHTML = renderError(data.error);
-        } else if (renderMode === 'probe_timeline') {
-          el.innerHTML = renderProbeTimeline(data.rows);
+        } else if (renderMode === 'activity_summary') {
+          el.innerHTML = renderActivitySummary(data.rows);
         } else if (renderMode === 'workiq_uptime') {
           el.innerHTML = renderWorkIQTimeline(data.rows);
         } else if (renderMode === 'dau_line') {
@@ -508,15 +512,9 @@
         } else {
           el.innerHTML = renderTable(data.rows, cardId);
         }
-        if (data.summary) {
-          renderProbeSummary(data.summary);
-        } else if (cardId === 'probe_status' && (data.error || data.auth_required)) {
-          probeUnavailable(data.error || 'Sign in to view probe status.');
-        }
       })
       .catch(err => {
         el.innerHTML = renderError('Network error: ' + err.message);
-        if (cardId === 'probe_status') probeUnavailable('Could not load probe status. ' + err.message);
       });
   }
 
@@ -526,6 +524,7 @@
       el.classList.add('sb-admin-loading');
     });
     document.querySelectorAll('[data-card]').forEach(loadCard);
+    loadWorkIQSummary();
   }
 
   // Sign-in flow: spawn az login, then poll a card endpoint until the
@@ -552,12 +551,15 @@
         const maxTries = 60;  // ~5 min at 5s intervals
         const poll = () => {
           tries++;
-          fetch(`/api/metrics/card/probe_status?days=1`, { credentials: 'same-origin' })
+          fetch(`/api/metrics/card/activity_summary?days=1`, { credentials: 'same-origin' })
             .then(r => r.json())
             .then(d => {
-              if (!d.auth_required) {
+              if (!d.auth_required && !d.error) {
                 status.textContent = 'Signed in! Reloading...';
                 setTimeout(reloadAllCards, 400);
+              } else if (d.error && !d.auth_required) {
+                status.textContent = 'Query failed: ' + d.error;
+                btn.disabled = false;
               } else if (tries < maxTries) {
                 setTimeout(poll, 5000);
               } else {
@@ -565,8 +567,12 @@
                 btn.disabled = false;
               }
             })
-            .catch(() => {
+            .catch(error => {
               if (tries < maxTries) setTimeout(poll, 5000);
+              else {
+                status.textContent = 'Could not check sign-in: ' + error.message;
+                btn.disabled = false;
+              }
             });
         };
         setTimeout(poll, 5000);
@@ -592,7 +598,8 @@
   // Fetch the WorkIQ uptime summary independently to populate the
   // banner above the timeline. It uses its own card endpoint rather
   // than piggybacking on the timeline so the calculations stay in KQL.
-  fetch(`/api/metrics/card/workiq_uptime_summary?days=${DAYS}`, { credentials: 'same-origin' })
+  function loadWorkIQSummary() {
+    fetch(`/api/metrics/card/workiq_uptime_summary?days=${DAYS}`, { credentials: 'same-origin' })
     .then(r => r.json())
     .then(data => {
       if (!data.error && !data.auth_required) {
@@ -600,16 +607,18 @@
       } else {
         const banner = document.getElementById('workiq-summary');
         if (banner) {
-          banner.className = 'probe-status-banner unknown';
+          banner.className = 'metric-status-banner unknown';
           banner.textContent = data.error || 'Sign in to view WorkIQ uptime.';
         }
       }
     })
     .catch(error => {
       const banner = document.getElementById('workiq-summary');
-      banner.className = 'probe-status-banner unknown';
+      banner.className = 'metric-status-banner unknown';
       banner.textContent = 'Could not load WorkIQ uptime. ' + error.message;
     });
+  }
+  loadWorkIQSummary();
 })();
 </script>
 {% endblock %}
