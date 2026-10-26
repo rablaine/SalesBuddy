@@ -8,7 +8,7 @@ brought the change into `main`, so the admin Updates card can show
 Format: `## M/D/YYYY - <merge-short-sha>`. See
 `scripts/tag-changelog.ps1` for the helper that fills this in.
 
-## 10/26/2026
+## 10/26/2026 - 891e947a
 
 - Fix customer contact Auto-fill results and keep long contact review lists scrollable.
 - Rework usage metrics around daily activity, install versions and commit dates, roles, specialties and page popularity. Retire the account-team availability check and reuse existing sign-ins without automatic prompts.
