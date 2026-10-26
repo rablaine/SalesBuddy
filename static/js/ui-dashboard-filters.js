@@ -71,6 +71,11 @@
         let panelWasOpen = false;
         let selectedSignature = '';
         let panelOpener = null;
+        let storageError = '';
+        const storageKey = 'sb.dashboard.filters.'
+            + document.querySelector('.sb-dashboards').dataset.dashboardId;
+        const explicitLive = Object.keys(liveLabels).some(key =>
+            new URLSearchParams(global.location.search).has(key));
         const panel = document.getElementById('dashboardFiltersPanel');
         const openPanelButton = document.getElementById('openDashboardFilters');
         const widgetPanelButton = document.getElementById('openWidgetFilters');
@@ -255,9 +260,44 @@
         }
 
         function showStatus(message, error = false) {
+            if (!message && storageError) {
+                message = storageError;
+                error = true;
+            }
             status.textContent = message;
             status.hidden = !message;
             status.classList.toggle('is-error', error);
+        }
+
+        function saveLive() {
+            if (settings.editing) return;
+            try {
+                global.localStorage.setItem(storageKey, JSON.stringify(live));
+                storageError = '';
+            } catch (error) {
+                console.error('Dashboard filter storage:', error);
+                storageError = 'Could not remember dashboard filters. '
+                    + 'They apply on this page only. ' + error.message;
+                showStatus(storageError, true);
+            }
+        }
+
+        function restoreLive() {
+            if (settings.editing || explicitLive) return;
+            try {
+                const stored = global.localStorage.getItem(storageKey);
+                const restored = stored === null ? liveSelections(settings.live)
+                    : liveSelections(JSON.parse(stored));
+                const before = JSON.stringify(live);
+                live = restored;
+                renderLive();
+                if (before !== JSON.stringify(live)) refresh();
+            } catch (error) {
+                console.error('Dashboard filter storage:', error);
+                storageError = 'Could not restore dashboard filters. '
+                    + 'Current selections are unchanged. ' + error.message;
+                showStatus(storageError, true);
+            }
         }
 
         function context(filters) {
@@ -331,6 +371,7 @@
                         liveSignature = JSON.stringify([keys, live, config.scope]);
                         updateCoverage();
                         refresh();
+                        saveLive();
                     }, {live: true, emptyLabel: key => Object.values(config.scope).some(ids => ids.length)
                         ? 'All allowed ' + (key === 'customer_ids' ? 'customers' : 'sellers')
                         : 'All ' + (key === 'customer_ids' ? 'customers' : 'sellers')}));
@@ -497,8 +538,14 @@
             live = empty();
             renderLive();
             refresh();
+            saveLive();
         });
         restore(config);
+        restoreLive();
+        global.addEventListener('pageshow', restoreLive);
+        global.addEventListener('storage', event => {
+            if (event.key === storageKey || event.key === null) restoreLive();
+        });
     }
 
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);

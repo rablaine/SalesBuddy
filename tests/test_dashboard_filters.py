@@ -401,6 +401,9 @@ def test_published_filter_rail_is_available_only_with_enabled_supported_controls
     assert rail['aria-controls'] == 'dashboardFiltersPanel'
     assert rail.select_one('#dashboardFilterCount').has_attr('hidden')
     assert page.select_one('#dashboardViewerScope')
+    assert 'remembered for this dashboard in this browser' in page.select_one(
+        '#dashboardTemporaryFilterHint',
+    ).get_text()
     assert not page.select_one('#dashboardFilterTabs, #dashboardScopeControls')
     assert not page.select_one('.db-dashboard #dashboardLiveControls')
 

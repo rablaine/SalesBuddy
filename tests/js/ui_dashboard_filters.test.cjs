@@ -84,7 +84,7 @@ test('drafts preserve grouping availability, not the current viewer grouping sel
     assert.throws(() => validate(current), /filter/);
 });
 
-function filterUI(editing = true, liveFilters = ['customer_ids', 'seller_ids']) {
+function filterUI(editing = true, liveFilters = ['customer_ids', 'seller_ids'], options = {}) {
     const all = [];
     const document = {
         readyState: 'complete',
@@ -92,12 +92,16 @@ function filterUI(editing = true, liveFilters = ['customer_ids', 'seller_ids']) 
         createTextNode(text) { return {textContent: text}; },
         querySelectorAll(selector) {
             if (selector === '[data-live-filter]') return inputs;
+            if (selector === '#dashboardCanvas [data-widget-id]') return tiles;
             if (selector === '.db-filter-picker[open]') {
                 return all.filter(node => node.className === 'db-filter-picker' && node.open);
             }
             return [];
         },
         querySelector(selector) {
+            if (selector === '.sb-dashboards') {
+                return {dataset: {dashboardId: options.dashboardId || '5'}};
+            }
             return inputs.find(input => selector.includes(input.dataset.liveFilter));
         },
     };
@@ -174,7 +178,31 @@ function filterUI(editing = true, liveFilters = ['customer_ids', 'seller_ids']) 
     }
     document.getElementById = id => nodes[id] || null;
     let refreshes = 0;
-    const global = {document, console, SBDashboardEditor: {
+    const storage = options.storage || new Map();
+    const events = {};
+    const requests = [];
+    const rendered = [];
+    const tiles = options.tiles ? [1, 2].map(id => ({
+        dataset: {widgetKey: 'test.widget', variant: 'detailed', columnSpan: '6',
+            widgetId: String(id), widgetFilters: JSON.stringify({customer_ids: [id]})},
+        querySelector() { return {remove() {}}; },
+        insertAdjacentHTML(position, html) { rendered.push(html); },
+    })) : [];
+    const global = {document, console, location: {search: options.search || ''},
+        SBConnectGoals: {destroy() {}, init() {}},
+        async fetch(url) {
+            requests.push(new URLSearchParams(url.split('?')[1]));
+            return {ok: true, json: async () => ({success: true, html: '<p>Filtered</p>'})};
+        },
+        addEventListener(type, handler) { events[type] = handler; },
+        localStorage: {
+            getItem(key) { return storage.get(key) ?? null; },
+            setItem(key, value) {
+                if (options.storageFailure) throw new Error('Storage unavailable');
+                storage.set(key, value);
+            },
+        },
+        SBDashboardEditor: {
         refreshFilters: async () => { refreshes++; },
         setFilterConfig(config) { global.SBDashboardFilters.restore(config); },
         setWidgetFilters(id, filters) {
@@ -183,7 +211,8 @@ function filterUI(editing = true, liveFilters = ['customer_ids', 'seller_ids']) 
         },
     }};
     vm.runInNewContext(fs.readFileSync(path.join(__dirname,
-        '../../static/js/ui-dashboard-filters.js'), 'utf8'), {window: global, document});
+        '../../static/js/ui-dashboard-filters.js'), 'utf8'), {window: global, document,
+        URLSearchParams});
     const trigger = (element, type, values = {}) => {
         const event = {target: element, preventDefault() { this.defaultPrevented = true; },
             stopPropagation() { this.propagationStopped = true; }, ...values};
@@ -191,8 +220,116 @@ function filterUI(editing = true, liveFilters = ['customer_ids', 'seller_ids']) 
         return event;
     };
     return {api: global.SBDashboardFilters, nodes, document, trigger, inputs,
-        refreshes: () => refreshes, editor: global.SBDashboardEditor};
+        refreshes: () => refreshes, editor: global.SBDashboardEditor, storage, events,
+        requests, rendered};
 }
+
+test('viewer selections restore from localStorage and refresh every widget on return', async () => {
+    const storage = new Map();
+    const first = filterUI(false, ['customer_ids', 'seller_ids', 'group_by_seller'], {storage});
+    const before = JSON.stringify(first.api.context().dashboard);
+    for (const picker of first.nodes.dashboardLiveControls.children.slice(0, 2)) {
+        const checkbox = picker.children[1].children[2].children[0].children[0];
+        checkbox.checked = true;
+        first.trigger(checkbox, 'change');
+    }
+    const grouping = first.nodes.dashboardLiveControls.children[2].children[0];
+    grouping.checked = true;
+    first.trigger(grouping, 'change');
+    assert.deepEqual(JSON.parse(storage.get('sb.dashboard.filters.5')),
+        {customer_ids: [1], seller_ids: [7], group_by_seller: true});
+    assert.equal(JSON.stringify(first.api.context().dashboard), before);
+
+    const returned = filterUI(false, ['customer_ids', 'seller_ids', 'group_by_seller'],
+        {storage, tiles: true});
+    await new Promise(setImmediate);
+    assert.equal(returned.nodes.dashboardFilterCount.textContent, '3');
+    assert.equal(returned.requests.length, 2);
+    assert.equal(returned.rendered.length, 2);
+    returned.requests.forEach((query, index) => {
+        const context = JSON.parse(query.get('filter_context'));
+        assert.deepEqual(context.live,
+            {customer_ids: [1], seller_ids: [7], group_by_seller: true});
+        assert.deepEqual(context.widget.customer_ids, [index + 1]);
+    });
+    assert.equal(returned.nodes.dashboardLiveControls.children[1].children[0].textContent,
+        'Seller: First owner');
+    assert.equal(returned.nodes.dashboardLiveControls.children[2].children[0].checked, true);
+    returned.events.pageshow({persisted: true});
+    assert.equal(returned.requests.length, 2, 'Unchanged bfcache state needs no reload');
+    assert.equal(filterUI(false, undefined, {storage, dashboardId: '6'})
+        .nodes.dashboardFilterCount.hidden, true);
+});
+
+test('reset persists across reloads and disabled controls cannot restore stale restrictions',
+    async () => {
+        const storage = new Map([['sb.dashboard.filters.5', JSON.stringify({
+            customer_ids: [1], seller_ids: [7], group_by_seller: true,
+        })]]);
+        const ui = filterUI(false, ['seller_ids'], {storage, tiles: true});
+        await new Promise(setImmediate);
+        assert.deepEqual(JSON.parse(JSON.stringify(ui.api.context().live)),
+            {customer_ids: [], seller_ids: [7]});
+        ui.trigger(ui.nodes.resetDashboardFilters, 'click');
+        await new Promise(setImmediate);
+        const reloaded = filterUI(false, ['seller_ids'], {storage, tiles: true});
+        assert.equal(reloaded.nodes.dashboardFilterCount.hidden, true);
+        assert.equal(reloaded.requests.length, 0);
+        assert.deepEqual(JSON.parse(storage.get('sb.dashboard.filters.5')),
+            {customer_ids: [], seller_ids: []});
+    });
+
+test('storage and pageshow restore changed preferences without leaking into editor drafts',
+    async () => {
+        const storage = new Map();
+        const ui = filterUI(false, ['seller_ids'], {storage, tiles: true});
+        storage.set('sb.dashboard.filters.5', JSON.stringify({seller_ids: [7]}));
+        ui.events.storage({key: 'sb.dashboard.filters.6'});
+        assert.equal(ui.requests.length, 0);
+        ui.events.storage({key: 'sb.dashboard.filters.5'});
+        await new Promise(setImmediate);
+        assert.equal(ui.requests.length, 2);
+        storage.clear();
+        ui.events.pageshow({persisted: true});
+        await new Promise(setImmediate);
+        assert.equal(ui.nodes.dashboardFilterCount.hidden, true);
+        assert.equal(ui.requests.length, 4);
+        const editor = filterUI(true, ['seller_ids'], {storage});
+        const checkbox = editor.nodes.dashboardLiveControls.children[0].children[1]
+            .children[2].children[0].children[0];
+        checkbox.checked = true;
+        editor.trigger(checkbox, 'change');
+        await new Promise(setImmediate);
+        assert.equal(storage.size, 0);
+    });
+
+test('explicit URL filters take precedence over remembered viewer preferences', () => {
+    const storage = new Map([['sb.dashboard.filters.5', '{"seller_ids":[7]}']]);
+    const ui = filterUI(false, ['seller_ids', 'group_by_seller'],
+        {storage, search: '?group_by_seller=false', tiles: true});
+    assert.equal(ui.nodes.dashboardFilterCount.hidden, true);
+    assert.equal(ui.requests.length, 0);
+});
+
+test('invalid or unavailable filter storage reports errors without breaking current filtering',
+    async () => {
+        for (const value of ['{', 'null', '{"seller_ids":["7"]}', '{"extra":[]}']) {
+            const storage = new Map([['sb.dashboard.filters.5', value]]);
+            const ui = filterUI(false, ['seller_ids'], {storage});
+            assert.match(ui.nodes.dashboardFilterStatus.textContent, /Could not restore/);
+            assert.equal(ui.nodes.dashboardFilterStatus.hidden, false);
+        }
+        const ui = filterUI(false, ['seller_ids'], {storageFailure: true, tiles: true});
+        const checkbox = ui.nodes.dashboardLiveControls.children[0].children[1]
+            .children[2].children[0].children[0];
+        checkbox.checked = true;
+        ui.trigger(checkbox, 'change');
+        await new Promise(setImmediate);
+        assert.equal(ui.requests.length, 2);
+        assert.equal(ui.api.context().live.seller_ids[0], 7);
+        assert.match(ui.nodes.dashboardFilterStatus.textContent, /Could not remember/);
+        assert.equal(ui.nodes.dashboardFilterStatus.hidden, false);
+    });
 
 test('filter panel opens without changing draft state and closes with focus restoration', () => {
     const {api, nodes, document, trigger} = filterUI();

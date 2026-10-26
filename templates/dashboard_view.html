@@ -254,7 +254,7 @@
         <p id="dashboardFilterDraftHint"><i class="bi bi-pencil" aria-hidden="true"></i> Kept in your draft. Use Save to publish.</p>
         {% endif %}
         <div class="db-viewer-filter-actions" id="dashboardViewerActions"{% if manage_dashboard %} hidden{% endif %}>
-            <p id="dashboardTemporaryFilterHint">Selections apply to this view only.</p>
+            <p id="dashboardTemporaryFilterHint">{% if manage_dashboard %}Selections apply to this preview only.{% else %}Selections are remembered for this dashboard in this browser.{% endif %}</p>
             <button class="db-command" type="button" id="resetDashboardFilters" disabled>Reset filters</button>
         </div>
     </footer>

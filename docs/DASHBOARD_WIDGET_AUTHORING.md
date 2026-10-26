@@ -145,6 +145,13 @@ picker. The dashboard's `filter_config.live_filters` separately chooses which li
 controls are enabled. Declaring support does not force those controls onto every
 saved dashboard.
 
+Published dashboards remember viewer customer/seller selections and seller grouping
+in localStorage under `sb.dashboard.filters.<dashboard-id>`, separately from saved
+scope and editor drafts. Restore controls and refresh widget data together on page
+load or return, respecting currently enabled and supported filters. Explicit live
+filter URL parameters take precedence over browser preferences. Reset filters
+remembers the cleared selection; draft previews do not overwrite viewer preferences.
+
 Providers accept this shape:
 
 ```python
