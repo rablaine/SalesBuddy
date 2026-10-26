@@ -4,11 +4,20 @@
 {% set grouped = instance.group_by_seller|default(false) %}
 {% set sql_widget = true %}
 {% set seller_group_columns = 3 %}
-<section class="db-report-widget{% if detailed %} db-sql-details{% endif %}" aria-labelledby="{{ prefix }}title">
+<section class="db-report-widget{% if detailed %} db-sql-details{% endif %}{% if report.data_warning %} db-sql-data-incorrect sb-data-watermarked{% endif %}" aria-labelledby="{{ prefix }}title">
+    {% if report.data_warning %}
+    <div class="db-sql-data-watermark sb-data-watermark" aria-hidden="true"><span>DATA INCORRECT</span></div>
+    {% endif %}
     <header class="db-report-heading">
         <h2 id="{{ prefix }}title">{{ report.title }}</h2>
         <a href="{{ report.destination }}">Full report <i class="bi bi-arrow-up-right" aria-hidden="true"></i></a>
     </header>
+    {% if report.data_warning %}
+    <p class="db-report-notice" role="alert" data-sb-data-quality="incorrect">
+        <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
+        {{ report.data_warning }}
+    </p>
+    {% endif %}
     <p class="db-report-caption">{% if not report.snapshot %}SQL Motions data not loaded.{% elif report.motion == 'renewals' %}{{ report.count }} upcoming · {{ report.within_90_count }} within 90 days{% else %}{{ report.count }} customers · ESU protection unknown{% endif %}</p>
     {% if not report.snapshot %}
     <p class="db-report-empty">Sync SQL Motions to load both sources.</p>

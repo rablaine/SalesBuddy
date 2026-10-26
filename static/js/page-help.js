@@ -14,6 +14,9 @@ const PageHelp = (function () {
     { pattern: /^\/reports\/sql-(renewals|eos)$/, title: 'SQL Motions', content: `
       <p>SQL Renewals and SQL 2016 EOS / ESU share one SQL Motions sync.
       Both source reports must succeed before the saved snapshot changes.</p>
+      <p><strong>SQL Server 2016 data is known to be incorrect.</strong>
+      Do not rely on its counts or customer lists. The report, widgets and exports retain
+      this warning. This data-quality warning does not apply to SQL Renewals.</p>
       <ul>
         <li>Renewals includes every future SQL expiration, nearest first, including
         zero and unknown amounts. The 90-day count is a summary, not a queue cutoff.</li>

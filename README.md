@@ -322,6 +322,9 @@ standalone UI iterations using entirely fictional data. See the
   missing observations mean unknown, not no exposure. The EOS view focuses on
   SQL 2016 discovery and subscription evidence. Both widgets preserve customer/
   seller click-through scope and show sellers only when explicitly grouped.
+  **Known data issue:** SQL Server 2016 counts and customer lists are incorrect and
+  must not be relied on. Reports, widgets, SalesIQ/API results and exports carry
+  this warning. The shared sync and SQL Renewals remain unchanged.
 - **Fabric Consumption** - import customer-scoped Fabric workload CU-hour
   shares and capacity/SKU utilization from MSXi. Reports > Fabric Consumption
   includes capacities, throttling, utilization history, and customer-wide reserved-instance

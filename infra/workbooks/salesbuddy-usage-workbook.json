@@ -47,7 +47,7 @@
                 {
                     "type": 1,
                     "content": {
-                        "json": "# Sales Buddy - Usage & Adoption\n\nReads `SalesBuddy.FeatureUsage` and `SalesBuddy.InstallProfile` custom events from App Insights.\n\n- **InstallProfile** events fire on app startup and once per 24h. Allow ~24h after a release before role/flag tiles show new installs.\n- **FeatureUsage** events fire per HTTP request with the Flask endpoint name in `feature`."
+                        "json": "# Sales Buddy - Usage & Adoption\n\nDAU counts anonymous installs opening successful pages on UTC calendar days, never background requests. Page activity starts with telemetry schema 2 and is not backfilled. The selected day range includes today. Seller specialties are excluded. Version hashes identify code loaded at startup. Install profiles and schema-2 request/page events provide latest install metadata; reporting installs can be idle. Feature-flag and entity-count snapshots still use the last 30 days."
                     },
                     "name": "header"
                 },
@@ -68,10 +68,18 @@
                                 },
                                 "typeSettings": {
                                     "selectableValues": [
-                                        { "durationMs": 86400000 },
-                                        { "durationMs": 604800000 },
-                                        { "durationMs": 2592000000 },
-                                        { "durationMs": 7776000000 }
+                                        {
+                                            "durationMs": 86400000
+                                        },
+                                        {
+                                            "durationMs": 604800000
+                                        },
+                                        {
+                                            "durationMs": 2592000000
+                                        },
+                                        {
+                                            "durationMs": 7776000000
+                                        }
                                     ]
                                 }
                             },
@@ -98,7 +106,7 @@
                 {
                     "type": 1,
                     "content": {
-                        "json": "## Daily active users"
+                        "json": "## Daily active installs\n\nUnique installs, not identifiable people. UTC days. Legacy request counts are not DAU."
                     },
                     "name": "section-dau"
                 },
@@ -106,15 +114,30 @@
                     "type": 3,
                     "content": {
                         "version": "KqlItem/1.0",
-                        "query": "let LatestProfile = customEvents\n| where name == \"SalesBuddy.InstallProfile\"\n| where timestamp > ago(30d)\n| extend instance_id = tostring(customDimensions.instance_id)\n| summarize arg_max(timestamp, *) by instance_id\n| extend user_role = tostring(customDimensions.user_role)\n| project instance_id, user_role;\ncustomEvents\n| where name == \"SalesBuddy.FeatureUsage\"\n| where timestamp {TimeRange}\n| extend instance_id = tostring(customDimensions.instance_id)\n| join kind=leftouter LatestProfile on instance_id\n| where \"{Role}\" == \"all\" or user_role == \"{Role}\"\n| extend user_role = coalesce(user_role, \"unknown\")\n| summarize DAU = dcount(instance_id) by bin(timestamp, 1d), user_role\n| order by timestamp asc",
+                        "query": "customEvents\n| where name == \"SalesBuddy.PageView\"\n| where timestamp >= startofday({TimeRange:start} + 1d) and timestamp <= {TimeRange:end}\n| extend instance_id = tostring(customDimensions.instance_id),\n         feature = tostring(customDimensions.feature),\n         page = tostring(customDimensions.page),\n         user_role = case(tostring(customDimensions.user_role) == \"dss\", \"Seller\",\n                          tostring(customDimensions.user_role) == \"se\", \"SE\", \"Unknown\")\n| where isnotempty(instance_id)\n| where \"{Role}\" == \"all\" or user_role == case(\"{Role}\" == \"dss\", \"Seller\", \"{Role}\" == \"se\", \"SE\", \"Unknown\")\n\n| summarize last_active = max(timestamp), page_loads = count() by instance_id\n| summarize active_installs = count(),\n            active_today = countif(last_active >= startofday({TimeRange:end})),\n            page_loads = sum(page_loads)",
                         "size": 0,
-                        "title": "Daily Active Users (DAU)",
+                        "title": "Activity overview",
+                        "queryType": 0,
+                        "resourceType": "microsoft.insights/components",
+                        "visualization": "table"
+                    },
+                    "name": "tile-activity-summary"
+                },
+                {
+                    "type": 3,
+                    "content": {
+                        "version": "KqlItem/1.0",
+                        "query": "let Activity = \ncustomEvents\n| where name == \"SalesBuddy.PageView\"\n| where timestamp >= startofday({TimeRange:start} + 1d) and timestamp <= {TimeRange:end}\n| extend instance_id = tostring(customDimensions.instance_id),\n         feature = tostring(customDimensions.feature),\n         page = tostring(customDimensions.page),\n         user_role = case(tostring(customDimensions.user_role) == \"dss\", \"Seller\",\n                          tostring(customDimensions.user_role) == \"se\", \"SE\", \"Unknown\")\n| where isnotempty(instance_id)\n\n| summarize arg_max(timestamp, user_role) by day = startofday(timestamp), instance_id\n| where \"{Role}\" == \"all\" or user_role == case(\"{Role}\" == \"dss\", \"Seller\", \"{Role}\" == \"se\", \"SE\", \"Unknown\")\n| summarize DAU = count() by timestamp = day, user_role;\nrange timestamp from startofday({TimeRange:start} + 1d) to startofday({TimeRange:end}) step 1d\n| join kind=leftouter Activity on timestamp\n| project timestamp, user_role = coalesce(user_role, \"Unknown\"), DAU = coalesce(DAU, long(0))\n| order by timestamp asc",
+                        "size": 0,
+                        "title": "Daily active installs (successful page opens only)",
                         "queryType": 0,
                         "resourceType": "microsoft.insights/components",
                         "visualization": "timechart",
                         "chartSettings": {
                             "xAxis": "timestamp",
-                            "yAxis": ["DAU"],
+                            "yAxis": [
+                                "DAU"
+                            ],
                             "group": "user_role",
                             "createOtherGroup": 0,
                             "showLegend": true,
@@ -144,7 +167,7 @@
                 {
                     "type": 1,
                     "content": {
-                        "json": "## Install profile snapshot\n\nLatest profile event per install (last 30 days)."
+                        "json": "## Reporting installs\n\nLatest metadata per anonymous install in the selected range. Last active time is based only on page opens. Legacy profiles may have unknown specialties. Feature flags below are 30-day snapshots."
                     },
                     "name": "section-installs"
                 },
@@ -152,9 +175,48 @@
                     "type": 3,
                     "content": {
                         "version": "KqlItem/1.0",
-                        "query": "customEvents\n| where name == \"SalesBuddy.InstallProfile\"\n| where timestamp > ago(30d)\n| extend instance_id = tostring(customDimensions.instance_id)\n| summarize arg_max(timestamp, *) by instance_id\n| extend user_role = tostring(customDimensions.user_role)\n| where \"{Role}\" == \"all\" or user_role == \"{Role}\"\n| summarize installs = dcount(instance_id) by user_role\n| order by installs desc",
+                        "query": "customEvents\n| where name == \"SalesBuddy.PageView\"\n| where timestamp >= startofday({TimeRange:start} + 1d) and timestamp <= {TimeRange:end}\n| extend instance_id = tostring(customDimensions.instance_id),\n         feature = tostring(customDimensions.feature),\n         page = tostring(customDimensions.page),\n         user_role = case(tostring(customDimensions.user_role) == \"dss\", \"Seller\",\n                          tostring(customDimensions.user_role) == \"se\", \"SE\", \"Unknown\")\n| where isnotempty(instance_id)\n| where \"{Role}\" == \"all\" or user_role == case(\"{Role}\" == \"dss\", \"Seller\", \"{Role}\" == \"se\", \"SE\", \"Unknown\")\n\n| where isnotempty(feature)\n| summarize loads = count() by feature, page, instance_id\n| summarize page_loads = sum(loads), active_installs = count() by feature, page\n| order by page_loads desc, feature asc",
+                        "size": 0,
+                        "title": "Pages opened - loads and unique active installs",
+                        "queryType": 0,
+                        "resourceType": "microsoft.insights/components",
+                        "visualization": "table"
+                    },
+                    "name": "tile-page-loads"
+                },
+                {
+                    "type": 3,
+                    "content": {
+                        "version": "KqlItem/1.0",
+                        "query": "let Activity = \ncustomEvents\n| where name == \"SalesBuddy.PageView\"\n| where timestamp >= startofday({TimeRange:start} + 1d) and timestamp <= {TimeRange:end}\n| extend instance_id = tostring(customDimensions.instance_id),\n         feature = tostring(customDimensions.feature),\n         page = tostring(customDimensions.page),\n         user_role = case(tostring(customDimensions.user_role) == \"dss\", \"Seller\",\n                          tostring(customDimensions.user_role) == \"se\", \"SE\", \"Unknown\")\n| where isnotempty(instance_id)\n\n| summarize last_active_utc = max(timestamp), page_loads = count() by instance_id;\n\ncustomEvents\n| where timestamp >= startofday({TimeRange:start} + 1d) and timestamp <= {TimeRange:end}\n| where name == \"SalesBuddy.InstallProfile\"\n    or (name in (\"SalesBuddy.FeatureUsage\", \"SalesBuddy.PageView\")\n        and tostring(customDimensions.schema_version) == \"2\")\n| extend instance_id = tostring(customDimensions.instance_id)\n| where isnotempty(instance_id)\n| summarize arg_max(timestamp, *) by instance_id\n| project instance_id, last_seen_utc = timestamp,\n          app_version = iff(isempty(tostring(customDimensions.app_version)),\n                            \"unknown\", tostring(customDimensions.app_version)),\n          user_role = case(tostring(customDimensions.user_role) == \"dss\", \"Seller\",\n                           tostring(customDimensions.user_role) == \"se\", \"SE\", \"Unknown\"),\n          se_specialty = case(tostring(customDimensions.user_role) == \"dss\", \"Not applicable\",\n                              tostring(customDimensions.user_role) != \"se\", \"Unknown\",\n                              tostring(customDimensions.se_specialty) == \"data\", \"Data\",\n                              tostring(customDimensions.se_specialty) == \"infra\", \"Infrastructure\",\n                              tostring(customDimensions.se_specialty) == \"apps_ai\", \"Apps and AI\",\n                              tostring(customDimensions.se_specialty) == \"other\", \"Other\", \"Unknown\")\n\n| join kind=leftouter Activity on instance_id\n| project instance_id, app_version, user_role, se_specialty, last_seen_utc,\n          last_active_utc, page_loads = coalesce(page_loads, long(0))\n| where \"{Role}\" == \"all\" or user_role == case(\"{Role}\" == \"dss\", \"Seller\", \"{Role}\" == \"se\", \"SE\", \"Unknown\")\n| order by last_seen_utc desc, instance_id asc",
+                        "size": 0,
+                        "title": "Install inventory - Git commit, role, specialty and activity",
+                        "queryType": 0,
+                        "resourceType": "microsoft.insights/components",
+                        "visualization": "table"
+                    },
+                    "name": "tile-install-inventory"
+                },
+                {
+                    "type": 3,
+                    "content": {
+                        "version": "KqlItem/1.0",
+                        "query": "customEvents\n| where timestamp >= startofday({TimeRange:start} + 1d) and timestamp <= {TimeRange:end}\n| where name == \"SalesBuddy.InstallProfile\"\n    or (name in (\"SalesBuddy.FeatureUsage\", \"SalesBuddy.PageView\")\n        and tostring(customDimensions.schema_version) == \"2\")\n| extend instance_id = tostring(customDimensions.instance_id)\n| where isnotempty(instance_id)\n| summarize arg_max(timestamp, *) by instance_id\n| project instance_id, last_seen_utc = timestamp,\n          app_version = iff(isempty(tostring(customDimensions.app_version)),\n                            \"unknown\", tostring(customDimensions.app_version)),\n          user_role = case(tostring(customDimensions.user_role) == \"dss\", \"Seller\",\n                           tostring(customDimensions.user_role) == \"se\", \"SE\", \"Unknown\"),\n          se_specialty = case(tostring(customDimensions.user_role) == \"dss\", \"Not applicable\",\n                              tostring(customDimensions.user_role) != \"se\", \"Unknown\",\n                              tostring(customDimensions.se_specialty) == \"data\", \"Data\",\n                              tostring(customDimensions.se_specialty) == \"infra\", \"Infrastructure\",\n                              tostring(customDimensions.se_specialty) == \"apps_ai\", \"Apps and AI\",\n                              tostring(customDimensions.se_specialty) == \"other\", \"Other\", \"Unknown\")\n\n| where user_role == \"SE\"\n| where \"{Role}\" == \"all\" or user_role == case(\"{Role}\" == \"dss\", \"Seller\", \"{Role}\" == \"se\", \"SE\", \"Unknown\")\n| summarize installs = count() by se_specialty\n| order by installs desc, se_specialty asc",
+                        "size": 0,
+                        "title": "SE specialty mix (sellers excluded)",
+                        "queryType": 0,
+                        "resourceType": "microsoft.insights/components",
+                        "visualization": "piechart"
+                    },
+                    "name": "tile-se-specialties"
+                },
+                {
+                    "type": 3,
+                    "content": {
+                        "version": "KqlItem/1.0",
+                        "query": "customEvents\n| where timestamp >= startofday({TimeRange:start} + 1d) and timestamp <= {TimeRange:end}\n| where name == \"SalesBuddy.InstallProfile\"\n    or (name in (\"SalesBuddy.FeatureUsage\", \"SalesBuddy.PageView\")\n        and tostring(customDimensions.schema_version) == \"2\")\n| extend instance_id = tostring(customDimensions.instance_id)\n| where isnotempty(instance_id)\n| summarize arg_max(timestamp, *) by instance_id\n| project instance_id, last_seen_utc = timestamp,\n          app_version = iff(isempty(tostring(customDimensions.app_version)),\n                            \"unknown\", tostring(customDimensions.app_version)),\n          user_role = case(tostring(customDimensions.user_role) == \"dss\", \"Seller\",\n                           tostring(customDimensions.user_role) == \"se\", \"SE\", \"Unknown\"),\n          se_specialty = case(tostring(customDimensions.user_role) == \"dss\", \"Not applicable\",\n                              tostring(customDimensions.user_role) != \"se\", \"Unknown\",\n                              tostring(customDimensions.se_specialty) == \"data\", \"Data\",\n                              tostring(customDimensions.se_specialty) == \"infra\", \"Infrastructure\",\n                              tostring(customDimensions.se_specialty) == \"apps_ai\", \"Apps and AI\",\n                              tostring(customDimensions.se_specialty) == \"other\", \"Other\", \"Unknown\")\n\n| where \"{Role}\" == \"all\" or user_role == case(\"{Role}\" == \"dss\", \"Seller\", \"{Role}\" == \"se\", \"SE\", \"Unknown\")\n| summarize installs = count() by user_role\n| order by installs desc",
                         "size": 3,
-                        "title": "Installs by role",
+                        "title": "Reporting installs by role",
                         "queryType": 0,
                         "resourceType": "microsoft.insights/components",
                         "visualization": "piechart"
@@ -240,12 +302,16 @@
                                 {
                                     "columnMatch": "installs",
                                     "formatter": 8,
-                                    "formatOptions": { "palette": "green" }
+                                    "formatOptions": {
+                                        "palette": "green"
+                                    }
                                 },
                                 {
                                     "columnMatch": "requests",
                                     "formatter": 8,
-                                    "formatOptions": { "palette": "blue" }
+                                    "formatOptions": {
+                                        "palette": "blue"
+                                    }
                                 }
                             ]
                         }
@@ -256,9 +322,9 @@
                     "type": 3,
                     "content": {
                         "version": "KqlItem/1.0",
-                        "query": "let LatestProfile = customEvents\n| where name == \"SalesBuddy.InstallProfile\"\n| where timestamp > ago(30d)\n| extend instance_id = tostring(customDimensions.instance_id)\n| summarize arg_max(timestamp, *) by instance_id\n| extend user_role = tostring(customDimensions.user_role)\n| project instance_id, user_role;\ncustomEvents\n| where name == \"SalesBuddy.FeatureUsage\"\n| where timestamp {TimeRange}\n| extend feature = tostring(customDimensions.feature),\n         category = tostring(customDimensions.category),\n         instance_id = tostring(customDimensions.instance_id)\n| where category == \"Reports\" or feature startswith \"reports.\"\n| where isnotempty(feature)\n| join kind=leftouter LatestProfile on instance_id\n| where \"{Role}\" == \"all\" or user_role == \"{Role}\"\n| extend report = iff(feature startswith \"reports.\", substring(feature, 8), feature)\n| summarize report_views = count(), installs = dcount(instance_id) by report\n| order by installs desc, report_views desc",
+                        "query": "customEvents\n| where name == \"SalesBuddy.PageView\"\n| where timestamp >= startofday({TimeRange:start} + 1d) and timestamp <= {TimeRange:end}\n| extend instance_id = tostring(customDimensions.instance_id),\n         feature = tostring(customDimensions.feature),\n         page = tostring(customDimensions.page),\n         user_role = case(tostring(customDimensions.user_role) == \"dss\", \"Seller\",\n                          tostring(customDimensions.user_role) == \"se\", \"SE\", \"Unknown\")\n| where isnotempty(instance_id)\n| where \"{Role}\" == \"all\" or user_role == case(\"{Role}\" == \"dss\", \"Seller\", \"{Role}\" == \"se\", \"SE\", \"Unknown\")\n\n| where feature startswith \"reports.\"\n| where isnotempty(feature)\n| extend report = iff(feature startswith \"reports.\", substring(feature, 8), feature)\n| summarize loads = count() by report, instance_id\n| summarize report_views = sum(loads), installs = count() by report\n| order by installs desc, report_views desc",
                         "size": 0,
-                        "title": "Reports - which ones get opened",
+                        "title": "Reports opened (page loads only)",
                         "queryType": 0,
                         "resourceType": "microsoft.insights/components",
                         "visualization": "table",
@@ -271,12 +337,16 @@
                                 {
                                     "columnMatch": "installs",
                                     "formatter": 8,
-                                    "formatOptions": { "palette": "green" }
+                                    "formatOptions": {
+                                        "palette": "green"
+                                    }
                                 },
                                 {
                                     "columnMatch": "report_views",
                                     "formatter": 8,
-                                    "formatOptions": { "palette": "blue" }
+                                    "formatOptions": {
+                                        "palette": "blue"
+                                    }
                                 }
                             ]
                         }
@@ -296,7 +366,6 @@
                     },
                     "name": "tile-power-features"
                 },
-
                 {
                     "type": 1,
                     "content": {
@@ -319,12 +388,16 @@
                                 {
                                     "columnMatch": "error_pct",
                                     "formatter": 8,
-                                    "formatOptions": { "palette": "red" }
+                                    "formatOptions": {
+                                        "palette": "red"
+                                    }
                                 },
                                 {
                                     "columnMatch": "p95_ms",
                                     "formatter": 8,
-                                    "formatOptions": { "palette": "orange" }
+                                    "formatOptions": {
+                                        "palette": "orange"
+                                    }
                                 }
                             ]
                         }
@@ -348,9 +421,9 @@
                     "type": 3,
                     "content": {
                         "version": "KqlItem/1.0",
-                        "query": "customEvents\n| where name == \"SalesBuddy.InstallProfile\"\n| where timestamp > ago(30d)\n| extend instance_id = tostring(customDimensions.instance_id),\n         app_version = tostring(customDimensions.app_version)\n| summarize arg_max(timestamp, *) by instance_id\n| summarize installs = dcount(instance_id) by app_version\n| order by installs desc",
+                        "query": "customEvents\n| where timestamp >= startofday({TimeRange:start} + 1d) and timestamp <= {TimeRange:end}\n| where name == \"SalesBuddy.InstallProfile\"\n    or (name in (\"SalesBuddy.FeatureUsage\", \"SalesBuddy.PageView\")\n        and tostring(customDimensions.schema_version) == \"2\")\n| extend instance_id = tostring(customDimensions.instance_id)\n| where isnotempty(instance_id)\n| summarize arg_max(timestamp, *) by instance_id\n| project instance_id, last_seen_utc = timestamp,\n          app_version = iff(isempty(tostring(customDimensions.app_version)),\n                            \"unknown\", tostring(customDimensions.app_version)),\n          user_role = case(tostring(customDimensions.user_role) == \"dss\", \"Seller\",\n                           tostring(customDimensions.user_role) == \"se\", \"SE\", \"Unknown\"),\n          se_specialty = case(tostring(customDimensions.user_role) == \"dss\", \"Not applicable\",\n                              tostring(customDimensions.user_role) != \"se\", \"Unknown\",\n                              tostring(customDimensions.se_specialty) == \"data\", \"Data\",\n                              tostring(customDimensions.se_specialty) == \"infra\", \"Infrastructure\",\n                              tostring(customDimensions.se_specialty) == \"apps_ai\", \"Apps and AI\",\n                              tostring(customDimensions.se_specialty) == \"other\", \"Other\", \"Unknown\")\n\n| where \"{Role}\" == \"all\" or user_role == case(\"{Role}\" == \"dss\", \"Seller\", \"{Role}\" == \"se\", \"SE\", \"Unknown\")\n| summarize installs = count() by app_version\n| order by installs desc",
                         "size": 0,
-                        "title": "App version distribution",
+                        "title": "Latest Git commit per reporting install",
                         "queryType": 0,
                         "resourceType": "microsoft.insights/components",
                         "visualization": "barchart"

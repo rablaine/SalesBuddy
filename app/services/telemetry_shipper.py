@@ -1,7 +1,7 @@
 """
 Central telemetry shipper for Sales Buddy.
 
-Buffers anonymous, category-level custom events in memory and flushes them
+Buffers anonymous usage and install metadata in memory and flushes them
 to a shared Application Insights workspace every ~30 seconds.  This lets
 App Insights handle all aggregation via Kusto queries, and avoids relying
 on a long-running daemon thread that might miss windows when the app is
@@ -12,6 +12,8 @@ shut down.
 Sent (per request):
     - instance_id  (random UUID generated on first run -- not tied to any user)
     - app_version  (git commit hash)
+    - schema_version (event contract version, currently "2")
+    - user_role, se_specialty (saved install preferences, not seller filtering)
     - category     (e.g. "Notes", "Revenue", "AI")
     - feature      (Flask view function name, e.g. "reports.whitespace")
     - method       (HTTP verb)
@@ -19,9 +21,16 @@ Sent (per request):
     - response_time_ms
     - is_api       (bool)
 
+Sent (per successful HTML page open, SalesBuddy.PageView):
+    - The same anonymous request metadata
+    - page (Flask route template, never the resolved URL or query string)
+    - feature (Flask endpoint name)
+
 Sent (per install, ~once per day):
     - instance_id, app_version
-    - user_role        ("se", "dss", or "unknown")
+    - user_role        ("se", "dss", or "unknown"; dss means seller)
+    - se_specialty     ("data", "infra", "apps_ai", "other", "unknown";
+                        "not_applicable" for sellers)
     - feature flags    (msx_auto_writeback, copilot_actions_enabled,
                        show_stale_milestones, show_hygiene_tasks,
                        milestone_auto_sync, workiq_connect_impact, dark_mode)
@@ -41,7 +50,7 @@ Sent (per WorkIQ failure):
 NOT sent (ever):
     - IP addresses, usernames, email addresses, session tokens
     - Customer names, TPID, meeting titles, or any business data
-    - Full endpoint paths (only the feature category)
+    - Resolved endpoint paths, route values or query strings
     - User-agent strings
     - Raw stderr / stdout from WorkIQ (only the failure_type bucket)
 
@@ -68,6 +77,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 import requests as http_requests
+from flask import current_app, has_app_context
 
 logger = logging.getLogger(__name__)
 
@@ -130,9 +140,19 @@ def get_instance_id() -> str:
     new_id = str(uuid.uuid4())
     try:
         data_dir.mkdir(parents=True, exist_ok=True)
-        id_file.write_text(new_id)
+        with id_file.open('x', encoding='utf-8') as identity:
+            identity.write(new_id)
+    except FileExistsError:
+        # The other process may still be finishing its exclusive first write.
+        for _ in range(10):
+            stored = id_file.read_text(encoding='utf-8').strip()
+            if stored:
+                return stored
+            time.sleep(0.01)
+        raise OSError('Telemetry instance ID file is empty')
     except OSError:
-        pass  # Non-fatal -- we'll just generate a new one next time
+        logger.exception('Could not persist anonymous telemetry instance ID')
+        raise
     return new_id
 
 
@@ -189,6 +209,35 @@ _buffer_lock = threading.Lock()
 _app_version: str = 'unknown'
 _instance_id: str = ''
 
+
+def _install_dimensions() -> dict[str, str]:
+    """Read anonymous install metadata without using a temporarily selected seller scope."""
+    properties = {
+        'schema_version': '2',
+        'instance_id': _instance_id or get_instance_id(),
+        'app_version': _app_version,
+        'user_role': 'unknown',
+        'se_specialty': 'unknown',
+    }
+    if has_app_context():
+        from app.models import UserPreference
+        from app.services.se_specialty import SE_SPECIALTIES
+
+        properties['app_version'] = (
+            current_app.config.get('BOOT_COMMIT_FULL')
+            or current_app.config.get('BOOT_COMMIT')
+            or _app_version
+        )
+        prefs = UserPreference.query.order_by(UserPreference.id).first()
+        if prefs:
+            role = prefs.user_role if prefs.user_role in ('se', 'dss') else 'unknown'
+            specialty = (prefs.se_specialty or '').strip().casefold()
+            properties['user_role'] = role
+            properties['se_specialty'] = (
+                specialty if specialty in SE_SPECIALTIES else 'unknown'
+            ) if role == 'se' else 'not_applicable' if role == 'dss' else 'unknown'
+    return properties
+
 # Stats for the admin panel
 _stats_lock = threading.Lock()
 _stats: dict[str, Any] = {
@@ -210,6 +259,8 @@ def queue_event(
     is_api: bool,
     app_mode: str = 'unknown',
     feature: str = '',
+    page: str = '',
+    is_page_view: bool = False,
 ) -> None:
     """Add an event to the in-memory buffer for the next flush.
 
@@ -223,33 +274,42 @@ def queue_event(
         response_time_ms: Request duration in milliseconds.
         is_api: Whether the request was to an API endpoint.
         app_mode: Which shell served the request - "electron" or "browser".
+        feature: Flask endpoint name, never a resolved URL.
+        page: Flask route template for a page open, without argument values.
+        is_page_view: Whether this request successfully opened an HTML document.
     """
     if not is_telemetry_enabled():
         return
 
+    properties = {
+        **_install_dimensions(),
+        'category': category,
+        'feature': feature or '',
+        'method': method,
+        'is_api': str(is_api),
+        'app_mode': app_mode,
+    }
+    measurements = {
+        'status_code': float(status_code),
+        'response_time_ms': round(float(response_time_ms), 1) if response_time_ms else 0.0,
+        'is_error': 1.0 if status_code >= 400 else 0.0,
+    }
     envelope = _build_custom_event(
-        name='SalesBuddy.FeatureUsage',
-        properties={
-            'instance_id': _instance_id or get_instance_id(),
-            'app_version': _app_version,
-            'category': category,
-            'feature': feature or '',
-            'method': method,
-            'is_api': str(is_api),
-            'app_mode': app_mode,
-        },
-        measurements={
-            'status_code': float(status_code),
-            'response_time_ms': round(float(response_time_ms), 1) if response_time_ms else 0.0,
-            'is_error': 1.0 if status_code >= 400 else 0.0,
-        },
+        name='SalesBuddy.FeatureUsage', properties=properties, measurements=measurements,
     )
 
+    envelopes = [envelope]
+    if is_page_view:
+        envelopes.append(_build_custom_event(
+            name='SalesBuddy.PageView',
+            properties={**properties, 'page': page},
+            measurements=measurements,
+        ))
     with _buffer_lock:
-        _buffer.append(envelope)
+        _buffer.extend(envelopes)
 
     with _stats_lock:
-        _stats['events_queued'] += 1
+        _stats['events_queued'] += len(envelopes)
 
     # If buffer is getting large, flush early in a background thread
     if len(_buffer) >= MAX_BUFFER_SIZE:
@@ -366,86 +426,6 @@ def queue_workiq_call(
         threading.Thread(target=flush_buffer, daemon=True).start()
 
 
-# Allowed result values for the MSX Account Teams probe. See
-# ``queue_msx_outage`` below for semantics.
-_MSX_PROBE_RESULTS = frozenset({
-    'ok',
-    'outage',
-    'skipped_no_token',
-    'skipped_no_vpn',
-    'error',
-})
-
-# In-memory dedupe state for queue_msx_outage. Keyed by result value, holds
-# the UTC hour bucket (YYYYMMDDHH) the result was last emitted in. Same
-# (result, hour) only emits once per process, so the startup probe + hourly
-# probe colliding in the same hour can't double-count.
-_msx_probe_dedupe_lock = threading.Lock()
-_msx_probe_last_hour: dict[str, str] = {}
-
-
-def _current_hour_bucket() -> str:
-    """Return the current UTC hour as a string like ``2026050514``."""
-    return datetime.now(timezone.utc).strftime('%Y%m%d%H')
-
-
-def queue_msx_outage(result: str, error_code: Optional[str] = None) -> bool:
-    """Record the outcome of an MSX Account Teams probe.
-
-    Emits a ``SalesBuddy.MsxAccountTeamProbe`` custom event so the metrics
-    dashboard can chart real coverage (absence of data does not imply
-    outage). Same ``result`` value within the same UTC hour from this
-    process is deduped to a single emission.
-
-    Args:
-        result: One of ``ok``, ``outage``, ``skipped_no_token``,
-            ``skipped_no_vpn``, ``error``. Any unknown value is mapped to
-            ``error``.
-        error_code: Optional short error code (e.g. ``"0x80040224"``) for
-            outage / error results.
-
-    Returns:
-        True if the event was queued, False if it was deduped or telemetry
-        is disabled.
-    """
-    if not is_telemetry_enabled():
-        return False
-
-    if result not in _MSX_PROBE_RESULTS:
-        result = 'error'
-
-    bucket = _current_hour_bucket()
-    with _msx_probe_dedupe_lock:
-        if _msx_probe_last_hour.get(result) == bucket:
-            return False
-        _msx_probe_last_hour[result] = bucket
-
-    properties: dict[str, str] = {
-        'instance_id': _instance_id or get_instance_id(),
-        'app_version': _app_version,
-        'result': result,
-    }
-    if error_code:
-        properties['error_code'] = str(error_code)[:64]
-
-    envelope = _build_custom_event(
-        name='SalesBuddy.MsxAccountTeamProbe',
-        properties=properties,
-        measurements={'count': 1.0},
-    )
-
-    with _buffer_lock:
-        _buffer.append(envelope)
-
-    with _stats_lock:
-        _stats['events_queued'] += 1
-
-    if len(_buffer) >= MAX_BUFFER_SIZE:
-        threading.Thread(target=flush_buffer, daemon=True).start()
-
-    return True
-
-
 def flush_buffer() -> dict[str, Any]:
     """Flush all buffered events to App Insights.
 
@@ -537,7 +517,6 @@ def _collect_install_profile(app) -> Optional[dict[str, Any]]:
 
             prefs = UserPreference.query.first()
             if prefs is None:
-                role = 'unknown'
                 flags = {
                     'msx_auto_writeback': False,
                     'copilot_actions_enabled': False,
@@ -551,7 +530,6 @@ def _collect_install_profile(app) -> Optional[dict[str, Any]]:
                     'has_default_template_noncustomer': False,
                 }
             else:
-                role = prefs.user_role or 'unknown'
                 flags = {
                     'msx_auto_writeback': bool(prefs.msx_auto_writeback),
                     'copilot_actions_enabled': bool(prefs.copilot_actions_enabled),
@@ -574,11 +552,7 @@ def _collect_install_profile(app) -> Optional[dict[str, Any]]:
                 'partner_count': float(db.session.query(Partner).count()),
             }
 
-        properties = {
-            'instance_id': _instance_id or get_instance_id(),
-            'app_version': _app_version,
-            'user_role': role,
-        }
+            properties = _install_dimensions()
         # Stringify flags - App Insights properties are strings only
         for k, v in flags.items():
             properties[k] = 'true' if v else 'false'
@@ -589,7 +563,7 @@ def _collect_install_profile(app) -> Optional[dict[str, Any]]:
             measurements=counts,
         )
     except Exception as e:
-        logger.debug('Could not collect install profile: %s', e)
+        logger.warning('Could not collect install profile: %s', e)
         return None
 
 
@@ -612,12 +586,10 @@ def queue_install_profile(app, force: bool = False) -> bool:
         now = time.time()
         if not force and (now - _last_profile_sent) < PROFILE_INTERVAL_SECONDS:
             return False
-        # Optimistically mark as sent; if collection fails we'll retry next interval
+        envelope = _collect_install_profile(app)
+        if envelope is None:
+            return False
         _last_profile_sent = now
-
-    envelope = _collect_install_profile(app)
-    if envelope is None:
-        return False
 
     with _buffer_lock:
         _buffer.append(envelope)
@@ -653,9 +625,15 @@ def start_flush_thread(
         return  # Already running
 
     # Cache instance ID and app version so we don't hit disk on every request
-    _instance_id = get_instance_id()
+    try:
+        _instance_id = get_instance_id()
+    except OSError:
+        logger.error('Telemetry startup skipped because the install identity could not be saved')
+        return
     if app:
-        _app_version = app.config.get('BOOT_COMMIT') or 'unknown'
+        _app_version = (
+            app.config.get('BOOT_COMMIT_FULL') or app.config.get('BOOT_COMMIT') or 'unknown'
+        )
 
     # Send an install profile on startup (once per day max)
     if app:

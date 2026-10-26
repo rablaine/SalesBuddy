@@ -13,6 +13,10 @@ from app.services.se_specialty import has_specialty_access
 from app.services.seller_mode import get_seller_mode_seller_id
 
 SQL_2016_VERSION = 'sql server 2016'
+SQL_2016_DATA_WARNING = (
+    'SQL Server 2016 data is known to be incorrect. '
+    'Do not rely on these counts or customer lists.'
+)
 ALL_DISCOVERED = 'all discovered'
 MOTIONS = {
     'renewals': ('SQL Renewals', '/reports/sql-renewals'),
@@ -123,6 +127,7 @@ def get_sql_motion_report(
         'motion': motion, 'title': title, 'destination': destination, 'available': available,
         'snapshot': None, 'rows': [], 'seller_groups': [], 'count': 0,
         'discovered_count': 0, 'notices': [],
+        'data_warning': SQL_2016_DATA_WARNING if motion == 'eos' else None,
     }
     if motion == 'renewals':
         result.update({

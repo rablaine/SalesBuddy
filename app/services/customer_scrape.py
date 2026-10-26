@@ -122,26 +122,27 @@ def _build_scrape_prompt(customer_name: str, domain_hint: str) -> str:
     return (
         f"Search my meetings and emails from the last 12 months where someone "
         f"with an @{domain_hint} email was an attendee or participant. "
-        f"Return ONLY a valid JSON object with keys: "
+        f"Return ONLY one valid JSON object inside a single ```json code block with keys: "
         f"contacts (array of objects with name, email, title), "
         f"meetings_found (integer count of meetings found). "
         f"Only include people with @{domain_hint} emails, not Microsoft employees. "
+        f"Only include contacts whose name is present in the source; do not invent names. "
         f"Deduplicate contacts by email address. Use null for unknown titles. "
-        f"Return ONLY valid JSON, no other text."
+        f"Return the JSON code block once, with no other text."
     )
 
 
 def _parse_response(raw: str) -> Dict[str, Any]:
     """Parse the WorkIQ response into structured data."""
-    from app.services.workiq_service import repair_json_control_chars
+    from app.services.workiq_service import repair_json_control_chars, _record_workiq_call
+
     text = raw.strip()
     text = re.sub(r"^```(?:json)?\s*\n?", "", text)
     text = re.sub(r"\n?```\s*$", "", text)
 
     brace_start = text.find("{")
-    brace_end = text.rfind("}")
-    if brace_start >= 0 and brace_end > brace_start:
-        text = text[brace_start:brace_end + 1]
+    if brace_start >= 0:
+        text = text[brace_start:]
 
     # WorkIQ sometimes emits raw newline bytes inside JSON string values
     # (e.g. a contact name split across lines). Escape them so json.loads
@@ -149,25 +150,45 @@ def _parse_response(raw: str) -> Dict[str, Any]:
     text = repair_json_control_chars(text)
 
     try:
-        data = json.loads(text)
-        contacts = data.get("contacts", [])
-        meetings = data.get("meetings_found", 0)
-        if contacts and not meetings:
-            meetings = len(contacts)
-        return {
-            "contacts": contacts,
-            "meetings_found": meetings,
-        }
-    except json.JSONDecodeError as e:
+        # The CLI can append a second, line-wrapped copy of its answer.
+        # Decode the first complete object, not both copies as one document.
+        data, _ = json.JSONDecoder().raw_decode(text)
+        return _normalize_response(data)
+    except ValueError as e:
         logger.warning(f"Failed to parse WorkIQ JSON response: {e}")
-        logger.debug(f"Raw response: {raw[:500]}")
-        try:
-            from app.services.telemetry_shipper import queue_workiq_call
-            queue_workiq_call('customer_scrape', 'parse_failed',
-                              failure_type='parse_customer_json')
-        except Exception:
-            pass
-        return {"contacts": [], "meetings_found": 0}
+        _record_workiq_call(
+            'customer_scrape', 'parse_failed', failure_type='parse_customer_json',
+        )
+        raise ValueError("WorkIQ returned unreadable results. Try again.") from e
+
+
+def _normalize_response(data: Any) -> Dict[str, Any]:
+    """Validate contact results and normalize CLI-wrapped names and titles."""
+    if not isinstance(data, dict) or not isinstance(data.get("contacts"), list):
+        raise ValueError("Expected a contacts array")
+
+    meetings = data.get("meetings_found", data.get("meetingsfound", 0))
+    if type(meetings) is not int or meetings < 0:
+        raise ValueError("Expected a nonnegative meeting count")
+
+    contacts = []
+    for contact in data["contacts"]:
+        if not isinstance(contact, dict):
+            raise ValueError("Expected a contact object")
+        entry = {}
+        for field in ("name", "email", "title"):
+            value = contact.get(field)
+            if value is not None and not isinstance(value, str):
+                raise ValueError(f"Expected a string or null for contact {field}")
+            entry[field] = " ".join(value.split()) if value else None
+        if not entry["name"]:
+            logger.warning("Skipping a WorkIQ contact without a name")
+            continue
+        contacts.append(entry)
+
+    if data["contacts"] and not contacts:
+        raise ValueError("No contacts had usable names")
+    return {"contacts": contacts, "meetings_found": meetings}
 
 
 def _match_contacts(

@@ -1,6 +1,8 @@
 # App Insights Telemetry Integration
 
-Sales Buddy ships anonymous, category-level usage telemetry to Azure Application Insights so maintainers can understand which features are actually used across all instances.
+Sales Buddy ships anonymous install metadata, page activity and request health to Azure
+Application Insights. `/metrics` reports active installs, code versions, role and specialty
+mix, and page popularity separately from background traffic.
 
 ## What Gets Sent
 
@@ -9,7 +11,11 @@ Each HTTP request generates one custom event (`SalesBuddy.FeatureUsage`) with:
 | Field | Type | Example | Description |
 |-------|------|---------|-------------|
 | `instance_id` | property | `5031acef-cd55-...` | Random UUID per install (not tied to any user) |
-| `app_version` | property | `a1b2c3d` | Git commit hash at boot |
+| `app_version` | property | `a1b2c3d...` | Full Git commit hash loaded at boot; short hash on older installs |
+| `schema_version` | property | `2` | Explicit event contract version |
+| `user_role` | property | `se` | Saved install role: `se`, `dss` (seller), or `unknown` |
+| `se_specialty` | property | `apps_ai` | SE specialty: `data`, `infra`, `apps_ai`, `other`, `unknown`; `not_applicable` for sellers |
+| `feature` | property | `reports.whitespace` | Flask endpoint name, without route values |
 | `category` | property | `Notes` | Feature category (derived from blueprint) |
 | `method` | property | `GET` | HTTP verb |
 | `is_api` | property | `True` | Whether the request hit `/api/...` |
@@ -17,11 +23,50 @@ Each HTTP request generates one custom event (`SalesBuddy.FeatureUsage`) with:
 | `response_time_ms` | measurement | `42.5` | Request duration in ms |
 | `is_error` | measurement | `0.0` | `1.0` if status >= 400, else `0.0` |
 
+Successful page opens additionally generate `SalesBuddy.PageView` with the same dimensions
+and `page`, the Flask route template (for example `/customer/<int:id>`, never `/customer/123`).
+GET requests must return a successful HTML document. Redirects, errors, HEAD/POST requests,
+API calls, prefetches, streamed responses and background HTML fragments do not count.
+User-opened record dialogs that fetch a complete HTML page count as page opens.
+
+`SalesBuddy.InstallProfile` sends the same install identity, full boot commit, role and
+specialty on startup and every 24 hours, plus existing feature flags and aggregate entity
+counts. A profile failure is retried on the next flush rather than suppressed for a day.
+Profile and background-request events never establish active usage.
+
+### Reporting definitions
+
+- **DAU:** Exact number of distinct anonymous installs with a page open in a UTC calendar
+  day. One install is counted once even if its role changes that day; the last observed
+  role in that day determines its chart series.
+- **Active in selected range:** Distinct page-active installs across the entire range,
+  not the sum of daily counts.
+- **Reporting installs:** Installs with metadata observed in the selected range, including
+  background-only installs. This is not a cumulative download count.
+- **Version inventory:** One latest observed version per install, with separate last-seen
+  and last-page-active timestamps. Versions describe code loaded at startup; a checkout
+  without an app restart does not change the reported version.
+  The dashboard's version distribution adds recorded commit dates from local Git history,
+  matching full or unambiguous abbreviated hashes. Missing or ambiguous hashes show Unknown.
+  These are committer dates, not GitHub push times, and this local enrichment is not available
+  in the Azure workbook.
+- **Roles and specialties:** Saved install preferences, independent of seller filtering.
+  Sellers never contribute their previously saved SE specialty to the SE mix.
+- **Page popularity:** All page kinds ranked by total loads, with exact unique-install
+  reach for each. No customer IDs, names, URLs or query values are shipped.
+- **Time windows:** 1, 7, 30 or 90 UTC calendar days including today. Feature-flag and
+  entity-count snapshots remain explicitly labeled as 30-day snapshots.
+
+Page-based activity starts with schema 2. Old request telemetry cannot distinguish
+background activity, so it is not used as a DAU fallback or backfilled page count.
+Older profiles remain visible in inventory, with unknown specialty where absent.
+One person with two installs counts twice; an anonymous install is not an identified person.
+
 ## What Is NOT Sent
 
 - IP addresses, usernames, email addresses, session tokens
 - Customer names, TPIDs, or any business data
-- Full endpoint paths (only the feature category)
+- Resolved endpoint paths, route argument values and query strings
 - User-agent strings
 
 ## How It Works
@@ -41,6 +86,32 @@ SALESBUDDY_TELEMETRY_OPT_OUT=true
 ```
 
 Local telemetry (the `usage_events` table in SQLite) still works regardless.
+Central shipping is also disabled in `FLASK_ENV=development`. Local automated tests inspect
+buffered events using isolated databases and mocked shipping, not production telemetry.
+
+## Metrics dashboard and authentication
+
+Open the unadvertised `/metrics` page. Each card queries App Insights independently, and
+access still depends on the signed-in account's read permission on `NoteHelper_Telemetry`.
+Token acquisition first tries a bounded `az account get-access-token` read for the
+telemetry tenant, then the existing default CLI account, then existing Azure SDK sign-ins.
+This preserves the original fallback behavior instead of requiring a separate CLI login
+to the telemetry tenant. CLI broker support is disabled in those child processes only;
+saved CLI configuration and the app's existing `AZURE_CONFIG_DIR` are preserved.
+The SDK fallback disables automatic interactive authentication and does not invoke CLI
+again. Silent SDK cache, VS Code and broker credentials remain available.
+Concurrent cards share one token acquisition and a short failure cache.
+On Windows MSI installs, token reads invoke the CLI's Python host directly so a timeout
+terminates the CLI rather than just its `az.cmd` wrapper.
+Opening or refreshing the page never initiates interactive broker/browser authentication.
+Timeouts and malformed credential responses are not treated as proof that the user signed out.
+An interactive browser-based `az login` is launched only when the user explicitly clicks
+Sign in. Repeated clicks join the same running attempt, preventing competing MFA challenges.
+Do not change the shell's default Azure account to troubleshoot development auth.
+
+The checked-in workbook at `infra/workbooks/salesbuddy-usage-workbook.json` uses the same
+page-based activity and latest-install definitions. Editing it does not deploy it to Azure.
+The SalesIQ `get_usage_metrics` read tool uses the same queries and explicit error contract.
 
 ## App Insights Connection
 
@@ -120,16 +191,32 @@ customEvents
 | render timechart
 ```
 
-### Unique Instances
+### Daily Active Installs
 
 ```kusto
 customEvents
-| where name == "SalesBuddy.FeatureUsage"
-| summarize
-    instances = dcount(tostring(customDimensions.instance_id)),
-    events = count()
-    by bin(timestamp, 1d)
+| where name == "SalesBuddy.PageView"
+| where timestamp >= startofday(ago(6d))
+| extend instance_id = tostring(customDimensions.instance_id)
+| where isnotempty(instance_id)
+| summarize by day = startofday(timestamp), instance_id
+| summarize DAU = count() by day
 | render timechart
+```
+
+### Page Popularity
+
+```kusto
+customEvents
+| where name == "SalesBuddy.PageView"
+| where timestamp >= startofday(ago(6d))
+| extend instance_id = tostring(customDimensions.instance_id),
+         feature = tostring(customDimensions.feature),
+         page = tostring(customDimensions.page)
+| where isnotempty(instance_id) and isnotempty(feature)
+| summarize loads = count() by feature, page, instance_id
+| summarize page_loads = sum(loads), active_installs = count() by feature, page
+| order by page_loads desc
 ```
 
 ### Dead Features (zero usage in last 30 days)

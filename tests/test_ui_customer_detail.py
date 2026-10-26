@@ -15,6 +15,22 @@ from app.models import (
     Opportunity, RevenueAnalysis, UserPreference, db,
 )
 
+
+def test_contact_review_scrolls_without_showing_closed_dialog():
+    """The open review constrains its scrolling body between fixed controls."""
+    project = Path(__file__).resolve().parents[1]
+    css = (project / 'static' / 'css' / 'ui-customer-detail.css').read_text(encoding='utf-8')
+    assert '.cd-review[open] { display: flex; flex-direction: column; }' in css
+    template = (
+        project / 'templates' / 'partials' / 'customer_view_content.html'
+    ).read_text(encoding='utf-8')
+    dialog = BeautifulSoup(template, 'html.parser').select_one('#custScrapeReviewModal')
+    assert 'cd-review' in dialog['class']
+    assert dialog.select_one(':scope > .sb-dialog-header')
+    assert dialog.select_one(':scope > .sb-dialog-body#custScrapeReviewBody')
+    assert dialog.select_one(':scope > .sb-dialog-footer')
+
+
 def test_customer_tab_panels_do_not_draw_an_extra_outer_bottom_divider():
     """Tab panels omit their enclosing divider without removing separators between records."""
     project = Path(__file__).resolve().parents[1]

@@ -6,7 +6,8 @@ const vm = require('node:vm');
 const template = fs.readFileSync(path.join(__dirname,
     '../../templates/partials/_report_export.html'), 'utf8');
 
-async function copyFixture(failHtml = false, customTitle = 'Hygiene', grouped = false) {
+async function copyFixture(failHtml = false, customTitle = 'Hygiene', grouped = false,
+    warning = '') {
     const cell = label => ({
         hasAttribute: key => key === 'data-export-label',
         getAttribute: key => key === 'data-export-label' ? label : null,
@@ -38,7 +39,9 @@ async function copyFixture(failHtml = false, customTitle = 'Hygiene', grouped = 
         .replace(/const TABLE_SELECTOR = .*?;/, "const TABLE_SELECTOR = 'table';")
         .replace(/const FILENAME = .*?;/, "const FILENAME = 'hygiene';")
         .replace(/const CUSTOM_TITLE = .*?;/, 'const CUSTOM_TITLE = ' +
-            JSON.stringify(customTitle) + ';');
+            JSON.stringify(customTitle) + ';')
+        .replace(/const EXPORT_WARNING = .*?;/, 'const EXPORT_WARNING = ' +
+            JSON.stringify(warning) + ';');
     const window = {};
     vm.runInNewContext(script, {window, Blob,
         document: {title: 'U2C Attainment - Sales Buddy', querySelectorAll: () => tables,
@@ -107,6 +110,40 @@ test('default consumers preserve every table in both clipboard formats', async (
     assert.ok(plain.includes('SQL Migration'));
     assert.ok(plain.includes('SQLMI migration'));
     assert.doesNotMatch(template, /NATIVE_EXPORT/);
+    h.exportCSV();
+    assert.ok((await h.downloads[0].text()).startsWith('Engagement,Reason / Notes\r\n'));
+});
+
+test('data-quality warnings survive HTML, plaintext, CSV and email attachment exports', async () => {
+    const warning = 'SQL Server 2016 data is incorrect. Do not use <counts>, "customer lists".';
+    const h = await copyFixture(false, 'SQL 2016 EOS / ESU', true, warning);
+    const html = await h.copied[0].types['text/html'].text();
+    const plain = await h.copied[0].types['text/plain'].text();
+    assert.ok(html.includes('<strong>' + warning.replace('<counts>', '&lt;counts&gt;') + '</strong>'));
+    assert.ok(!html.includes('<counts>'));
+    assert.ok(plain.startsWith(warning + '\n\n'));
+    assert.ok(plain.includes('Seller: SQL <owner>'));
+    h.exportCSV();
+    const csv = await h.downloads[0].text();
+    const firstRow = '"' + warning.replace(/"/g, '""') + '"';
+    assert.equal(csv.split('\r\n')[0], firstRow);
+    assert.ok(csv.includes('SQL Migration'));
+    h.downloadEmail();
+    const eml = await h.downloads[1].text();
+    const decoded = eml.replace(/=\r\n/g, '').replace(/=([0-9A-F]{2})/g,
+        (_, hex) => String.fromCharCode(parseInt(hex, 16)));
+    assert.ok(decoded.includes(warning.replace('<counts>', '&lt;counts&gt;')));
+    const attachment = eml.match(/Content-Disposition: attachment;[^\r\n]*\r\n\r\n([\s\S]*?)\r\n--/);
+    assert.ok(attachment);
+    const attachedCsv = Buffer.from(attachment[1].replace(/\s/g, ''), 'base64').toString('utf8');
+    assert.ok(attachedCsv.includes(firstRow));
+});
+
+test('plaintext clipboard fallback retains the data-quality warning', async () => {
+    const warning = 'SQL Server 2016 data is known to be incorrect.';
+    const h = await copyFixture(true, 'SQL 2016 EOS / ESU', false, warning);
+    assert.ok(h.fallback[0].startsWith(warning + '\n\n'));
+    assert.ok(h.fallback[0].includes('SQL Migration'));
 });
 
 test('clipboard HTML excludes the hidden welcome heading when no custom title is supplied',

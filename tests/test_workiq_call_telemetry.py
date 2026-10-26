@@ -309,11 +309,12 @@ class TestCustomerScrapeParseFailure:
         from app.services import customer_scrape
 
         with patch('app.services.telemetry_shipper.queue_workiq_call') as q:
-            result = customer_scrape._parse_response('no json here at all')
-            assert result == {'contacts': [], 'meetings_found': 0}
+            with pytest.raises(ValueError, match='unreadable results'):
+                customer_scrape._parse_response('no json here at all')
             q.assert_called_once_with(
                 'customer_scrape', 'parse_failed',
                 failure_type='parse_customer_json',
+                duration_ms=None,
             )
 
 

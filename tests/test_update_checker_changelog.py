@@ -1,7 +1,64 @@
-"""Tests for changelog parsing and entry filtering in update_checker."""
+"""Tests for Git metadata, changelog parsing and entry filtering in update_checker."""
+import subprocess
+from unittest.mock import Mock, patch
+
+import pytest
+
 from app.services.update_checker import (
-    parse_changelog, entries_newer_than, entries_in_commits,
+    parse_changelog, entries_newer_than, entries_in_commits, get_commit_dates,
 )
+
+
+class TestCommitDates:
+    def test_resolves_full_and_unique_short_hashes_in_one_local_read(self):
+        """Legacy short versions and full boot hashes resolve to the same recorded date."""
+        sha = 'abcdef01' + '2' * 32
+        with patch('app.services.update_checker.subprocess.run', return_value=Mock(
+            stdout=f'{sha}\t2026-10-26\n',
+        )) as run:
+            result = get_commit_dates([sha, 'abcdef0', 'ABCDEF01'])
+        assert result == dict.fromkeys([sha, 'abcdef0', 'ABCDEF01'], '2026-10-26')
+        run.assert_called_once()
+        assert run.call_args.args[0] == ['git', 'log', '--all', '--format=%H%x09%cs']
+        assert run.call_args.kwargs['check'] is True
+        assert run.call_args.kwargs['timeout'] == 5
+
+    def test_ambiguous_missing_and_unknown_hashes_have_no_invented_date(self):
+        """Even same-day prefix collisions must not be assigned an arbitrary commit."""
+        first, second = 'abcdef01' + '1' * 32, 'abcdef02' + '2' * 32
+        with patch('app.services.update_checker.subprocess.run', return_value=Mock(
+            stdout=f'{first}\t2026-10-25\n{second}\t2026-10-25\n',
+        )):
+            result = get_commit_dates(['abcdef0', '1234567', 'unknown', first])
+        assert result == {
+            'abcdef0': None, '1234567': None, 'unknown': None, first: '2026-10-25',
+        }
+
+    @pytest.mark.parametrize('commits', [[], ['unknown', '--all', 'HEAD', 'abc123']])
+    def test_invalid_versions_do_not_launch_git(self, commits):
+        """Telemetry version strings are hashes, never Git revision expressions or flags."""
+        with patch('app.services.update_checker.subprocess.run') as run:
+            assert get_commit_dates(commits) == dict.fromkeys(commits)
+        run.assert_not_called()
+
+    @pytest.mark.parametrize('failure', [
+        FileNotFoundError('git'),
+        subprocess.TimeoutExpired('git', 5),
+        subprocess.CalledProcessError(1, 'git'),
+    ])
+    def test_lookup_failures_are_logged_and_leave_dates_explicitly_unknown(self, failure, caplog):
+        """Missing history must not hide version counts or manufacture a release date."""
+        with patch('app.services.update_checker.subprocess.run', side_effect=failure):
+            assert get_commit_dates(['abcdef0']) == {'abcdef0': None}
+        assert 'Commit date lookup failed' in caplog.text
+
+    def test_malformed_git_output_is_logged(self, caplog):
+        """Unexpected Git output is surfaced without interpreting it as a date."""
+        with patch('app.services.update_checker.subprocess.run', return_value=Mock(
+            stdout='unexpected output\n',
+        )):
+            assert get_commit_dates(['abcdef0']) == {'abcdef0': None}
+        assert 'malformed Git history' in caplog.text
 
 
 class TestParseChangelog:

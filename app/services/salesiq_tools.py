@@ -256,7 +256,9 @@ def report_sql_renewals() -> dict:
 
 @tool(
     'report_sql_eos',
-    'Read customers with explicit SQL Server 2016 Arc discovery in the saved shared SQL '
+    'Warning: SQL Server 2016 data is known to be incorrect. Do not rely on the counts '
+    'or customer lists; always surface the returned data_warning. '
+    'Read retained SQL Server 2016 Arc discovery in the saved shared SQL '
     'Motions snapshot. Uses only positive All Discovered counts, never overlapping category '
     'totals. Includes subscription evidence and source processing dates. '
     'Discovery units and ESU protection are unverified. No observation means unknown, '
@@ -1955,6 +1957,39 @@ def get_pod_overview(pod_id: int | None = None) -> dict | list:
         ],
         'total_customers': total_customers,
     }
+
+
+# -- Anonymous app adoption --------------------------------------------------
+
+@tool(
+    'get_usage_metrics',
+    'Read anonymous Sales Buddy adoption from App Insights: page-based DAU, page loads, '
+    'install Git versions, roles and SE specialties. Requires telemetry resource read access. '
+    'Never opens sign-in prompts; auth and query failures are returned explicitly.',
+    {
+        'type': 'object',
+        'properties': {
+            'insight': {
+                'type': 'string',
+                'enum': [
+                    'activity_summary', 'dau', 'page_loads', 'install_inventory',
+                    'installs_by_role', 'se_specialties', 'app_versions',
+                ],
+                'description': 'The usage insight to read (default activity_summary).',
+            },
+            'days': {
+                'type': 'integer',
+                'enum': [1, 7, 30, 90],
+                'description': 'UTC calendar days including today (default 7).',
+            },
+        },
+    },
+)
+def get_usage_metrics(insight: str = 'activity_summary', days: int = 7) -> dict:
+    """Use the same query and error contract as the metrics dashboard."""
+    from app.services.usage_metrics import get_metric_card
+
+    return get_metric_card(insight, days)
 
 
 # -- Analytics summary -------------------------------------------------------

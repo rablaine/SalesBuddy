@@ -333,7 +333,7 @@ def test_metrics_generated_tables_use_raw_values_and_independent_keys() -> None:
     assert 'data-sb-sort-value="${escapeHtml(r[c])}"' in source
     assert "renderTable(data.rows, cardId)" in source
     assert "renderDauLine(el, data.rows)" in source
-    assert "renderProbeTimeline(data.rows)" in source
+    assert "renderActivitySummary(data.rows)" in source
     assert "renderWorkIQTimeline(data.rows)" in source
 
 

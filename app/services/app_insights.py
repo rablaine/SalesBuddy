@@ -3,19 +3,27 @@ Thin wrapper over the Application Insights REST API.
 
 Used by the unadvertised ``/metrics`` dashboard to run KQL queries
 against the shared ``NoteHelper_Telemetry`` workspace. Authentication
-uses ``DefaultAzureCredential`` so whoever runs the app uses their own
-``az login``. Users without read access on the App Insights resource
+reuses existing CLI and Azure SDK credentials without interactive authentication.
+Users without read access on the App Insights resource
 will get HTTP 403 responses; the dashboard renders that as a per-card
 error rather than crashing the page.
 """
 from __future__ import annotations
 
+import json
 import logging
+import math
+import os
+import shutil
+import subprocess
+import threading
 import time
+from pathlib import Path
 from typing import Any, Optional
 
 import requests
-from azure.identity import AzureCliCredential, DefaultAzureCredential
+from azure.core.exceptions import ClientAuthenticationError
+from azure.identity import DefaultAzureCredential
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
@@ -25,9 +33,13 @@ logger = logging.getLogger(__name__)
 class AppInsightsError(Exception):
     """Raised on auth or HTTP failures from the App Insights REST API."""
 
-    def __init__(self, message: str, status_code: Optional[int] = None):
+    def __init__(
+        self, message: str, status_code: Optional[int] = None,
+        auth_required: Optional[bool] = None,
+    ):
         super().__init__(message)
         self.status_code = status_code
+        self.auth_required = auth_required
 
 
 # App ID for the NoteHelper_Telemetry component (parsed from the
@@ -35,19 +47,19 @@ class AppInsightsError(Exception):
 # we ship to).
 APP_ID = '84a49533-d8f7-4720-a3cf-9da762f11a64'
 
-# The App Insights resource lives in the BlaineCorp tenant. We pin the
-# tenant when acquiring tokens so guest users (e.g. a Microsoft account
-# invited as a guest) get a token issued by the resource's home tenant
-# instead of their own. Without this pin, az login -> Microsoft tenant
-# would mint a token that App Insights rejects with HTTP 403.
+# Prefer the resource tenant for guest accounts, while retaining existing
+# default-account and SDK sign-ins if that CLI tenant session is unavailable.
 TENANT_ID = '96d12531-723e-46c1-842b-0480739c7419'
 
 _API_BASE = 'https://api.applicationinsights.io/v1/apps'
 _TOKEN_SCOPE = 'https://api.applicationinsights.io/.default'
 
-_credential = None
 _cached_token: Optional[str] = None
 _token_expiry: float = 0
+_token_lock = threading.Lock()
+_auth_retry_after: float = 0
+_cached_auth_error: Optional[str] = None
+_cached_auth_required: bool = False
 _DEFAULT_TIMEOUT_SECONDS = 10
 
 # Shared HTTP session with connection pooling + transient-error retries.
@@ -91,49 +103,144 @@ def _get_session() -> requests.Session:
     return _session
 
 
-def _get_token() -> str:
-    """Acquire a token for the App Insights data plane. Cached until expiry."""
-    global _credential, _cached_token, _token_expiry
+def cli_auth_environment() -> dict[str, str]:
+    """Disable broker UI only in metrics CLI children, preserving the app's Azure profile."""
+    return {
+        **os.environ,
+        'AZURE_CORE_ENABLE_BROKER_ON_WINDOWS': 'false',
+        'AZURE_CORE_ENABLE_BROKER_ON_MAC': 'false',
+        'AZURE_CORE_LOGIN_EXPERIENCE_V2': 'off',
+        'AZURE_CORE_NO_COLOR': 'true',
+    }
 
-    now = time.time()
-    if _cached_token and now < _token_expiry - 60:
-        return _cached_token
 
-    if _credential is None:
-        # Prefer AzureCliCredential for local dev - faster, no prompts.
-        # Pin the tenant so guest users get a BlaineCorp-issued token.
+def _request_cli_token(tenant_id: Optional[str] = TENANT_ID) -> tuple[str, float]:
+    """Read an existing CLI credential without WAM, browser fallback or standard input."""
+    az = shutil.which('az') or shutil.which('az.cmd')
+    if not az:
+        raise AppInsightsError('Failed to acquire App Insights token: Azure CLI is unavailable.')
+    command = [az]
+    cli_python = Path(az).parent.parent / 'python.exe'
+    if Path(az).name.lower() == 'az.cmd' and cli_python.is_file():
+        # Terminate the actual MSI CLI host on timeout, not just its batch wrapper.
+        command = [str(cli_python), '-IBm', 'azure.cli']
+    result = subprocess.run(
+        [
+            *command, 'account', 'get-access-token',
+            *(['--tenant', tenant_id] if tenant_id else []),
+            '--scope', _TOKEN_SCOPE, '--output', 'json', '--only-show-errors',
+        ],
+        env=cli_auth_environment(),
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        text=True,
+        encoding='utf-8',
+        timeout=10,
+        check=True,
+    )
+    payload = json.loads(result.stdout)
+    if not isinstance(payload, dict):
+        raise ValueError('Azure CLI returned an invalid token response')
+    token = payload.get('accessToken')
+    expires_on = float(payload['expires_on'])
+    if not isinstance(token, str) or not token or not math.isfinite(expires_on):
+        raise ValueError('Azure CLI returned an invalid token response')
+    if expires_on <= time.time() + 60:
+        raise ValueError('Azure CLI returned a token that is already expiring')
+    return token, expires_on
+
+
+def _request_existing_token() -> tuple[str, float]:
+    """Preserve tenant-specific, default CLI and SDK sign-ins without opening sign-in UI."""
+    cli_requires_sign_in = True
+    for tenant_id in (TENANT_ID, None):
         try:
-            cred = AzureCliCredential(tenant_id=TENANT_ID)
-            cred.get_token(_TOKEN_SCOPE)
-            _credential = cred
-        except Exception:
-            _credential = DefaultAzureCredential(
-                additionally_allowed_tenants=[TENANT_ID],
+            return _request_cli_token(tenant_id=tenant_id)
+        except Exception as exc:
+            stderr = str(exc.stderr or '').lower() if isinstance(
+                exc, subprocess.CalledProcessError,
+            ) else ''
+            cli_requires_sign_in = cli_requires_sign_in and any(
+                marker in stderr for marker in ('az login', 'interaction_required', 'invalid_grant')
+            )
+            logger.info(
+                'App Insights %s CLI credential unavailable: %s',
+                'resource-tenant' if tenant_id else 'default-account', type(exc).__name__,
             )
 
     try:
-        token_obj = _credential.get_token(_TOKEN_SCOPE)
+        # SDK CLI is replaced by the controlled reads above. Other existing sign-ins
+        # retain the original default-tenant behavior, with automatic interaction disabled.
+        with DefaultAzureCredential(
+            additionally_allowed_tenants=[TENANT_ID],
+            exclude_cli_credential=True,
+            exclude_interactive_browser_credential=True,
+            disable_automatic_authentication=True,
+        ) as credential:
+            token = credential.get_token(_TOKEN_SCOPE)
+            return token.token, token.expires_on
     except Exception as exc:
-        raise AppInsightsError(
-            f'Failed to acquire App Insights token: {exc}'
-        ) from exc
+        auth_required = cli_requires_sign_in and isinstance(exc, ClientAuthenticationError)
+        message = (
+            'Existing App Insights credentials require sign-in.'
+            if auth_required else
+            'Unable to acquire an App Insights token from existing credentials. '
+            'No sign-in was started.'
+        )
+        raise AppInsightsError(message, auth_required=auth_required) from exc
 
-    _cached_token = token_obj.token
-    _token_expiry = token_obj.expires_on
-    return _cached_token
+
+def _get_token() -> str:
+    """Share one silent credential acquisition across concurrent dashboard cards."""
+    global _cached_token, _token_expiry, _auth_retry_after, _cached_auth_error
+    global _cached_auth_required
+
+    with _token_lock:
+        now = time.time()
+        if _cached_token and now < _token_expiry - 60:
+            return _cached_token
+        if _cached_auth_error and now < _auth_retry_after:
+            raise AppInsightsError(_cached_auth_error, auth_required=_cached_auth_required)
+        try:
+            token, expires_on = _request_existing_token()
+        except Exception as exc:
+            _cached_auth_required = isinstance(exc, AppInsightsError) and is_auth_error(exc)
+            _cached_auth_error = (
+                str(exc) if isinstance(exc, AppInsightsError) else
+                'Unable to acquire an App Insights token from existing credentials.'
+            )
+            _auth_retry_after = time.time() + 30
+            logger.warning(
+                'Silent App Insights authentication failed: %s',
+                type(exc.__cause__ or exc).__name__,
+            )
+            raise AppInsightsError(
+                _cached_auth_error, auth_required=_cached_auth_required,
+            ) from exc
+
+        _cached_token = token
+        _token_expiry = expires_on
+        _cached_auth_error = None
+        _cached_auth_required = False
+        _auth_retry_after = 0
+        return _cached_token
 
 
 def reset_token_cache() -> None:
-    """Drop the in-process token + credential cache.
+    """Drop the in-process token and authentication failure cache.
 
     Call this after the user has done a fresh ``az login`` so the next
     request acquires a token from the new disk cache instead of reusing
     the stale in-memory one.
     """
-    global _credential, _cached_token, _token_expiry
-    _credential = None
-    _cached_token = None
-    _token_expiry = 0
+    global _cached_token, _token_expiry, _cached_auth_error, _auth_retry_after
+    global _cached_auth_required
+    with _token_lock:
+        _cached_token = None
+        _token_expiry = 0
+        _cached_auth_error = None
+        _cached_auth_required = False
+        _auth_retry_after = 0
 
 
 def is_auth_error(exc: 'AppInsightsError') -> bool:
@@ -141,8 +248,11 @@ def is_auth_error(exc: 'AppInsightsError') -> bool:
 
     Used by the metrics UI to decide whether to surface the
     "sign in to BlaineCorp" button. We treat any 401/403 as an auth
-    issue, plus token-acquisition failures (which never get a status code).
+    issue. Credential reads can explicitly distinguish missing sign-ins from
+    timeouts and other acquisition errors.
     """
+    if exc.auth_required is not None:
+        return exc.auth_required
     if exc.status_code in (401, 403):
         return True
     msg = str(exc).lower()
@@ -199,6 +309,10 @@ def query(
         )
 
     payload = resp.json() or {}
+    if payload.get('error'):
+        error = payload['error']
+        message = error.get('message', 'Query failed') if isinstance(error, dict) else str(error)
+        raise AppInsightsError(f'App Insights query failed: {message}')
     tables = payload.get('tables') or []
     if not tables:
         return {'columns': [], 'rows': []}

@@ -379,7 +379,6 @@ def test_extracted_services_keep_role_gates_and_start_once(
         'app.services.scheduled_sync.start_sql_motions_sync_scheduler',
         'app.services.meeting_sync.start_meeting_sync_background',
         'app.services.meeting_sync.start_daily_meeting_scheduler',
-        'app.services.msx_health_probe.start_probe_thread',
         'app.services.lifecycle.init_lifecycle_logging',
     ]
     mocks = {}

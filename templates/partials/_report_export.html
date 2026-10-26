@@ -9,6 +9,7 @@
 
     Optional variables:
         export_title     - title shown in copied HTML (defaults to the document's report title)
+        export_warning   - warning included in CSV, clipboard text/HTML and email exports
 #}
 
 <div class="sb-revenue-export" role="group" aria-label="Export report" id="reportExportBtnGroup">
@@ -38,6 +39,7 @@
     const TABLE_SELECTOR = {{ export_table_id|tojson }};
     const FILENAME = {{ export_filename|default("report", true)|tojson }};
     const CUSTOM_TITLE = {{ export_title|default("", true)|tojson }};
+    const EXPORT_WARNING = {{ export_warning|default("", true)|tojson }};
 
     function getReportTitle() {
         return CUSTOM_TITLE || document.title.replace(/\s* - Sales Buddy$/, '').trim() || 'Report';
@@ -131,7 +133,8 @@
      * Convert 2D array to CSV string.
      */
     function rowsToCSV(rows) {
-        return rows.map(row =>
+        const exportRows = EXPORT_WARNING ? [[EXPORT_WARNING], [], ...rows] : rows;
+        return exportRows.map(row =>
             row.map(cell => {
                 // Quote cells that contain commas, quotes, or newlines
                 if (cell.includes(',') || cell.includes('"') || cell.includes('\n')) {
@@ -218,6 +221,9 @@
 
         let html = '<div style="font-family: Segoe UI, Calibri, Arial, sans-serif; font-size: 14px;">';
         html += '<p style="font-weight: 600; font-size: 16px; margin-bottom: 8px;">' + escapeHtml(title) + '</p>';
+        if (EXPORT_WARNING) {
+            html += '<p><strong>' + escapeHtml(EXPORT_WARNING) + '</strong></p>';
+        }
 
         tables.forEach(table => {
             const headerCells = table.querySelectorAll('thead th');
@@ -291,7 +297,10 @@
         const plainRows = tables.flatMap((table, index) => [
             ...(index ? [[]] : []), ...tableToRows(table),
         ]);
-        const plainText = plainRows.map(r => r.join('\t')).join('\n');
+        const plainText = [
+            ...(EXPORT_WARNING ? [EXPORT_WARNING, ''] : []),
+            ...plainRows.map(r => r.join('\t')),
+        ].join('\n');
 
         navigator.clipboard.write([
             new ClipboardItem({

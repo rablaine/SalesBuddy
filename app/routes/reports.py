@@ -969,10 +969,10 @@ def reports_hub():
                 },
                 {
                     'id': 'sql-eos',
-                    'name': 'SQL 2016 EOS / ESU',
+                    'name': 'SQL 2016 EOS / ESU (data incorrect)',
                     'description': (
-                        'Explicit SQL Server 2016 discovery from Arc, with subscription '
-                        'evidence. ESU protection remains unverified.'
+                        'Known incorrect SQL Server 2016 data, retained for reference. '
+                        'Do not rely on these counts or customer lists.'
                     ),
                     'icon': 'bi-database-exclamation',
                     'url': url_for('reports.report_sql_eos'),

@@ -8,13 +8,18 @@
 {% endblock %}
 {% block footer %}
 <footer class="sb-page-status" aria-label="Report status">
-    <span>{% if report.snapshot %}{{ report.count }} customers{% else %}No saved snapshot{% endif %}</span><span>Source signals, not qualified migration outcomes.</span>
+    <span>{% if report.snapshot %}{{ report.count }} customers{% else %}No saved snapshot{% endif %}</span><span>{% if report.data_warning %}SQL Server 2016 data is incorrect.{% else %}Source signals, not qualified migration outcomes.{% endif %}</span>
 </footer>
 {% endblock %}
 {% block content %}
-<section class="sb-revenue-reports sb-sql-report sb-directory-frame sb-directory-frame-wide"
+<section class="sb-revenue-reports sb-sql-report sb-directory-frame sb-directory-frame-wide{% if report.data_warning %} sb-data-watermarked{% endif %}"
          data-sb-page-surface data-sb-report-key="sql-{{ report.motion }}"
          aria-labelledby="sqlTitle">
+    {% if report.data_warning %}
+    <div class="sb-sql-data-watermark sb-data-watermark" aria-hidden="true">
+        <span>DATA INCORRECT</span>
+    </div>
+    {% endif %}
     <header class="sb-revenue-reports-header" data-sb-page-band>
         <div><h1 id="sqlTitle">{{ report.title }}</h1>
             <p>{% if not report.snapshot %}Import both SQL sources to see your queue.{% elif report.motion == 'renewals' %}{{ report.count }} upcoming customers, {{ report.within_90_count }} within 90 days.{% else %}{{ report.count }} customers with explicit SQL Server 2016 discovery evidence.{% endif %}</p>
@@ -32,9 +37,16 @@
             {% set export_table_id = '.sb-sql-table' %}
             {% set export_filename = 'sql-' ~ report.motion %}
             {% set export_title = report.title %}
+            {% set export_warning = report.data_warning %}
             {% include 'partials/_report_export.html' %}
         </div>
     </header>
+    {% if report.data_warning %}
+    <p class="sb-revenue-report-notice" data-sb-page-band data-sb-data-quality="incorrect"
+       role="alert"><i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
+        {{ report.data_warning }}
+    </p>
+    {% endif %}
     {{ sync_progress('sql-motions', '#syncSqlMotions', 'sql-') }}
     <p class="sb-revenue-report-notice" data-sb-report-context-notice data-sb-page-band role="alert" hidden></p>
     <p class="sb-modernization-context" data-sb-page-band>

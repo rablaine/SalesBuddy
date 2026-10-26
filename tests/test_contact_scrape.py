@@ -184,6 +184,84 @@ class TestCustomerScrapeService:
         assert len(result['contacts']) == 1
         assert result['meetings_found'] == 3
 
+    def test_parse_repeated_wrapped_response(self):
+        """Decode a complete answer before a repeated, corrupted CLI copy."""
+        from app.services.customer_scrape import _parse_response
+
+        answer = (
+            '{"contacts":[{"name":"Alice\nSmith","email":"alice@contoso.com",'
+            '"title":"Enterprise\nArchitect"}],"meetingsfound":25}'
+        )
+        raw = answer + answer.replace(':25}', ':2\n5}')
+        result = _parse_response(raw)
+        assert result == {
+            'contacts': [{
+                'name': 'Alice Smith',
+                'email': 'alice@contoso.com',
+                'title': 'Enterprise Architect',
+            }],
+            'meetings_found': 25,
+        }
+
+    @pytest.mark.parametrize('raw', [
+        'No response could be generated.',
+        '{"contacts": [',
+        '[]',
+        '{}',
+        '{"contacts": null}',
+        '{"contacts": [null]}',
+        '{"contacts": [{"name": 42}]}',
+        '{"contacts": [{"name": "Alice", "email": ["alice@contoso.com"]}]}',
+        '{"contacts": [], "meetings_found": "unknown"}',
+        '{"contacts": [], "meetings_found": -1}',
+        '{"contacts": [], "meetings_found": true}',
+    ])
+    def test_parse_invalid_response_raises(self, raw):
+        """Invalid output must not masquerade as a successful empty search."""
+        from app.services.customer_scrape import _parse_response
+
+        with pytest.raises(ValueError, match='unreadable results'):
+            _parse_response(raw)
+
+    def test_parse_confirmed_empty_response(self):
+        """A valid empty search remains a successful result."""
+        from app.services.customer_scrape import _parse_response
+
+        assert _parse_response('{"contacts": [], "meetings_found": 0}') == {
+            'contacts': [], 'meetings_found': 0,
+        }
+
+    def test_parse_missing_names_preserves_named_contacts(self, caplog):
+        """An email-only result must not discard other usable contacts."""
+        from app.services.customer_scrape import _parse_response
+
+        raw = json.dumps({
+            'contacts': [
+                {'name': None, 'email': 'unknown@contoso.com', 'title': None},
+                {'name': 'Alice Smith', 'email': 'alice@contoso.com', 'title': None},
+            ],
+            'meetings_found': 11,
+        })
+        result = _parse_response(raw)
+        assert len(result['contacts']) == 1
+        assert result['contacts'][0]['name'] == 'Alice Smith'
+        assert result['meetings_found'] == 11
+        assert 'without a name' in caplog.text
+
+    def test_parse_only_missing_names_raises(self):
+        """Unusable contacts must not be reported as a successful empty search."""
+        from app.services.customer_scrape import _parse_response
+
+        with pytest.raises(ValueError, match='unreadable results'):
+            _parse_response('{"contacts":[{"name":null,"email":"a@contoso.com"}]}')
+
+    def test_parse_fenced_response(self):
+        """A fenced answer with surrounding prose remains supported."""
+        from app.services.customer_scrape import _parse_response
+
+        raw = 'Results:\n```json\n{"contacts": [], "meetings_found": 4}\n```\n'
+        assert _parse_response(raw) == {'contacts': [], 'meetings_found': 4}
+
     def test_apply_customer_contacts(self, app, sample_data):
         """Apply creates new customer contacts."""
         with app.app_context():
@@ -595,6 +673,21 @@ class TestCustomerScrapeAPI:
         """Scrape returns 400 when customer has no domain."""
         resp = client.post(f'/api/customer/{sample_data["customer1_id"]}/scrape-contacts')
         assert resp.status_code == 400
+
+    def test_scrape_unreadable_response(self, client, app, sample_data):
+        """WorkIQ parsing errors return failure instead of an empty review."""
+        with app.app_context():
+            customer = db.session.get(Customer, sample_data['customer1_id'])
+            customer.website = 'contoso.com'
+            db.session.commit()
+
+        with patch('app.services.workiq_service.query_workiq', return_value='Not JSON'):
+            resp = client.post(
+                f'/api/customer/{sample_data["customer1_id"]}/scrape-contacts'
+            )
+        assert resp.status_code == 400
+        assert resp.get_json()['success'] is False
+        assert 'unreadable results' in resp.get_json()['error']
 
     def test_apply_endpoint(self, client, app, sample_data):
         """Customer scrape apply creates contacts."""
