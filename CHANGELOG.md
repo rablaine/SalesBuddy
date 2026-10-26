@@ -8,6 +8,10 @@ brought the change into `main`, so the admin Updates card can show
 Format: `## M/D/YYYY - <merge-short-sha>`. See
 `scripts/tag-changelog.ps1` for the helper that fills this in.
 
+## 10/26/2026
+
+- Remember dashboard filters and reapply them to widget data when returning from a report or reopening the dashboard.
+
 ## 10/24/2026 - e52c5890
 
 - *Electron Shell Update* - Dim the window controls along with the rest of the app when a modal is open.
