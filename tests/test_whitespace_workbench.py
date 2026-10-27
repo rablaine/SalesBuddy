@@ -12,9 +12,14 @@ from app.models import (
 
 
 @pytest.fixture
-def whitespace_data(app):
+def whitespace_data(app, monkeypatch):
     """Seed distinct recent averages, historical coverage and zero-only customers."""
     with app.app_context():
+        from app.services.monthly_acr import complete_acr_months
+
+        monkeypatch.setattr('app.services.whitespace.complete_acr_months',
+                            lambda reference=None: complete_acr_months(
+                                reference or date(2026, 10, 20)))
         customers = [
             Customer(name="Partial Customer", nickname="Partial", tpid=10001),
             Customer(name="Covered Customer", tpid=10002),
@@ -29,8 +34,8 @@ def whitespace_data(app):
             (0, "Databases", date(2026, 8, 1), 100.12),
             (0, "Databases", date(2026, 9, 1), 300.12),
             (0, "Analytics", date(2026, 1, 1), 50),
-            (1, "Databases", date(2026, 10, 1), 1200.01),
-            (1, "Analytics", date(2026, 10, 1), 400),
+            (1, "Databases", date(2026, 9, 1), 1200.01),
+            (1, "Analytics", date(2026, 9, 1), 400),
             (2, "Analytics", date(2026, 10, 1), 0),
         ]
         for index, bucket, month, revenue in records:
@@ -102,7 +107,8 @@ def test_whitespace_help_explains_distinct_scope(client):
     source = client.get("/static/js/page-help.js").text
     start = source.index("title: 'Whitespace Analysis'")
     help_text = source[start:source.index("title: 'Revenue Reports'", start)]
-    for phrase in ["62 days", "zero-only", "does not change the saved Revenue filter",
+    for phrase in ["three complete calendar months", "zero-only",
+                   "does not change the saved Revenue filter",
                    "export only the loaded grid", "nickname or TPID",
                    "checkboxes automatically updates the grid",
                    "AI, Analytics or Apps", "Developer, Infra and Security alone do not qualify",
@@ -111,16 +117,18 @@ def test_whitespace_help_explains_distinct_scope(client):
 
 
 def test_recent_average_and_grid_scope(client, whitespace_data):
-    """Average stored rows, not missing months; exclude old positive history."""
+    """Divide complete-month totals by three, counting missing months as zero."""
     response = client.get("/api/reports/whitespace?buckets=Databases,Analytics&show_all=1")
     data = response.get_json()
     assert response.status_code == 200
     assert data["buckets"] == ["Databases", "Analytics"]
     rows = {row["id"]: row for row in data["customers"]}
     assert set(rows) == set(whitespace_data[:2])
-    assert rows[whitespace_data[0]]["buckets"] == {"Databases": 200.12}
+    assert rows[whitespace_data[0]]["buckets"] == pytest.approx({"Databases": 400.24 / 3})
     assert rows[whitespace_data[0]]["nickname"] == "Partial"
-    assert rows[whitespace_data[1]]["buckets"] == {"Databases": 1200.01, "Analytics": 400}
+    assert rows[whitespace_data[1]]["buckets"] == pytest.approx({
+        "Databases": 1200.01 / 3, "Analytics": 400 / 3,
+    })
     partial = client.get("/api/reports/whitespace?buckets=Databases,Analytics").get_json()
     assert [row["id"] for row in partial["customers"]] == [whitespace_data[0]]
     assert client.get("/api/reports/whitespace").get_json() == {
@@ -142,7 +150,7 @@ def test_grid_includes_current_seller_and_unassigned_customers(client, whitespac
     assert set(by_id) == set(whitespace_data[:2])
     assert by_id[customer.id]['seller'] == {'id': seller.id, 'name': seller.name}
     assert by_id[whitespace_data[1]]['seller'] is None
-    assert by_id[customer.id]['buckets'] == {'Databases': 200.12}
+    assert by_id[customer.id]['buckets'] == pytest.approx({'Databases': 400.24 / 3})
 
 
 def test_reverse_keeps_historical_bucket_and_product_meaning(client, whitespace_data):

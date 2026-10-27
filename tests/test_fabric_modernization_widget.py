@@ -134,13 +134,32 @@ def test_details_sortable_columns_and_exact_amounts(saved_report, grouped):
     assert table['data-sb-sort-key'] != second.select_one('table')['data-sb-sort-key']
 
 
+@pytest.mark.parametrize('grouped', [False, True])
+def test_fabric_amounts_stay_plain_with_product_evidence(saved_report, grouped):
+    """Keep useful category breakdowns without a redundant Fabric hover control."""
+    saved_report.return_value['rows'][0]['product_breakdown'] = {
+        'other_analytics': [{'product': 'Azure Synapse Analytics', 'monthly_revenue': 200 / 3}],
+        'fabric': [{'product': 'Fabric Capacity', 'monthly_revenue': 100 / 3}],
+    }
+    data = fabric_modernization.get_fabric_modernization_widget()
+    soup = BeautifulSoup(render_widget(
+        'fabric_modernization', data, group_by_seller=grouped,
+    ), 'html.parser')
+    cells = soup.select_one('tr[data-row-key="first"]').select('td')
+    assert cells[1].select_one('[data-sb-revenue-breakdown]')
+    assert cells[-1].get_text(strip=True) == '$33'
+    assert float(cells[-1]['data-sb-sort-value']) == pytest.approx(100 / 3)
+    assert not soup.select('tr[data-row-key] td:last-child [data-sb-revenue-breakdown]')
+    assert not cells[-1].select('button, [tabindex], [title]')
+
+
 def test_no_data_empty_and_summary_states(saved_report):
     """No import is not an observed zero, and both variants use the exact same candidates."""
     result = fabric_modernization.get_fabric_modernization_widget()
     summary = BeautifulSoup(render_widget('fabric_modernization', result, 'metric'), 'html.parser')
     assert summary.select_one('dd').text == '3'
     assert summary.select_one('.db-modernization-revenue').text == '$123/mo'
-    assert summary.select_one('.db-modernization-revenue')['title'] == '$123.33 average monthly ACR'
+    assert summary.select_one('.db-modernization-revenue')['title'] == '$123 average monthly ACR'
     assert 'Other Analytics / month' in summary.text
     assert 'Modernization customers' in summary.text
     assert 'ADF / month' in summary.text

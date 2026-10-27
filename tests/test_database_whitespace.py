@@ -17,9 +17,14 @@ from tests.test_fabric_renewal_widgets import render_widget
 
 
 @pytest.fixture
-def database_rows(app):
+def database_rows(app, monkeypatch):
     """Create native pillar rows only in the isolated test database."""
     with app.app_context():
+        from app.services.monthly_acr import complete_acr_months
+
+        monkeypatch.setattr('app.services.whitespace.complete_acr_months',
+                            lambda reference=None: complete_acr_months(
+                                reference or date(2026, 10, 20)))
         pref = UserPreference.query.first()
         original = pref.user_role, pref.se_specialty
         pref.user_role, pref.se_specialty = 'se', 'data'
@@ -27,18 +32,19 @@ def database_rows(app):
         db.session.add(imported)
         db.session.flush()
 
-        def add(name, pillar='AI', amount=100, month=10, product='Source product'):
+        def add(name, pillar='AI', amount=100, month=None, product='Source product'):
             """Append another product observation without guessing its pillar."""
             customer = Customer.query.filter_by(name=name).first()
             if customer is None:
                 customer = Customer(name=name, tpid=100000 + Customer.query.count())
                 db.session.add(customer)
                 db.session.flush()
-            db.session.add(StrategicPillarRevenueData(
-                customer_id=customer.id, customer_name=name, tpid=customer.tpid,
-                pillar=pillar, product=product, month_date=date(2026, month, 1),
-                fiscal_month=f'FY27-{month}', revenue=amount, last_import_id=imported.id,
-            ))
+            for observed in ((month,) if month is not None else (7, 8, 9)):
+                db.session.add(StrategicPillarRevenueData(
+                    customer_id=customer.id, customer_name=name, tpid=customer.tpid,
+                    pillar=pillar, product=product, month_date=date(2026, observed, 1),
+                    fiscal_month=f'FY27-{observed}', revenue=amount, last_import_id=imported.id,
+                ))
             db.session.flush()
             return customer
 
@@ -66,7 +72,7 @@ def test_candidates_exactly_match_existing_grid_database_gaps(client, database_r
     add('Tiny database user')
     add('Tiny database user', 'Databases', 0.001)
     add('Old database user')
-    add('Old database user', 'Databases', 100, month=7)
+    add('Old database user', 'Databases', 100, month=6)
     add('Net zero database')
     add('Net zero database', 'Databases', 10, month=8)
     add('Net zero database', 'Databases', -10, month=9)
@@ -97,7 +103,7 @@ def test_candidates_exactly_match_existing_grid_database_gaps(client, database_r
 
 
 def test_monthly_values_reuse_grid_rollup_window_and_rounding(database_rows):
-    """Average monthly product totals once, preserving the report's available-month rules."""
+    """Divide all product and pillar totals by three without early display rounding."""
     add, _ = database_rows
     prospect = add('Prospect', amount=100, month=8, product='AI first')
     add('Prospect', amount=200, month=8, product='AI second')
@@ -107,11 +113,12 @@ def test_monthly_values_reuse_grid_rollup_window_and_rounding(database_rows):
     add('Prospect', 'Infra', 5000)
     add('Prospect', 'Developer', 6000)
     add('Prospect', 'Security', 7000)
-    add('Prospect', 'Databases', 9999, month=7)
-    result = get_database_whitespace_widget(date(2040, 1, 1))
-    assert result['rows'][0]['monthly_spend'] == {
-        'AI': 600, 'Analytics': 70.13, 'Apps': 50, 'Total': 720.13,
-    }
+    add('Prospect', 'Databases', 9999, month=6)
+    result = get_database_whitespace_widget(date(2026, 10, 20))
+    assert result['rows'][0]['monthly_spend'] == pytest.approx({
+        'AI': 400, 'Analytics': 70.126, 'Apps': 50, 'Total': 520.126,
+    })
+    assert get_database_whitespace_widget(date(2040, 1, 1))['count'] == 0
     assert get_database_whitespace_widget(customer_ids=(prospect.id,))['count'] == 1
     assert get_database_whitespace_widget(customer_ids=())['count'] == 0
     assert get_database_whitespace_widget(customer_ids=(999999,))['count'] == 0

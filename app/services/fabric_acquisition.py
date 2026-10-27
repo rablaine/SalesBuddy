@@ -8,6 +8,8 @@ from sqlalchemy.orm import joinedload
 
 from app.models import Customer, StrategicPillarRevenueData, db
 from app.services.se_specialty import has_specialty_access
+from app.services.monthly_acr import complete_acr_months, monthly_product_breakdown
+from app.services.whitespace import get_pillar_acr_records
 
 DESTINATION = '/reports/whitespace?view=fabric-acquisition'
 WIDGET_MIN_MONTHLY_ACR = 2000
@@ -25,7 +27,7 @@ def get_fabric_acquisition_report(
 ) -> dict:
     """Find customers with no positive monthly net Fabric ACR, treating missing data as zero.
 
-    Include the current, partial calendar month and the previous three months.
+    Use the last three complete calendar months, divided by three.
     Missing customer, product and month observations contribute zero.
     Fabric is split out of Analytics before any aggregation, never subtracted
     from rounded amounts or combined with the separate service-bucket feed.
@@ -34,17 +36,13 @@ def get_fabric_acquisition_report(
     The report-only option includes all current customers regardless of other spend,
     including customers without any imported revenue observations.
     """
-    current = (reference or date.today()).replace(day=1)
-    index = current.year * 12 + current.month - 1
-    months = [date(i // 12, i % 12 + 1, 1) for i in range(index - 3, index + 1)]
+    months = complete_acr_months(reference)
     month_count = len(months)
     result = {
         'available': has_specialty_access('data'),
         'rows': [], 'seller_groups': [], 'count': 0,
         'columns': [{'key': key, 'label': label} for key, label in COLUMNS],
-        'period_label': (
-            f'{months[0]:%b %Y} through {months[-1]:%b %Y} (current month partial)'
-        ),
+        'period_label': f'{months[0]:%b %Y} through {months[-1]:%b %Y}',
         'months': [month.isoformat() for month in months],
         'has_revenue_data': False, 'destination': DESTINATION,
         'include_no_other_spend': include_no_other_spend,
@@ -54,22 +52,9 @@ def get_fabric_acquisition_report(
     result['has_revenue_data'] = (
         db.session.query(StrategicPillarRevenueData.id).first() is not None
     )
-    query = db.session.query(
-        StrategicPillarRevenueData.customer_id, StrategicPillarRevenueData.pillar,
-        StrategicPillarRevenueData.product, StrategicPillarRevenueData.month_date,
-        db.func.sum(StrategicPillarRevenueData.revenue).label('revenue'),
-    ).filter(
-        StrategicPillarRevenueData.customer_id.isnot(None),
-        StrategicPillarRevenueData.month_date.in_(months),
-        StrategicPillarRevenueData.pillar.in_([key for key, _ in COLUMNS]),
-    )
-    if customer_ids is not None:
-        query = query.filter(StrategicPillarRevenueData.customer_id.in_(customer_ids))
-    records = query.group_by(
-        StrategicPillarRevenueData.customer_id, StrategicPillarRevenueData.pillar,
-        StrategicPillarRevenueData.product, StrategicPillarRevenueData.month_date,
-    ).all()
+    records = get_pillar_acr_records(reference, customer_ids=customer_ids)
     spend = defaultdict(lambda: defaultdict(list))
+    products = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
     fabric_months = defaultdict(lambda: defaultdict(list))
     for record in records:
         if record.pillar not in ('AI', 'Databases', 'Analytics'):
@@ -79,6 +64,7 @@ def get_fabric_acquisition_report(
         )
         family = 'Fabric' if fabric else record.pillar
         spend[record.customer_id][family].append(record.revenue)
+        products[record.customer_id][family][record.product].append(record.revenue)
         if fabric:
             fabric_months[record.customer_id][record.month_date].append(record.revenue)
     customers = Customer.query.filter(Customer.stale_since.is_(None)).options(
@@ -109,6 +95,10 @@ def get_fabric_acquisition_report(
             'seller': {'id': customer.seller.id, 'name': customer.seller.name}
             if customer.seller else None,
             'monthly_spend': {key: value / month_count for key, value in totals.items()},
+            'product_breakdown': {
+                key: monthly_product_breakdown(products[customer.id][key])
+                for key in totals
+            },
             'revenue': monthly_footprint,
         })
     result['rows'].sort(key=lambda row: (-row['revenue'], row['customer_name'].casefold()))

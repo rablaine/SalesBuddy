@@ -5,10 +5,11 @@ import pytest
 
 from app.models import Customer, ProductRevenueData, RevenueAnalysis, RevenueImport, Seller, db
 from app.services.fabric_modernization import (
-    _average_monthly_revenue, _product_family,
+    _product_family,
     get_fabric_modernization_report, get_fabric_modernization_widget,
 )
 from app.services.salesiq_tools import execute_tool
+from app.services.monthly_acr import monthly_product_breakdown
 
 
 @pytest.fixture
@@ -155,12 +156,13 @@ def test_linked_customer_identity_across_names_buckets_and_same_name_sellers(rev
     assert result['partial_customer_count'] == 3
 
 
-@pytest.mark.parametrize(('revenue', 'months', 'expected'), [
-    (900, 3, 300), (600, 2, 300), (300, 1, 300), (0, 0, 0), (99, 0, 0),
+@pytest.mark.parametrize(('revenue', 'expected'), [
+    (900, 300), (600, 200), (300, 100), (-99, -33), (0, 0),
 ])
-def test_average_uses_available_months_or_zero(revenue, months, expected):
-    """Use the actual month count and return zero when there are no observations."""
-    assert _average_monthly_revenue(revenue, months) == expected
+def test_product_average_uses_fixed_divisor(revenue, expected):
+    """Product evidence uses the same fixed divisor, including credits and empty totals."""
+    products = monthly_product_breakdown({'Example': [revenue]})
+    assert sum(product['monthly_revenue'] for product in products) == expected
 
 
 def test_period_is_calendar_based_even_with_missing_months(revenue_rows):
@@ -173,16 +175,16 @@ def test_period_is_calendar_based_even_with_missing_months(revenue_rows):
     assert row['months_observed'] == 2
     assert not row['coverage_complete']
     assert row['spend']['fabric'] == 0
-    assert row['monthly_source_revenue'] == 50
-    assert row['monthly_other_analytics_revenue'] == 50
-    assert row['monthly_spend'] == {
-        'synapse': 50, 'aas': 0, 'adx': 0, 'databricks': 0, 'adf': 0, 'fabric': 0,
-    }
+    assert row['monthly_source_revenue'] == pytest.approx(100 / 3)
+    assert row['monthly_other_analytics_revenue'] == pytest.approx(100 / 3)
+    assert row['monthly_spend'] == pytest.approx({
+        'synapse': 100 / 3, 'aas': 0, 'adx': 0, 'databricks': 0, 'adf': 0, 'fabric': 0,
+    })
     assert result['partial_customer_count'] == 1
 
 
 def test_widget_sums_customer_averages_with_different_month_counts(revenue_rows):
-    """Normalize each customer before summing, counting months once across products."""
+    """Use the same fixed divisor for full, partial and single-month customer totals."""
     for month in (7, 8, 9):
         revenue_rows('Full', 'Azure Synapse Analytics', 90, month)
         revenue_rows('Full', 'Azure Data Factory v2', 30, month)
@@ -196,14 +198,14 @@ def test_widget_sums_customer_averages_with_different_month_counts(revenue_rows)
     assert rows['Full']['months_observed'] == 3
     assert rows['Partial']['months_observed'] == 2
     assert rows['Single']['months_observed'] == 1
-    assert rows['Partial']['monthly_spend']['adf'] == 600
-    assert rows['Single']['monthly_other_analytics_revenue'] == 150
+    assert rows['Partial']['monthly_spend']['adf'] == 400
+    assert rows['Single']['monthly_other_analytics_revenue'] == 50
     widget = get_fabric_modernization_widget(date(2026, 10, 20))
     assert widget['count'] == 3
     assert widget['partial_customer_count'] == 2
-    assert widget['monthly_other_analytics_revenue'] == 240
-    assert widget['monthly_adf_revenue'] == 630
-    assert widget['monthly_source_revenue'] == 870
+    assert widget['monthly_other_analytics_revenue'] == 140
+    assert widget['monthly_adf_revenue'] == 430
+    assert widget['monthly_source_revenue'] == 570
 
 
 def test_distinct_source_identities_and_ambiguous_ownership(revenue_rows):
@@ -310,6 +312,6 @@ def test_widget_preserves_report_cutoffs_before_strict_spend_comparison(revenue_
     ]
     assert result['count'] == 2
     assert result['other_analytics_revenue'] == pytest.approx(150.0001)
-    assert result['monthly_other_analytics_revenue'] == pytest.approx(150.0001)
+    assert result['monthly_other_analytics_revenue'] == pytest.approx(150.0001 / 3)
     assert result['has_revenue_data']
     assert result['period_label'] == 'Jul 2026 through Sep 2026'

@@ -5,6 +5,9 @@ from math import fsum
 from sqlalchemy.orm import joinedload
 
 from app.models import Customer, ProductRevenueData, RevenueAnalysis, db
+from app.services.monthly_acr import (
+    ACR_WINDOW_MONTHS, complete_acr_months, monthly_product_breakdown,
+)
 
 
 PRODUCT_FAMILIES = (
@@ -18,9 +21,6 @@ PRODUCT_FAMILIES = (
 OTHER_ANALYTICS_FAMILIES = ('synapse', 'aas', 'adx', 'databricks')
 MIN_SOURCE_REVENUE = 50
 MIN_SOURCE_REVENUE_WITH_FABRIC = 100
-REVENUE_WINDOW_MONTHS = 3
-
-
 def _product_family(product: str) -> str | None:
     """Match complete source family names without including unrelated SQL products."""
     for key, _, prefix in PRODUCT_FAMILIES:
@@ -29,24 +29,15 @@ def _product_family(product: str) -> str | None:
     return None
 
 
-def _average_monthly_revenue(revenue: float, months_observed: int) -> float:
-    """Average over available customer months, returning zero without observations."""
-    return revenue / months_observed if months_observed else 0.0
-
-
 def get_fabric_modernization_report(reference: date | None = None) -> dict:
-    """Keep three-month eligibility totals and average over available customer months.
+    """Keep three-month eligibility totals and divide monthly averages by three.
 
     Linked rows roll up by customer ID across names and buckets. Unlinked imports
     remain separate by source name rather than guessing a customer match.
     """
     reference = reference or date.today()
     end = reference.replace(day=1)
-    month_index = end.year * 12 + end.month - 1
-    months = [
-        date(index // 12, index % 12 + 1, 1)
-        for index in range(month_index - REVENUE_WINDOW_MONTHS, month_index)
-    ]
+    months = complete_acr_months(reference)
     records = db.session.query(
         ProductRevenueData.customer_id, ProductRevenueData.customer_name,
         ProductRevenueData.product, db.func.sum(ProductRevenueData.revenue).label('revenue'),
@@ -66,6 +57,7 @@ def get_fabric_modernization_report(reference: date | None = None) -> dict:
         key = ('id', record.customer_id) if record.customer_id else ('name', record.customer_name)
         observed.setdefault(key, set()).add(record.month_date)
     amounts: dict[tuple, dict[str, list[float]]] = {}
+    products: dict[tuple, dict[str, dict[str, list[float]]]] = {}
     names = {}
     for record in records:
         family = _product_family(record.product)
@@ -76,6 +68,10 @@ def get_fabric_modernization_report(reference: date | None = None) -> dict:
         amounts.setdefault(key, {name: [] for name, _, _ in PRODUCT_FAMILIES})[family].append(
             record.revenue,
         )
+        category = 'other_analytics' if family in OTHER_ANALYTICS_FAMILIES else family
+        products.setdefault(key, {}).setdefault(category, {}).setdefault(
+            record.product, [],
+        ).append(record.revenue)
     customers = {
         customer.id: customer for customer in Customer.query.options(joinedload(Customer.seller))
         .filter(Customer.id.in_([key[1] for key in amounts if key[0] == 'id'])).all()
@@ -100,7 +96,7 @@ def get_fabric_modernization_report(reference: date | None = None) -> dict:
         customer = customers.get(key[1]) if key[0] == 'id' else None
         seller = customer.seller if customer else None
         months_observed = len(observed.get(key, set()))
-        coverage_complete = months_observed == REVENUE_WINDOW_MONTHS
+        coverage_complete = months_observed == ACR_WINDOW_MONTHS
         rows.append({
             'customer_id': customer.id if customer else None,
             'customer_name': customer.get_display_name() if customer else names[key],
@@ -113,15 +109,19 @@ def get_fabric_modernization_report(reference: date | None = None) -> dict:
             'other_analytics_revenue': other_analytics,
             'has_synapse': spend['synapse'] > 0,
             'monthly_spend': {
-                family: _average_monthly_revenue(amount, months_observed)
+                family: amount / ACR_WINDOW_MONTHS
                 for family, amount in spend.items()
             },
             'monthly_source_revenue': (
-                _average_monthly_revenue(source_revenue, months_observed)
+                source_revenue / ACR_WINDOW_MONTHS
             ),
             'monthly_other_analytics_revenue': (
-                _average_monthly_revenue(other_analytics, months_observed)
+                other_analytics / ACR_WINDOW_MONTHS
             ),
+            'product_breakdown': {
+                category: monthly_product_breakdown(values)
+                for category, values in products[key].items()
+            },
             'months_observed': months_observed,
             'coverage_complete': coverage_complete,
             'row_key': f'{key[0]}-{key[1]}',

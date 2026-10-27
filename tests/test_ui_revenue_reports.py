@@ -29,10 +29,10 @@ def modernization_report(monkeypatch):
             'months_observed': 3 if complete else 2,
         }
         row['monthly_spend'] = {
-            family: amount / row['months_observed'] for family, amount in row['spend'].items()
+            family: amount / 3 for family, amount in row['spend'].items()
         }
-        row['monthly_source_revenue'] = row['source_revenue'] / row['months_observed']
-        row['monthly_other_analytics_revenue'] = 103.99 / row['months_observed']
+        row['monthly_source_revenue'] = row['source_revenue'] / 3
+        row['monthly_other_analytics_revenue'] = 103.99 / 3
         report['rows'].append(row)
         report['seller_groups'].append({
             'key': str(index), 'name': 'R&D <seller>' if complete else None,
@@ -86,7 +86,7 @@ def test_modernization_native_contract_and_exact_values(client, modernization_re
     assert cells[6].get_text(strip=True) == '$0'
     partial = root.select('tbody')[1].select('td')
     assert [float(cell['data-sb-sort-value']) for cell in partial[1:]] == pytest.approx([
-        100.49 / 2, 0, -0.25 / 2, 3.75 / 2, 12.34 / 2, 1.49 / 2, 103.99 / 2,
+        100.49 / 3, 0, -0.25 / 3, 3.75 / 3, 12.34 / 3, 1.49 / 3, 103.99 / 3,
     ])
     assert partial[2].get_text(strip=True) == '$0'
     assert 'Unavailable' not in root.text

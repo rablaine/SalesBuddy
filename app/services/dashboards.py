@@ -253,7 +253,7 @@ WIDGET_DEFINITIONS = {
                     (6, 12), MIN_WIDGET_HEIGHT, 5,
                 ),
             ),
-            get_fabric_acquisition_widget, scope='Avg monthly ACR / current + previous 3 months',
+            get_fabric_acquisition_widget, scope='Avg monthly ACR / last 3 complete months',
             supported_filters=(*FILTER_LABELS, 'group_by_seller'), specialty='data',
         ),
         WidgetDefinition(
@@ -270,7 +270,7 @@ WIDGET_DEFINITIONS = {
                     (6, 12), MIN_WIDGET_HEIGHT, 5,
                 ),
             ),
-            get_database_whitespace_widget, scope='Saved whitespace grid / recent pillar ACR',
+            get_database_whitespace_widget, scope='Avg monthly ACR / last 3 complete months',
             supported_filters=(*FILTER_LABELS, 'group_by_seller'), specialty='data',
         ),
         WidgetDefinition(

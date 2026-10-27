@@ -462,7 +462,12 @@
                     const button = element('button', formatRevenue(amount), 'sb-whitespace-value');
                     td.dataset.exportLabel = formatRevenue(amount);
                     button.type = 'button';
-                    button.title = 'View ' + bucket + ' products for ' + customer.name;
+                    button.dataset.sbRevenueBreakdown = JSON.stringify(
+                        customer.product_breakdown[bucket]);
+                    button.dataset.revenueLabel = bucket;
+                    button.dataset.revenuePeriod = grid.period_label;
+                    button.setAttribute('aria-label', bucket + ': ' + formatRevenue(amount)
+                        + ' average monthly ACR. Click for full product history.');
                     button.addEventListener('click', () => openBucket(customer, bucket));
                     td.append(button);
                 }
@@ -477,7 +482,7 @@
         const scope = rows.length + ' customers'
             + (focus ? ' | ' + focus + ' whitespace' : '')
             + (buckets.length ? ' | ' + buckets.join(', ') : '')
-            + ' | Recent average spend';
+            + ' | Avg monthly ACR, ' + grid.period_label + '; total divided by 3';
         find('#gridSummary').textContent = scope;
         if (mode === 'grid') updateStatus(scope);
         restoreReading('grid');

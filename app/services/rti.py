@@ -5,6 +5,7 @@ from math import fsum
 from app.models import Customer, ProductRevenueData, db
 from app.services.dashboard_filters import group_rows_by_seller
 from app.services.fabric_consumption import get_fabric_capacity_overview
+from app.services.monthly_acr import ACR_WINDOW_MONTHS, complete_acr_months
 
 
 PRODUCT_FAMILIES = (
@@ -12,7 +13,6 @@ PRODUCT_FAMILIES = (
     ('stream_analytics', 'Stream Analytics', ('Stream Analytics',)),
     ('iot', 'IoT', ('IoT', 'Device Update for IoT Hub')),
 )
-WINDOW_MONTHS = 3
 RTI_WORKLOAD = 'Real Time Intelligence'
 
 
@@ -34,11 +34,7 @@ def get_rti_report(
     Capacity rows repeat customer-wide usage, so only the first row is used.
     """
     reference = reference or date.today()
-    index = reference.year * 12 + reference.month - 1
-    months = [
-        date(month // 12, month % 12 + 1, 1)
-        for month in range(index - WINDOW_MONTHS, index)
-    ]
+    months = complete_acr_months(reference)
     end = reference.replace(day=1)
     customers = Customer.query.filter(Customer.stale_since.is_(None))
     if customer_ids is not None:
@@ -89,10 +85,10 @@ def get_rti_report(
             'rti_share_pct': customer['workload_shares'].get(RTI_WORKLOAD) or 0,
             'has_rti': has_rti, 'spend': spend,
             'monthly_spend': {
-                key: amount / WINDOW_MONTHS if has_revenue_data else None
+                key: amount / ACR_WINDOW_MONTHS if has_revenue_data else None
                 for key, amount in spend.items()
             },
-            'monthly_acr': fsum(spend.values()) / WINDOW_MONTHS if has_revenue_data else None,
+            'monthly_acr': fsum(spend.values()) / ACR_WINDOW_MONTHS if has_revenue_data else None,
             'destination': f'/reports/fabric-consumption?customer_id={customer_id}',
             'revenue_destination': f'/customer/{customer_id}/revenue',
         })

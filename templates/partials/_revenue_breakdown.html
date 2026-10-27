@@ -1,0 +1,10 @@
+{% macro revenue_breakdown(amount, products, label, period, class_name='') -%}
+{%- if products -%}
+<button type="button" class="sb-revenue-breakdown-value {{ class_name }}"
+        data-sb-revenue-breakdown="{{ products|tojson|forceescape }}"
+        data-revenue-label="{{ label }}" data-revenue-period="{{ period }}"
+        aria-label="{{ label }}: ${{ '{:,.0f}'.format(amount) }} average monthly ACR. Product breakdown.">${{ '{:,.0f}'.format(amount) }}</button>
+{%- else -%}
+<span{% if class_name %} class="{{ class_name }}"{% endif %}>${{ '{:,.0f}'.format(amount) }}</span>
+{%- endif -%}
+{%- endmacro %}

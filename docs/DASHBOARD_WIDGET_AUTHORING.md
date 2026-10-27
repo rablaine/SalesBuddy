@@ -440,6 +440,17 @@ Presentation rules:
 - Grouped headings must be fixed during sorting. Full-report exports must preserve
   group labels and avoid accidentally including hidden evidence in summary cells.
 - Avoid nested evidence tables that contaminate the parent sort/export selectors.
+- ACR discovery widgets and matching reports use `complete_acr_months()` from
+  `monthly_acr.py`: last three complete calendar months, divided by 3, missing
+  months as zero. Keep native telemetry windows separate. Category product evidence
+  uses the same source, scope, credits and divisor as its displayed total.
+  Reuse `_revenue_breakdown.html` and the delegated `ui-revenue-breakdown.js`
+  hover/focus controller; its top-layer preview does not enter table exports.
+  Leave Fabric amounts as plain text; the single-product category needs no breakdown control.
+  Display whole dollars in amounts, breakdowns and accessible labels; retain source
+  precision for calculations, eligibility and numeric sort values.
+  Source pillar totals and explicitly selected product families may have different
+  membership (for example acquisition Analytics includes ADF; modernization separates it).
 - Reuse row/header partials where report and widget columns truly match. Do not
   simplify an extracted report partial and accidentally drop its existing behavior.
 - Multiple copies and injected previews must work. Do not rely only on
