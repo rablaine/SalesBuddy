@@ -1,7 +1,7 @@
 """Tests for the unadvertised /metrics dashboard."""
 from __future__ import annotations
 
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import pytest
 from bs4 import BeautifulSoup
@@ -51,8 +51,8 @@ class TestMetricsCardApi:
             {'app_version': 'unknown', 'installs': 2},
         ]
         with patch('app.services.usage_metrics.query_to_dicts', return_value=rows), \
-             patch('app.services.usage_metrics.get_commit_dates', return_value={
-                 'abcdef0': '2026-10-26', 'unknown': None,
+             patch('app.services.usage_metrics.get_commit_metadata', return_value={
+                 'abcdef0': ('abcdef0', '2026-10-26'), 'unknown': ('unknown', None),
              }) as lookup:
             response = client.get('/api/metrics/card/app_versions?days=7')
         assert response.get_json()['rows'] == [
@@ -60,6 +60,28 @@ class TestMetricsCardApi:
             {'app_version': 'unknown', 'commit_date': None, 'installs': 2},
         ]
         lookup.assert_called_once_with(['abcdef0', 'unknown'])
+
+    def test_version_card_groups_legacy_hashes_without_merging_collisions(self, client):
+        """Resolve identity before summing, never group on seven-character display text."""
+        first, second = '97d4b5a3' + '1' * 32, '97d4b5a4' + '2' * 32
+        rows = [
+            {'app_version': first, 'installs': 2},
+            {'app_version': first[:8], 'installs': 1},
+            {'app_version': first[:7], 'installs': 1},
+            {'app_version': second, 'installs': 1},
+            {'app_version': 'unknown', 'installs': 1},
+        ]
+        with patch('app.services.usage_metrics.query_to_dicts', return_value=rows), \
+             patch('app.services.update_checker.subprocess.run', return_value=Mock(
+                 stdout=f'{first}\t2026-10-24\n{second}\t2026-10-25\n',
+             )):
+            response = client.get('/api/metrics/card/app_versions?days=7')
+        assert response.get_json()['rows'] == [
+            {'app_version': first, 'commit_date': '2026-10-24', 'installs': 3},
+            {'app_version': first[:7], 'commit_date': None, 'installs': 1},
+            {'app_version': second, 'commit_date': '2026-10-25', 'installs': 1},
+            {'app_version': 'unknown', 'commit_date': None, 'installs': 1},
+        ]
 
     def test_card_returns_rows_as_json(self, client):
         with patch('app.services.usage_metrics.query_to_dicts', return_value=[{'active_installs': 5}]):

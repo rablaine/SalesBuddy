@@ -4,7 +4,7 @@ from __future__ import annotations
 import logging
 
 from app.services.app_insights import AppInsightsError, is_auth_error, query_to_dicts
-from app.services.update_checker import get_commit_dates
+from app.services.update_checker import get_commit_metadata
 
 logger = logging.getLogger(__name__)
 
@@ -410,15 +410,18 @@ def get_metric_card(card_id: str, days: int = 7) -> dict:
     title, kql, timespan = spec
     result = _safe_query(title, kql, timespan)
     if card_id == 'app_versions' and result['rows']:
-        commit_dates = get_commit_dates([row['app_version'] for row in result['rows']])
-        result['rows'] = [
-            {
-                'app_version': row['app_version'],
-                'commit_date': commit_dates[row['app_version']],
-                'installs': row['installs'],
-            }
-            for row in result['rows']
-        ]
+        metadata = get_commit_metadata([row['app_version'] for row in result['rows']])
+        versions = {}
+        for row in result['rows']:
+            identity, commit_date = metadata[row['app_version']]
+            if identity not in versions:
+                versions[identity] = {
+                    'app_version': identity, 'commit_date': commit_date, 'installs': 0,
+                }
+            versions[identity]['installs'] += row['installs']
+        result['rows'] = sorted(
+            versions.values(), key=lambda row: (-row['installs'], row['app_version']),
+        )
     return {
         'card_id': card_id,
         'title': result['title'],

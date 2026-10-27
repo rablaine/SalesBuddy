@@ -116,7 +116,8 @@
   These are installs, not identifiable people. The selected range includes today.
   Page-based activity starts with this telemetry update; older request traffic is not backfilled.
   Reporting installs include background-only installs; their last active time stays empty.
-  Versions are the full Git commit loaded at startup, not an un-restarted checkout.
+  Versions identify the Git commit loaded at startup, not an un-restarted checkout.
+  Hashes display 7 characters; hover to see the recorded or resolved hash.
   Unknown roles and specialties remain explicit for older installs.
 </p>
 <section class="sb-admin-section metric-card">
@@ -153,7 +154,7 @@
     {% if key == 'app_versions' %}
     <p class="sb-admin-small sb-admin-text-muted sb-admin-mt-2 sb-admin-mb-0">
       Commit dates come from local Git history, not push times. Unknown means no unique
-      commit match is available.
+      commit match is available. Unique legacy hash prefixes are grouped with their full commit.
     </p>
     {% endif %}
   </div>
@@ -274,6 +275,9 @@
     const body = rows.map(r => {
       const cells = cols.map(c => {
         const value = c === 'commit_date' && r[c] == null ? 'Unknown' : r[c];
+        if (c === 'app_version' && /^[0-9a-f]{7,40}$/i.test(value)) {
+          return `<td data-sb-sort-value="${escapeHtml(value)}"><code title="${escapeHtml(value)}">${escapeHtml(value.slice(0, 7).toLowerCase())}</code></td>`;
+        }
         return `<td data-sb-sort-value="${escapeHtml(r[c])}">${escapeHtml(value)}</td>`;
       }).join('');
       return `<tr>${cells}</tr>`;

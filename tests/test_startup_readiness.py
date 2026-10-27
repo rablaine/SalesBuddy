@@ -55,16 +55,24 @@ def test_app_factory_preflight_only_for_unsupervised_real_launches(
     monkeypatch.setattr('app.services.diagnostic_log.init_diagnostic_log', lambda *args: None)
     monkeypatch.setattr('app.services.lifecycle.init_lifecycle_logging', lambda *a, **k: None)
     monkeypatch.setattr('app.start_background_services', lambda *args: None)
-    monkeypatch.setattr(
-        'subprocess.run', lambda *args, **kwargs: SimpleNamespace(stdout=''),
-    )
+    sha = '2abcc4507bed30c94061059fc6c4812668264229'
+    git_run = Mock(side_effect=lambda args, **kwargs: SimpleNamespace(
+        stdout=sha if args == ['git', 'rev-parse', 'HEAD'] else '',
+    ))
+    monkeypatch.setattr('subprocess.run', git_run)
     application = create_app()
+    assert application.config['BOOT_COMMIT_FULL'] == sha
+    assert application.config['BOOT_COMMIT'] == sha[:7]
+    assert sum(
+        call.args[0] == ['git', 'rev-parse', 'HEAD'] for call in git_run.call_args_list
+    ) == 1
     assert preflight.call_count == expected_calls
     if expected_calls:
         preflight.assert_called_once_with(Path(__file__).resolve().parent.parent)
         assert calls.index('preflight') < calls.index('location') < calls.index('schema')
     with application.app_context():
-        from app.models import db
+        from app.models import db, UserPreference
+        assert UserPreference.query.first().current_commit == sha
         db.session.remove()
         db.engine.dispose()
 

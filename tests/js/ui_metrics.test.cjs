@@ -126,6 +126,7 @@ test('inventory and page tables escape values and retain numeric sorting', async
     assert.match(inventory, /Boot commit/);
     assert.match(inventory, /Last page activity \(UTC\)/);
     assert.match(inventory, new RegExp('a'.repeat(40)));
+    assert.match(inventory, /<code title="a{40}">a{7}<\/code>/);
 });
 
 test('authentication failures show explicit sign-in controls but never invoke login', async () => {
@@ -149,6 +150,19 @@ test('version dates are sortable and missing Git matches are explicitly unknown'
     assert.match(versions, /<th data-sb-sort-type="date">Commit date<\/th>/);
     assert.match(versions, /data-sb-sort-value="2026-10-26">2026-10-26<\/td>/);
     assert.match(versions, /data-sb-sort-value="">Unknown<\/td>/);
+});
+
+test('version labels use seven characters while retaining the complete identity', async () => {
+    const sha = '2abcc4507bed30c94061059fc6c4812668264229';
+    const h = fixture({app_versions: {rows: [
+        {app_version: sha, commit_date: '2026-10-26', installs: 3},
+        {app_version: '97D4B5A3', commit_date: '2026-10-24', installs: 1},
+    ]}});
+    await settled();
+    const versions = h.cards.get('app_versions').innerHTML;
+    assert.match(versions, new RegExp(`<code title="${sha}">2abcc45</code>`));
+    assert.match(versions, /<code title="97D4B5A3">97d4b5a<\/code>/);
+    assert.match(versions, new RegExp(`data-sb-sort-value="${sha}"`));
 });
 
 test('network failures surface on individual cards and the WorkIQ banner', async () => {

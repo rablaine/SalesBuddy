@@ -1306,11 +1306,11 @@ def _migrate_guided_tour_completed(db, inspector):
 
 
 def _migrate_dismissed_update_commit(db, inspector):
-    """Add dismissed_update_commit column to user_preferences table."""
+    """Add full-hash storage; existing SQLite VARCHAR(7) also accepts 40 characters."""
     if 'user_preferences' in inspector.get_table_names():
         _add_column_if_not_exists(
             db, inspector, 'user_preferences', 'dismissed_update_commit',
-            'VARCHAR(7)'
+            'VARCHAR(40)'
         )
 
 

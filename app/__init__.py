@@ -237,22 +237,16 @@ def create_app(*, defer_background_services: bool = False) -> Flask:
     # Capture the git commit hash at boot time (frozen in memory)
     import subprocess
     try:
-        boot_result = subprocess.run(
-            ['git', 'rev-parse', '--short', 'HEAD'],
-            capture_output=True, text=True, timeout=5,
-            cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        )
-        app.config['BOOT_COMMIT'] = boot_result.stdout.strip() or None
-    except Exception:
-        app.config['BOOT_COMMIT'] = None
-    try:
         full_result = subprocess.run(
             ['git', 'rev-parse', 'HEAD'], capture_output=True, text=True, timeout=5,
-            cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))), check=True,
         )
         app.config['BOOT_COMMIT_FULL'] = full_result.stdout.strip() or None
-    except Exception:
+    except (OSError, subprocess.SubprocessError) as exc:
+        app.logger.warning('Boot commit lookup failed: %s', type(exc).__name__)
         app.config['BOOT_COMMIT_FULL'] = None
+    full_commit = app.config['BOOT_COMMIT_FULL']
+    app.config['BOOT_COMMIT'] = full_commit[:7] if full_commit else None
     app.config['BOOT_ID'] = os.environ.get('SALESBUDDY_BOOT_ID')
 
     # Capture commit date (YYYY-MM-DD) so the changelog viewer can show
@@ -277,7 +271,7 @@ def create_app(*, defer_background_services: bool = False) -> Flask:
     # rotates the pair and the "last update" view stays accurate
     # indefinitely until the user actually deploys again.
     try:
-        boot_commit = app.config.get('BOOT_COMMIT')
+        boot_commit = app.config.get('BOOT_COMMIT_FULL')
         if boot_commit:
             with app.app_context():
                 from app.models import UserPreference, db as _db

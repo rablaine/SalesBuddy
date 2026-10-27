@@ -206,6 +206,7 @@ def api_update_check():
         get_changelog_state, fetch_changelog,
         get_local_head_date, get_commits_in_range, entries_in_commits,
         entries_require_shell_rebuild,
+        commits_match, is_update_dismissed,
     )
 
     # Always pull a fresh changelog. Cheap HTTP call, removes the entire
@@ -223,25 +224,27 @@ def api_update_check():
     boot_commit_date = current_app.config.get('BOOT_COMMIT_DATE')
     state['boot_commit'] = boot_commit
     state['boot_commit_date'] = boot_commit_date
-    disk_commit = state.get('local_commit')
+    boot_identity = current_app.config.get('BOOT_COMMIT_FULL') or boot_commit
+    disk_commit = state.get('local_commit_full') or state.get('local_commit')
+    state['boot_commit_full'] = current_app.config.get('BOOT_COMMIT_FULL')
     state['restart_needed'] = (
         boot_commit is not None
         and disk_commit is not None
-        and boot_commit != disk_commit
+        and not commits_match(boot_identity, disk_commit)
     )
 
     # Dismissal: the navbar dot hides if the user clicked "dismiss" on the
     # current remote commit. Doesn't affect the card itself.
     pref = UserPreference.query.first()
     dismissed = pref.dismissed_update_commit if pref else None
-    state['dismissed'] = dismissed == state.get('remote_commit')
+    state['dismissed'] = is_update_dismissed(state, dismissed)
     state['show_badge'] = state.get('available', False) and not state['dismissed']
 
     # Build the "What you'll get" list from the local..remote git range.
     changelog = get_changelog_state()
     local_head_date = get_local_head_date()
     pending_commits = get_commits_in_range(
-        state.get('local_commit'), state.get('remote_commit')
+        disk_commit, state.get('remote_commit_full') or state.get('remote_commit')
     )
 
     # Build the "Last deployed" list from previous_commit..current_commit
@@ -364,7 +367,9 @@ def api_update_apply():
     # process boots, app/__init__.py records the new current_commit, and
     # the pair previous..current describes exactly what shipped.
     try:
-        boot_commit = current_app.config.get('BOOT_COMMIT')
+        boot_commit = (
+            current_app.config.get('BOOT_COMMIT_FULL') or current_app.config.get('BOOT_COMMIT')
+        )
         if boot_commit:
             pref = UserPreference.query.first()
             if pref is None:
@@ -614,7 +619,7 @@ def api_update_dismiss():
     from app.services.update_checker import get_update_state
     
     state = get_update_state()
-    remote_commit = state.get('remote_commit')
+    remote_commit = state.get('remote_commit_full') or state.get('remote_commit')
     
     if not remote_commit:
         return jsonify({'error': 'No update to dismiss'}), 400

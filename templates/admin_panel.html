@@ -2658,7 +2658,8 @@ function applyUpdate(rebuild) {
     // restart window) apart from the NEW one that booted the update. Under
     // the supervisor the old web process stays up until the tree is torn
     // down, so "any 200 from /health" is NOT proof the update landed.
-    const preCommit = last.boot_commit || last.local_commit || null;
+    const preCommit = last.boot_commit_full || last.local_commit_full ||
+        last.boot_commit || last.local_commit || null;
     card.innerHTML = `
         <div class="sb-admin-d-flex sb-admin-align-items-center sb-admin-mb-2">
             <span class="sb-admin-busy sb-admin-busy-small sb-admin-text-primary sb-admin-me-2" role="status"></span>
@@ -2751,7 +2752,7 @@ function pollForServer(attempts, preCommit, sawDown) {
                 return;
             }
             return r.json().then(data => {
-                const nowCommit = (data && data.commit) ? data.commit : null;
+                const nowCommit = data ? (data.commit_full || data.commit || null) : null;
                 // Decide whether THIS response is the NEW server:
                 //  - Best signal: the running build's commit changed.
                 //  - Fallback (old build with no /health commit yet): only

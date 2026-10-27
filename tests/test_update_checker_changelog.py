@@ -6,7 +6,57 @@ import pytest
 
 from app.services.update_checker import (
     parse_changelog, entries_newer_than, entries_in_commits, get_commit_dates,
+    get_commit_metadata, commits_match, check_for_updates,
+    is_update_dismissed,
 )
+
+
+class TestCommitIdentities:
+    def test_versions_resolve_to_full_identity(self):
+        """Seven, eight and forty characters identify the same unique commit."""
+        sha = '2abcc4507bed30c94061059fc6c4812668264229'
+        with patch('app.services.update_checker.subprocess.run', return_value=Mock(
+            stdout=f'{sha}\t2026-10-26\n',
+        )):
+            metadata = get_commit_metadata([sha, sha[:7], sha[:8].upper()])
+            assert set(metadata.values()) == {(sha, '2026-10-26')}
+            assert commits_match(sha[:8], sha[:7])
+
+    def test_colliding_prefixes_are_not_equal_to_a_full_hash(self):
+        """A shared display prefix cannot prove two commits are identical."""
+        first, second = 'abcdef01' + '1' * 32, 'abcdef02' + '2' * 32
+        with patch('app.services.update_checker.subprocess.run', return_value=Mock(
+            stdout=f'{first}\t2026-10-25\n{second}\t2026-10-25\n',
+        )):
+            assert not commits_match(first, second)
+            assert not commits_match('abcdef0', first)
+            assert get_commit_metadata(['abcdef0']) == {'abcdef0': ('abcdef0', None)}
+
+    def test_update_state_retains_full_identities_and_fixed_short_labels(self, monkeypatch):
+        """Git's default abbreviation length must not become an update identity."""
+        from app.services import update_checker
+        monkeypatch.setattr(update_checker, '_update_state', {})
+        sha = '2abcc4507bed30c94061059fc6c4812668264229'
+        with patch('app.services.update_checker.subprocess.run', side_effect=[
+            Mock(stdout=''), Mock(stdout=sha), Mock(stdout=sha),
+        ]):
+            state = check_for_updates()
+        assert state['local_commit'] == state['remote_commit'] == '2abcc45'
+        assert state['local_commit_full'] == state['remote_commit_full'] == sha
+        assert state['available'] is False
+
+    def test_dismissal_matches_legacy_identity_but_not_colliding_full_commit(self):
+        """A dismissal survives hash-length changes without hiding a different release."""
+        first, second = 'abcdef01' + '1' * 32, 'abcdef02' + '2' * 32
+        state = {'remote_commit': first[:7], 'remote_commit_full': first}
+        with patch('app.services.update_checker.subprocess.run', return_value=Mock(
+            stdout=f'{first}\t2026-10-25\n{second}\t2026-10-25\n',
+        )):
+            assert is_update_dismissed(state, first)
+            assert is_update_dismissed(state, first[:8])
+            assert not is_update_dismissed(state, second)
+            assert not is_update_dismissed(state, first[:7])
+            assert not is_update_dismissed(state, None)
 
 
 class TestCommitDates:
