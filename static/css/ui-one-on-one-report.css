@@ -34,6 +34,8 @@
 .oo-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-bottom: 8px; border-bottom: 1px solid var(--sb-ui-line); }
 .oo-section-heading h2 { margin: 0; font-size: 14px; font-weight: 600; }
 .oo-section-heading small, .oo-caption, .oo-muted { color: var(--sb-ui-muted); font-size: 12px; }
+.oo-milestone-filter { margin-top: 8px; }
+.oo-milestone-filter .oo-input { width: auto; }
 .oo-table-scroll { max-height: 275px; overflow: auto; overflow-anchor: none; scrollbar-gutter: stable; }
 .oo-table { width: 100%; border-collapse: collapse; font-size: 12px; }
 .oo-table th, .oo-table td { padding: 8px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--sb-ui-grid-line); }

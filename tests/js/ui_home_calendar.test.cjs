@@ -85,6 +85,15 @@ function fixture() {
             closest: selector => selector.startsWith('td') && tag === 'td' ? e :
                 selector.includes('data-customer-id') && e.dataset.customerId ? e :
                     e.parent?.closest(selector) || null};
+        let text = '';
+        Object.defineProperty(e, 'textContent', {
+            get: () => text,
+            set: value => {
+                text = value;
+                e.children.forEach(child => { child.parent = null; });
+                e.children = [];
+            },
+        });
         all.push(e);
         return e;
     }
@@ -104,7 +113,7 @@ function fixture() {
         hover: e => { hovered = e; }};
 }
 
-test('day refresh errors use dismissible native notices, preserve literal details, and clear per date', () => {
+test('day refresh errors preserve saved data, hide parser internals and clear per date', () => {
     const {api, flash, notices, document} = fixture();
     api.showRefreshError('2026-10-03', '<img onerror=bad()>');
     api.showRefreshError('2026-10-03', 'WorkIQ lookup failed');
@@ -115,12 +124,47 @@ test('day refresh errors use dismissible native notices, preserve literal detail
     assert.equal(notice.getAttribute('role'), 'alert');
     assert.equal(notice.dataset.sbTone, 'danger');
     assert.equal(notice.children[2].getAttribute('data-sb-notice-dismiss'), '');
-    assert.match(notice.children[1].textContent, /2026-10-03.*WorkIQ lookup failed/);
+    assert.match(notice.children[1].textContent, /2026-10-03.*saved meetings are unchanged/);
+    assert.doesNotMatch(notice.children[1].textContent, /WorkIQ lookup failed/);
     api.showRefreshError('2026-10-03', '<literal details>');
-    assert.match(notice.children[1].textContent, /<literal details>/);
+    assert.doesNotMatch(notice.children[1].textContent, /<literal details>/);
     api.clearRefreshError('2026-10-03');
     assert.equal(notices.children.length, 1);
     assert.equal(notices.children[0].id, 'homeMeetingRefreshError-2026-10-04');
+});
+
+test('per-date notices offer one accessible Retry while status errors have no date action', () => {
+    const {api, notices, document} = fixture();
+    const retried = [];
+    for (let n = 0; n < 2; n++) {
+        api.showRefreshError('2026-10-03', 'multiple calendar response payloads',
+            () => retried.push('2026-10-03'));
+    }
+    const body = document.getElementById('homeMeetingRefreshError-2026-10-03').children[1];
+    assert.equal(body.children.length, 1);
+    const retry = body.children[0];
+    assert.equal(retry.type, 'button');
+    assert.equal(retry.textContent, 'Retry');
+    assert.equal(retry.getAttribute('aria-label'), 'Retry meeting refresh for 2026-10-03');
+    retry.click();
+    assert.deepEqual(retried, ['2026-10-03']);
+    api.showRefreshError(null, 'Reconnecting to refresh status.');
+    assert.equal(notices.children[1].children[1].children.length, 0);
+    assert.match(notices.children[1].children[1].textContent, /Reconnecting/);
+});
+
+test('notice Retry readmits the same date through the durable refresh lifecycle', async () => {
+    const f = dayRefreshFixture(new Error('WorkIQ parse failed'));
+    await f.context.triggerDaySync('2026-10-03', null);
+    const retry = f.notices.children[0].children[1].children[0];
+    await retry.click();
+    assert.deepEqual(f.requests, [
+        {operation: 'meetings', options: {date: '2026-10-03'}},
+        {operation: 'meetings', options: {date: '2026-10-03'}},
+    ]);
+    assert.equal(f.notices.children.length, 1);
+    assert.equal(f.events.length, 0);
+    assert.equal(f.redraws.length, 0);
 });
 
 test('meeting notifications float outside layout with a bounded scrollable stack', () => {
@@ -401,7 +445,7 @@ for (const [description, reply] of [
         const f = dayRefreshFixture(reply);
         await f.context.triggerDaySync('2026-10-03', null);
         assert.equal(f.notices.children.length, 1);
-        assert.match(f.notices.children[0].children[1].textContent, /Meeting refresh failed/);
+        assert.match(f.notices.children[0].children[1].textContent, /Calendar refresh failed/);
         assert.equal(f.errors.length, 1);
         assert.equal(f.events.length, 0);
         assert.equal(f.redraws.length, 0);
@@ -653,22 +697,26 @@ test('day refresh inserts and replaces ghosts inside the shared scroll area, pre
     assert.equal(healthChecks, 3);
 });
 
-test('failed day repaint preserves existing entries and reports an explicit refresh error', async () => {
+test('failed day repaint preserves entries and retries the read without another WorkIQ call', async () => {
     const {element, context, document} = fixture(), cell = element('td'), entries = element();
     const ghost = element(), note = element('button');
     entries.appendChild(note); entries.appendChild(ghost);
     document.querySelector = () => cell;
     cell.querySelector = selector => selector === '.sb-home-day-entries' ? entries : ghost;
+    let reads = 0;
     Object.assign(context, {calendarYear: 2026, calendarMonth: 10,
-        fetch: async () => ({ok: false, status: 503}),
+        fetch: async () => { reads++; return {ok: false, status: 503}; },
         console: {error() {}}});
     const start = template.indexOf('    function refreshDaysInPlace(');
     const end = template.indexOf('    {% if has_engagements %}', start);
     vm.runInNewContext(template.slice(start, end), context);
     await context.refreshDaysInPlace(['2026-10-01']);
     assert.deepEqual(entries.children, [note, ghost]);
-    assert.match(document.getElementById('homeMeetingRefreshError-2026-10-01')
-        .children[1].textContent, /could not redraw.*HTTP 503/);
+    const body = document.getElementById('homeMeetingRefreshError-2026-10-01').children[1];
+    assert.match(body.textContent, /could not redraw.*HTTP 503/);
+    assert.doesNotMatch(body.textContent, /saved meetings are unchanged/);
+    await body.children[0].click();
+    assert.equal(reads, 2);
 });
 
 test('customer highlighting spans notes and ghosts, survives mouse departure while focused, and stays scoped', () => {

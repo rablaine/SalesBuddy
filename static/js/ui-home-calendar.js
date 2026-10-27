@@ -176,7 +176,7 @@
         body.replaceChildren(row);
     }
 
-    function showRefreshError(date, message) {
+    function showRefreshError(date, message, retry, refreshed = false) {
         const id = 'homeMeetingRefreshError-' + (date || 'status');
         let notice = document.getElementById(id);
         if (!notice) {
@@ -202,8 +202,19 @@
             notice.appendChild(close);
             document.getElementById('homeMeetingNotices').appendChild(notice);
         }
-        notice.querySelector('.sb-notice-body').textContent =
-            (date ? 'Meeting refresh failed for ' + date + '. ' : '') + message;
+        const body = notice.querySelector('.sb-notice-body');
+        body.textContent = date && !refreshed ?
+            'Calendar refresh failed for ' + date + '. Your saved meetings are unchanged.' :
+            message;
+        if (date && typeof retry === 'function') {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'sb-home-button';
+            button.textContent = 'Retry';
+            button.setAttribute('aria-label', 'Retry meeting refresh for ' + date);
+            button.addEventListener('click', retry);
+            body.appendChild(button);
+        }
     }
 
     window.SBHomeCalendar = Object.freeze({

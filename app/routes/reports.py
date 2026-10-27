@@ -1264,12 +1264,18 @@ def report_one_on_one():
     - Recent activity: engagements and notes in a rolling 14- or 30-day window
     - All time: all open engagements grouped by customer
     """
-    from app.services.one_on_one_report import get_activity_cutoffs, sort_customer_activity
+    from app.services.one_on_one_report import (
+        MILESTONE_FOCUS_OPTIONS, get_activity_cutoffs,
+        get_quarter_milestone_highlights, sort_customer_activity,
+    )
 
     days = request.args.get('days', '14')
     activity_sort = request.args.get('activity_sort', 'recent')
+    milestone_focus = request.args.get('milestone_focus', 'all')
     if days not in {'14', '30'} or activity_sort not in {'recent', 'acr', 'seller', 'territory'}:
         abort(400, description='Choose a valid reporting period and customer activity order.')
+    if milestone_focus not in dict(MILESTONE_FOCUS_OPTIONS):
+        abort(400, description='Choose all milestones, Top 10 ACR, or Top 15 ACR.')
     days = int(days)
     timestamp_cutoff, call_date_cutoff = get_activity_cutoffs(days)
     period_label = 'Last 2 Weeks' if days == 14 else 'Last 30 Days'
@@ -1358,42 +1364,8 @@ def report_one_on_one():
     # Upcoming or overdue active milestones to follow up on
     today = date.today()
 
-    # Current fiscal quarter milestones (on my team, active, with due date)
-    from datetime import time as _time
-    fy_month = (today.month - 7) % 12
-    fq_start = (fy_month // 3) * 3
-    q_start_month = ((fq_start + 7 - 1) % 12) + 1
-    quarter_start = datetime.combine(date(today.year, q_start_month, 1), _time.min)
-    end_month = q_start_month + 3
-    end_year = today.year
-    if end_month > 12:
-        end_month -= 12
-        end_year += 1
-    quarter_end = datetime.combine(
-        date(end_year, end_month, 1) - timedelta(days=1), _time(23, 59, 59)
-    )
-
-    today_dt = datetime.combine(today, _time.min)
-    quarter_milestones = (
-        Milestone.query
-        .filter(
-            Milestone.customer_id.isnot(None),
-            Milestone.on_my_team == True,  # noqa: E712
-            Milestone.msx_status.in_(['On Track', 'At Risk', 'Blocked']),
-            Milestone.due_date.isnot(None),
-            db.or_(
-                # Due this quarter
-                db.and_(Milestone.due_date >= quarter_start,
-                        Milestone.due_date <= quarter_end),
-                # Overdue from before the quarter (still active)
-                Milestone.due_date < today_dt,
-            ),
-        )
-        .options(
-            db.joinedload(Milestone.customer).joinedload(Customer.seller),
-        )
-        .order_by(desc(func.coalesce(Milestone.monthly_usage, 0)))
-        .all()
+    quarter_milestones, quarter_start, quarter_end = get_quarter_milestone_highlights(
+        milestone_focus, reference=today,
     )
 
     # --- Topic trends (selected window + FY sparkline) ---
@@ -1500,6 +1472,8 @@ def report_one_on_one():
         period_label=period_label,
         period_short='2w' if days == 14 else '30d',
         activity_sort=activity_sort,
+        milestone_focus=milestone_focus,
+        milestone_focus_options=MILESTONE_FOCUS_OPTIONS,
         milestone_commitments=milestone_commitments,
         quarter_milestones=quarter_milestones,
         quarter_start=quarter_start,

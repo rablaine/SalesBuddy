@@ -147,11 +147,15 @@
             {% set export_table_id = '.oo-table' %}
             {% set export_filename = 'one-on-one-report' %}
             {% set export_title = '1:1 Report - ' ~ period_label %}
+            {% if milestone_focus != 'all' %}
+            {% set export_title = export_title ~ ' - Due This Quarter: Top ' ~ milestone_focus ~ ' ACR' %}
+            {% endif %}
             {% include 'partials/_report_export.html' %}
         </div>
     </header>
     <form class="oo-scope" method="get" action="{{ url_for('reports.report_one_on_one') }}" data-sb-page-band>
         {% if request.args.get('embed') %}<input type="hidden" name="embed" value="{{ request.args.get('embed') }}">{% endif %}
+        <input type="hidden" name="milestone_focus" value="{{ milestone_focus }}">
         <label for="oneOnOnePeriod">Reporting period</label>
         <select class="oo-input" id="oneOnOnePeriod" name="days">
             <option value="14"{% if period_days == 14 %} selected{% endif %}>Last 2 weeks</option>
@@ -240,6 +244,19 @@
                 </section>
                 <section class="oo-section" aria-labelledby="ooQuarterTitle">
                     <div class="oo-section-heading"><h2 id="ooQuarterTitle"><i class="bi bi-flag-fill is-warning"></i> Due This Quarter <span class="oo-tag">{{ quarter_milestones|length }}</span></h2><small>{{ quarter_start.strftime('%b %d') }} - {{ quarter_end.strftime('%b %d, %Y') }}</small></div>
+                    <form class="oo-inline oo-milestone-filter" method="get" action="{{ url_for('reports.report_one_on_one') }}">
+                        <input type="hidden" name="days" value="{{ period_days }}">
+                        <input type="hidden" name="activity_sort" value="{{ activity_sort }}">
+                        {% if request.args.get('embed') %}<input type="hidden" name="embed" value="{{ request.args.get('embed') }}">{% endif %}
+                        <label for="oneOnOneMilestoneFocus">Show</label>
+                        <select class="oo-input" id="oneOnOneMilestoneFocus" name="milestone_focus" aria-describedby="oneOnOneMilestoneScope" onchange="this.form.requestSubmit()">
+                            {% for value, label in milestone_focus_options %}
+                            <option value="{{ value }}"{% if milestone_focus == value %} selected{% endif %}>{{ label }}</option>
+                            {% endfor %}
+                        </select>
+                        <noscript><button type="submit" class="oo-command">Apply</button></noscript>
+                    </form>
+                    <p class="oo-caption" id="oneOnOneMilestoneScope">Active milestones on your team, due this quarter or overdue.{% if milestone_focus != 'all' %} Top {{ milestone_focus }} by estimated monthly ACR.{% endif %}</p>
                     {{ milestone_table(quarter_milestones, 'oneOnOneQuarter') }}
                 </section>
             </div>

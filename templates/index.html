@@ -987,7 +987,8 @@
         paint: states => applyMeetingIndicators(states),
         showError: (date, message) => {
             console.error('Meeting refresh:', date, message);
-            window.SBHomeCalendar.showRefreshError(date, message);
+            window.SBHomeCalendar.showRefreshError(date, message,
+                date ? () => meetingRefresh.request(date) : undefined);
         },
         clearError: date => window.SBHomeCalendar.clearRefreshError(date),
         complete: dates => {
@@ -1556,7 +1557,8 @@
             .catch(err => {
                 console.error('refreshDaysInPlace failed:', err);
                 completedDates.forEach(date => window.SBHomeCalendar.showRefreshError(
-                    date, 'Meetings refreshed, but the calendar could not redraw. ' + err.message));
+                    date, 'Meetings refreshed, but the calendar could not redraw. ' + err.message,
+                    () => refreshDaysInPlace([date]), true));
             });
     }
 
