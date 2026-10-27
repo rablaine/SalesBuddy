@@ -60,7 +60,7 @@ def acquisition_rows(app):
 
 
 def test_acquisition_splits_fabric_and_preserves_credits_and_period(acquisition_rows):
-    """Use one source, a four-month divisor and no older/future-month contamination."""
+    """Use one source, a three-month divisor and no old/current/future contamination."""
     add, _ = acquisition_rows
     customer = add('Covered')
     add('Covered', 'Databases', 'Azure SQL Database', 60)
@@ -73,8 +73,8 @@ def test_acquisition_splits_fabric_and_preserves_credits_and_period(acquisition_
     add('Paid', 'Analytics', 'Fabric Capacity', 10)
     add('Fabric only', 'Analytics', 'Fabric Capacity', 50)
     data = get_fabric_acquisition_report(REFERENCE)
-    assert data['months'] == ['2026-07-01', '2026-08-01', '2026-09-01', '2026-10-01']
-    assert data['period_label'] == 'Jul 2026 through Oct 2026 (current month partial)'
+    assert data['months'] == ['2026-07-01', '2026-08-01', '2026-09-01']
+    assert data['period_label'] == 'Jul 2026 through Sep 2026'
     assert data['count'] == 1
     assert data['rows'][0]['customer_id'] == customer.id
     assert data['rows'][0]['monthly_spend'] == {
@@ -88,7 +88,7 @@ def test_acquisition_splits_fabric_and_preserves_credits_and_period(acquisition_
 
 
 def test_missing_months_are_zero_in_report_and_widget(acquisition_rows):
-    """Missing months contribute zero to the fixed four-month average."""
+    """Missing complete months contribute zero; current partial months are excluded."""
     add, _ = acquisition_rows
     add('Missing middle month', amount=3000, months=(7, 9, 10))
     add('Missing current month', amount=3000, months=(7, 8, 9))
@@ -96,10 +96,10 @@ def test_missing_months_are_zero_in_report_and_widget(acquisition_rows):
     add('Covered', amount=3000)
     add('Infrastructure only', 'Infra', 'Virtual Machines', 100)
     data = get_fabric_acquisition_report(REFERENCE)
-    assert data['count'] == 4
+    assert data['count'] == 3
     assert {row['customer_name']: row['revenue'] for row in data['rows']} == {
-        'Covered': 3000, 'Missing middle month': 2250,
-        'Missing current month': 2250, 'Current month only': 750,
+        'Covered': 3000, 'Missing middle month': 2000,
+        'Missing current month': 3000,
     }
     widget = get_fabric_acquisition_widget(REFERENCE)
     assert widget['count'] == 3
@@ -127,12 +127,12 @@ def test_report_only_option_includes_all_customers_regardless_of_other_spend(acq
     db.session.flush()
 
     default = get_fabric_acquisition_report(REFERENCE)
-    assert [row['customer_name'] for row in default['rows']] == ['Positive prospect']
+    assert {row['customer_name'] for row in default['rows']} == {'Positive prospect'}
     assert default['include_no_other_spend'] is False
     expanded = get_fabric_acquisition_report(REFERENCE, include_no_other_spend=True)
     assert {row['customer_name'] for row in expanded['rows']} == {
         'Positive prospect', 'Infrastructure only', 'Zero spend', 'Credits only',
-        'Fabric credits only', 'Missing current', 'No observations', 'Old Fabric only',
+        'Fabric credits only', 'Missing current', 'No observations', 'Old Fabric only', 'New Fabric',
     }
     assert expanded['include_no_other_spend'] is True
     zero = next(row for row in expanded['rows'] if row['customer_name'] == 'Infrastructure only')
@@ -144,9 +144,9 @@ def test_report_only_option_includes_all_customers_regardless_of_other_spend(acq
     assert scoped['count'] == 1
     assert scoped['rows'][0]['customer_id'] == missing.id
     assert all(amount == 0 for amount in scoped['rows'][0]['monthly_spend'].values())
-    assert [row['customer_name'] for row in get_fabric_acquisition_widget(REFERENCE)['rows']] == [
+    assert {row['customer_name'] for row in get_fabric_acquisition_widget(REFERENCE)['rows']} == {
         'Positive prospect',
-    ]
+    }
     assert get_fabric_acquisition_report(
         REFERENCE, include_no_other_spend=True, customer_ids=(),
     )['count'] == 0
@@ -299,29 +299,27 @@ def test_positive_fabric_month_cannot_be_hidden_by_later_credit(acquisition_rows
     assert get_fabric_acquisition_report(REFERENCE)['count'] == 0
 
 
-@pytest.mark.parametrize(('current_amount', 'included'), [(500, True), (499.9996, False)])
-def test_partial_current_month_counts_toward_widget_average(
-    acquisition_rows, current_amount, included,
-):
-    """Use the actual partial current-month amount and an exact four-month average."""
+@pytest.mark.parametrize('current_amount', [0, 500, 900000])
+def test_partial_current_month_does_not_change_widget_average(acquisition_rows, current_amount):
+    """Partial current-month amounts cannot change the complete-month average or threshold."""
     add, _ = acquisition_rows
     add('Partial month threshold', amount=2500, months=(7, 8, 9))
     add('Partial month threshold', amount=current_amount, months=(10,))
     report = get_fabric_acquisition_report(REFERENCE)
     assert report['count'] == 1
-    assert report['rows'][0]['revenue'] == pytest.approx((7500 + current_amount) / 4)
-    assert get_fabric_acquisition_widget(REFERENCE)['count'] == int(included)
+    assert report['rows'][0]['revenue'] == 2500
+    assert get_fabric_acquisition_widget(REFERENCE)['count'] == 1
 
 
 @pytest.mark.parametrize(('current_fabric', 'credit', 'included'), [
-    (1, 0, False),
+    (1, 0, True),
     (30, -30, True),
     (30, -31, True),
 ])
-def test_current_month_net_fabric_controls_report_and_widget(
+def test_current_month_fabric_does_not_change_complete_month_cohort(
     acquisition_rows, current_fabric, credit, included,
 ):
-    """Exclude newly paid Fabric even when previous months contain offsetting credits."""
+    """Use the same complete-month window for Fabric and non-Fabric eligibility."""
     add, _ = acquisition_rows
     add('New Fabric customer', amount=3000)
     add('New Fabric customer', 'Analytics', 'Fabric Capacity', -100, months=(9,))
@@ -336,23 +334,23 @@ def test_covered_zero_months_use_fixed_divisor(acquisition_rows):
     """Other pillar observations cover months with no positive target-product rows."""
     add, _ = acquisition_rows
     add('Sparse AI', 'Infra', 'Virtual Machines', 100, months=(7, 8, 9))
-    add('Sparse AI', amount=30, months=(10,))
+    add('Sparse AI', amount=30, months=(9,))
     data = get_fabric_acquisition_report(REFERENCE)
     assert data['count'] == 1
-    assert data['rows'][0]['monthly_spend']['AI'] == 7.5
-    assert data['rows'][0]['revenue'] == 7.5
+    assert data['rows'][0]['monthly_spend']['AI'] == 10
+    assert data['rows'][0]['revenue'] == 10
 
 
 @pytest.mark.parametrize('day', [1, 15, 31])
-def test_four_months_cross_calendar_year(acquisition_rows, day):
-    """January uses October through January on both calendar-month boundaries."""
+def test_three_complete_months_cross_calendar_year(acquisition_rows, day):
+    """January consistently uses October through December, regardless of current day."""
     add, _ = acquisition_rows
     add('New year prospect', months=(10, 11, 12))
     add('New year prospect', months=(1,), year=2027)
     add('New year prospect', amount=9000, months=(9,))
     add('New year prospect', amount=9000, months=(2,), year=2027)
     data = get_fabric_acquisition_report(date(2027, 1, day))
-    assert data['months'] == ['2026-10-01', '2026-11-01', '2026-12-01', '2027-01-01']
+    assert data['months'] == ['2026-10-01', '2026-11-01', '2026-12-01']
     assert data['count'] == 1
     assert data['rows'][0]['monthly_spend']['AI'] == 30
 
@@ -407,7 +405,7 @@ def test_report_widget_and_tool_share_source_and_grouping(client, acquisition_ro
             '/reports/whitespace?view=fabric-acquisition',
         ).data, 'html.parser')
         assert page.select_one('#fabricAcquisitionTable')
-        assert 'current month partial' in page.text
+        assert 'Jul 2026 through Sep 2026' in page.text
         assert page.select_one('#acquisitionPanel > p.sb-whitespace-notice') is None
         assert len(page.select('#fabricAcquisitionTable thead th')) == 4
         assert 'excluded because monthly coverage' not in page.text
@@ -428,8 +426,8 @@ def test_report_widget_and_tool_share_source_and_grouping(client, acquisition_ro
             })
             assert response.status_code == 200
             widget = BeautifulSoup(response.json['html'], 'html.parser')
-            assert 'current month partial' in widget.text
-            assert 'Four-month total divided by 4' in widget.text
+            assert 'Jul 2026 through Sep 2026' in widget.text
+            assert 'Three-month total divided by 3' in widget.text
             assert 'excluded because monthly coverage' not in widget.text
             assert widget.select_one('a[href="/reports/whitespace?view=fabric-acquisition"]')
             if variant == 'detailed':

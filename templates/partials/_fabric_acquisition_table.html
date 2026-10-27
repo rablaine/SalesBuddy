@@ -1,3 +1,4 @@
+{% from 'partials/_revenue_breakdown.html' import revenue_breakdown %}
 {% set seller_group_columns = (acquisition.columns|length) + 1 %}
 <table class="{{ acquisition_table_class|default('sb-acquisition-table') }}" data-sb-sortable
        {% if acquisition_table_id|default('') %}id="{{ acquisition_table_id }}" data-export-visible="false"{% endif %}
@@ -17,7 +18,7 @@
             <td><a href="{{ row.destination }}">{{ row.customer_name }}</a></td>
             {% for column in acquisition.columns %}
             {% set amount = row.monthly_spend[column.key] %}
-            <td data-sb-sort-value="{{ amount }}">{% if amount > 0 %}${{ '{:,.0f}'.format(amount) }}{% elif amount < 0 %}<span title="Net credits in this period">${{ '{:,.0f}'.format(amount) }}</span>{% else %}<span class="sb-whitespace-gap" title="No positive ACR observed; not proof of no adoption">$0</span>{% endif %}</td>
+            <td data-sb-sort-value="{{ amount }}" data-export-label="${{ '{:,.0f}'.format(amount) }}">{% if row.product_breakdown[column.key] %}{{ revenue_breakdown(amount, row.product_breakdown[column.key], column.label, acquisition.period_label) }}{% else %}<span class="sb-whitespace-gap" title="No positive ACR observed; not proof of no adoption">$0</span>{% endif %}</td>
             {% endfor %}
         </tr>
         {% endfor %}

@@ -173,8 +173,9 @@ def report_fabric_consumption(customer_id: int | None = None, overview: bool = F
     'report_fabric_acquisition',
     'Read the Fabric Acquisition tab of Whitespace Analysis for Data SEs and sellers. '
     'Returns customers with positive AI, Databases or Analytics excluding Fabric '
-    'and no positive monthly net Fabric ACR in the current partial calendar month or previous '
-    'three months. All displayed amounts are four-month totals divided by 4. '
+    'and no positive monthly net Fabric ACR in the last three complete calendar months. '
+    'All displayed amounts are three-month totals divided by 3. Product breakdowns use '
+    'the same period and divisor, preserving credits. The current partial month is excluded. '
     'Set include_no_other_spend=true to include all current customers regardless of other spend. '
     'Accounts flagged stale after dropping out of account sync are excluded. '
     'Missing customer, product and month revenue observations count as zero. '
@@ -200,7 +201,7 @@ def report_fabric_acquisition(include_no_other_spend: bool = False) -> dict:
     'report_database_whitespace',
     'Read Database whitespace candidates for Data SEs and sellers from the existing '
     'Whitespace Analysis grid. Uses the source-defined Databases pillar and the same '
-    'latest imported month minus 62 days window, averaging stored monthly pillar totals. '
+    'last three complete calendar months, dividing totals by 3 with missing months as zero. '
     'Includes customers with positive AI, Analytics or Apps coverage and no Databases coverage. '
     'No added minimum spend or new stale-account rule. Returns count, ranked customer rows, '
     'AI, Analytics (including Fabric), Apps and their total monthly spend, and seller groups. '
@@ -302,8 +303,8 @@ def report_rti() -> dict:
     'combined Other Analytics plus ADF three-month totals of at least $50, or $100 '
     'with positive Fabric spend. '
     'Rows retain spend and source_revenue as three-month totals; monthly_spend and '
-    'monthly_source_revenue divide by each customer\'s available months within that period, '
-    'returning zero with no observed months. '
+    'monthly_source_revenue divide by 3, with missing months contributing zero. '
+    'Product breakdowns use the same period and divisor, preserving credits. '
     'Includes seller groups and monthly coverage. Saved data only, not evidence of '
     'migration, readiness, or non-Azure Databricks inventory.',
     {'type': 'object', 'properties': {}},
@@ -322,8 +323,8 @@ def report_fabric_modernization() -> dict:
     'strictly exceed '
     'Fabric spend. Includes matching customers, count, seller groups and coverage. '
     'monthly_other_analytics_revenue and monthly_adf_revenue are separate monthly averages; '
-    'monthly_source_revenue combines them. Summary averages sum each customer\'s monthly '
-    'average using that customer\'s available months, or zero without observations. '
+    'monthly_source_revenue combines them. Monthly averages divide three-month totals by 3, '
+    'with missing months contributing zero. Summary sums those monthly averages. '
     'source_revenue retains the combined three-month total. '
     'has_synapse marks positive net Synapse consumption, not confirmed migration. '
     'Saved observations only, not proof of migration or readiness.',

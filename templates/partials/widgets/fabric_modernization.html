@@ -1,3 +1,4 @@
+{% from 'partials/_revenue_breakdown.html' import revenue_breakdown %}
 {% set data = instance.data %}
 {% set prefix = widget_id_prefix|default('fabric-modernization-') %}
 {% set detailed = instance.variant_key|default('metric') == 'detailed' %}
@@ -5,10 +6,11 @@
 {% set seller_group_columns = 4 %}
 {% macro customer_rows(rows) %}
 {% for row in rows %}
+{% set breakdown = row.product_breakdown|default({}) %}
 <tr data-row-key="{{ row.row_key }}">
     <td data-sb-sort-value="{{ row.customer_name }}">{% if row.destination %}<a href="{{ row.destination }}">{{ row.customer_name }}</a>{% else %}{{ row.customer_name }}{% endif %}</td>
-    <td data-sb-sort-value="{{ row.monthly_other_analytics_revenue }}">{% if row.has_synapse %}<span class="db-modernization-synapse" title="Includes Synapse">{% endif %}${{ '{:,.0f}'.format(row.monthly_other_analytics_revenue) }}{% if row.has_synapse %}</span>{% endif %}</td>
-    <td data-sb-sort-value="{{ row.monthly_spend.adf }}">${{ '{:,.0f}'.format(row.monthly_spend.adf) }}</td>
+    <td data-sb-sort-value="{{ row.monthly_other_analytics_revenue }}">{% if row.has_synapse %}<span class="db-modernization-synapse" title="Includes Synapse">{% endif %}{{ revenue_breakdown(row.monthly_other_analytics_revenue, breakdown.get('other_analytics', []), 'Other Analytics (Synapse, AAS, ADX, Databricks; excludes ADF and Fabric)', data.period_label) }}{% if row.has_synapse %}</span>{% endif %}</td>
+    <td data-sb-sort-value="{{ row.monthly_spend.adf }}">{{ revenue_breakdown(row.monthly_spend.adf, breakdown.get('adf', []), 'ADF', data.period_label) }}</td>
     <td data-sb-sort-value="{{ row.monthly_spend.fabric }}">${{ '{:,.0f}'.format(row.monthly_spend.fabric) }}</td>
 </tr>
 {% endfor %}
@@ -49,8 +51,8 @@
     {% else %}
     <dl class="db-modernization-metrics">
         <div><dt>Modernization customers</dt><dd>{{ data.count }}</dd></div>
-        <div><dt>Other Analytics / month</dt><dd class="db-modernization-revenue" title="${{ '{:,.2f}'.format(data.monthly_other_analytics_revenue) }} average monthly ACR">${{ '{:,.0f}'.format(data.monthly_other_analytics_revenue) }}/mo</dd></div>
-        <div><dt>ADF / month</dt><dd class="db-modernization-revenue" title="${{ '{:,.2f}'.format(data.monthly_adf_revenue) }} average monthly ACR">${{ '{:,.0f}'.format(data.monthly_adf_revenue) }}/mo</dd></div>
+        <div><dt>Other Analytics / month</dt><dd class="db-modernization-revenue" title="${{ '{:,.0f}'.format(data.monthly_other_analytics_revenue) }} average monthly ACR">${{ '{:,.0f}'.format(data.monthly_other_analytics_revenue) }}/mo</dd></div>
+        <div><dt>ADF / month</dt><dd class="db-modernization-revenue" title="${{ '{:,.0f}'.format(data.monthly_adf_revenue) }} average monthly ACR">${{ '{:,.0f}'.format(data.monthly_adf_revenue) }}/mo</dd></div>
     </dl>
     <p class="db-report-caption">Avg monthly ACR, {{ data.period_label }}. Existing footprint, not projected benefit.</p>
     {% endif %}

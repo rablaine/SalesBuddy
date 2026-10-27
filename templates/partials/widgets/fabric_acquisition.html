@@ -9,7 +9,7 @@
     {% if not acquisition.available %}
     <p class="db-report-notice">Available for Data SEs and sellers.</p>
     {% else %}
-    <p class="db-report-caption">Avg monthly ACR, {{ acquisition.period_label }}. Four-month total divided by 4. No positive monthly Fabric ACR observed.</p>
+    <p class="db-report-caption">Avg monthly ACR, {{ acquisition.period_label }}. Three-month total divided by 3. No positive monthly Fabric ACR observed.</p>
     {% if detailed %}
         {% if acquisition.rows %}
         <div class="db-acquisition-table-scroll" tabindex="0" role="region" aria-label="Fabric acquisition customers">

@@ -1,3 +1,4 @@
+{% from 'partials/_revenue_breakdown.html' import revenue_breakdown %}
 {% set data = instance.data %}
 {% set prefix = widget_id_prefix|default('database-whitespace-') %}
 {% set detailed = instance.variant_key|default('metric') == 'detailed' %}
@@ -13,7 +14,7 @@
     {% elif not data.has_revenue_data %}
     <p class="db-report-empty">No saved pillar revenue. Open the report to get started.</p>
     {% elif detailed %}
-    <p class="db-report-caption">No database spend, with AI, Analytics or Apps spend</p>
+    <p class="db-report-caption">No database spend, with AI, Analytics or Apps spend. Avg monthly ACR, {{ data.period_label }}; total divided by 3.</p>
     {% if data.rows %}
     <div class="db-acquisition-table-scroll" tabindex="0" role="region" aria-label="Database whitespace customers">
         <table class="db-report-table db-acquisition-table db-database-whitespace-table" data-sb-sortable
@@ -31,10 +32,11 @@
             <tbody{% if grouped %} class="db-report-seller-group"{% endif %}>
                 {% if grouped %}{% include 'partials/widgets/_seller_group_header.html' %}{% endif %}
                 {% for row in group.rows %}
+                {% set breakdown = row.product_breakdown|default({}) %}
                 <tr data-row-key="{{ row.row_key }}">
                     <td data-sb-sort-value="{{ row.customer_name }}"><a href="{{ row.destination }}">{{ row.customer_name }}</a></td>
                     {% for key in ('AI', 'Analytics', 'Apps', 'Total') %}
-                    <td data-sb-sort-value="{{ row.monthly_spend[key] }}">${{ '{:,.0f}'.format(row.monthly_spend[key]) }}</td>
+                    <td data-sb-sort-value="{{ row.monthly_spend[key] }}">{{ revenue_breakdown(row.monthly_spend[key], breakdown.get(key, []), key, data.period_label) }}</td>
                     {% endfor %}
                 </tr>
                 {% endfor %}

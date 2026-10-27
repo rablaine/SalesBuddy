@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from 'partials/_revenue_breakdown.html' import revenue_breakdown %}
 {% block title %}Fabric Modernization - Sales Buddy{% endblock %}
 {% block body_class %}{% if not request.args.get('embed') %}sb-page-frame{% endif %}{% endblock %}
 {% block extra_css %}
@@ -22,7 +23,7 @@
     <header class="sb-revenue-reports-header" data-sb-page-band>
         <div>
             <h1 id="modernizationTitle">Fabric Modernization</h1>
-            <p>Average monthly ACR across {{ report.period_label }}.</p>
+            <p>Average monthly ACR across {{ report.period_label }}. Three-month total divided by 3; missing months count as $0.</p>
         </div>
         {% set export_table_id = '.sb-modernization-table' %}
         {% set export_filename = 'fabric-modernization-monthly-acr' %}
@@ -68,6 +69,7 @@
                 </tr></thead>
                 <tbody>
                 {% for row in group.rows %}
+                {% set breakdown = row.product_breakdown|default({}) %}
                 <tr data-row-key="{{ row.row_key }}">
                     <td{% if row.tpid_url %} data-export-url="{{ row.tpid_url }}"{% endif %}>{% if row.customer_id %}<a href="{{ url_for('revenue.revenue_customer_view', customer_id=row.customer_id) }}">{{ row.customer_name }}</a>{% else %}{{ row.customer_name }}{% endif %}</td>
                     {% for product in report.products %}
@@ -76,7 +78,7 @@
                         ${{ '{:,.0f}'.format(amount) }}
                     </td>
                     {% endfor %}
-                    <td data-sb-sort-value="{{ row.monthly_other_analytics_revenue }}">${{ '{:,.0f}'.format(row.monthly_other_analytics_revenue) }}</td>
+                    <td data-sb-sort-value="{{ row.monthly_other_analytics_revenue }}" data-export-label="${{ '{:,.0f}'.format(row.monthly_other_analytics_revenue) }}">{{ revenue_breakdown(row.monthly_other_analytics_revenue, breakdown.get('other_analytics', []), 'Other Analytics (Synapse, AAS, ADX, Databricks; excludes ADF and Fabric)', report.period_label) }}</td>
                 </tr>
                 {% endfor %}
                 </tbody>

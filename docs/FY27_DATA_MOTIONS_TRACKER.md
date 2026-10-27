@@ -20,8 +20,8 @@ boundaries. Manual workflows and data limitations below are not a follow-up back
 - **Report/widget:** Fabric Modernization report, replacing Synapse Customers.
   Summary and Details widgets show report-qualified customers whose Other Analytics
   plus ADF spend exceeds Fabric spend, with viewer-controlled seller grouping.
-  Dollar amounts display average monthly ACR, dividing each customer's totals by its
-  available months within the three-month window, or $0 when no months are available.
+  Dollar amounts display average monthly ACR, dividing each customer's totals by 3
+  over the last three complete calendar months. Missing months contribute $0.
   Summary includes the customer count and separate monthly Other Analytics and ADF ACR.
   Details shows Customer, Other Analytics, ADF and Fabric. Other Analytics amounts
   with positive net Synapse spend have a dotted underline and an "Includes Synapse" tooltip.
@@ -31,8 +31,8 @@ boundaries. Manual workflows and data limitations below are not a follow-up back
 - **Notes:** One row per customer, source-product columns and Fabric Capacity
   revenue, grouped by current seller. Months count once per customer across all saved
   product rows, including products outside the modernization families. Missing product
-  spend is $0. Summary totals sum customer-level monthly averages, even when customers
-  have different month counts. Partial coverage remains flagged.
+  spend is $0. Summary totals sum customer-level monthly averages with the same divisor.
+  Partial coverage remains recorded. Hover/focus shows the exact product contribution.
   Dollar amounts represent existing consumption, not projected incremental Fabric benefit.
   ADF maps Azure Data Factory v2, Data Flow and Managed Airflow. Synapse-branded
   pipelines remain in Synapse. Other Analytics retains Synapse, AAS, ADX and Databricks
@@ -45,7 +45,7 @@ boundaries. Manual workflows and data limitations below are not a follow-up back
 - [x] Coded
 - [x] Added to dashboard
 - **Starting scope:** Relevant Analytics/Data/AI footprint with no observed
-  Fabric ACR in the current month plus the previous three months.
+  Fabric ACR in the last three complete calendar months.
 - **Boundary:** Accounts flagged stale after dropping out of account sync are excluded.
   Missing revenue observations count as $0. No observed Fabric ACR does not
   prove no Fabric adoption, and does not establish M365 licensing.
@@ -55,7 +55,8 @@ boundaries. Manual workflows and data limitations below are not a follow-up back
   and sellers. The report retains customers below that minimum.
 - **Notes:** Display AI, Databases and Other Analytics (excluding Fabric) from the
   source-defined strategic pillar feed. Exclude positive monthly net Fabric ACR in the
-  current partial month or previous three months. Divide four-month totals by 4.
+  last three complete calendar months. Divide three-month totals by 3.
+  Hover/focus spend amounts for matching product contributions, including credits.
   Missing customer/month observations count as $0. The report's All customers option
   includes customers without any imported revenue records.
   Verified against saved revenue, including exact monthly amounts, specialty access,
@@ -141,7 +142,7 @@ boundaries. Manual workflows and data limitations below are not a follow-up back
 - **Status:** User confirmed this report/widget scope complete on October 20, 2026.
 - **Starting scope:** Existing Whitespace Grid customers without Databases coverage
   and with positive AI, Analytics or Apps coverage. Developer, Infra and Security
-  alone do not qualify. Reuse the latest-data window and available-month averages,
+  alone do not qualify. Reuse the last three complete calendar months divided by 3,
   without an additional minimum spend.
 - **Report/widget:** Existing Whitespace Analysis calculation, plus Summary/Details widgets
   and a SalesIQ read tool. Details shows Customer, AI, Analytics, Apps and Total / mo.
