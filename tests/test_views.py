@@ -841,9 +841,10 @@ def test_admin_panel_has_shutdown_button(client):
 # Admin Panel Update Check - Boot Commit Tracking
 # =============================================================================
 
-def test_update_check_includes_boot_commit(client, app):
+def test_update_check_includes_boot_commit(client, app, monkeypatch):
     """Update check API includes boot_commit from app config."""
     app.config['BOOT_COMMIT'] = 'abc1234'
+    monkeypatch.setitem(app.config, 'BOOT_COMMIT_FULL', None)
     mock_state = {
         'available': False,
         'local_commit': 'abc1234',
@@ -860,9 +861,10 @@ def test_update_check_includes_boot_commit(client, app):
     assert data['restart_needed'] is False
 
 
-def test_update_check_restart_needed_when_commits_differ(client, app):
+def test_update_check_restart_needed_when_commits_differ(client, app, monkeypatch):
     """Update check API signals restart_needed when boot != disk commit."""
     app.config['BOOT_COMMIT'] = 'abc1234'
+    monkeypatch.setitem(app.config, 'BOOT_COMMIT_FULL', None)
     mock_state = {
         'available': False,
         'local_commit': 'def5678',
@@ -878,6 +880,38 @@ def test_update_check_restart_needed_when_commits_differ(client, app):
     assert data['boot_commit'] == 'abc1234'
     assert data['local_commit'] == 'def5678'
     assert data['restart_needed'] is True
+
+
+@pytest.mark.parametrize('disk_commit, restart_needed', [
+    ('2abcc4507bed30c94061059fc6c4812668264229', False),
+    ('2abcc4517bed30c94061059fc6c4812668264229', True),
+])
+def test_update_check_compares_full_identities(client, app, monkeypatch, disk_commit, restart_needed):
+    """Same short display does not hide a changed full commit or invent a restart."""
+    monkeypatch.setitem(app.config, 'BOOT_COMMIT', '2abcc45')
+    monkeypatch.setitem(app.config, 'BOOT_COMMIT_FULL',
+                        '2abcc4507bed30c94061059fc6c4812668264229')
+    state = {
+        'available': False, 'local_commit': disk_commit[:7],
+        'local_commit_full': disk_commit, 'remote_commit': disk_commit[:7],
+    }
+    with patch('app.services.update_checker.get_update_state', return_value=state), \
+         patch('app.services.update_checker.fetch_changelog'):
+        data = client.get('/api/admin/update-check').get_json()
+    assert data['restart_needed'] is restart_needed
+    assert data['boot_commit'] == data['local_commit'] == '2abcc45'
+
+
+def test_update_dismiss_persists_full_commit(client, app):
+    """New dismissals store an identity, not a possibly colliding display label."""
+    from app.models import UserPreference
+    sha = '2abcc4507bed30c94061059fc6c4812668264229'
+    state = {'remote_commit': sha[:7], 'remote_commit_full': sha}
+    with patch('app.services.update_checker.get_update_state', return_value=state):
+        response = client.post('/api/admin/update-dismiss')
+    assert response.get_json() == {'dismissed': True, 'commit': sha}
+    with app.app_context():
+        assert UserPreference.query.first().dismissed_update_commit == sha
 
 
 def test_update_check_no_restart_when_boot_commit_none(client, app):

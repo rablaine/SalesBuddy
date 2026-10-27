@@ -34,6 +34,8 @@ _update_state = {
     'available': False,
     'local_commit': None,
     'remote_commit': None,
+    'local_commit_full': None,
+    'remote_commit_full': None,
     'commits_behind': 0,
     'last_checked': None,
     'error': None,
@@ -95,6 +97,8 @@ def check_for_updates() -> dict:
             _update_state['available'] = local != remote and behind > 0
             _update_state['local_commit'] = local[:7] if local else None
             _update_state['remote_commit'] = remote[:7] if remote else None
+            _update_state['local_commit_full'] = local or None
+            _update_state['remote_commit_full'] = remote or None
             _update_state['commits_behind'] = behind
             _update_state['last_checked'] = datetime.now(timezone.utc).isoformat()
             _update_state['error'] = None
@@ -249,15 +253,20 @@ def get_changelog_state() -> dict:
         }
 
 
-def get_commit_dates(commits: list[str]) -> dict[str, str | None]:
-    """Resolve full or unambiguous abbreviated hashes to recorded Git commit dates."""
-    dates: dict[str, str | None] = {commit: None for commit in commits}
+def get_commit_metadata(commits: list[str]) -> dict[str, tuple[str, str | None]]:
+    """Resolve unique Git prefixes to full identities and dates, preserving unknowns."""
+    metadata: dict[str, tuple[str, str | None]] = {
+        commit: (
+            commit.lower() if re.fullmatch(r'[0-9a-fA-F]{7,40}', commit) else commit, None,
+        )
+        for commit in commits
+    }
     prefixes = {
-        commit: commit.lower() for commit in dates
+        commit: commit.lower() for commit in metadata
         if re.fullmatch(r'[0-9a-fA-F]{7,40}', commit)
     }
     if not prefixes:
-        return dates
+        return metadata
     try:
         result = subprocess.run(
             ['git', 'log', '--all', '--format=%H%x09%cs'],
@@ -265,7 +274,7 @@ def get_commit_dates(commits: list[str]) -> dict[str, str | None]:
         )
     except (OSError, subprocess.SubprocessError) as exc:
         logger.warning('Commit date lookup failed: %s', type(exc).__name__)
-        return dates
+        return metadata
 
     history = {}
     for line in result.stdout.splitlines():
@@ -279,10 +288,32 @@ def get_commit_dates(commits: list[str]) -> dict[str, str | None]:
     for commit, prefix in prefixes.items():
         matches = [sha for sha in history if sha.startswith(prefix)]
         if len(matches) == 1:
-            dates[commit] = history[matches[0]]
+            metadata[commit] = (matches[0], history[matches[0]])
         else:
             logger.info('No unique Git history match for boot commit %s', commit)
-    return dates
+    return metadata
+
+
+def get_commit_dates(commits: list[str]) -> dict[str, str | None]:
+    """Resolve full or unambiguous abbreviated hashes to recorded Git commit dates."""
+    return {ref: value[1] for ref, value in get_commit_metadata(commits).items()}
+
+
+def commits_match(first: str, second: str) -> bool:
+    """Compare identities, resolving legacy abbreviations only when unambiguous."""
+    first, second = first.lower(), second.lower()
+    if first == second:
+        return True
+    if len(first) == len(second) == 40:
+        return False
+    metadata = get_commit_metadata([first, second])
+    return metadata[first][0] == metadata[second][0]
+
+
+def is_update_dismissed(state: dict, dismissed_commit: str | None) -> bool:
+    """Match saved dismissals to full update identities, including legacy prefixes."""
+    remote = state.get('remote_commit_full') or state.get('remote_commit')
+    return bool(remote and dismissed_commit and commits_match(dismissed_commit, remote))
 
 
 def get_local_head_date() -> str | None:

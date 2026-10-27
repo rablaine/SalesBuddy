@@ -2168,7 +2168,7 @@ def inject_preferences():
     # Check for available updates (lightweight -- reads cached state, no git calls)
     update_available = False
     try:
-        from app.services.update_checker import get_update_state
+        from app.services.update_checker import get_update_state, is_update_dismissed
         update_state = get_update_state()
         # If the background checker hasn't run yet, the cache is empty
         if update_state.get('last_checked') is None:
@@ -2177,7 +2177,7 @@ def inject_preferences():
         dismissed = pref.dismissed_update_commit if pref else None
         update_available = (
             update_state.get('available', False)
-            and dismissed != update_state.get('remote_commit')
+            and not is_update_dismissed(update_state, dismissed)
         )
     except Exception:
         pass

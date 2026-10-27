@@ -48,6 +48,11 @@ Profile and background-request events never establish active usage.
   without an app restart does not change the reported version.
   The dashboard's version distribution adds recorded commit dates from local Git history,
   matching full or unambiguous abbreviated hashes. Missing or ambiguous hashes show Unknown.
+  Full and uniquely resolved legacy hashes share one version row and combined install count.
+  Ambiguous prefixes remain separate; commits are never grouped by their display text.
+  Version tables display seven lowercase characters with the recorded or resolved hash on hover.
+  Update checks compare full boot and disk identities, not display abbreviations.
+  Update dismissals and post-update restart polling also use full identities.
   These are committer dates, not GitHub push times, and this local enrichment is not available
   in the Azure workbook.
 - **Roles and specialties:** Saved install preferences, independent of seller filtering.

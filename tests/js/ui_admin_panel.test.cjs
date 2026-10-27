@@ -7,6 +7,25 @@ const vm = require('node:vm');
 const source = fs.readFileSync(path.join(__dirname, '../../static/js/ui-admin-panel.js'), 'utf8');
 const admin = fs.readFileSync(path.join(__dirname, '../../templates/admin_panel.html'), 'utf8');
 
+test('update restart polling compares full hashes even when short labels match', async () => {
+    const pollSource = admin.match(/function pollForServer[\s\S]*?(?=\n\/\/ Separate display)/)[0];
+    const before = '2abcc4507bed30c94061059fc6c4812668264229';
+    const after = '2abcc4517bed30c94061059fc6c4812668264229';
+    assert.match(admin, /const preCommit = last\.boot_commit_full \|\| last\.local_commit_full/);
+    for (const [commit, expectedDelay] of [[before, 1000], [after, 500]]) {
+        const delays = [];
+        vm.runInNewContext(`${pollSource}\npollForServer(0, '${before}', false);`, {
+            fetch: () => Promise.resolve({ok: true, json: () => Promise.resolve({
+                commit: commit.slice(0, 7), commit_full: commit,
+            })}),
+            window: {}, document: {getElementById: () => ({textContent: ''})},
+            setTimeout: (_callback, delay) => delays.push(delay),
+        });
+        await new Promise(resolve => setImmediate(resolve));
+        assert.deepEqual(delays, [expectedDelay]);
+    }
+});
+
 function fixture(saved = {}, fields = [], drafts = {}) {
     const classes = new Set(), events = [], handlers = {}, attributes = {};
     const panel = {classList: {
