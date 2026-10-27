@@ -8,6 +8,10 @@ brought the change into `main`, so the admin Updates card can show
 Format: `## M/D/YYYY - <merge-short-sha>`. See
 `scripts/tag-changelog.ps1` for the helper that fills this in.
 
+## 10/27/2026
+
+- Fix false restart warnings caused by different commit hash lengths, and combine matching versions in usage metrics.
+
 ## 10/26/2026 - 891e947a
 
 - Fix customer contact Auto-fill results and keep long contact review lists scrollable.
