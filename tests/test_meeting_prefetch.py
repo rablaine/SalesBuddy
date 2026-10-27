@@ -29,6 +29,24 @@ from app.services import meeting_prefetch
 
 
 @pytest.fixture(autouse=True)
+def isolate_calendar_diagnostics(tmp_path, monkeypatch):
+    """Keep local calendar diagnostics out of the development logs."""
+    from app.services import diagnostic_log
+
+    log_path = tmp_path / 'diagnostic.jsonl'
+    monkeypatch.setattr(diagnostic_log, 'LOG_DIR', str(tmp_path))
+    monkeypatch.setattr(diagnostic_log, 'LOG_FILE', str(log_path))
+    return log_path
+
+
+@pytest.fixture(autouse=True)
+def calendar_retry_delay():
+    """Assert delayed retries without sleeping in unit tests."""
+    with patch('app.services.meeting_prefetch.retry_time.sleep') as sleep:
+        yield sleep
+
+
+@pytest.fixture(autouse=True)
 def disable_live_outlook_calendar():
     """Keep prefetch tests isolated from user's desktop Outlook profile."""
     with patch(
@@ -180,6 +198,68 @@ class TestExtractJsonArray:
             '{"calendarquerystatus":"nomeetings","meetings":[],"error":null}'
         ) == []
 
+    def test_accepts_reordered_meetings_and_attendees_without_changing_original_order(self):
+        """Array ordering is cosmetic; the first complete result remains authoritative."""
+        meetings = [
+            {'subject': 'Zulu sync', 'attendees': [
+                {'name': 'Zed', 'email': 'zed@example.test'},
+                {'name': 'Amy', 'email': 'amy@example.test'},
+            ]},
+            {'subject': 'Alpha sync', 'attendees': []},
+        ]
+        first = {'calendar_query_status': 'meetings_found', 'meetings': meetings, 'error': None}
+        repeated = json.loads(json.dumps(first))
+        repeated['meetings'].reverse()
+        repeated['meetings'][1]['attendees'].reverse()
+
+        assert meeting_prefetch._extract_json_array(
+            json.dumps(first) + '\n' + json.dumps(repeated),
+        ) == meetings
+
+    @pytest.mark.parametrize('change', ['time', 'missing_meeting', 'missing_attendee',
+                                       'extra_attendee', 'attendee_email', 'status',
+                                       'recurrence', 'recurrence_type', 'subject', 'organizer'])
+    def test_reordering_does_not_hide_content_conflicts(self, change):
+        """Never merge incomplete copies or ignore meaningful field differences."""
+        first = {'calendar_query_status': 'meetings_found', 'error': None, 'meetings': [
+            {'subject': 'Private customer sync', 'start_time': '2026-10-28T08:00:00-05:00',
+             'is_recurring': True, 'organizer_email': 'organizer@example.test',
+             'attendees': [{'name': 'Private name', 'email': 'private@example.test'}]},
+            {'subject': 'Second sync', 'start_time': '2026-10-28T09:00:00-05:00',
+             'attendees': []},
+        ]}
+        repeated = json.loads(json.dumps(first))
+        if change == 'time':
+            repeated['meetings'][0]['start_time'] = '2026-10-28T10:00:00-05:00'
+        elif change == 'missing_meeting':
+            repeated['meetings'].pop()
+        elif change == 'missing_attendee':
+            repeated['meetings'][0]['attendees'].clear()
+        elif change == 'extra_attendee':
+            repeated['meetings'][0]['attendees'] *= 2
+        elif change == 'attendee_email':
+            repeated['meetings'][0]['attendees'][0]['email'] = 'different@example.test'
+        elif change == 'recurrence':
+            repeated['meetings'][0]['is_recurring'] = False
+        elif change == 'recurrence_type':
+            repeated['meetings'][0]['is_recurring'] = 1
+        elif change == 'subject':
+            repeated['meetings'][0]['subject'] = 'Different private subject'
+        elif change == 'organizer':
+            repeated['meetings'][0]['organizer_email'] = 'different@example.test'
+        else:
+            repeated['calendar_query_status'] = 'calendar_lookup_failed'
+        repeated['meetings'].reverse()
+
+        with pytest.raises(meeting_prefetch.CalendarPayloadConflictError) as caught:
+            meeting_prefetch._extract_json_array(json.dumps(first) + '\n' + json.dumps(repeated))
+        assert caught.value.differences
+        assert len(caught.value.differences) <= meeting_prefetch.MAX_CALENDAR_DIFFERENCES
+        diagnostic = json.dumps(caught.value.differences)
+        assert 'private@example.test' not in diagnostic
+        assert 'Private name' not in diagnostic
+        assert 'Private customer sync' not in diagnostic
+
     @pytest.mark.parametrize('wrapper', [
         '{payload}\nSource: your calendar [1].',
         'Here are your meetings:\n{payload}\nSource: your calendar [1].',
@@ -310,7 +390,8 @@ def test_workiq_envelope_with_citations_does_not_need_retry_or_markdown():
     markdown_fallback.assert_not_called()
 
 
-def test_ambiguous_empty_workiq_day_records_lookup_failure_without_retry():
+def test_ambiguous_empty_workiq_day_retries_then_records_lookup_failure(calendar_retry_delay):
+    """An unconfirmed empty day is retried once, never accepted as an empty calendar."""
     with patch(
         'app.services.workiq_service.query_workiq',
         return_value='```json\n[]\n```',
@@ -323,12 +404,139 @@ def test_ambiguous_empty_workiq_day_records_lookup_failure_without_retry():
 
     assert meetings is None
     assert 'ambiguous empty meeting array' in error
-    query_workiq.assert_called_once()
+    assert query_workiq.call_count == 2
+    calendar_retry_delay.assert_called_once_with(meeting_prefetch.WORKIQ_RETRY_DELAY_SECONDS)
     queue_workiq_call.assert_called_once_with(
         'meeting_list',
         'server_down',
         failure_type='calendar_lookup_failed',
     )
+
+
+@pytest.mark.parametrize('failure', [
+    RuntimeError('WorkIQ temporarily unavailable'),
+    TimeoutError('WorkIQ timed out'),
+    '{"calendar_query_status":"calendar_lookup_failed","meetings":[],"error":"Unavailable"}',
+    '{"calendar_query_status":"meetings_found","meetings":',
+])
+def test_transient_workiq_failure_recovers_after_one_delayed_retry(
+    failure, calendar_retry_delay, isolate_calendar_diagnostics,
+):
+    """Transport, calendar lookup and parsing failures share the bounded retry."""
+    with patch(
+        'app.services.workiq_service.query_workiq', side_effect=[failure, SAMPLE_RESPONSE],
+    ) as query, patch(
+        'app.services.workiq_service.get_meetings_for_date',
+    ) as fallback:
+        meetings, error = meeting_prefetch.fetch_workiq_meetings_for_date('2026-10-28')
+
+    assert error is None and len(meetings) == 2
+    assert query.call_count == 2
+    fallback.assert_not_called()
+    calendar_retry_delay.assert_called_once_with(2)
+    diagnostic = json.loads(isolate_calendar_diagnostics.read_text(encoding='utf-8'))
+    assert diagnostic['cat'] == 'workiq_calendar'
+    assert diagnostic['date'] == '2026-10-28' and diagnostic['attempt'] == 1
+    if isinstance(failure, str):
+        assert diagnostic['response_chars'] == len(failure)
+        assert len(diagnostic['response_sha256']) == 64
+    if isinstance(failure, str) and failure.endswith(':'):
+        assert diagnostic['json_error']['line'] == 1
+        assert diagnostic['json_error']['column'] > 0
+
+
+def test_conflicting_payload_diagnostics_are_specific_bounded_and_private(
+    isolate_calendar_diagnostics,
+):
+    """Local logs identify changed fields, not private meeting content."""
+    first = {'calendar_query_status': 'meetings_found', 'error': None, 'meetings': [
+        {'subject': 'Private customer sync', 'start_time': '2026-10-28T08:00:00-05:00',
+         'attendees': [{'name': 'Private name', 'email': 'private@example.test'}]},
+    ]}
+    repeated = json.loads(json.dumps(first))
+    repeated['meetings'][0]['start_time'] = '2026-10-28T09:00:00-05:00'
+    repeated['meetings'][0]['attendees'][0]['email'] = 'different@example.test'
+    response = json.dumps(first) + '\n' + json.dumps(repeated)
+    with patch(
+        'app.services.workiq_service.query_workiq', side_effect=[response, SAMPLE_RESPONSE],
+    ):
+        meetings, error = meeting_prefetch.fetch_workiq_meetings_for_date('2026-10-28')
+
+    assert error is None and meetings
+    log_text = isolate_calendar_diagnostics.read_text(encoding='utf-8')
+    diagnostic = json.loads(log_text)
+    assert diagnostic['error_type'] == 'CalendarPayloadConflictError'
+    assert diagnostic['payloads'] == [
+        {'status': 'meetings_found', 'meeting_count': 1},
+        {'status': 'meetings_found', 'meeting_count': 1},
+    ]
+    by_path = {item['path']: item for item in diagnostic['differences']}
+    assert by_path['$.meetings[0].start_time']['first']['value'] == '2026-10-28T08:00:00-05:00'
+    assert 'sha256' in by_path['$.meetings[0].attendees[0].email']['first']
+    assert 'Private' not in log_text and '@example.test' not in log_text
+    differences = meeting_prefetch._calendar_differences(
+        [{'subject': 'Private'}] * 30, [{'subject': 'Changed'}] * 30,
+    )
+    assert len(differences) == meeting_prefetch.MAX_CALENDAR_DIFFERENCES
+
+
+def test_repeated_lookup_failures_with_different_error_text_remain_lookup_failures(
+    isolate_calendar_diagnostics,
+):
+    """Differing explanations cannot turn two failed lookups into calendar data."""
+    first = {'calendar_query_status': 'calendar_lookup_failed', 'meetings': [],
+             'error': 'Private lookup error one'}
+    second = {**first, 'error': 'Private lookup error two'}
+    response = json.dumps(first) + '\n' + json.dumps(second)
+    with patch(
+        'app.services.workiq_service.query_workiq', return_value=response,
+    ) as query, patch(
+        'app.services.workiq_service.get_meetings_for_date',
+    ) as fallback, patch('app.services.telemetry_shipper.queue_workiq_call') as telemetry:
+        meetings, error = meeting_prefetch.fetch_workiq_meetings_for_date('2026-10-28')
+
+    assert meetings is None and 'calendar_lookup_failed' in error
+    assert query.call_count == 2
+    fallback.assert_not_called()
+    telemetry.assert_called_once_with(
+        'meeting_list', 'server_down', failure_type='calendar_lookup_failed',
+    )
+    text = isolate_calendar_diagnostics.read_text(encoding='utf-8')
+    entries = [json.loads(line) for line in text.splitlines()]
+    assert [entry['attempt'] for entry in entries] == [1, 2]
+    assert all(entry['error_type'] == 'CalendarLookupError' for entry in entries)
+    assert entries[0]['differences'][0]['path'] == '$.error'
+    assert entries[0]['payloads'] == [
+        {'status': 'calendar_lookup_failed', 'meeting_count': 0},
+        {'status': 'calendar_lookup_failed', 'meeting_count': 0},
+    ]
+    assert 'Private lookup error' not in text
+
+
+def test_markdown_retry_response_is_reused_and_conflicting_envelopes_cannot_be_salvaged():
+    """Use a valid retry table, but never salvage prose from a conflicting envelope."""
+    table = '| Time | Meeting Title | External Company |\n| 9:00 AM | Customer sync | Acme |'
+    with patch(
+        'app.services.workiq_service.query_workiq', side_effect=['invalid', table],
+    ), patch('app.services.workiq_service.get_meetings_for_date') as fallback:
+        meetings, error = meeting_prefetch.fetch_workiq_meetings_for_date('2026-10-28')
+    assert error is None and meetings[0]['subject'] == 'Customer sync'
+    fallback.assert_not_called()
+
+    conflicting = (
+        '{"calendar_query_status":"no_meetings","meetings":[],"error":null}\n'
+        '{"calendar_query_status":"calendar_lookup_failed","meetings":[],"error":"Failed"}\n'
+        + table
+    )
+    with patch(
+        'app.services.workiq_service.query_workiq', return_value=conflicting,
+    ), patch(
+        'app.services.workiq_service.get_meetings_for_date',
+        return_value=([{'title': 'Do not import'}], conflicting),
+    ), patch('app.services.workiq_service._parse_meetings_response') as parse_table:
+        meetings, error = meeting_prefetch.fetch_workiq_meetings_for_date('2026-10-28')
+    assert meetings is None and 'multiple calendar response payloads' in error
+    parse_table.assert_not_called()
 
 
 def test_meeting_prompt_caps_attendees_and_requires_email():

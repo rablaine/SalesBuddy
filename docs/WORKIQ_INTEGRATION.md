@@ -86,6 +86,29 @@ The first query will open a browser for authentication. After that, queries run 
 
 ## Testing Access
 
+### Calendar refresh recovery and diagnostics
+
+Calendar imports accept repeated JSON results whose field aliases, meeting order,
+or attendee order differ, but reject conflicting content and ambiguous empty
+results. The original meeting and attendee order is preserved when importing.
+Repeated failed lookups remain failures even if their explanatory error text
+differs; they are not treated as conflicting successful calendar results.
+WorkIQ query and parsing failures get one retry after a two-second delay. If
+JSON formatting still fails, a separate markdown request can recover the import;
+it cannot override a conflicting or failed JSON envelope in that same response.
+Failed refreshes leave cached meetings intact. Home shows a per-date Retry action
+that uses the existing durable sync queue.
+
+Each failed attempt writes a local `workiq_calendar` entry in
+`logs/diagnostic.jsonl`, using the existing 48-hour retention. Entries include the
+requested date, attempt number, exception type, response length and SHA-256,
+each conflicting payload's status and meeting count,
+JSON error location when available, and at most 12 differing field paths for
+conflicting payloads. Safe calendar metadata (status, times and recurrence flags)
+can appear in differences; titles, names, email addresses, error text and other
+content are represented only by types, lengths and fingerprints. Full WorkIQ
+responses are not added to these diagnostics or sent as telemetry.
+
 ### Quick Connectivity Test
 
 ```bash

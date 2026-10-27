@@ -2068,7 +2068,9 @@ def get_analytics_summary(days: int = 30) -> dict:
 @tool(
     'report_one_on_one',
     'Get 1:1 manager prep data: recent customer activity, open engagements, '
-    'and milestone updates in a configurable rolling window (14 days by default; 30 for MBRs).',
+    'and milestone updates in a configurable rolling window (14 days by default; 30 for MBRs). '
+    'Quarter milestones retain the current quarter and overdue scope; optionally focus on '
+    'the Top 10 or Top 15 by monthly ACR.',
     {
         'type': 'object',
         'properties': {
@@ -2080,15 +2082,27 @@ def get_analytics_summary(days: int = 30) -> dict:
                 'type': 'integer',
                 'description': 'Scope to a specific seller.',
             },
+            'milestone_focus': {
+                'type': 'string',
+                'enum': ['all', '10', '15'],
+                'description': 'Quarter milestone focus: all (default), Top 10 or Top 15 ACR.',
+            },
         },
     },
 )
-def report_one_on_one(days: int = 14, seller_id: int | None = None) -> dict:
+def report_one_on_one(
+    days: int = 14, seller_id: int | None = None, milestone_focus: str = 'all',
+) -> dict:
     """Return 1:1 prep data."""
     from app.models import Note, Engagement, Milestone, Customer
-    from app.services.one_on_one_report import get_activity_cutoffs
+    from app.services.one_on_one_report import (
+        get_activity_cutoffs, get_quarter_milestone_highlights,
+    )
 
     cutoff, call_date_cutoff = get_activity_cutoffs(days)
+    quarter_milestones, quarter_start, quarter_end = get_quarter_milestone_highlights(
+        milestone_focus, seller_id=seller_id,
+    )
 
     # Recent notes
     note_q = Note.query.filter(Note.call_date >= call_date_cutoff)
@@ -2131,6 +2145,21 @@ def report_one_on_one(days: int = 14, seller_id: int | None = None) -> dict:
         'customers_with_calls': len(customer_notes),
         'total_notes': len(recent_notes),
         'open_engagements': open_engagements,
+        'milestone_focus': milestone_focus,
+        'quarter_start': quarter_start.date().isoformat(),
+        'quarter_end': quarter_end.date().isoformat(),
+        'quarter_milestones': [
+            {
+                'id': milestone.id,
+                'url': _url('milestone', milestone.id),
+                'title': _clean(milestone.display_text),
+                'customer': milestone.customer.name,
+                'monthly_usage': milestone.monthly_usage,
+                'due_date': milestone.due_date.date().isoformat(),
+                'status': milestone.msx_status,
+            }
+            for milestone in quarter_milestones
+        ],
         'recently_committed_milestones': [
             {
                 'id': m.id,

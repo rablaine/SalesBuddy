@@ -25,6 +25,7 @@ import hashlib
 import json
 import logging
 import re
+import time as retry_time
 from datetime import datetime, date, time, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -43,6 +44,8 @@ logger = logging.getLogger(__name__)
 
 INTERNAL_DOMAIN = 'microsoft.com'
 MAX_MEETING_ATTENDEES = 15
+WORKIQ_RETRY_DELAY_SECONDS = 2
+MAX_CALENDAR_DIFFERENCES = 12
 
 
 def _is_internal_domain(domain: Optional[str]) -> bool:
@@ -75,6 +78,25 @@ _X500_RE = re.compile(r'^/O=', re.IGNORECASE)
 
 class CalendarLookupError(ValueError):
     """WorkIQ could not confirm whether the requested day has meetings."""
+
+
+class CalendarPayloadConflictError(ValueError):
+    """Repeated calendar results disagree after harmless formatting is normalized."""
+
+    def __init__(self, first: Any, repeated: Any) -> None:
+        """Retain bounded, privacy-safe differences for local diagnostics."""
+        super().__init__("multiple calendar response payloads")
+        self.differences = _calendar_differences(first, repeated)
+        self.payloads = []
+        for value in (first, repeated):
+            status = value.get('calendar_query_status') if isinstance(value, dict) else None
+            meetings = value.get('meetings') if isinstance(value, dict) else None
+            self.payloads.append({
+                'status': status if status in (
+                    'meetings_found', 'no_meetings', 'calendar_lookup_failed',
+                ) else 'unknown',
+                'meeting_count': len(meetings) if isinstance(meetings, list) else None,
+            })
 
 
 # Meeting subjects matching any of these patterns are internal / segment
@@ -167,6 +189,110 @@ def _normalize_calendar_payload(value: Any) -> Any:
     return normalized
 
 
+def _calendar_comparison_payload(value: Any) -> Any:
+    """Ignore meeting and attendee order without changing the imported result."""
+    if not isinstance(value, dict):
+        return value
+    result = {}
+    for key, item in value.items():
+        if key in ('meetings', 'attendees') and isinstance(item, list):
+            item = [_calendar_comparison_payload(entry) for entry in item]
+            item = sorted(item, key=lambda entry: json.dumps(entry, sort_keys=True))
+        result[key] = item
+    return result
+
+
+def _calendar_differences(first: Any, repeated: Any) -> List[Dict[str, Any]]:
+    """Describe differing fields without logging meeting titles, names or emails."""
+    differences: List[Dict[str, Any]] = []
+
+    def describe(value: Any, field: str) -> Dict[str, Any]:
+        """Fingerprint sensitive values and retain safe calendar metadata."""
+        result: Dict[str, Any] = {'type': type(value).__name__}
+        if field in ('calendar_query_status', 'start_time', 'end_time', 'is_recurring'):
+            if isinstance(value, (str, bool)) or value is None:
+                # Status and time values are only retained if they match their schema.
+                if (
+                    isinstance(value, bool) or value is None
+                    or value in ('meetings_found', 'no_meetings', 'calendar_lookup_failed')
+                    or re.fullmatch(r'[\dT:+.Z -]{10,40}', value)
+                ):
+                    result['value'] = value
+                    return result
+        encoded = json.dumps(value, sort_keys=True).encode('utf-8')
+        result['sha256'] = hashlib.sha256(encoded).hexdigest()
+        if isinstance(value, (str, list, dict)):
+            result['length'] = len(value)
+        return result
+
+    def compare(left: Any, right: Any, path: str, field: str = '') -> None:
+        """Collect at most the configured number of structural differences."""
+        if len(differences) >= MAX_CALENDAR_DIFFERENCES:
+            return
+        if json.dumps(left, sort_keys=True) == json.dumps(right, sort_keys=True):
+            return
+        if isinstance(left, dict) and isinstance(right, dict):
+            for key in sorted(left.keys() | right.keys()):
+                # Unknown keys may themselves contain generated customer content.
+                label = key if key in {
+                    'calendar_query_status', 'meetings', 'error', 'subject',
+                    'start_time', 'end_time', 'organizer_email', 'is_recurring',
+                    'attendees', 'name', 'email', 'external_company',
+                } else 'unknown_field'
+                if key not in left or key not in right:
+                    differences.append({
+                        'path': f'{path}.{label}',
+                        'first_present': key in left,
+                        'repeated_present': key in right,
+                    })
+                else:
+                    compare(left[key], right[key], f'{path}.{label}', key)
+                if len(differences) >= MAX_CALENDAR_DIFFERENCES:
+                    break
+            return
+        if isinstance(left, list) and isinstance(right, list) and len(left) == len(right):
+            for index, (left_item, right_item) in enumerate(zip(left, right)):
+                compare(left_item, right_item, f'{path}[{index}]')
+            return
+        differences.append({
+            'path': path, 'first': describe(left, field), 'repeated': describe(right, field),
+        })
+
+    compare(first, repeated, '$')
+    return differences
+
+
+def _log_calendar_failure(
+    date_str: str, attempt: int, response: Optional[str], error: Exception,
+) -> None:
+    """Record bounded local evidence under the diagnostic log's 48-hour retention."""
+    from app.services.diagnostic_log import diag_log
+
+    conflict = error if isinstance(error, CalendarPayloadConflictError) else error.__cause__
+    diag_log(
+        'workiq_calendar',
+        date=date_str,
+        attempt=attempt,
+        error_type=type(error).__name__,
+        response_chars=len(response) if response is not None else 0,
+        response_sha256=(
+            hashlib.sha256(response.encode('utf-8')).hexdigest()
+            if response is not None else None
+        ),
+        differences=getattr(conflict, 'differences', []),
+        payloads=getattr(conflict, 'payloads', []),
+        json_error=(
+            {'message': error.__cause__.msg, 'line': error.__cause__.lineno,
+             'column': error.__cause__.colno}
+            if isinstance(error.__cause__, json.JSONDecodeError) else None
+        ),
+    )
+    logger.warning(
+        'Prefetch: WorkIQ attempt %d failed for %s (%s); see workiq_calendar diagnostics',
+        attempt, date_str, type(error).__name__,
+    )
+
+
 def _extract_json_array(response: str) -> List[Dict[str, Any]]:
     """Pull the JSON meeting array out of a WorkIQ prose response.
 
@@ -203,8 +329,19 @@ def _extract_json_array(response: str) -> List[Dict[str, Any]]:
                 repeated, length = json.JSONDecoder().raw_decode(raw[start:])
             except json.JSONDecodeError as exc:
                 raise ValueError(f"JSON envelope parse failed: {exc}") from exc
-            if _normalize_calendar_payload(repeated) != envelope:
-                raise ValueError("multiple calendar response payloads")
+            first = _calendar_comparison_payload(envelope)
+            repeated = _calendar_comparison_payload(_normalize_calendar_payload(repeated))
+            if json.dumps(first, sort_keys=True) != json.dumps(repeated, sort_keys=True):
+                conflict = CalendarPayloadConflictError(first, repeated)
+                if all(
+                    payload['status'] == 'calendar_lookup_failed'
+                    and payload['meeting_count'] == 0
+                    for payload in conflict.payloads
+                ):
+                    raise CalendarLookupError(
+                        "WorkIQ calendar lookup was not confirmed: calendar_lookup_failed",
+                    ) from conflict
+                raise conflict
             end = start + length
 
         status = envelope.get('calendar_query_status')
@@ -957,66 +1094,76 @@ def fetch_workiq_meetings_for_date(
     from app.services.workiq_service import query_workiq
 
     prompt = _build_prompt(date_str)
-    # WorkIQ sometimes ignores the JSON contract and returns its legacy
-    # markdown table. Parse that response in place, then make one explicit
-    # markdown-table request if needed. Repeating the same JSON prompt three
-    # times proved both slow and unreliable for historical dates.
     last_parse_error: Optional[str] = None
     raw_meetings: Optional[List[Dict[str, Any]]] = None
+    legacy_responses: List[str] = []
+    last_error: Optional[Exception] = None
     logger.info("Prefetch: querying WorkIQ for %s", date_str)
-    try:
-        # Today JSON observed at 131s in Phase 0 probe; give 240s headroom.
-        response = query_workiq(prompt, timeout=240, operation='meeting_list')
-    except Exception as exc:  # noqa: BLE001
-        logger.error("Prefetch: WorkIQ call failed for %s: %s", date_str, exc)
-        return None, str(exc)
+    for attempt in (1, 2):
+        if attempt == 2:
+            retry_time.sleep(WORKIQ_RETRY_DELAY_SECONDS)
+        response = None
+        try:
+            response = query_workiq(prompt, timeout=240, operation='meeting_list')
+            return _extract_json_array(response), None
+        except (ValueError, RuntimeError, TimeoutError, OSError) as exc:
+            last_error = exc
+            last_parse_error = str(exc)
+            _log_calendar_failure(date_str, attempt, response, exc)
+            # Never salvage a rejected envelope from a table or prose beside it.
+            if (
+                response is not None
+                and isinstance(exc, ValueError)
+                and not isinstance(exc, (CalendarLookupError, CalendarPayloadConflictError))
+                and not re.search(r'"calendar_?query_?status"\s*:', response, re.IGNORECASE)
+            ):
+                legacy_responses.append(response)
 
-    try:
-        raw_meetings = _extract_json_array(response)
-    except CalendarLookupError as exc:
+    if isinstance(last_error, CalendarLookupError):
         from app.services.telemetry_shipper import queue_workiq_call
         queue_workiq_call(
             'meeting_list',
             'server_down',
             failure_type='calendar_lookup_failed',
         )
-        logger.error("Prefetch: WorkIQ lookup failed for %s: %s", date_str, exc)
-        return None, str(exc)
-    except ValueError as exc:
-        last_parse_error = str(exc)
-        logger.warning(
-            'Prefetch: JSON parse failed for %s; retrying once: %s',
-            date_str, exc,
-        )
-        try:
-            retry_response = query_workiq(
-                prompt,
-                timeout=240,
-                operation='meeting_list',
-            )
-            raw_meetings = _extract_json_array(retry_response)
-        except Exception as retry_exc:  # noqa: BLE001
-            last_parse_error = str(retry_exc)
+        logger.error("Prefetch: WorkIQ lookup failed for %s: %s", date_str, last_error)
+        return None, str(last_error)
+    if not isinstance(last_error, ValueError):
+        logger.error("Prefetch: WorkIQ call failed for %s: %s", date_str, last_error)
+        return None, str(last_error)
 
-    if raw_meetings is None:
-        from app.services.workiq_service import (
-            _parse_meetings_response,
-            get_meetings_for_date,
-        )
+    from app.services.workiq_service import (
+        _parse_meetings_response,
+        get_meetings_for_date,
+    )
+    for legacy_response in reversed(legacy_responses):
         raw_meetings = _legacy_meetings_to_raw(
-            _parse_meetings_response(response, date_str),
+            _parse_meetings_response(legacy_response, date_str),
         ) or None
+        if raw_meetings is not None:
+            return raw_meetings, None
+    logger.warning(
+        "Prefetch: JSON parsing failed for %s; trying markdown fallback: %s",
+        date_str, last_parse_error,
+    )
+    legacy_meetings, fallback_response = get_meetings_for_date(date_str)
+    # The fallback must not bypass the envelope conflict and lookup-failure checks.
+    if re.search(r'"calendar_?query_?status"\s*:', fallback_response, re.IGNORECASE):
+        try:
+            raw_meetings = _extract_json_array(fallback_response)
+        except ValueError as exc:
+            _log_calendar_failure(date_str, 3, fallback_response, exc)
+            last_parse_error = str(exc)
+    else:
+        raw_meetings = _legacy_meetings_to_raw(legacy_meetings) or None
         if raw_meetings is None:
-            logger.warning(
-                "Prefetch: JSON parsing failed for %s; trying markdown fallback: %s",
-                date_str, last_parse_error,
+            _log_calendar_failure(
+                date_str, 3, fallback_response,
+                ValueError('markdown fallback returned no meetings'),
             )
-            legacy_meetings, _ = get_meetings_for_date(date_str)
-            raw_meetings = _legacy_meetings_to_raw(legacy_meetings) or None
-            if raw_meetings is None:
-                last_parse_error = (
-                    f'{last_parse_error}; markdown fallback returned no meetings'
-                )
+            last_parse_error = (
+                f'{last_parse_error}; markdown fallback returned no meetings'
+            )
 
     if raw_meetings is None:
         # Both formats returned unusable data. Preserve existing rows

@@ -23,6 +23,10 @@ body:has(.sb-home-page) > .sb-flash-stack:not(:has(.sb-notice)) { display: none;
 }
 .sb-home-meeting-notices:empty { display: none; }
 .sb-home-meeting-notices > .sb-notice { margin: 0; }
+.sb-home-meeting-notices .sb-notice-body .sb-home-button {
+    display: block;
+    margin-top: 8px;
+}
 .sb-home-page {
     --sb-home-height: max(400px, calc(100dvh - var(--sb-ui-header-height) - 56px));
     --sb-home-type-heading: 1.1375rem;

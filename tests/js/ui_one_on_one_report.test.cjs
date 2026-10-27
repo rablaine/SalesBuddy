@@ -107,10 +107,11 @@ test('reporting period changes persist both choices before submitting', () => {
 
 test('a bare visit restores the saved period and preserves other URL state', () => {
     const h = harness({storedPeriod: '30', embedded: true,
-        href: 'http://localhost/reports/one-on-one?activity_sort=acr&embed=1#recent'});
+        href: 'http://localhost/reports/one-on-one?activity_sort=acr&milestone_focus=15&embed=1#recent'});
     const destination = new URL(h.replacements[0]);
     assert.equal(destination.searchParams.get('days'), '30');
     assert.equal(destination.searchParams.get('activity_sort'), 'acr');
+    assert.equal(destination.searchParams.get('milestone_focus'), '15');
     assert.equal(destination.searchParams.get('embed'), '1');
     assert.equal(destination.hash, '#recent');
     assert.deepEqual(h.submissions, []);
