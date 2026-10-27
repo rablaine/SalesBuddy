@@ -8,7 +8,7 @@ brought the change into `main`, so the admin Updates card can show
 Format: `## M/D/YYYY - <merge-short-sha>`. See
 `scripts/tag-changelog.ps1` for the helper that fills this in.
 
-## 10/27/2026
+## 10/27/2026 - 2e87be7a
 
 - Recover more calendar refresh failures automatically, keep saved meetings intact when WorkIQ fails, and offer a per-day Retry action.
 - Focus the 1:1 Report milestone list on your Top 10 or Top 15 ACR milestones, without changing its date scope.
