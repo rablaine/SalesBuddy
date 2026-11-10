@@ -53,6 +53,7 @@ function harness() {
     });
     return {
         window, calls, body, Form, listeners, errors, resolve, reject,
+        timerCount: () => timers.size,
         setStatus: value => { status = value; },
         tick: async () => {
             const [id, fn] = timers.entries().next().value;
@@ -118,7 +119,7 @@ test('native form saves get a token and duplicate submissions are blocked while 
     const form = new h.Form();
     const event = {target: form, defaultPrevented: false};
     h.listeners.get('submit')(event);
-    await new Promise(resolve => setImmediate(resolve));
+    await h.tick();
     assert.ok(form.children[0].value);
     let prevented = false;
     h.listeners.get('submit')({target: form,
@@ -132,6 +133,39 @@ test('native form saves get a token and duplicate submissions are blocked while 
     await h.tick();
     assert.equal(h.body.children[0].hidden, true);
 });
+
+for (const reason of ['empty note validation', 'asynchronous note save']) {
+    test(`${reason} does not leave the native form tracker blocking retries`, async () => {
+        const h = harness();
+        const form = new h.Form();
+        const event = {target: form, defaultPrevented: false};
+        h.listeners.get('submit')(event);
+        // Native dispatch can run microtasks between document capture and form handlers.
+        await Promise.resolve();
+        event.defaultPrevented = true;
+        const request = reason === 'asynchronous note save' ?
+            h.window.fetch('/note/new', {method: 'POST'}) : null;
+        if (h.timerCount()) await h.tick();
+        if (request) {
+            assert.equal(h.timerCount(), 1);
+            assert.equal(h.calls.length, 1);
+            h.resolve(new Response('saved'));
+            await request;
+        }
+        assert.equal(h.timerCount(), 0);
+        assert.equal(h.calls.length, request ? 1 : 0);
+
+        let prevented = false;
+        h.listeners.get('submit')({target: form, defaultPrevented: false,
+            preventDefault() { prevented = true; }, stopImmediatePropagation() {}});
+        assert.equal(prevented, false);
+        await h.tick();
+        assert.equal(h.timerCount(), 1);
+        assert.equal(h.body.children.length, 0);
+        h.listeners.get('pagehide')();
+        assert.equal(h.timerCount(), 0);
+    });
+}
 
 test('status failures are explicit and do not claim the user save was successful', async () => {
     const h = harness();
