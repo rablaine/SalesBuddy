@@ -111,6 +111,15 @@ def test_note_command_bar_has_top_and_bottom_boundaries() -> None:
     assert "border-bottom:1px solid var(--sb-ui-line)" in rule.group(1)
 
 
+def test_note_save_feedback_does_not_use_the_notice_icon_grid() -> None:
+    """Plain-text feedback must span the banner instead of wrapping in its icon column."""
+    css = (Path(__file__).parents[1] / "static" / "css" / "ui-note-form.css").read_text("utf-8")
+    rule = re.search(r"#noteSaveFeedback\s*\{([^}]+)\}", css)
+    assert rule is not None
+    assert "display:block" in rule.group(1)
+    assert "#noteSaveFeedback[hidden] {display:none;}" in css
+
+
 def test_small_modal_width_applies_to_outer_dialog_not_only_its_contents() -> None:
     """The contact photo dialog must not leave an empty half beside its contents."""
     styles = Path(__file__).parents[1] / "static" / "css"

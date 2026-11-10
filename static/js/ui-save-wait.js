@@ -104,11 +104,12 @@
             form.append(field);
         }
         field.value = id;
-        queueMicrotask(() => {
+        // Native dispatch may run microtasks before the form's validation cancels submission.
+        setTimeout(() => {
             if (event.defaultPrevented) return;
             forms.set(form, id);
             begin(id, form);
-        });
+        }, 0);
     }, true);
     window.addEventListener('pagehide', () => [...pending.keys()].forEach(end));
     window.addEventListener('pageshow', () => {

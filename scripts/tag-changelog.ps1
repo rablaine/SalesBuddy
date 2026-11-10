@@ -9,13 +9,17 @@
 #   2. Edit CHANGELOG.md, prepend a new section like:
 #        ## 4/29/2026
 #        - what you did
-#      Leave the heading without a hash. Commit + push as normal.
+#      Leave the heading without a hash. Commit locally; do not push the branch.
 #   3. After the user signs off and the branch is merged into main with
 #      `git merge --no-ff` (creating a merge commit), check out main and
 #      run this script. It rewrites the topmost untagged heading to:
 #        ## 4/29/2026 - <merge-short-sha>
 #      and commits the change directly on main as a separate
-#      "Tag changelog" commit. Push that.
+#      "Tag changelog" commit. Push main only and verify the push.
+#   4. While on main, verify the feature branch tip is an ancestor of main
+#      (`git merge-base --is-ancestor <branch> main`), then delete the local
+#      branch with `git branch -d <branch>`. Never force deletion or delete
+#      a branch checked out in another worktree.
 #
 # Why merge commits: the admin Updates card filters changelog entries by
 # commit hash. Tagging the merge commit means a single user-visible

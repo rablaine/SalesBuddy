@@ -22,6 +22,23 @@ description: "Use when committing code, creating branches, merging branches, pus
 - When asked to clean up origin, delete only branches verified as fully merged
   into `origin/main`. Preserve `main` and unmerged branches.
 
+## Local Branch Cleanup
+
+- **Delete the local feature, fix, or chore branch after its approved `--no-ff`
+  merge into `main`.** Keeping branches local means not publishing them, not
+  retaining them after completion. The merge preserves their commits on `main`.
+- For releases, finish changelog tagging and verify the push of `main` first,
+  then delete the merged local branch before reporting the release complete.
+- Verify the branch tip is an ancestor of `main` with
+  `git merge-base --is-ancestor <branch> main`, then use
+  `git branch -d <branch>` while checked out on `main`. Never force deletion.
+- When auditing old branches, check `git branch --merged main` and
+  `git worktree list --porcelain`. Preserve `main`, unmerged branches, and
+  branches checked out in any worktree. A branch containing commits is not
+  necessarily merged.
+- If safe deletion fails, preserve the branch and report why. Do not remove
+  remote branches as part of local cleanup.
+
 ## Branch Naming
 
 - **Do not pause to ask the user for a feature branch name.**
@@ -51,6 +68,8 @@ description: "Use when committing code, creating branches, merging branches, pus
 7. **STOP AND WAIT for user confirmation** before merging to `main` - **NEVER merge to main without explicit user approval**
 8. When user says ready: merge to `main` with `--no-ff` and push `main` only
    - **Always use `git merge --no-ff`** to preserve feature branch history
+9. Delete the fully merged local feature branch with `git branch -d <branch>`
+   following **Local Branch Cleanup**. Verify it is gone before reporting done.
 
 ## Changelog Updates
 
@@ -83,6 +102,8 @@ Multiple sections on the same date are fine and expected - one per merge commit.
    Leave the heading without a hash. Commit locally; do not push the feature branch.
 3. After the user signs off and you merge to `main` with `git merge --no-ff` (which creates a merge commit), run `.\scripts\tag-changelog.ps1` from the repo root. It looks up the most recent merge commit on the current branch and rewrites the topmost untagged heading to `## 4/29/2026 - <merge-hash>`, then creates a separate "Tag changelog for <hash>" commit on `main`.
 4. Push `main`, including the merge and tag commit. Do not push the feature branch.
+5. After verifying the push, delete the merged local feature branch with
+   `git branch -d <branch>` following **Local Branch Cleanup**.
 
 You can also tag manually if you prefer: `git log --merges -1 --format=%h`, then edit the heading.
 

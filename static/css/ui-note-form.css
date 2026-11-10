@@ -140,7 +140,7 @@ body.copilot-chat-open .sb-nf-drawer[open] {right:var(--sb-chat-context-inset,0p
     background:var(--sb-ui-context);color:var(--sb-ui-muted);font-size:11px;
 }
 #noteSaveFeedback[hidden] {display:none;}
-#noteSaveFeedback {margin-bottom:14px;}
+#noteSaveFeedback {display:block;margin-bottom:14px;}
 #noteSaveFeedback[data-sb-state="error"] {color:var(--sb-ui-danger);border-color:var(--sb-ui-danger);}
 @keyframes sb-note-working {to {transform:rotate(360deg);}}
 @media (prefers-reduced-motion:reduce) {.sb-nf-spinner-border {animation:none;}}
