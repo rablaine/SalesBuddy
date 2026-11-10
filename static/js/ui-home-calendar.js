@@ -2,6 +2,8 @@
 (() => {
     'use strict';
 
+    const refreshErrors = new Map();
+
     function customerColors(data) {
         const ids = new Set();
         for (const entries of [...Object.values(data.days || {}),
@@ -112,7 +114,14 @@
     }
 
     function clearRefreshError(date) {
-        document.getElementById('homeMeetingRefreshError-' + (date || 'status'))
+        if (date) {
+            refreshErrors.delete(date);
+            if (refreshErrors.size) {
+                renderRefreshErrors();
+                return;
+            }
+        }
+        document.getElementById('homeMeetingRefreshError-' + (date ? 'calendar' : 'status'))
             ?.querySelector('[data-sb-notice-dismiss]').click();
     }
 
@@ -176,8 +185,8 @@
         body.replaceChildren(row);
     }
 
-    function showRefreshError(date, message, retry, refreshed = false) {
-        const id = 'homeMeetingRefreshError-' + (date || 'status');
+    function showRefreshNotice(key, message, retry, retryLabel) {
+        const id = 'homeMeetingRefreshError-' + key;
         let notice = document.getElementById(id);
         if (!notice) {
             notice = document.createElement('div');
@@ -199,22 +208,48 @@
             close.setAttribute('data-sb-notice-dismiss', '');
             close.setAttribute('aria-label', 'Dismiss notification');
             close.appendChild(marker('x-lg', 'Close'));
+            if (key === 'calendar') {
+                close.addEventListener('click', () => refreshErrors.clear());
+            }
             notice.appendChild(close);
             document.getElementById('homeMeetingNotices').appendChild(notice);
         }
         const body = notice.querySelector('.sb-notice-body');
-        body.textContent = date && !refreshed ?
-            'Calendar refresh failed for ' + date + '. Your saved meetings are unchanged.' :
-            message;
-        if (date && typeof retry === 'function') {
+        body.textContent = message;
+        if (typeof retry === 'function') {
             const button = document.createElement('button');
             button.type = 'button';
             button.className = 'sb-home-button';
             button.textContent = 'Retry';
-            button.setAttribute('aria-label', 'Retry meeting refresh for ' + date);
+            button.setAttribute('aria-label', retryLabel);
             button.addEventListener('click', retry);
             body.appendChild(button);
         }
+    }
+
+    function renderRefreshErrors() {
+        const failed = [...refreshErrors].filter(([, error]) => !error.refreshed);
+        const redraw = [...refreshErrors].filter(([, error]) => error.refreshed);
+        const messages = [];
+        if (failed.length) {
+            messages.push('Calendar refresh failed for ' + failed.map(([date]) => date).join(', ') +
+                '. Your saved meetings are unchanged.');
+        }
+        if (redraw.length) messages.push(redraw[0][1].message);
+        const retries = [...refreshErrors.values()].filter(error => typeof error.retry === 'function');
+        showRefreshNotice('calendar', messages.join(' '),
+            retries.length ? () => Promise.all(retries.map(error => error.retry())) : undefined,
+            refreshErrors.size === 1 ? 'Retry meeting refresh for ' + refreshErrors.keys().next().value :
+                'Retry failed calendar dates');
+    }
+
+    function showRefreshError(date, message, retry, refreshed = false) {
+        if (!date) {
+            showRefreshNotice('status', message);
+            return;
+        }
+        refreshErrors.set(date, {message, retry, refreshed});
+        renderRefreshErrors();
     }
 
     window.SBHomeCalendar = Object.freeze({

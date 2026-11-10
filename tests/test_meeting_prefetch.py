@@ -550,6 +550,34 @@ def test_meeting_prompt_caps_attendees_and_requires_email():
     assert 'non-null email address' in prompt
 
 
+def test_missing_attendee_details_do_not_make_calendar_lookup_fail():
+    """Optional attendee enrichment must not prevent importing the meeting list."""
+    prompt = meeting_prefetch._build_prompt('2026-11-11')
+    assert 'Missing attendee emails are not a calendar lookup failure' in prompt
+    assert 'never invent or infer an email address' in prompt
+    assert 'organizer_email to null when unavailable' in prompt
+    assert 'return the meeting with an empty attendees array' in prompt
+    response = json.dumps({
+        'calendar_query_status': 'meetings_found',
+        'error': None,
+        'meetings': [{
+            'subject': 'Customer meeting',
+            'start_time': '2026-11-11T09:00:00-06:00',
+            'end_time': '2026-11-11T10:00:00-06:00',
+            'organizer_email': None,
+            'is_recurring': False,
+            'attendees': [],
+        }],
+    })
+    with patch('app.services.workiq_service.query_workiq', return_value=response) as query:
+        meetings, error = meeting_prefetch.fetch_workiq_meetings_for_date('2026-11-11')
+    assert error is None
+    assert len(meetings) == 1
+    assert meetings[0]['attendees'] == []
+    assert meetings[0]['organizer_email'] is None
+    query.assert_called_once()
+
+
 class TestIncludeMissingOrganizer:
     def test_adds_known_organizer_name(self, app):
         with app.app_context():

@@ -49,6 +49,10 @@ including their context and source links. A numbered-list fallback does not
 repeat the WorkIQ call. If neither format can be parsed, existing suggestions
 remain unchanged.
 
+Calendar refreshes keep retrieved meetings even when attendee emails or organizer
+details are unavailable, without guessing addresses. Genuine lookup failures keep
+saved meetings unchanged and share one notice with a Retry action for the failed dates.
+
 Milestone scheduling and Admin use the shared sync completion status. A manual
 attempt completed that day counts toward the Mon/Wed/Fri schedule, even if it
 ran before the configured time. Failed attempts do not cause repeated retries
