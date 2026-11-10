@@ -8,7 +8,7 @@ brought the change into `main`, so the admin Updates card can show
 Format: `## M/D/YYYY - <merge-short-sha>`. See
 `scripts/tag-changelog.ps1` for the helper that fills this in.
 
-## 11/9/2026
+## 11/9/2026 - 630c4e6a
 
 - Keep calendar refreshes working when attendee emails are unavailable, and combine failed dates into one retryable notice instead of stacking notifications.
 
