@@ -8,7 +8,7 @@ brought the change into `main`, so the admin Updates card can show
 Format: `## M/D/YYYY - <merge-short-sha>`. See
 `scripts/tag-changelog.ps1` for the helper that fills this in.
 
-## 11/10/2026
+## 11/10/2026 - f9fb235e
 
 - Save notes after correcting empty-content validation without closing and reopening the draft.
 
