@@ -113,14 +113,14 @@ function fixture() {
         hover: e => { hovered = e; }};
 }
 
-test('day refresh errors preserve saved data, hide parser internals and clear per date', () => {
+test('day refresh errors share one notice, hide parser internals and clear per date', () => {
     const {api, flash, notices, document} = fixture();
     api.showRefreshError('2026-10-03', '<img onerror=bad()>');
     api.showRefreshError('2026-10-03', 'WorkIQ lookup failed');
     api.showRefreshError('2026-10-04', 'Network error');
-    assert.equal(notices.children.length, 2);
+    assert.equal(notices.children.length, 1);
     assert.equal(flash.children.length, 0);
-    const notice = document.getElementById('homeMeetingRefreshError-2026-10-03');
+    const notice = document.getElementById('homeMeetingRefreshError-calendar');
     assert.equal(notice.getAttribute('role'), 'alert');
     assert.equal(notice.dataset.sbTone, 'danger');
     assert.equal(notice.children[2].getAttribute('data-sb-notice-dismiss'), '');
@@ -130,7 +130,10 @@ test('day refresh errors preserve saved data, hide parser internals and clear pe
     assert.doesNotMatch(notice.children[1].textContent, /<literal details>/);
     api.clearRefreshError('2026-10-03');
     assert.equal(notices.children.length, 1);
-    assert.equal(notices.children[0].id, 'homeMeetingRefreshError-2026-10-04');
+    assert.doesNotMatch(notice.children[1].textContent, /2026-10-03/);
+    assert.match(notice.children[1].textContent, /2026-10-04/);
+    api.clearRefreshError('2026-10-04');
+    assert.equal(notices.children.length, 0);
 });
 
 test('per-date notices offer one accessible Retry while status errors have no date action', () => {
@@ -140,7 +143,7 @@ test('per-date notices offer one accessible Retry while status errors have no da
         api.showRefreshError('2026-10-03', 'multiple calendar response payloads',
             () => retried.push('2026-10-03'));
     }
-    const body = document.getElementById('homeMeetingRefreshError-2026-10-03').children[1];
+    const body = document.getElementById('homeMeetingRefreshError-calendar').children[1];
     assert.equal(body.children.length, 1);
     const retry = body.children[0];
     assert.equal(retry.type, 'button');
@@ -151,6 +154,40 @@ test('per-date notices offer one accessible Retry while status errors have no da
     api.showRefreshError(null, 'Reconnecting to refresh status.');
     assert.equal(notices.children[1].children[1].children.length, 0);
     assert.match(notices.children[1].children[1].textContent, /Reconnecting/);
+});
+
+test('repeated multi-day failures stay in one notice and Retry targets each failed date once', async () => {
+    const {api, notices} = fixture();
+    const retried = [];
+    for (let attempt = 0; attempt < 3; attempt++) {
+        for (const date of ['2026-11-10', '2026-11-11', '2026-11-12']) {
+            api.showRefreshError(date, 'Calendar lookup failed', () => {
+                retried.push(date);
+                api.clearRefreshError(date);
+            });
+        }
+    }
+    assert.equal(notices.children.length, 1);
+    const body = notices.children[0].children[1];
+    for (const date of ['2026-11-10', '2026-11-11', '2026-11-12']) {
+        assert.match(body.textContent, new RegExp(date));
+    }
+    assert.equal(body.children.length, 1);
+    assert.equal(body.children[0].getAttribute('aria-label'), 'Retry failed calendar dates');
+    await body.children[0].click();
+    assert.deepEqual(retried, ['2026-11-10', '2026-11-11', '2026-11-12']);
+    assert.equal(notices.children.length, 0);
+});
+
+test('dismissing the grouped notice does not bring dismissed dates into later failures', () => {
+    const {api, notices} = fixture();
+    api.showRefreshError('2026-11-10', 'Calendar lookup failed', () => {});
+    api.showRefreshError('2026-11-11', 'Calendar lookup failed', () => {});
+    notices.children[0].querySelector('[data-sb-notice-dismiss]').click();
+    api.showRefreshError('2026-11-12', 'Calendar lookup failed', () => {});
+    assert.equal(notices.children.length, 1);
+    assert.doesNotMatch(notices.children[0].children[1].textContent, /2026-11-10|2026-11-11/);
+    assert.match(notices.children[0].children[1].textContent, /2026-11-12/);
 });
 
 test('notice Retry readmits the same date through the durable refresh lifecycle', async () => {
@@ -712,7 +749,7 @@ test('failed day repaint preserves entries and retries the read without another 
     vm.runInNewContext(template.slice(start, end), context);
     await context.refreshDaysInPlace(['2026-10-01']);
     assert.deepEqual(entries.children, [note, ghost]);
-    const body = document.getElementById('homeMeetingRefreshError-2026-10-01').children[1];
+    const body = document.getElementById('homeMeetingRefreshError-calendar').children[1];
     assert.match(body.textContent, /could not redraw.*HTTP 503/);
     assert.doesNotMatch(body.textContent, /saved meetings are unchanged/);
     await body.children[0].click();

@@ -96,8 +96,13 @@ differs; they are not treated as conflicting successful calendar results.
 WorkIQ query and parsing failures get one retry after a two-second delay. If
 JSON formatting still fails, a separate markdown request can recover the import;
 it cannot override a conflicting or failed JSON envelope in that same response.
-Failed refreshes leave cached meetings intact. Home shows a per-date Retry action
-that uses the existing durable sync queue.
+Missing attendee emails or organizer details do not make a calendar lookup fail.
+The prompt requires returning every retrieved meeting, omitting attendees whose
+emails are unavailable (never guessing addresses), and using a null organizer
+when necessary. An empty attendee list is valid meeting data, not an empty calendar.
+Genuine lookup failures still leave cached meetings intact. Home consolidates
+failed dates into one notice whose Retry action queues each failed date once
+through the existing durable sync queue. Dates clear independently as they recover.
 
 Each failed attempt writes a local `workiq_calendar` entry in
 `logs/diagnostic.jsonl`, using the existing 48-hour retention. Entries include the
