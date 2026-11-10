@@ -8,6 +8,10 @@ brought the change into `main`, so the admin Updates card can show
 Format: `## M/D/YYYY - <merge-short-sha>`. See
 `scripts/tag-changelog.ps1` for the helper that fills this in.
 
+## 11/9/2026
+
+- Keep calendar refreshes working when attendee emails are unavailable, and combine failed dates into one retryable notice instead of stacking notifications.
+
 ## 10/27/2026 - d7c0a86c
 
 - Align discovery widget and report monthly ACR to the last three complete months, and show product spend breakdowns when you hover or focus category totals.
