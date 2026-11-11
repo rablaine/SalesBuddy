@@ -29,7 +29,8 @@ def receive(req: func.HttpRequest, followup: bool) -> func.HttpResponse:
     try:
         rate_key = validate_rate_key(req.headers.get('X-SalesBuddy-Rate-Key', ''))
         payload = parse_payload(req.get_body(), followup)
-        contact = trusted_contact(req.headers.get('X-SalesBuddy-Contact', '')) if followup else None
+        claim = req.headers.get('X-SalesBuddy-Contact', '')
+        contact = trusted_contact(claim) if followup or claim else None
         service().accept(payload, contact, rate_key=rate_key)
     except RateLimited as error:
         return func.HttpResponse(
@@ -55,7 +56,7 @@ def receive(req: func.HttpRequest, followup: bool) -> func.HttpResponse:
 
 @app.route(route='reports', methods=['POST'])
 def reports(req: func.HttpRequest) -> func.HttpResponse:
-    """Accept anonymous sanitized failure reports, ignoring all identity headers."""
+    """Accept sanitized failure reports with support contact from validated APIM claims."""
     return receive(req, False)
 
 

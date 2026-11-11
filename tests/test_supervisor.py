@@ -2,6 +2,7 @@
 import time
 import json
 import os
+import subprocess
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -757,6 +758,52 @@ def test_preflight_sweeps_then_returns_when_port_free(monkeypatch):
     sup.preflight_clear_stale_backend(5151)
     if sup.os.name == "nt":
         assert len(calls) == 1  # sweep attempted exactly once
+
+
+@pytest.mark.skipif(os.name != 'nt', reason='Windows process selection regression')
+@pytest.mark.parametrize('root', [r'C:\SalesBuddy', r'C:\Sales Buddy [test]'])
+def test_preflight_selects_only_stale_backends_not_update_monitors(monkeypatch, root):
+    """Evaluate the actual PowerShell selector on fixtures, without terminating anything."""
+    real_run = subprocess.run
+    calls = []
+    monkeypatch.setattr(sup, '_repo_root', lambda: Path(root))
+    monkeypatch.setattr(sup.subprocess, 'run', lambda *args, **kwargs: calls.append(args[0]))
+    monkeypatch.setattr(sup, '_port_is_free', lambda port: True)
+    sup.preflight_clear_stale_backend(5151)
+    command = calls[0][-1]
+    selection, separator, _ = command.partition(' | ForEach-Object {')
+    assert separator
+    assert 'taskkill' not in selection
+    python = f'"{root}\\venv\\Scripts\\python.exe"'
+    processes = [
+        {'ProcessId': 101, 'CommandLine': f'{python} -m app.supervisor'},
+        {'ProcessId': 102, 'CommandLine': f'{python} -m app.worker'},
+        {'ProcessId': 103, 'CommandLine': f'{python} -m waitress --call app:create_app'},
+        {'ProcessId': 104, 'CommandLine': f'{python} -m flask run'},
+        {'ProcessId': 105, 'CommandLine': f'"{root}\\venv\\Scripts\\waitress-serve.exe" app'},
+        {'ProcessId': 201, 'CommandLine':
+         f'{python} "{root}\\scripts\\upgrade.py" wait-ready --repo "{root}"'},
+        {'ProcessId': 202, 'CommandLine':
+         f'{python} "{root}\\scripts\\upgrade.py" deliver-reports --repo "{root}"'},
+        {'ProcessId': 203, 'CommandLine':
+         f'{python} "{root}\\scripts\\upgrade.py" recover --repo "{root}"'},
+        {'ProcessId': 204, 'CommandLine': f'{python} -m pytest'},
+        {'ProcessId': 205, 'CommandLine':
+         f'"{root}-other\\venv\\Scripts\\python.exe" -m app.worker'},
+        {'ProcessId': os.getpid(), 'CommandLine': f'{python} -m app.supervisor'},
+        {'ProcessId': os.getppid(), 'CommandLine': f'{python} -m app.supervisor'},
+    ]
+    fixtures = json.dumps(processes).replace("'", "''")
+    script = (
+        f"$processes = ConvertFrom-Json '{fixtures}'; "
+        "function Get-CimInstance { param($Filter) $processes }; "
+        + selection + " | Select-Object -ExpandProperty ProcessId | ConvertTo-Json -Compress"
+    )
+    result = real_run(
+        ['powershell', '-NoProfile', '-NonInteractive', '-Command', script],
+        capture_output=True, text=True, timeout=30, check=True,
+    )
+    assert json.loads(result.stdout) == [101, 102, 103, 104, 105]
 
 
 def test_preflight_noop_off_windows(monkeypatch):

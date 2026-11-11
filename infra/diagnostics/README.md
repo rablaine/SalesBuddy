@@ -1,27 +1,34 @@
 # Diagnostics intake
 
 Independent Azure Python Functions v2 deployment. No product imports, database,
-account keys, user email payloads or raw logs. Deploy this directory as the app
+account keys, client-supplied contact identity or integration payload logs.
+Support reports include bounded, credential-redacted startup files and
+the work email derived from validated Microsoft claims when available; they are
+not anonymous. Deploy this directory as the app
 root. The approved deployment is provisioned with `infra\diagnostics.bicep` and
 `infra\deploy-diagnostics.ps1`.
 
 ## Trust boundary (required infrastructure)
 
 * APIM validates the Microsoft corporate JWT signature, issuer, audience,
-  expiration and corporate tenant. Apply a 16 KiB request limit. APIM Consumption
+  expiration and corporate tenant. Apply a 256 KiB request limit. APIM Consumption
   cannot use `rate-limit-by-key` or `quota-by-key`; a shared subscription-level
   `rate-limit` can provide a coarse additional guard.
   Strip inbound `X-SalesBuddy-Contact` and all caller-supplied EasyAuth identity
-  headers. Never forward the corporate caller identity to Functions.
-* For **followups only**, APIM selects the first usable email address from the
+  headers. Never forward the caller's raw token, raw oid or full claim set to Functions.
+* For **reports declaring `X-SalesBuddy-Contact-Mode: support` and legacy followups**,
+  APIM selects the first usable email address from the
   validated `preferred_username`, `upn`, `email`, then `unique_name` claims and
   overwrites `X-SalesBuddy-Contact`. Skip missing or non-email claims rather
   than selecting an unusable preferred claim. A legitimate guest-domain email
   is permitted: validated corporate-tenant authentication establishes trust,
   not the email domain. Never use unvalidated headers or body values. If no
-  claim is usable, return the same clear `422` contact error documented below
-  (or forward no contact header so the Function returns it). Never inject the
-  contact header for reports.
+  claim is usable, reports are still accepted without a contact; followups return
+  the clear `422` contact error documented below. Current clients always declare
+  support contact mode and disclose that support may reach out for error details,
+  without an extra prompt. This mode header declares client behavior, not identity:
+  the address must still come exclusively from validated claims. Older clients
+  without this header keep their original identity-free reporting behavior.
 * On **both intake POSTs**, strip/overwrite `X-SalesBuddy-Rate-Key` with the
   lowercase 64-character SHA256 hex digest of the validated caller's `oid`.
   Reject JWTs without that claim. Never forward the raw oid or accept a caller's
@@ -39,9 +46,18 @@ root. The approved deployment is provisioned with `infra\diagnostics.bicep` and
   `X-MS-CLIENT-PRINCIPAL-ID` against `APIM_PRINCIPAL_ID`. A raw header alone is not
   authentication. Never run these endpoints publicly without EasyAuth.
 * Disable request/response body, JWT, custom identity-header and contact logging
-  in APIM, EasyAuth, Functions and tracing. Anonymous report storage contains no
-  caller identity, IP, email or tokens. Infrastructure access logs must be
-  assessed separately; do not describe them as anonymous report records.
+  in APIM, EasyAuth, Functions and tracing. Structured report metadata includes no
+  raw oid, IP, full claims or tokens; the validated support email and startup
+  attachments are separate fields. Attached log text can contain addresses and
+  identifiers as described below. Infrastructure access logs must be assessed
+  separately. Restrict both report and contact storage to support staff and apply
+  the retention policy to their personal data.
+* Startup attachments retain error context and may contain customer identifiers.
+  They are support data, not anonymous telemetry. The client redacts recognizable
+  credential formats and secret fields, plus local install/data/profile prefixes.
+  Do not treat pattern-based redaction as a guarantee that arbitrary log text
+  contains no personal or sensitive information. Never collect integration
+  payload logs, databases, `.env`, or credential directories.
 
 ## Settings and provisioning
 
@@ -113,6 +129,15 @@ send one sanitized synthetic report through APIM using a corporate credential
 and verify the exact 202 receipt and eventual ACS delivery. Do not grant a second
 caller direct backend access just to perform this test.
 
+Local development submissions use the dedicated `SalesBuddyDev\.azure` CLI
+profile, separate from the hosting account used for deployment. Register the
+corporate account in that profile with a normal Azure CLI login before testing;
+a token request alone may not register or select that account. Recovery requests
+use a bounded CLI subprocess with closed stdin and broker-disabled child settings.
+These settings do not guarantee that Azure CLI agent-session authentication will
+never request a browser sign-in. Preserve required agent authentication context;
+do not bypass it or change the separate hosting profile to fix development auth.
+
 On October 22, 2026, synthetic report
 `f1e48619f81f4e97ac541ba6c41f549c` and its separate followup both returned
 the exact HTTP 202 `accepted` receipt through corporate-authenticated APIM.
@@ -123,21 +148,49 @@ ACS operation-status GETs returned HTTP 200 with `Succeeded` for report operatio
 not inbox delivery; delivery metrics were not yet populated. Offline policy
 regressions are in `tests\test_diagnostics_infrastructure.py`.
 
+The attachment-enabled smoke test used synthetic report
+`b33a24d77e8b481eaa4cc5967c6a6587` through the real client collector and sender.
+Its 38,898-byte request received the matching HTTP 202 receipt, and an authorized
+ACS operation lookup returned HTTP 200 with `Succeeded`. The operator confirmed
+inbox receipt, the work email in the message body, and all seven expected
+attachments. No real update failure or customer logs were used.
+
 ## Contract
 
 * `POST /api/reports`: `{schema_version:1, report_id:"<32 lowercase hex>",
-  report:{...}}`. The nested report is the sanitized
+  report:{...}, attachments:[...]}`. Attachments are optional for older clients.
+  The nested report is the sanitized
   `scripts/upgrade.py::failure_report` shape, re-allowlisted independently.
   Commit hashes are optional 40-64 lowercase hex. At least one failure section
   is required. Unknown fields, exception messages, paths, arbitrary table names,
   filenames and phases are rejected, not copied into storage. Failure sections
   may contain at most two distinct `web`/`worker` children with bounded attempts
   and boolean readiness. Numeric types are strict (booleans are not integers).
+  Current clients send `X-SalesBuddy-Contact-Mode: support`. APIM supplies the
+  signed-in email in its overwritten contact header, and the Function stores
+  it as the failure event's `contact`, separately from sanitized `content`.
+  The email accompanies the initial support email automatically. The request
+  JSON does not supply the reporter's contact identity. The optional local report
+  export remains metadata-only.
+* Each attachment has exactly `name`, `contentType`, and `contentInBase64`, matching
+  the ACS email attachment contract. Allowed names are `startup-state.json`,
+  `upgrade-state.json`, `electron-main.log`, `electron-stack.log`, `server.log`,
+  `server.log.1` and `attachment-notes.txt`. State files require
+  `application/json`, valid UTF-8 object JSON; other files require `text/plain`
+  and valid UTF-8. Reject duplicate/unknown filenames, unknown fields, invalid
+  base64, or any decoded file over 24 KiB. At most seven attachments fit inside
+  the enforced 256 KiB request limit, including base64 expansion and metadata.
+  The client captures these fixed files before rollback, keeps recent complete
+  log lines for oversized logs, and lists missing/unreadable/oversized files in
+  attachment notes. Original files are never modified. Snapshot bytes stay in
+  the original durable event and go directly to the ACS `attachments` array;
+  retries do not recollect logs. Older accepted reports remain unchanged.
 * `POST /api/followups`: `{schema_version:1, report_id:"<32 lowercase hex>"}`.
-  Requires the trusted email contact header. This is explicit opt-in; an
-  initial report never creates a contact event. Followups may arrive before the
-  anonymous report: accept them independently and link by report ID, without
-  copying identity into the report. Support follows up manually in Teams/email.
+  Preserved for older clients and already queued explicit contact requests.
+  Requires the trusted email contact header. Initial reports do not create a
+  separate followup event. Legacy followups may arrive before the report:
+  accept them independently and link by report ID. Support follows up manually
+  in Teams/email.
 * `GET /api/health`: generic `ok`, still behind the same authentication.
 * The exact successful receipt for either POST, including an identical retry,
   is HTTP `202`, `Content-Type: application/json`, with the JSON object
@@ -146,7 +199,11 @@ regressions are in `tests\test_diagnostics_infrastructure.py`.
   The desktop must validate the HTTP code, exact report ID and `accepted`
   status before deleting its local queued item.
 * `202` means **durably accepted**, never email delivered. Identical retry is
-  idempotent. Different report content or contact for the same ID returns `409`.
+  idempotent. Different report content or legacy followup contact for the same
+  ID returns `409`. Failure hashes cover sanitized content and all attached
+  snapshot bytes, not mutable sign-in
+  claims: retries preserve the first accepted event and its original contact,
+  including reports previously accepted without an address.
   Invalid input returns `400`, bad identity `403`, missing/unusable trusted
   contact returns `422`, storage
   failure `503`. New events over the daily caller limit return `429` with
@@ -169,12 +226,14 @@ The queue client uses that same URI and name with `DefaultAzureCredential`.
 `AzureWebJobsStorage__accountName` configures host storage, not this queue binding.
 The health response confirms handler availability only; it does not probe storage
 or ACS. Offline tests verify binding metadata and client wiring, not Azure RBAC,
-network reachability, actual queue-trigger delivery or email delivery.
+network reachability, actual queue-trigger delivery or email delivery. Deploy the
+Function and diagnostics policy together before releasing the updated client.
+No AI gateway, Foundry model or AI APIM operation changes are required.
 
 ## Durability, retries and retention
 
 Intake admits at most **20 new events per caller per UTC day**, shared between
-anonymous reports and followups. Exact stored duplicates return `202` even when
+failure reports and followups. Exact stored duplicates return `202` even when
 the daily budget is exhausted or its counter is currently leased; conflicting
 content still returns `409`. A well-formed trusted rate header is always required
 for intake, including retries. Health bypasses rate checks.
@@ -188,20 +247,20 @@ races use create-if-absent. Storage errors fail closed with `503`. There is no
 cross-blob transaction: a crash/storage failure between reservation and event
 creation can conservatively consume a slot without creating an event. A race
 submitting identical new content under different caller keys can also consume
-an extra reservation; durable event dedupe remains unchanged. No raw or hashed
-caller identifier is stored inside anonymous reports or contact events. Hashes
+an extra reservation; durable event dedupe remains unchanged. No raw oid or hashed
+rate key is stored inside failure reports or contact events. Rate-key hashes
 are pseudonymous rate-control identifiers, not a claim of irreversible anonymity.
 The minute cleanup expires counters after 30 days; include `rate/` in the same
 independent creation-age lifecycle policy as the other prefixes.
 
-Create-only blobs `reports/<id>.json` store anonymous failure events;
+Create-only blobs `reports/<id>.json` store failure events with support email when available;
 `contacts/<id>.json` store separate opt-in contact events, linked by report ID.
 The canonical content hash rejects conflicting retries. Write the blob before
 queueing its name; only durable creation earns a receipt. A queue trigger sends
 immediately when possible, including `recovery: incomplete`. The desktop must
 submit the initial failure as soon as failure is detected, **before restore**;
 this service never waits for restore or opt-in before dispatching its email.
-The ID's first anonymous payload is immutable, so recovery changes must not
+The ID's first accepted payload and contact are immutable, so recovery changes must not
 overwrite a previously accepted report. A **periodic queue repair scan every 1 minute** scans
 both blob prefixes even when enqueue failed. That scan also polls pending ACS
 operations and cleans expired events; it does not depend on queue retention.
@@ -227,12 +286,13 @@ partition scans or replace the full-container scan before it exceeds the
 10-minute host budget.
 
 Both event types expire 30 days after creation, regardless of state. The minute
-scan deletes expired blobs under lease. Also provision **independent storage
+scan deletes expired blobs, including their attachments and contact, under lease.
+Also provision **independent storage
 lifecycle delete rules** on both prefixes with a 30-day creation-age limit as a
 backstop when the app is down. Ensure versioning, soft-delete, snapshots,
 backups, diagnostic exports and lifecycle policies do not retain identity beyond
-the approved retention period. Restrict contact-prefix access to support staff.
+the approved retention period. Restrict both prefixes to support staff.
 Delivery state overwrites must not extend retention (use creation age, not
 last-modified age). ACS/mailbox retention must be configured separately; emails
-also contain the opted-in address. Dedupe ends when the blob is deleted; clients
+also contain the support address. Dedupe ends when the blob is deleted; clients
 must not replay expired reports. No deployment is performed by this package.

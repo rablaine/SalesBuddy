@@ -44,6 +44,13 @@ SAFE_TABLES = set(CORE_TABLES) | {
 DIAGNOSTICS_URL = 'https://apim-notehelper.azure-api.net/diagnostics'
 CORPORATE_TENANT = '72f988bf-86f1-41af-91ab-2d7cd011db47'
 REPORT_RETRY_SECONDS = 300
+REPORT_MAX_BYTES = 262144
+ATTACHMENT_MAX_BYTES = 24576
+SENSITIVE_FIELD = re.compile(
+    r'token|secret|password|credential|authorization|cookie|api[_ -]?key|account[_ -]?key|'
+    r'connection[_ -]?string|private[_ -]?key|sharedaccesssignature|sharedaccesskey|^pwd$',
+    re.IGNORECASE,
+)
 STATE_WRITE_RETRY_SECONDS = 2.0
 STATE_WRITE_RETRY_INTERVAL_SECONDS = 0.05
 
@@ -1039,6 +1046,131 @@ def _report_directory(repo: Path) -> Path:
     return database_path(repo).parent / 'diagnostic-outbox'
 
 
+def _redact_attachment_text(text: str, locations: dict[str, str]) -> str:
+    """Remove recognizable credentials and private local path prefixes from support files."""
+    text = re.sub(
+        r'-----BEGIN [^\r\n]*PRIVATE KEY-----.*?-----END [^\r\n]*PRIVATE KEY-----',
+        '[REDACTED PRIVATE KEY]', text, flags=re.DOTALL,
+    )
+    text = re.sub(
+        r'(?im)(["\']?(?:authorization|proxy-authorization|access[_ -]?token|'
+        r'refresh[_ -]?token|id[_ -]?token|client[_ -]?secret|secret[_ -]?key|'
+        r'api[_ -]?key|password|pwd|token|secret|credential|cookie|accountkey|'
+        r'sharedaccesssignature|sharedaccesskey|connectionstring)'
+        r'["\']?\s*[:=]\s*).+$',
+        r'\1[REDACTED]', text,
+    )
+    text = re.sub(r'(?i)\bBearer\s+[^\s"\'<>,;]+', 'Bearer [REDACTED]', text)
+    text = re.sub(
+        r'\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b',
+        '[REDACTED JWT]', text,
+    )
+    text = re.sub(
+        r'\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})\b',
+        '[REDACTED GITHUB TOKEN]', text,
+    )
+    text = re.sub(
+        r'(?i)([?&](?:sig|token|key|code|access_token)=)[^&\s"\']+',
+        r'\1[REDACTED]', text,
+    )
+    text = re.sub(r'(https?://)[^/\s:@]+:[^/\s@]+@', r'\1[REDACTED]@', text)
+    for location, replacement in locations.items():
+        for spelling in (location, json.dumps(location)[1:-1]):
+            text = re.sub(re.escape(spelling), lambda _: replacement, text, flags=re.IGNORECASE)
+    return text
+
+
+def _redact_attachment_json(value: object, locations: dict[str, str]) -> object:
+    """Preserve diagnostic state structure while removing secret fields recursively."""
+    if isinstance(value, dict):
+        return {
+            key: '[REDACTED]' if SENSITIVE_FIELD.search(str(key))
+            else _redact_attachment_json(item, locations)
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [_redact_attachment_json(item, locations) for item in value]
+    if isinstance(value, str):
+        return _redact_attachment_text(value, locations)
+    return value
+
+
+def _read_failure_attachment(
+    path: Path, locations: dict[str, str],
+) -> tuple[bytes | None, str]:
+    """Read only a fixed diagnostic file, bounding I/O and retaining the recent log tail."""
+    try:
+        if not path.exists():
+            return None, 'not present'
+        if (path.is_symlink() or path.parent.is_symlink() or path.parent.is_junction()
+                or not path.is_file()):
+            return None, 'not a regular diagnostic file'
+        structured = path.suffix == '.json'
+        with path.open('rb') as handle:
+            size = handle.seek(0, os.SEEK_END)
+            if structured and size > REPORT_MAX_BYTES:
+                return None, 'state file exceeds capture limit'
+            truncated = not structured and size > ATTACHMENT_MAX_BYTES
+            handle.seek(max(0, size - ATTACHMENT_MAX_BYTES) if truncated else 0)
+            data = handle.read(REPORT_MAX_BYTES if structured else ATTACHMENT_MAX_BYTES)
+        if truncated:
+            # Drop the partial first line so a truncated credential loses its whole line.
+            data = data.partition(b'\n')[2]
+        text = data.decode('utf-8-sig', errors='replace')
+        if structured:
+            text = json.dumps(
+                _redact_attachment_json(json.loads(text), locations), indent=2, ensure_ascii=True,
+            )
+        else:
+            text = _redact_attachment_text(text, locations)
+        data = text.encode('utf-8')
+        if len(data) > ATTACHMENT_MAX_BYTES:
+            if structured:
+                return None, 'redacted state exceeds attachment limit'
+            data = data[-ATTACHMENT_MAX_BYTES:].partition(b'\n')[2]
+            truncated = True
+        return data, 'recent tail, truncated' if truncated else 'captured'
+    except (OSError, ValueError, RecursionError) as error:
+        logger.warning('Failure attachment unavailable: %s (%s)', path.name, type(error).__name__)
+        return None, 'unreadable or invalid'
+
+
+def failure_attachments(repo: Path, state: dict) -> list[dict[str, str]]:
+    """Freeze available startup files before rollback, never collecting integration payload logs."""
+    local = Path(os.environ.get('LOCALAPPDATA') or Path.home() / 'AppData' / 'Local')
+    paths = [
+        repo / 'data' / 'upgrade-state.json', startup_path(repo),
+        repo / 'logs' / 'electron-main.log', repo / 'logs' / 'electron-stack.log',
+        local / 'SalesBuddy' / 'logs' / 'server.log',
+        local / 'SalesBuddy' / 'logs' / 'server.log.1',
+    ]
+    locations = {str(repo.resolve()): '<INSTALL>'}
+    database = state.get('database')
+    if isinstance(database, str) and Path(database).is_absolute():
+        locations[str(Path(database).parent)] = '<DATA>'
+    locations[str(Path.home())] = '<USERPROFILE>'
+    attachments = []
+    notes = [
+        'Failure-time diagnostic snapshots, captured before rollback.',
+        f'Logs retain at most {ATTACHMENT_MAX_BYTES} bytes of recent text per file.',
+        'Recognizable credentials and local path prefixes are redacted.',
+    ]
+    for path in paths:
+        data, outcome = _read_failure_attachment(path, locations)
+        notes.append(f'{path.name}: {outcome}')
+        if data is not None:
+            attachments.append({
+                'name': path.name,
+                'contentType': 'application/json' if path.suffix == '.json' else 'text/plain',
+                'contentInBase64': base64.b64encode(data).decode('ascii'),
+            })
+    attachments.append({
+        'name': 'attachment-notes.txt', 'contentType': 'text/plain',
+        'contentInBase64': base64.b64encode('\n'.join(notes).encode('utf-8')).decode('ascii'),
+    })
+    return attachments
+
+
 def queue_failure_report(repo: Path, state: dict) -> dict:
     """Freeze the first failure before restoration or any optional user interaction."""
     directory = _report_directory(repo)
@@ -1053,6 +1185,8 @@ def queue_failure_report(repo: Path, state: dict) -> dict:
                     'report': failure_report(repo, state)},
         'created_at': utc_timestamp(), 'status': 'queued', 'attempts': 0,
     }
+    if reporting_enabled():
+        item['payload']['attachments'] = failure_attachments(repo, state)
     atomic_json(path, item)
     save_state(repo, state, state['phase'], report_id=report_id, report_queued_at=utc_timestamp())
     return item
@@ -1074,19 +1208,27 @@ def queue_contact_request(repo: Path, state: dict) -> None:
 
 
 def _report_token() -> str:
-    """Use the existing CLI sign-in noninteractively, without importing the broken app."""
+    """Request a bounded CLI token from the app's existing corporate sign-in."""
     executable = shutil.which('az')
     if not executable:
         raise RuntimeError('Azure CLI authentication is unavailable')
+    command = [executable]
+    cli_python = Path(executable).parent.parent / 'python.exe'
+    if Path(executable).name.lower() == 'az.cmd' and cli_python.is_file():
+        # Bound the CLI host itself, not just its Windows batch wrapper.
+        command = [str(cli_python), '-IBm', 'azure.cli']
     result = subprocess.run(
-        [executable, 'account', 'get-access-token', '--tenant', CORPORATE_TENANT,
+        [*command, 'account', 'get-access-token', '--tenant', CORPORATE_TENANT,
          '--resource', 'https://management.azure.com', '--query', 'accessToken',
          '--output', 'tsv', '--only-show-errors'],
-        capture_output=True, text=True, timeout=12, check=True,
+        stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=12, check=True,
         env={**os.environ, 'AZURE_CONFIG_DIR': os.environ.get('AZURE_CONFIG_DIR') or str(
             Path.home() / ('SalesBuddyDev' if os.environ.get('FLASK_ENV') == 'development'
                            else 'SalesBuddy') / '.azure'),
-             'AZURE_CORE_COLLECT_TELEMETRY': 'no'},
+             'AZURE_CORE_COLLECT_TELEMETRY': 'no',
+             'AZURE_CORE_ENABLE_BROKER_ON_WINDOWS': 'false',
+             'AZURE_CORE_ENABLE_BROKER_ON_MAC': 'false',
+             'AZURE_CORE_LOGIN_EXPERIENCE_V2': 'off'},
         creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0),
     )
     token = result.stdout.strip()
@@ -1101,7 +1243,7 @@ def _report_token() -> str:
 
 
 def recovery_contact_email() -> str | None:
-    """Resolve display-only contact from the same corporate claims APIM uses for follow-up."""
+    """Resolve display-only contact; APIM independently derives the report's actual contact."""
     try:
         encoded = _report_token().split('.')[1]
         claims = json.loads(base64.urlsafe_b64decode(encoded + '=' * (-len(encoded) % 4)))
@@ -1110,9 +1252,12 @@ def recovery_contact_email() -> str | None:
         return None
     for field in ('preferred_username', 'upn', 'email', 'unique_name'):
         value = claims.get(field)
-        if isinstance(value, str) and len(value) <= 254 and re.fullmatch(
-            r"[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", value,
-        ):
+        if (isinstance(value, str) and len(value) <= 254
+                and len(value.split('@')[0]) <= 64 and re.fullmatch(
+            r"[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+"
+            r"(?:\.[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+)*"
+            r"@(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}", value,
+        )):
             return value
     logger.info('Corporate sign-in has no usable Microsoft email claim')
     return None
@@ -1160,7 +1305,7 @@ def _send_pending_reports(directory: Path, limit: int) -> None:
             if payload.get('report_id') != report_id:
                 raise ValueError('Diagnostic queue identity mismatch')
             body = json.dumps(payload).encode('utf-8')
-            if len(body) > 16384:
+            if len(body) > REPORT_MAX_BYTES:
                 raise ValueError('Diagnostic queue payload is too large')
             if token is None:
                 token = _report_token()
@@ -1168,6 +1313,8 @@ def _send_pending_reports(directory: Path, limit: int) -> None:
                 f'{DIAGNOSTICS_URL}/{item["kind"]}', data=body, method='POST',
                 headers={'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'},
             )
+            if item['kind'] == 'reports':
+                request.add_header('X-SalesBuddy-Contact-Mode', 'support')
             with urllib.request.urlopen(request, timeout=8) as response:
                 receipt = json.loads(response.read(8192))
                 if (
@@ -1313,11 +1460,11 @@ if (-not $settings.report_available) {
 } elseif (-not $settings.reporting_enabled) {
     $delivery.Text = 'Automatic reporting is disabled. Diagnostics are saved locally.'
 } elseif ($settings.report_sent) {
-    $delivery.Text = 'Sanitized diagnostics have been sent for review.'
+    $delivery.Text = 'Diagnostics and available credential-redacted startup files have been sent for review.'
 } elseif ($settings.report_rejected) {
     $delivery.Text = 'Automatic reporting was not accepted. Diagnostics are saved locally; an optional copy is available below.'
 } else {
-    $delivery.Text = 'Sanitized diagnostics are saved and queued to send automatically when connected and signed in.'
+    $delivery.Text = 'Diagnostics and available credential-redacted startup files are queued to send when connected and signed in.'
 }
 $reference = New-Object System.Windows.Forms.Label
 $reference.Text = 'Report ID: ' + $settings.report_id
@@ -1329,21 +1476,21 @@ $save.FlatStyle = 'Flat'
 $save.ForeColor = $form.ForeColor
 $save.BackColor = [Drawing.Color]::FromArgb(45, 48, 53)
 $feedback = New-Object System.Windows.Forms.Label
-$feedback.SetBounds(24, 348, 650, 30)
-$contact = New-Object System.Windows.Forms.CheckBox
-$contact.Text = 'Contact me when a fix is available using my Microsoft email.'
-$contact.SetBounds(24, 276, 650, 28)
+$feedback.SetBounds(24, 354, 650, 24)
+$contact = New-Object System.Windows.Forms.Label
+$contact.Text = 'Your Microsoft work email is included when available. We may contact you for more details about the error.'
+$contact.SetBounds(24, 276, 650, 48)
 $contact.ForeColor = $form.ForeColor
 $contact.BackColor = $form.BackColor
-$contact.Visible = [bool]$settings.restored -and [bool]$settings.reporting_enabled
+$contact.Visible = [bool]$settings.reporting_enabled
 $email = New-Object System.Windows.Forms.Label
-$email.SetBounds(44, 308, 630, 32)
+$email.SetBounds(24, 330, 650, 24)
 $email.AutoEllipsis = $true
 $email.Visible = $contact.Visible
 if ($settings.contact_email) {
     $email.Text = 'Microsoft email: ' + $settings.contact_email
 } else {
-    $email.Text = 'Microsoft email unavailable. A contact request will wait for sign-in.'
+    $email.Text = 'Microsoft email unavailable until signed in.'
 }
 $emailTip = New-Object System.Windows.Forms.ToolTip
 $emailTip.SetToolTip($email, $email.Text)
@@ -1375,7 +1522,7 @@ $continue.Add_Click({
 })
 $form.Add_FormClosing({
     if (-not $settings.restored) { return }
-    @{ dismissed = $true; contact = [bool]$contact.Checked } |
+    @{ dismissed = $true } |
         ConvertTo-Json | Set-Content -LiteralPath $settings.response -Encoding UTF8
 })
 $form.Controls.AddRange(@($title, $description, $delivery, $reference, $save, $feedback, $contact, $email, $continue))
@@ -1394,10 +1541,10 @@ $form.Dispose()
     if not response.exists():
         return False
     answer = json.loads(response.read_text(encoding='utf-8-sig'))
-    if answer.get('dismissed') is not True or type(answer.get('contact')) is not bool:
+    if answer.get('dismissed') is not True:
         raise RuntimeError('The recovery notice response is incomplete')
     with upgrade_lock(repo):
-        dismiss_recovery(repo, contact=answer['contact'])
+        dismiss_recovery(repo)
     response.unlink(missing_ok=True)
     return True
 
