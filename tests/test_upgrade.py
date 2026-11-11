@@ -72,6 +72,7 @@ def installation(tmp_path, monkeypatch):
     """Model an isolated installation with real files and SQLite, never user data."""
     repo = tmp_path / 'install'
     repo.mkdir()
+    monkeypatch.setenv('LOCALAPPDATA', str(tmp_path / 'local'))
     (repo / 'app').mkdir()
     shutil.copy2(Path(__file__).parents[1] / 'app' / 'db_paths.py', repo / 'app' / 'db_paths.py')
     python = upgrade._python(repo / 'venv')
@@ -1009,6 +1010,129 @@ def _failed_update(fixture) -> dict:
     return upgrade.load_state(fixture.repo)
 
 
+def test_failure_files_are_redacted_and_frozen_before_rollback(installation, monkeypatch):
+    """Capture the requested files once, with credentials removed and original bytes untouched."""
+    fixture = installation
+    monkeypatch.setattr(upgrade, 'reporting_enabled', lambda: True)
+    home = str(Path.home())
+    jwt = 'eyJhbGciOiJub25lIn0.eyJ0aWQiOiJ0ZXN0In0.c2lnbmF0dXJl'
+    startup = {
+        'state': 'failed', 'phase': 'preflight', 'path': str(fixture.repo / 'app'),
+        'profile': home, 'access_token': jwt, 'nested': [{'api_key': 'secret-api-value'}],
+    }
+    upgrade.atomic_json(upgrade.startup_path(fixture.repo), startup)
+    originals = {}
+    for path in (
+        fixture.repo / 'logs' / 'electron-main.log',
+        fixture.repo / 'logs' / 'electron-stack.log',
+        Path(os.environ['LOCALAPPDATA']) / 'SalesBuddy' / 'logs' / 'server.log',
+        Path(os.environ['LOCALAPPDATA']) / 'SalesBuddy' / 'logs' / 'server.log.1',
+    ):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        text = (
+            f'File "{fixture.repo}\\app\\supervisor.py", line 250\n'
+            'RuntimeError: startup monitor exited\n'
+            'Authorization: Bearer private-bearer-value\n'
+            'client_secret=private-client-value\n'
+            'ConnectionString=AccountKey=private-storage-value\n'
+            f'cached credential {jwt}\n'
+            'https://storage.example/file?sig=private-sas-value&sv=2026\n'
+            'cached github token ghp_012345678901234567890123456789\n'
+        )
+        path.write_text(text, encoding='utf-8')
+        originals[path] = path.read_bytes()
+    state = _failed_update(fixture)
+    path = upgrade._report_directory(fixture.repo) / f'{state["attempt_id"]}-report.json'
+    frozen = path.read_bytes()
+    payload = json.loads(frozen)['payload']
+    attachments = {
+        value['name']: upgrade.base64.b64decode(value['contentInBase64']).decode('utf-8')
+        for value in payload['attachments']
+    }
+    assert set(attachments) == {
+        'upgrade-state.json', 'startup-state.json', 'electron-main.log',
+        'electron-stack.log', 'server.log', 'server.log.1', 'attachment-notes.txt',
+    }
+    assert json.loads(attachments['upgrade-state.json'])['phase'] == 'failed'
+    captured_startup = json.loads(attachments['startup-state.json'])
+    assert captured_startup['access_token'] == '[REDACTED]'
+    assert captured_startup['nested'] == [{'api_key': '[REDACTED]'}]
+    assert captured_startup['path'].startswith('<INSTALL>')
+    assert captured_startup['profile'] == '<USERPROFILE>'
+    combined = '\n'.join(attachments.values())
+    for secret in (
+        jwt, 'private-bearer-value', 'private-client-value', 'private-storage-value',
+        'private-sas-value', 'ghp_012345678901234567890123456789',
+    ):
+        assert secret not in combined
+    assert 'RuntimeError: startup monitor exited' in combined
+    assert '\\app\\supervisor.py' in combined
+    assert all(original.read_bytes() == data for original, data in originals.items())
+    assert len(json.dumps(payload).encode('utf-8')) <= upgrade.REPORT_MAX_BYTES
+    upgrade.atomic_json(upgrade.startup_path(fixture.repo), {'state': 'ready'})
+    for original in originals:
+        original.write_text('a later startup', encoding='utf-8')
+    monkeypatch.setattr(upgrade, 'recovery_notice', lambda repo: False)
+    upgrade.recover_update(fixture.repo)
+    assert upgrade.load_state(fixture.repo)['phase'] == 'restored'
+    assert path.read_bytes() == frozen
+
+
+def test_failure_attachment_limits_missing_files_and_opt_out(installation, monkeypatch):
+    """Large files keep bounded recent UTF-8 tails; missing logs do not block diagnostics."""
+    fixture = installation
+    log = fixture.repo / 'logs' / 'electron-stack.log'
+    log.parent.mkdir()
+    log.write_text('old output\n' * 10000 + 'newest startup failure\n', encoding='utf-8')
+    before = log.read_bytes()
+    attachments = upgrade.failure_attachments(fixture.repo, {})
+    decoded = {value['name']: upgrade.base64.b64decode(value['contentInBase64'])
+               for value in attachments}
+    assert len(decoded['electron-stack.log']) <= upgrade.ATTACHMENT_MAX_BYTES
+    assert decoded['electron-stack.log'].decode('utf-8').splitlines()[-1] == (
+        'newest startup failure')
+    assert b'electron-stack.log: recent tail, truncated' in decoded['attachment-notes.txt']
+    assert b'server.log: not present' in decoded['attachment-notes.txt']
+    assert log.read_bytes() == before
+    upgrade.atomic_json(upgrade.startup_path(fixture.repo), {
+        'oversized': 'x' * upgrade.ATTACHMENT_MAX_BYTES,
+    })
+    attachments = upgrade.failure_attachments(fixture.repo, {})
+    decoded = {value['name']: upgrade.base64.b64decode(value['contentInBase64'])
+               for value in attachments}
+    assert 'startup-state.json' not in decoded
+    assert b'startup-state.json: redacted state exceeds attachment limit' in (
+        decoded['attachment-notes.txt'])
+    monkeypatch.setattr(upgrade, 'reporting_enabled', lambda: False)
+    monkeypatch.setattr(upgrade, 'failure_attachments',
+                        lambda *_: pytest.fail('Opt-out must not collect attachments'))
+    state = _failed_update(fixture)
+    event = upgrade.read_json(
+        upgrade._report_directory(fixture.repo) / f'{state["attempt_id"]}-report.json')
+    assert 'attachments' not in event['payload']
+
+
+def test_failure_attachment_read_error_is_reported_without_blocking(installation, monkeypatch):
+    """Unreadable logs are noted without losing the underlying failure report."""
+    fixture = installation
+    path = fixture.repo / 'logs' / 'electron-stack.log'
+    path.parent.mkdir()
+    path.write_text('startup failure', encoding='utf-8')
+    real_open = Path.open
+
+    def inaccessible(file, *args, **kwargs):
+        """Only the fixed startup log has a simulated sharing violation."""
+        if file == path:
+            raise PermissionError('private path detail')
+        return real_open(file, *args, **kwargs)
+
+    monkeypatch.setattr(Path, 'open', inaccessible)
+    attachments = upgrade.failure_attachments(fixture.repo, {})
+    notes = upgrade.base64.b64decode(attachments[-1]['contentInBase64']).decode()
+    assert 'electron-stack.log: unreadable or invalid' in notes
+    assert 'private path detail' not in notes
+
+
 def _dismiss_notice(repo: Path) -> bool:
     """Model dismissal after restoration, without export or network delivery."""
     upgrade.dismiss_recovery(repo)
@@ -1204,7 +1328,7 @@ def test_accepted_updates_cannot_be_recovered_by_an_unrelated_startup_failure(in
 
 
 @pytest.mark.skipif(os.name != 'nt', reason='The recovery notice uses Windows Forms')
-@pytest.mark.parametrize('outcome', ['cancel', 'continue', 'contact', 'failed_restore'])
+@pytest.mark.parametrize('outcome', ['cancel', 'continue', 'email', 'disabled', 'failed_restore'])
 def test_real_offline_notice_allows_dismissal_without_manual_export(
     installation, monkeypatch, outcome,
 ):
@@ -1218,8 +1342,8 @@ def test_real_offline_notice_allows_dismissal_without_manual_export(
     if outcome == 'failed_restore':
         upgrade.save_state(fixture.repo, state, 'failed', failed_phase='restoring')
     monkeypatch.setattr(upgrade, 'recovery_notice', real_notice)
-    monkeypatch.setattr(upgrade, 'reporting_enabled', lambda: True)
-    if outcome == 'contact':
+    monkeypatch.setattr(upgrade, 'reporting_enabled', lambda: outcome != 'disabled')
+    if outcome == 'email':
         monkeypatch.setattr(upgrade, 'recovery_contact_email', lambda: 'test.contact@example.com')
     real_run = subprocess.run
     destination = fixture.repo / 'native-export.json'
@@ -1240,18 +1364,20 @@ def test_real_offline_notice_allows_dismissal_without_manual_export(
 $form.Show()
 [Windows.Forms.Application]::DoEvents()
 if ($save.ForeColor.R -lt 200) { throw 'Save label is not readable' }
-if ($contact.Text -notmatch 'Microsoft email') { throw 'Contact wording is incorrect' }
-if ($env:NOTICE_OUTCOME -eq 'contact') {
+if ($contact -is [Windows.Forms.CheckBox]) { throw 'Support contact must not prompt for opt-in' }
+if ($contact.Text -notmatch 'may contact you for more details') { throw 'Missing support disclosure' }
+if ($env:NOTICE_OUTCOME -eq 'disabled') {
+    if ($contact.Visible -or $email.Visible) { throw 'Disabled reporting exposed contact' }
+} elseif ($env:NOTICE_OUTCOME -eq 'email') {
     if ($email.Text -ne 'Microsoft email: test.contact@example.com') { throw 'Email not displayed' }
 } elseif ($env:NOTICE_OUTCOME -ne 'failed_restore') {
     if ($email.Text -notmatch 'Microsoft email unavailable') { throw 'Missing email not explained' }
 }
 $save.PerformClick()
 if ($env:NOTICE_OUTCOME -eq 'failed_restore') {
-    if ($continue.Visible -or $contact.Visible) { throw 'Failed restore exposed Continue or contact' }
+    if ($continue.Visible) { throw 'Failed restore exposed Continue' }
 } else {
     if (-not $continue.Enabled) { throw 'Canceled export blocked Continue' }
-    if ($env:NOTICE_OUTCOME -eq 'contact') { $contact.Checked = $true }
     if ($env:NOTICE_OUTCOME -ne 'cancel') { $continue.PerformClick() }
 }
 $form.Close()
@@ -1271,8 +1397,8 @@ $form.Close()
     assert upgrade.recovery_notice(fixture.repo) is continued
     assert upgrade.load_state(fixture.repo)['notification_pending'] is not continued
     assert not destination.exists()
-    assert (upgrade._report_directory(fixture.repo) /
-            f'{state["attempt_id"]}-followup.json').exists() is (outcome == 'contact')
+    assert not (upgrade._report_directory(fixture.repo) /
+                f'{state["attempt_id"]}-followup.json').exists()
     assert not (upgrade._point(fixture.repo, state) / 'notice-settings.json').exists()
 
 
@@ -1375,6 +1501,9 @@ def test_report_delivery_requires_real_matching_receipt_and_retries_independentl
     assert len(calls) == (0 if receipt == 'no-auth' else 1)
     if calls:
         assert calls[0][0].full_url == upgrade.DIAGNOSTICS_URL + '/reports'
+        assert calls[0][0].get_header('X-salesbuddy-contact-mode') == 'support'
+        assert calls[0][0].data == json.dumps(item['payload']).encode('utf-8')
+        assert 'test-token' not in calls[0][0].data.decode('utf-8')
         assert calls[0][1] == 8
     if receipt != 'accepted':
         assert item['attempts'] == 1
@@ -1451,12 +1580,13 @@ def test_sender_loads_installed_dotenv_before_checking_privacy(installation, mon
 
 
 @pytest.mark.parametrize('corporate', [True, False])
-def test_reporting_uses_existing_isolated_noninteractive_corporate_signin(
+def test_reporting_uses_existing_isolated_corporate_signin(
     installation, monkeypatch, corporate,
 ):
-    """Do not acquire default-shell credentials or open an interactive sign-in during recovery."""
+    """Request the isolated corporate profile with bounded CLI and child-only broker settings."""
     monkeypatch.delenv('AZURE_CONFIG_DIR', raising=False)
     monkeypatch.setenv('FLASK_ENV', 'production')
+    monkeypatch.setenv('AZURE_CORE_ENABLE_BROKER_ON_WINDOWS', 'true')
     calls = []
     claims = {'tid': upgrade.CORPORATE_TENANT if corporate else 'other-tenant'}
     encoded = upgrade.base64.urlsafe_b64encode(json.dumps(claims).encode()).decode().rstrip('=')
@@ -1478,7 +1608,37 @@ def test_reporting_uses_existing_isolated_noninteractive_corporate_signin(
     assert argv[1:3] == ['account', 'get-access-token']
     assert argv[argv.index('--tenant') + 1] == upgrade.CORPORATE_TENANT
     assert kwargs['timeout'] == 12
+    assert kwargs['stdin'] == subprocess.DEVNULL
+    assert kwargs['env']['AZURE_CORE_ENABLE_BROKER_ON_WINDOWS'] == 'false'
+    assert kwargs['env']['AZURE_CORE_ENABLE_BROKER_ON_MAC'] == 'false'
+    assert kwargs['env']['AZURE_CORE_LOGIN_EXPERIENCE_V2'] == 'off'
+    assert os.environ['AZURE_CORE_ENABLE_BROKER_ON_WINDOWS'] == 'true'
     assert kwargs['env']['AZURE_CONFIG_DIR'] == str(Path.home() / 'SalesBuddy' / '.azure')
+
+
+def test_reporting_bounds_actual_windows_cli_host(installation, monkeypatch, tmp_path):
+    """Avoid orphaned token requests by timing out the MSI Python host, not az.cmd."""
+    host = tmp_path / 'Azure' / 'python.exe'
+    host.parent.mkdir()
+    host.write_bytes(b'fixture CLI host')
+    wrapper = host.parent / 'wbin' / 'az.cmd'
+    monkeypatch.setattr(upgrade.shutil, 'which', lambda _: str(wrapper))
+    monkeypatch.setenv('AZURE_CONFIG_DIR', str(tmp_path / 'corporate-profile'))
+    claims = upgrade.base64.urlsafe_b64encode(
+        json.dumps({'tid': upgrade.CORPORATE_TENANT}).encode()).decode().rstrip('=')
+    calls = []
+
+    def run(argv, **kwargs):
+        """Return a synthetic token without executing the fixture host."""
+        calls.append((argv, kwargs))
+        return SimpleNamespace(stdout=f'test.{claims}.signature')
+
+    monkeypatch.setattr(subprocess, 'run', run)
+    assert upgrade._report_token() == f'test.{claims}.signature'
+    argv, kwargs = calls[0]
+    assert argv[:5] == [str(host), '-IBm', 'azure.cli', 'account', 'get-access-token']
+    assert kwargs['env']['AZURE_CONFIG_DIR'] == str(tmp_path / 'corporate-profile')
+    assert kwargs['stdin'] == subprocess.DEVNULL
 
 
 @pytest.mark.parametrize('mode', ['enabled', 'disabled', 'delivery-error'])
@@ -1541,6 +1701,10 @@ def test_existing_telemetry_loop_retries_outbox_without_blocking_other_telemetry
     ({'email': 'guest@other.example'}, 'guest@other.example'),
     ({'unique_name': 'unique@example.com'}, 'unique@example.com'),
     ({'email': 'bad@example.com\r\ninjected'}, None),
+    ({'preferred_username': 'a..b@example.com', 'email': 'valid@example.com'},
+     'valid@example.com'),
+    ({'email': 'user@-invalid.example'}, None),
+    ({'email': 'x' * 65 + '@example.com'}, None),
     ({'email': 'x' * 250 + '@example.com'}, None),
     ({}, None),
 ])

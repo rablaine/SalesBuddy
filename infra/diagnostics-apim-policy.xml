@@ -39,16 +39,16 @@
       <value>application/json</value>
     </check-header>
     <!-- Operations have no APIM request schema. The header gate and backend enforce JSON. -->
-    <validate-content unspecified-content-type-action="ignore" max-size="16384" size-exceeded-action="prevent" />
+    <validate-content unspecified-content-type-action="ignore" max-size="262144" size-exceeded-action="prevent" />
     <set-header name="X-SalesBuddy-Contact" exists-action="delete" />
     <choose>
-      <when condition="@(context.Operation.Id == &quot;followups&quot;)">
+      <when condition="@(context.Operation.Id == &quot;followups&quot; || (context.Operation.Id == &quot;reports&quot; &amp;&amp; context.Request.Headers.GetValueOrDefault(&quot;X-SalesBuddy-Contact-Mode&quot;, &quot;&quot;) == &quot;support&quot;))">
         <set-header name="X-SalesBuddy-Contact" exists-action="override">
           <value>@{
             var caller = (Jwt)context.Variables["diagnosticCaller"];
             foreach (var key in new [] { "preferred_username", "upn", "email", "unique_name" }) {
               var candidate = caller.Claims.GetValueOrDefault(key, "");
-              if (candidate.Length &lt;= 254 &amp;&amp; System.Text.RegularExpressions.Regex.IsMatch(candidate, @"^[A-Za-z0-9.!#$%&amp;'*+/=?^_`{|}~-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$")) {
+              if (candidate.Length &lt;= 254 &amp;&amp; candidate.IndexOf('@') &lt;= 64 &amp;&amp; System.Text.RegularExpressions.Regex.IsMatch(candidate, @"\A[A-Za-z0-9!#$%&amp;'*+/=?^_`{|}~-]+(?:\.[A-Za-z0-9!#$%&amp;'*+/=?^_`{|}~-]+)*@(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}\z")) {
                 return candidate;
               }
             }

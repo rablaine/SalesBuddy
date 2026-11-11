@@ -1,6 +1,10 @@
 """Offline contract checks for the diagnostics APIM trust boundary."""
 
 from pathlib import Path
+import json
+import os
+import re
+import subprocess
 from xml.etree import ElementTree
 
 import pytest
@@ -28,10 +32,10 @@ def test_schema_less_json_is_not_rejected(inbound_policy: ElementTree.Element) -
 
 
 def test_body_size_stays_enforced(inbound_policy: ElementTree.Element) -> None:
-    """Ignoring absent schemas must not disable the 16 KiB size gate."""
+    """Keep the request bound aligned with the diagnostic attachment budget."""
     content = inbound_policy.find("validate-content")
     assert content is not None
-    assert content.get("max-size") == "16384"
+    assert content.get("max-size") == "262144"
     assert content.get("size-exceeded-action") == "prevent"
 
 
@@ -97,3 +101,52 @@ def test_untrusted_identity_headers_are_stripped(
     header = inbound_policy.find(f"set-header[@name='{name}']")
     assert header is not None
     assert header.get("exists-action") == "delete"
+
+
+def test_support_contact_is_derived_for_reports_and_legacy_followups(inbound_policy):
+    """Replace caller headers with validated claim email on both diagnostics operations."""
+    selection = inbound_policy.find(
+        "choose/when/set-header[@name='X-SalesBuddy-Contact']/..")
+    assert selection is not None
+    assert selection.get('condition') == (
+        '@(context.Operation.Id == "followups" || (context.Operation.Id == "reports" && '
+        'context.Request.Headers.GetValueOrDefault("X-SalesBuddy-Contact-Mode", "") == "support"))')
+    header = selection.find("set-header[@name='X-SalesBuddy-Contact']")
+    assert header.get('exists-action') == 'override'
+    expression = header.find('value').text
+    assert 'context.Variables["diagnosticCaller"]' in expression
+    assert '"preferred_username", "upn", "email", "unique_name"' in expression
+    assert 'candidate.Length <= 254' in expression
+    assert "candidate.IndexOf('@') <= 64" in expression
+
+
+@pytest.mark.skipif(os.name != 'nt', reason='Verify the policy email pattern with .NET')
+def test_policy_email_validation_matches_backend_constraints(inbound_policy):
+    """Run the actual .NET pattern offline on usable and malformed synthetic claims."""
+    expression = inbound_policy.find(
+        "choose/when/set-header[@name='X-SalesBuddy-Contact']/value").text
+    pattern = re.search(r'Regex\.IsMatch\(candidate, @"([^"]+)"\)', expression).group(1)
+    cases = {
+        'person@microsoft.com': True,
+        'guest@example.org': True,
+        'first.last+tag@partner.example': True,
+        'not-an-email': False,
+        'a..b@microsoft.com': False,
+        'a.@microsoft.com': False,
+        'user@-invalid.example': False,
+        'a@example.com\r\n': False,
+        'x' * 65 + '@example.com': False,
+        'x' * 250 + '@example.com': False,
+    }
+    fixtures = json.dumps(list(cases)).replace("'", "''")
+    script = (
+        f"$pattern = '{pattern.replace(chr(39), chr(39) * 2)}'; "
+        f"$cases = ConvertFrom-Json '{fixtures}'; "
+        "$cases | ForEach-Object { $_.Length -le 254 -and $_.IndexOf('@') -le 64 "
+        "-and [regex]::IsMatch($_, $pattern) } | ConvertTo-Json -Compress"
+    )
+    result = subprocess.run(
+        ['powershell', '-NoProfile', '-NonInteractive', '-Command', script],
+        capture_output=True, text=True, timeout=30, check=True,
+    )
+    assert json.loads(result.stdout) == list(cases.values())

@@ -37,6 +37,7 @@ from datetime import datetime, timezone
 import logging
 import multiprocessing
 import os
+import re
 import signal
 import socket
 import subprocess
@@ -233,8 +234,8 @@ def preflight_clear_stale_backend(port: int) -> None:
         return
 
     # Never kill ourselves or our venv-launcher parent (both are install-scoped
-    # python running app.supervisor). We haven't forked our own children yet, so
-    # every OTHER matching process is a leftover from a previous boot.
+    # python running app.supervisor). Active update monitors and diagnostic senders
+    # use the same venv, so only explicit backend commands are eligible.
     keep = {os.getpid()}
     try:
         keep.add(os.getppid())
@@ -242,13 +243,20 @@ def preflight_clear_stale_backend(port: int) -> None:
         pass
 
     try:
-        root = str(_repo_root()).replace("'", "''")
+        install_pattern = (
+            re.escape(str(_repo_root())) + r'([\\/]|["\s]|$)'
+        ).replace("'", "''")
+        backend_pattern = (
+            r'(?:\s-m\s+(?:app\.(?:supervisor|worker)|waitress|flask)(?:\s|$)|'
+            r'[\\/]waitress-serve\.exe(?:["\s]|$))'
+        )
         keep_list = ",".join(str(p) for p in keep)
         ps = (
             "$keep=@(" + keep_list + "); "
             "Get-CimInstance Win32_Process -Filter \"Name='python.exe' OR "
             "Name='pythonw.exe' OR Name='waitress-serve.exe'\" | Where-Object { "
-            "$_.CommandLine -like '*" + root + "*' -and "
+            "$_.CommandLine -and $_.CommandLine -match '" + install_pattern + "' -and "
+            "$_.CommandLine -match '" + backend_pattern + "' -and "
             "$keep -notcontains $_.ProcessId } | ForEach-Object { "
             "taskkill /PID $_.ProcessId /T /F 2>$null }"
         )

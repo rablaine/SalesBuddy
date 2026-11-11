@@ -751,14 +751,17 @@ Flask cannot start. Startup is limited to three attempts per child and a total
   database. The failed files are retained for investigation.
 - While restoration runs, the desktop explains that recovery is automatic and no
   action is needed. The original sanitized failure report is saved and submitted
-  immediately, independently of restoration and optional contact requests.
+  immediately, independently of restoration.
 - After restoration, dismiss the notice or choose **Continue working**. No report
   download or successful upload is required. The notice distinguishes diagnostics
   accepted for review from reports saved locally for retry when offline or signed out.
-  **Contact me when a fix is available** sends a separate opt-in request referencing
-  the original report. The notice shows the Microsoft email when available.
-  Contact comes from the validated Microsoft sign-in; no email entry is needed.
-  Automatic reporting respects the telemetry opt-out.
+  Reports automatically include the signed-in Microsoft work email when available,
+  so support may contact the reporter for more details about the error. The notice
+  explains this without an additional contact prompt. Email is personal data;
+  these support reports are not anonymous. The diagnostics service derives the
+  address from validated Microsoft claims, never from a client-supplied email.
+  Automatic reporting respects the telemetry opt-out. General usage telemetry
+  remains separate from these support reports.
 - **Retry startup** retries an ordinary startup failure. **Retry recovery** is
   available if automatic recovery could not start; neither action replaces the
   original complete recovery point.
@@ -766,8 +769,19 @@ Flask cannot start. Startup is limited to three attempts per child and a total
   the web server. It includes safe failure categories, code locations, startup
   attempts and version/readiness metadata. It excludes raw logs, exception messages,
   customer data, note text, record IDs, tokens, URLs and local filesystem paths.
-  Manual export remains optional. Automatic delivery contains only these same
-  allowlisted details, never the raw logs or retained recovery files.
+  Manual export remains optional and does not include identity.   Automatic delivery adds the validated support email and failure-time copies of
+  `startup-state.json`, `upgrade-state.json`, and any available
+  `electron-main.log`, `electron-stack.log`, `server.log` and `server.log.1`.
+  Recognizable credentials and local install/profile paths are redacted; startup
+  logs still contain error context and may contain customer identifiers.
+  Each attachment is limited to 24 KiB; oversized logs retain their most recent
+  complete lines. Attachment notes explain missing, unreadable or truncated files.
+  Integration payload logs, databases, `.env` and credential directories are never
+  collected. Files are frozen before rollback, queued with the original report,
+  and retried without rereading later logs or requiring a separate prompt.
+  Diagnostic authentication uses the existing Azure CLI sign-in with broker UI
+  and standard input disabled. On Windows MSI installations, timeouts stop the
+  actual CLI host rather than leaving an orphaned token request.
 - If recovery itself fails, the screen still allows diagnostic export, but cannot
   open the workspace. The failed database and its sidecars, code archive/local
   patch, runtime and shell are retained.

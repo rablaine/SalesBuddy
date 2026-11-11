@@ -1,6 +1,8 @@
-"""Bounded, anonymous diagnostics intake and durable ACS email delivery."""
+"""Bounded support diagnostics intake and durable ACS email delivery."""
 
 import hashlib
+import base64
+import binascii
 import hmac
 import json
 import os
@@ -9,7 +11,14 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-MAX_BODY = 16384
+MAX_BODY = 262144
+MAX_ATTACHMENT_BYTES = 24576
+ATTACHMENT_TYPES = {
+    'upgrade-state.json': 'application/json', 'startup-state.json': 'application/json',
+    'electron-main.log': 'text/plain', 'electron-stack.log': 'text/plain',
+    'server.log': 'text/plain', 'server.log.1': 'text/plain',
+    'attachment-notes.txt': 'text/plain',
+}
 DAILY_EVENT_LIMIT = 20
 RETENTION = timedelta(days=30)
 PHASES = {
@@ -133,6 +142,29 @@ def validate_failure(value: Any) -> None:
         require(type(child['ready']) is bool)
 
 
+def validate_attachments(value: Any) -> None:
+    """Accept only bounded UTF-8 diagnostic attachments with fixed names and media types."""
+    require(type(value) is list and len(value) <= len(ATTACHMENT_TYPES))
+    names = set()
+    for attachment in value:
+        fields(attachment, {'name', 'contentType', 'contentInBase64'})
+        name = attachment['name']
+        allowed(name, set(ATTACHMENT_TYPES))
+        require(name not in names)
+        names.add(name)
+        require(attachment['contentType'] == ATTACHMENT_TYPES[name])
+        content = attachment['contentInBase64']
+        require(type(content) is str and len(content) <= 4 * ((MAX_ATTACHMENT_BYTES + 2) // 3))
+        try:
+            decoded = base64.b64decode(content, validate=True)
+            require(len(decoded) <= MAX_ATTACHMENT_BYTES)
+            text = decoded.decode('utf-8')
+            if name.endswith('.json'):
+                require(type(json.loads(text)) is dict)
+        except (ValueError, binascii.Error, UnicodeError, RecursionError):
+            raise InvalidPayload('Invalid diagnostic attachment') from None
+
+
 def parse_payload(body: bytes, followup: bool = False) -> dict:
     """Parse bounded UTF-8 JSON, rejecting duplicate keys and unknown fields."""
     require(len(body) <= MAX_BODY)
@@ -150,12 +182,14 @@ def parse_payload(body: bytes, followup: bool = False) -> dict:
     except (ValueError, UnicodeError, RecursionError):
         raise InvalidPayload('Invalid diagnostics payload') from None
     fields(payload, {'schema_version', 'report_id'} if followup else
-           {'schema_version', 'report_id', 'report'})
+           {'schema_version', 'report_id', 'report'}, set() if followup else {'attachments'})
     require(type(payload['schema_version']) is int and payload['schema_version'] == 1)
     report_id = payload['report_id']
     require(type(report_id) is str and re.fullmatch(r'[0-9a-f]{32}', report_id) is not None)
     if followup:
         return payload
+    if 'attachments' in payload:
+        validate_attachments(payload['attachments'])
     report = payload['report']
     sections = {'upgrade', 'startup', 'recovery_failure'}
     fields(report, {'schema_version', 'operation', 'recovery'},
@@ -195,38 +229,55 @@ def authorized(headers: Any, principal_id: str) -> bool:
 
 
 def event_name(report_id: str, followup: bool = False) -> str:
-    """Separate anonymous reports from explicitly opted-in contacts."""
+    """Keep failure reports separate from legacy explicit contact requests."""
     return f'{"contacts" if followup else "reports"}/{report_id}.json'
 
 
 def create_event(payload: dict, contact: str | None = None) -> dict:
     """Build a durable event containing only validated report or contact fields."""
     report_id = payload['report_id']
-    followup = contact is not None
-    content = {'contact': trusted_contact(contact)} if followup else payload['report']
+    followup = 'report' not in payload
+    if followup:
+        if contact is None:
+            raise InvalidContact('No usable email claim is available')
+        content = {'contact': trusted_contact(contact)}
+    else:
+        content = payload['report']
     operation = (uuid.uuid5(uuid.NAMESPACE_URL, f'salesbuddy:followup:{report_id}')
                  if followup else uuid.UUID(hex=report_id))
-    return {
+    event = {
         'report_id': report_id, 'kind': 'followup' if followup else 'failure',
         'content': content, 'hash': hashlib.sha256(canonical(content)).hexdigest(),
         'created_at': now().isoformat(), 'operation_id': str(operation),
         'status': 'pending', 'errors': 0, 'polls': 0, 'submissions': 0,
     }
+    if not followup and payload.get('attachments'):
+        event['attachments'] = payload['attachments']
+        event['hash'] = hashlib.sha256(canonical({
+            'report': content, 'attachments': event['attachments'],
+        })).hexdigest()
+    if not followup and contact is not None:
+        event['contact'] = trusted_contact(contact)
+    return event
 
 
 def build_email(event: dict, sender: str, support: str) -> dict:
-    """Address only the fixed operator-configured mailbox, with no attachments."""
+    """Address the fixed support mailbox and attach the frozen failure-time startup files."""
     report_id = event['report_id']
     text = (f"Contact opt-in for report {report_id}\n"
             f"Contact: {event['content']['contact']}" if event['kind'] == 'followup'
-            else f"Anonymous update failure report {report_id}\n" +
+            else f"Update failure report {report_id}\n" +
+            f"Contact: {event.get('contact', 'Unavailable from Microsoft sign-in')}\n" +
             json.dumps(event['content'], indent=2, sort_keys=True))
-    return {
+    message = {
         'senderAddress': sender,
         'recipients': {'to': [{'address': support}]},
         'content': {'subject': f"Sales Buddy {event['kind']} report {report_id}",
                     'plainText': text},
     }
+    if event.get('attachments'):
+        message['attachments'] = event['attachments']
+    return message
 
 
 class DiagnosticsService:
@@ -251,7 +302,7 @@ class DiagnosticsService:
         validate_rate_key(rate_key)
         report_id = payload['report_id']
         event = create_event(payload, contact)
-        name = event_name(report_id, contact is not None)
+        name = event_name(report_id, event['kind'] == 'followup')
         blob = self.container.get_blob_client(name)
         if not self.existing_event(blob, event):
             counter, lease = self.rate_counter(rate_key)

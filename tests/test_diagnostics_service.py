@@ -2,6 +2,7 @@
 
 import copy
 import ast
+import base64
 import importlib.util
 import json
 import sys
@@ -258,7 +259,7 @@ def test_storage_failure_never_receipted(service, payload):
 
 
 def test_optin_is_separate_and_has_fixed_recipient(service, payload):
-    """Initial failures have no identity; followup is a separately linked event."""
+    """Keep legacy followups working when the initial report had no usable contact claim."""
     service.accept(payload)
     assert [name for name in service.container.blobs if not name.startswith('rate/')] == [
         svc.event_name(payload['report_id'])]
@@ -277,8 +278,127 @@ def test_optin_is_separate_and_has_fixed_recipient(service, payload):
     assert email['recipients'] == {'to': [{'address': 'support@example.com'}]}
     assert 'person@microsoft.com' in email['content']['plainText']
     assert payload['report_id'] in email['content']['subject']
-    assert 'contact' not in svc.build_email(anonymous, service.sender,
-                                          service.support)['content']['plainText'].lower()
+    assert 'Contact: Unavailable from Microsoft sign-in' in svc.build_email(
+        anonymous, service.sender, service.support)['content']['plainText']
+
+
+def test_failure_includes_support_contact_without_creating_a_followup(service, payload):
+    """A trusted work address accompanies the original failure, not a second opt-in event."""
+    service.accept(payload, 'Person@Microsoft.com')
+    event = stored(service, payload)
+    assert event['kind'] == 'failure'
+    assert event['contact'] == 'person@microsoft.com'
+    assert event['content'] == payload['report']
+    assert event['operation_id'] == str(uuid.UUID(hex=payload['report_id']))
+    assert svc.event_name(payload['report_id'], True) not in service.container.blobs
+    email = svc.build_email(event, service.sender, service.support)
+    assert 'Contact: person@microsoft.com' in email['content']['plainText']
+    assert 'Anonymous' not in email['content']['plainText']
+    assert email['recipients'] == {'to': [{'address': 'support@example.com'}]}
+    service.accept(payload, 'other@microsoft.com')
+    service.accept(payload)
+    assert stored(service, payload) == event
+
+
+def test_failure_attachments_reach_acs_and_are_immutable(service, payload):
+    """The actual ACS send carries the validated snapshots and retains them on retries."""
+    payload['attachments'] = [{
+        'name': 'server.log', 'contentType': 'text/plain',
+        'contentInBase64': base64.b64encode(b'RuntimeError: startup monitor exited\n').decode(),
+    }]
+    assert svc.parse_payload(svc.canonical(payload)) == payload
+    service.accept(payload, 'person@microsoft.com')
+    frozen = stored(service, payload)
+    service.transport.post.return_value = response()
+    service.repair()
+    sent = service.transport.post.call_args.kwargs['json']
+    assert sent['attachments'] == payload['attachments']
+    assert sent['recipients'] == {'to': [{'address': 'support@example.com'}]}
+    assert base64.b64decode(sent['attachments'][0]['contentInBase64']) == (
+        b'RuntimeError: startup monitor exited\n')
+    service.accept(payload)
+    assert stored(service, payload)['attachments'] == frozen['attachments']
+    payload['attachments'][0]['contentInBase64'] = base64.b64encode(b'later startup').decode()
+    with pytest.raises(svc.Conflict):
+        service.accept(payload)
+    assert stored(service, payload)['attachments'] == frozen['attachments']
+
+
+@pytest.mark.parametrize(('field', 'value'), [
+    ('name', '..\\credentials.json'),
+    ('name', 'diagnostic.jsonl'),
+    ('contentType', 'application/octet-stream'),
+    ('contentInBase64', 'not base64!'),
+    ('contentInBase64', base64.b64encode(b'\xff').decode()),
+    ('contentInBase64', base64.b64encode(b'x' * (svc.MAX_ATTACHMENT_BYTES + 1)).decode()),
+], ids=['path', 'integration-log', 'media-type', 'base64', 'utf8', 'size'])
+def test_invalid_or_unbounded_attachments_are_rejected(payload, field, value):
+    """Reject alternate files, media, encodings and over-limit contents before durable intake."""
+    attachment = {
+        'name': 'server.log', 'contentType': 'text/plain',
+        'contentInBase64': base64.b64encode(b'log text').decode(),
+    }
+    attachment[field] = value
+    payload['attachments'] = [attachment]
+    with pytest.raises(svc.InvalidPayload):
+        svc.parse_payload(svc.canonical(payload))
+
+
+def test_attachment_count_json_and_legacy_followup_contract(payload):
+    """Reject duplicate filenames, invalid state JSON and attachments on legacy opt-ins."""
+    attachment = {
+        'name': 'startup-state.json', 'contentType': 'application/json',
+        'contentInBase64': base64.b64encode(b'{"phase":"preflight"}').decode(),
+    }
+    payload['attachments'] = [attachment, attachment]
+    with pytest.raises(svc.InvalidPayload):
+        svc.parse_payload(svc.canonical(payload))
+    payload['attachments'] = [attachment] * 8
+    with pytest.raises(svc.InvalidPayload):
+        svc.parse_payload(svc.canonical(payload))
+    payload['attachments'] = [{**attachment, 'contentInBase64': 'eA=='}]
+    with pytest.raises(svc.InvalidPayload):
+        svc.parse_payload(svc.canonical(payload))
+    followup = {'schema_version': 1, 'report_id': payload['report_id'],
+                'attachments': [attachment]}
+    with pytest.raises(svc.InvalidPayload):
+        svc.parse_payload(svc.canonical(followup), True)
+    with pytest.raises(svc.InvalidPayload):
+        svc.parse_payload(b'x' * (svc.MAX_BODY + 1))
+
+
+def test_real_capture_contract_and_maximum_attachment_request(tmp_path, monkeypatch, payload):
+    """Verify producer output and the exact largest allowed attachment bundle, not a proxy."""
+    from scripts import upgrade
+
+    monkeypatch.setenv('LOCALAPPDATA', str(tmp_path / 'local'))
+    (tmp_path / 'logs').mkdir()
+    (tmp_path / 'logs' / 'electron-main.log').write_text('supervisor exited', encoding='utf-8')
+    payload['attachments'] = upgrade.failure_attachments(tmp_path, {})
+    assert svc.parse_payload(svc.canonical(payload)) == payload
+    assert upgrade.REPORT_MAX_BYTES == svc.MAX_BODY
+    assert upgrade.ATTACHMENT_MAX_BYTES == svc.MAX_ATTACHMENT_BYTES
+    attachments = []
+    for name, content_type in svc.ATTACHMENT_TYPES.items():
+        text = ('{"data":"' + 'x' * (svc.MAX_ATTACHMENT_BYTES - 11) + '"}'
+                if name.endswith('.json') else 'x' * svc.MAX_ATTACHMENT_BYTES)
+        assert len(text.encode()) == svc.MAX_ATTACHMENT_BYTES
+        attachments.append({
+            'name': name, 'contentType': content_type,
+            'contentInBase64': base64.b64encode(text.encode()).decode(),
+        })
+    payload['attachments'] = attachments
+    body = json.dumps(payload).encode('utf-8')
+    assert len(body) <= svc.MAX_BODY
+    assert svc.parse_payload(body) == payload
+
+
+@pytest.mark.parametrize('contact', ['invalid', 'a@example.com\r\nBcc:b@example.com'])
+def test_invalid_report_contact_cannot_be_stored(service, payload, contact):
+    """Reject malformed trusted headers before persisting a report or charging quota."""
+    with pytest.raises(svc.InvalidContact):
+        service.accept(payload, contact)
+    assert service.container.blobs == {}
 
 
 @pytest.mark.parametrize('contact', [
@@ -392,8 +512,11 @@ def test_terminal_acs_status(service, payload, status):
 
 
 def test_retention_deletes_both_types_without_email(service, payload):
-    """Contact opt-ins and anonymous reports each expire after 30 days."""
-    service.accept(payload)
+    """Support email, file attachments and legacy opt-ins all expire after 30 days."""
+    payload['attachments'] = [{
+        'name': 'server.log', 'contentType': 'text/plain', 'contentInBase64': 'bG9n',
+    }]
+    service.accept(payload, 'person@microsoft.com')
     service.accept({'report_id': payload['report_id']}, 'person@microsoft.com')
     for followup in (False, True):
         blob = service.container.get_blob_client(svc.event_name(payload['report_id'], followup))
@@ -406,7 +529,7 @@ def test_retention_deletes_both_types_without_email(service, payload):
     service.transport.post.assert_not_called()
 
 
-def test_http_identity_receipt_and_no_header_identity_storage(monkeypatch, service, payload):
+def test_http_identity_receipt_and_trusted_support_contact(monkeypatch, service, payload):
     """Exercise actual Functions handlers with no cloud calls."""
     import azure.functions as func
 
@@ -432,7 +555,21 @@ def test_http_identity_receipt_and_no_header_identity_storage(monkeypatch, servi
     assert json.loads(result.get_body()) == {
         'report_id': payload['report_id'], 'status': 'accepted'}
     assert result.mimetype == 'application/json'
-    assert 'person' not in json.dumps(stored(service, payload))
+    event = stored(service, payload)
+    assert event['contact'] == 'person@microsoft.com'
+    assert 'apim-object-id' not in json.dumps(event)
+    assert 'X-MS-CLIENT' not in json.dumps(event)
+    missing_claim = copy.deepcopy(payload)
+    missing_claim['report_id'] = 'f' * 32
+    assert module.receive(request(missing_claim, {
+        'X-MS-CLIENT-PRINCIPAL-ID': 'apim-object-id',
+        'X-SalesBuddy-Rate-Key': RATE_KEY}), False).status_code == 202
+    assert 'contact' not in stored(service, missing_claim)
+    invalid_claim = copy.deepcopy(payload)
+    invalid_claim['report_id'] = 'e' * 32
+    assert module.receive(request(invalid_claim, {
+        **headers, 'X-SalesBuddy-Contact': 'not-an-email'}), False).status_code == 422
+    assert svc.event_name(invalid_claim['report_id']) not in service.container.blobs
     followup = {'schema_version': 1, 'report_id': payload['report_id']}
     assert module.receive(request(followup, headers), True).status_code == 202
     assert stored(service, payload, True)['content']['contact'] == 'person@microsoft.com'
