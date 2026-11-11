@@ -8,7 +8,7 @@ brought the change into `main`, so the admin Updates card can show
 Format: `## M/D/YYYY - <merge-short-sha>`. See
 `scripts/tag-changelog.ps1` for the helper that fills this in.
 
-## 11/11/2026
+## 11/11/2026 - d374f232
 
 - Keep updates from rolling back when startup cleanup interrupts the update monitor.
 - Send update failure reports with available credential-redacted startup files and the signed-in work email, so support can investigate and follow up without collecting files manually.
