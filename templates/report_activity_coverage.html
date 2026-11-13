@@ -994,6 +994,7 @@ document.addEventListener('DOMContentLoaded', function() {
             });
         }).then(function(activity) {
             renderLoggedActivity(form, activity);
+            if (activity.team_warning) alert(activity.team_warning);
         }).catch(function(error) {
             alert(error.message);
             buttons.forEach(function(button) { button.disabled = false; });

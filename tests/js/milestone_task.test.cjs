@@ -23,7 +23,9 @@ async function submit(response, rejection = null) {
     let error = '';
     let reloads = 0;
     let request;
+    const warnings = [];
     const context = {
+        alert: message => warnings.push(message),
         document: {getElementById: id => elements[id]},
         window: {location: {reload: () => reloads++}},
         workflow: {reload: () => reloads++},
@@ -37,7 +39,7 @@ async function submit(response, rejection = null) {
     vm.runInNewContext(script, context);
     context.createTask();
     await new Promise(resolve => setImmediate(resolve));
-    return {error, reloads, request, button: elements.create_task_btn};
+    return {error, reloads, request, warnings, button: elements.create_task_btn};
 }
 
 function jsonResponse(status, body) {
@@ -91,6 +93,15 @@ test('successful creation preserves the payload and reload behavior', async () =
     assert.equal(result.request.task_category, 861980004);
     assert.equal(result.request.duration_minutes, 60);
     assert.equal(result.request.due_date, '2026-10-03T23:59:59Z');
+});
+
+test('team join warnings are shown without offering to recreate the task', async () => {
+    const warning = 'The task was created, but joining the milestone team failed.';
+    const result = await submit(jsonResponse(200, {success: true, team_warning: warning}));
+    assert.deepEqual(result.warnings, [warning]);
+    assert.equal(result.button.disabled, true);
+    assert.equal(result.error, '');
+    assert.equal(result.reloads, 1);
 });
 
 test('network failures restore the form without a reload', async () => {

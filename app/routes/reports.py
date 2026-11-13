@@ -1201,13 +1201,18 @@ def api_activity_coverage_create(meeting_id):
     """Create an MSX activity from a saved meeting draft."""
     from app.services.activity_coverage import create_meeting_activity
 
+    warnings = []
     try:
-        task = create_meeting_activity(meeting_id)
+        task = create_meeting_activity(meeting_id, warnings=warnings)
     except ValueError as exc:
         return jsonify({'success': False, 'error': str(exc)}), 400
     except RuntimeError as exc:
         return jsonify({'success': False, 'error': str(exc)}), 502
-    return jsonify({'success': True, **_activity_coverage_task_payload(task)})
+    return jsonify({
+        'success': True,
+        **_activity_coverage_task_payload(task),
+        'team_warning': warnings[0] if warnings else None,
+    })
 
 
 @bp.route(

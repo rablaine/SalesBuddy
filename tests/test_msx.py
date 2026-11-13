@@ -60,6 +60,158 @@ class TestMsxApiHelpers:
         assert 'task' in url.lower()
         assert task_id in url
 
+    @pytest.mark.parametrize('fetch_kind', ['account', 'opportunity', 'milestone'])
+    def test_milestone_queries_include_current_owner(self, fetch_kind):
+        """Every sync fetch returns the milestone owner, not the opportunity owner."""
+        from app.services.msx_api import (
+            batch_get_milestones, batch_get_milestones_by_id, get_milestones_by_account,
+        )
+
+        raw = {
+            'msp_engagementmilestoneid': 'owner-milestone',
+            '_msp_opportunityid_value': 'owner-opportunity',
+            '_ownerid_value': 'new-owner-id',
+            '_ownerid_value@OData.Community.Display.V1.FormattedValue': 'New Seller',
+            'msp_OpportunityId': {
+                '_ownerid_value@OData.Community.Display.V1.FormattedValue': 'Deal Owner',
+            },
+        }
+        response = MagicMock(status_code=200)
+        response.json.return_value = {'value': [raw]}
+        with patch('app.services.msx_api._msx_request', return_value=response) as request, \
+             patch('app.services.msx_api.query_entity', return_value={
+                 'success': True, 'records': [raw],
+             }) as query:
+            if fetch_kind == 'account':
+                result = get_milestones_by_account('owner-account')
+                milestone = result['milestones'][0]
+                url = request.call_args.args[1]
+                selected = url.split('&$select=', 1)[1].split('&', 1)[0].split(',')
+            elif fetch_kind == 'opportunity':
+                result = batch_get_milestones(['owner-opportunity'])
+                milestone = result['by_opportunity']['owner-opportunity'][0]
+                selected = query.call_args.kwargs['select']
+            else:
+                result = batch_get_milestones_by_id(['owner-milestone'])
+                milestone = result['by_id']['owner-milestone']
+                selected = query.call_args.kwargs['select']
+
+        assert result['success'] is True
+        assert '_ownerid_value' in selected
+        assert milestone['owner_name'] == 'New Seller'
+
+
+class TestTaskTeamMembership:
+    """Task creation keeps the local and remote milestone team in sync."""
+
+    @pytest.mark.parametrize('category', [861980004, 861980012])
+    @pytest.mark.parametrize('on_team', [False, True])
+    def test_create_task_joins_only_when_not_cached_on_team(self, db_session, category, on_team):
+        """HVA and ordinary tasks join once, using only cached membership."""
+        from app.services.msx_api import create_task
+
+        milestone = Milestone(
+            msx_milestone_id='aabbccdd-1111-2222-3333-444455556666',
+            url='https://example.test/task-team',
+            on_my_team=on_team,
+        )
+        db_session.add(milestone)
+        db_session.commit()
+        response = MagicMock(status_code=204)
+        response.headers = {
+            'OData-EntityId': 'https://example.test/tasks(11111111-2222-3333-4444-555555555555)',
+        }
+        with patch('app.services.msx_api.get_current_user_id', return_value='current-user'), \
+             patch('app.services.msx_api._msx_request', return_value=response) as request, \
+             patch('app.services.msx_api.add_user_to_milestone_team', return_value={
+                 'success': True, 'already_on_team': True,
+             }) as join:
+            result = create_task(milestone.msx_milestone_id.upper(), 'Task', category)
+            assert result['success'] is True
+            assert result['joined_team'] is True
+            db_session.refresh(milestone)
+            assert milestone.on_my_team is True
+            assert join.call_count == (0 if on_team else 1)
+            assert request.call_count == 1
+            create_task(milestone.msx_milestone_id, 'Another task', category)
+            assert join.call_count == (0 if on_team else 1)
+
+    def test_join_failure_preserves_created_task_and_warns(self, db_session, caplog):
+        """A failed join never hides task creation or marks the cached team flag true."""
+        from app.services.msx_api import create_task
+
+        milestone = Milestone(
+            msx_milestone_id='join-failure',
+            url='https://example.test/task-team-failure',
+            on_my_team=False,
+        )
+        db_session.add(milestone)
+        db_session.commit()
+        response = MagicMock(status_code=204)
+        response.headers = {
+            'OData-EntityId': 'https://example.test/tasks(11111111-2222-3333-4444-555555555555)',
+        }
+        with patch('app.services.msx_api.get_current_user_id', return_value='current-user'), \
+             patch('app.services.msx_api._msx_request', return_value=response), \
+             patch('app.services.msx_api.add_user_to_milestone_team', return_value={
+                 'success': False, 'error': 'Access denied',
+             }):
+            result = create_task(milestone.msx_milestone_id, 'Task', 861980004)
+
+        assert result['success'] is True
+        assert result['task_id'] == '11111111-2222-3333-4444-555555555555'
+        assert result['joined_team'] is False
+        assert 'task was created' in result['team_warning']
+        assert 'Access denied' in result['team_warning']
+        db_session.refresh(milestone)
+        assert milestone.on_my_team is False
+        assert 'Access denied' in caplog.text
+
+    def test_failed_task_creation_does_not_join_team(self, db_session):
+        """Remote task failures do not change milestone membership."""
+        from app.services.msx_api import create_task
+
+        with patch('app.services.msx_api.get_current_user_id', return_value='current-user'), \
+             patch('app.services.msx_api._msx_request', return_value=MagicMock(
+                 status_code=400, text='Invalid task',
+             )), \
+             patch('app.services.msx_api.add_user_to_milestone_team') as join:
+            result = create_task('failed-task-milestone', 'Task', 861980004)
+
+        assert result['success'] is False
+        join.assert_not_called()
+
+    def test_team_cache_write_failure_keeps_task_successful(self, db_session, caplog):
+        """A local cache failure cannot turn a confirmed task into a retryable failure."""
+        from sqlalchemy.exc import SQLAlchemyError
+        from app.services.msx_api import create_task
+
+        milestone = Milestone(
+            msx_milestone_id='team-cache-failure',
+            url='https://example.test/task-team-cache',
+            on_my_team=False,
+        )
+        db_session.add(milestone)
+        db_session.commit()
+        response = MagicMock(status_code=204)
+        response.headers = {
+            'OData-EntityId': 'https://example.test/tasks(11111111-2222-3333-4444-555555555555)',
+        }
+        with patch('app.services.msx_api.get_current_user_id', return_value='current-user'), \
+             patch('app.services.msx_api._msx_request', return_value=response), \
+             patch('app.services.msx_api.add_user_to_milestone_team', return_value={
+                 'success': True,
+             }), \
+             patch.object(db_session, 'commit', side_effect=SQLAlchemyError('Cache unavailable')):
+            result = create_task(milestone.msx_milestone_id, 'Task', 861980004)
+
+        assert result['success'] is True
+        assert result['task_id'] == '11111111-2222-3333-4444-555555555555'
+        assert 'could not save milestone team' in result['team_warning']
+        db_session.refresh(milestone)
+        assert milestone.on_my_team is False
+        assert 'Cache unavailable' in caplog.text
+
 
 class TestTaskCategories:
     """Tests for task category constants."""

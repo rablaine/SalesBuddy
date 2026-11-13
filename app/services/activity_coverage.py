@@ -1009,8 +1009,8 @@ def link_existing_activity(meeting_id: int, task_id: int) -> MsxTask:
     return task
 
 
-def create_meeting_activity(meeting_id: int) -> MsxTask:
-    """Create and complete one MSX activity from a saved meeting draft."""
+def create_meeting_activity(meeting_id: int, warnings: list[str] | None = None) -> MsxTask:
+    """Create and complete an activity, collecting non-blocking team warnings."""
     from app.services.msx_api import create_task
 
     with _create_lock:
@@ -1048,6 +1048,9 @@ def create_meeting_activity(meeting_id: int) -> MsxTask:
         )
         if not result.get('success'):
             raise RuntimeError(result.get('error') or 'MSX activity creation failed')
+
+        if warnings is not None and result.get('team_warning'):
+            warnings.append(result['team_warning'])
 
         task = MsxTask(
             msx_task_id=result['task_id'],

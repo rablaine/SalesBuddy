@@ -815,7 +815,7 @@ def get_milestones_by_account(
             f"msp_milestonenumber,_msp_opportunityid_value,msp_monthlyuse,"
             f"_msp_workloadlkid_value,msp_milestonedate,msp_bacvrate,"
             f"msp_commitmentrecommendation,msp_committedon,msp_completedon,"
-            f"msp_forecastcommentsjsonfield,createdon,modifiedon"
+            f"msp_forecastcommentsjsonfield,createdon,modifiedon,_ownerid_value"
             f"&$expand=msp_OpportunityId($select=opportunityid,name,"
             f"msp_opportunitynumber,statecode,statuscode,estimatedvalue,"
             f"estimatedclosedate,createdon,actualclosedate,_ownerid_value,customerneed,description,"
@@ -895,6 +895,9 @@ def get_milestones_by_account(
                     "comments_json": raw.get("msp_forecastcommentsjsonfield"),
                     "created_on": raw.get("createdon"),
                     "modified_on": raw.get("modifiedon"),
+                    "owner_name": raw.get(
+                        "_ownerid_value@OData.Community.Display.V1.FormattedValue", ""
+                    ),
                     # Expanded opportunity fields
                     "opportunity_number": raw_opp.get("msp_opportunitynumber", ""),
                     "opportunity_statecode": opp_statecode,
@@ -1254,6 +1257,7 @@ _MILESTONE_SELECT_FIELDS = [
     "_msp_workloadlkid_value", "msp_milestonedate", "msp_bacvrate",
     "msp_commitmentrecommendation", "msp_committedon", "msp_completedon",
     "msp_forecastcommentsjsonfield", "createdon", "modifiedon",
+    "_ownerid_value",
 ]
 
 
@@ -1313,6 +1317,9 @@ def _parse_milestone_record(raw: dict) -> Optional[dict]:
         "comments_json": raw.get("msp_forecastcommentsjsonfield"),
         "created_on": raw.get("createdon"),
         "modified_on": raw.get("modifiedon"),
+        "owner_name": raw.get(
+            "_ownerid_value@OData.Community.Display.V1.FormattedValue", ""
+        ),
     }
 
 
@@ -2781,6 +2788,46 @@ def get_current_user_id() -> Optional[str]:
     return None
 
 
+def _ensure_task_milestone_team(milestone_id: str) -> Dict[str, Any]:
+    """Join after task creation unless membership is already cached locally."""
+    from sqlalchemy.exc import SQLAlchemyError
+
+    from app.models import db, Milestone
+
+    warning = (
+        "The task was created, but Sales Buddy could not join the milestone team. "
+        "Use Join on the milestone to retry. Do not create the task again."
+    )
+    try:
+        milestone = Milestone.query.filter(
+            db.func.lower(Milestone.msx_milestone_id) == milestone_id.lower(),
+        ).first()
+        if milestone and milestone.on_my_team:
+            return {"joined_team": True}
+
+        result = add_user_to_milestone_team(milestone_id)
+        if not result.get("success"):
+            error = result.get("error") or "MSX did not confirm team membership."
+            logger.warning("Task created but could not join milestone %s: %s", milestone_id, error)
+            return {"joined_team": False, "team_warning": f"{warning} {error}"}
+
+        if milestone:
+            milestone.on_my_team = True
+            db.session.commit()
+        return {"joined_team": True}
+    except SQLAlchemyError:
+        db.session.rollback()
+        logger.exception("Task created but could not cache team membership for %s", milestone_id)
+        return {
+            "joined_team": False,
+            "team_warning": (
+                "The task was created, but Sales Buddy could not save milestone team "
+                "membership locally. Use Join on the milestone to retry. "
+                "Do not create the task again."
+            ),
+        }
+
+
 def create_task(
     milestone_id: str,
     subject: str,
@@ -2792,6 +2839,9 @@ def create_task(
 ) -> Dict[str, Any]:
     """
     Create a task in MSX linked to a milestone.
+
+    Successful creation also joins the milestone team when the local cache does
+    not show membership. A join failure is reported without failing the task.
     
     Args:
         milestone_id: The milestone GUID to link the task to.
@@ -2807,6 +2857,8 @@ def create_task(
         - success: bool
         - task_id: str (GUID) if successful
         - task_url: str (MSX URL) if successful
+        - joined_team: bool if task creation succeeded
+        - team_warning: str if team membership could not be confirmed or saved
         - error: str if failed
     """
     # Get current user ID for task owner
@@ -2846,19 +2898,15 @@ def create_task(
             if match:
                 task_id = match.group(1)
             
-            if task_id:
-                return {
-                    "success": True,
-                    "task_id": task_id,
-                    "task_url": build_task_url(task_id),
-                }
-            else:
-                return {
-                    "success": True,
-                    "task_id": None,
-                    "task_url": None,
-                    "warning": "Task created but could not extract ID from response.",
-                }
+            result = {
+                "success": True,
+                "task_id": task_id,
+                "task_url": build_task_url(task_id) if task_id else None,
+                **_ensure_task_milestone_team(milestone_id),
+            }
+            if not task_id:
+                result["warning"] = "Task created but could not extract ID from response."
+            return result
                 
         elif response.status_code == 401:
             return {"success": False, "error": "Not authenticated. Run 'az login' first."}

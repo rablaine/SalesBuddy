@@ -796,6 +796,7 @@ function createTask() {
         btn.innerHTML = originalText;
         if (result.success) {
             btn.disabled = true;
+            if (result.team_warning) alert(result.team_warning);
             workflow.reload();
         } else {
             showTaskError(result.error || 'Failed to create task');

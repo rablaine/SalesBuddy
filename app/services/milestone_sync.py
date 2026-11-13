@@ -1750,6 +1750,8 @@ def _update_milestone_from_msx(
     milestone.completed_at = _parse_msx_date(msx_data.get("completed_on"))
     milestone.msx_created_on = _parse_msx_date(msx_data.get("created_on"))
     milestone.msx_modified_on = _parse_msx_date(msx_data.get("modified_on"))
+    if "owner_name" in msx_data:
+        milestone.owner_name = msx_data["owner_name"]
     # Cache comments if included in the bulk fetch (None = field not requested,
     # so we only update when the key is present in the dict)
     if "comments_json" in msx_data:
@@ -1784,6 +1786,7 @@ def _create_milestone_from_msx(
         completed_at=_parse_msx_date(msx_data.get("completed_on")),
         msx_created_on=_parse_msx_date(msx_data.get("created_on")),
         msx_modified_on=_parse_msx_date(msx_data.get("modified_on")),
+        owner_name=msx_data.get("owner_name"),
     )
     # Cache comments if included in the bulk fetch
     if "comments_json" in msx_data:

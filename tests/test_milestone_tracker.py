@@ -158,6 +158,23 @@ class TestMilestoneModel:
 
 class TestMilestoneSyncService:
     """Test the milestone sync service."""
+
+    @pytest.mark.parametrize(
+        'msx_data, expected_owner',
+        [({'owner_name': ''}, ''), ({}, 'Previous Seller')],
+    )
+    def test_owner_refresh_handles_empty_and_omitted_values(self, msx_data, expected_owner):
+        """Explicitly empty owners clear the cache; omitted owners leave it unchanged."""
+        from app.models import Milestone
+        from app.services.milestone_sync import _update_milestone_from_msx
+
+        milestone = Milestone(
+            url='https://example.com/owner-refresh', owner_name='Previous Seller',
+        )
+        _update_milestone_from_msx(
+            milestone, msx_data, 1, None, datetime.now(timezone.utc),
+        )
+        assert milestone.owner_name == expected_owner
     
     @pytest.fixture(autouse=True)
     def mock_opp_sync(self):
@@ -190,6 +207,7 @@ class TestMilestoneSyncService:
             "milestones": [
                 {
                     "id": "ms-guid-111",
+                    "owner_name": "Current Seller",
                     "name": "Deploy Azure SQL",
                     "number": "7-100001",
                     "status": "On Track",
@@ -235,6 +253,7 @@ class TestMilestoneSyncService:
             assert ms.due_date is not None
             assert ms.customer_id == customer_id
             assert ms.workload == "Azure SQL"
+            assert ms.owner_name == "Current Seller"
             
             # Cleanup
             db.session.delete(ms)
@@ -322,6 +341,7 @@ class TestMilestoneSyncService:
             # Create an existing milestone
             existing = Milestone(
                 msx_milestone_id="ms-guid-update",
+                owner_name="Previous Seller",
                 url="https://old-url.com",
                 title="Old Title",
                 msx_status="On Track",
@@ -337,6 +357,7 @@ class TestMilestoneSyncService:
             "milestones": [
                 {
                     "id": "ms-guid-update",
+                    "owner_name": "New Seller",
                     "name": "Updated Title",
                     "number": "7-200002",
                     "status": "At Risk",
@@ -371,6 +392,7 @@ class TestMilestoneSyncService:
             assert ms.msx_status == "At Risk"
             assert ms.dollar_value == 200000.0
             assert ms.workload == "Azure AI"
+            assert ms.owner_name == "New Seller"
             assert ms.last_synced_at is not None
             
             # Cleanup
@@ -448,6 +470,7 @@ class TestMilestoneSyncService:
             # Create a milestone on that stale opportunity with old status
             stale_ms = Milestone(
                 msx_milestone_id="stale-ms-guid-001",
+                owner_name="Previous Seller",
                 url="https://stale.com",
                 title="Stale Milestone",
                 msx_status="On Track",
@@ -465,6 +488,7 @@ class TestMilestoneSyncService:
             "by_id": {
                 "stale-ms-guid-001": {
                     "id": "stale-ms-guid-001",
+                    "owner_name": "New Seller",
                     "name": "Stale Milestone (Updated)",
                     "number": "7-999001",
                     "status": "Completed",
@@ -501,6 +525,7 @@ class TestMilestoneSyncService:
             ms = db.session.get(Milestone, stale_ms_id)
             assert ms.msx_status == "Completed"
             assert ms.title == "Stale Milestone (Updated)"
+            assert ms.owner_name == "New Seller"
             assert ms.last_synced_at is not None
 
             # Cleanup
