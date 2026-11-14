@@ -702,7 +702,7 @@ def get_milestone_details(milestone_id: str) -> Dict[str, Any]:
                 "msp_commitmentrecommendation"
                 "@OData.Community.Display.V1.FormattedValue",
                 ""
-            ) or raw.get("msp_commitmentrecommendation", "")
+            ) or raw.get("msp_commitmentrecommendation") or ""
 
             owner_name = raw.get(
                 "_ownerid_value@OData.Community.Display.V1.FormattedValue", ""
@@ -811,11 +811,7 @@ def get_milestones_by_account(
         url = (
             f"{CRM_BASE_URL}/msp_engagementmilestones"
             f"?$filter={filter_str}"
-            f"&$select=msp_engagementmilestoneid,msp_name,msp_milestonestatus,"
-            f"msp_milestonenumber,_msp_opportunityid_value,msp_monthlyuse,"
-            f"_msp_workloadlkid_value,msp_milestonedate,msp_bacvrate,"
-            f"msp_commitmentrecommendation,msp_committedon,msp_completedon,"
-            f"msp_forecastcommentsjsonfield,createdon,modifiedon"
+            f"&$select={','.join(_MILESTONE_SELECT_FIELDS)}"
             f"&$expand=msp_OpportunityId($select=opportunityid,name,"
             f"msp_opportunitynumber,statecode,statuscode,estimatedvalue,"
             f"estimatedclosedate,createdon,actualclosedate,_ownerid_value,customerneed,description,"
@@ -827,39 +823,22 @@ def get_milestones_by_account(
         
         if response.status_code == 200:
             data = response.json()
-            raw_milestones = data.get("value", [])
+            pages = _collect_query_pages({
+                "success": True, "records": data.get("value", []),
+                "next_link": data.get("@odata.nextLink"),
+            })
+            if not pages["success"]:
+                return pages
+            raw_milestones = pages["records"]
             
             milestones = []
             for raw in raw_milestones:
-                milestone_id = raw.get("msp_engagementmilestoneid")
-                status = raw.get(
-                    "msp_milestonestatus@OData.Community.Display.V1.FormattedValue",
-                    "Unknown"
-                )
-                status_code = raw.get("msp_milestonestatus")
-                opp_name = raw.get(
-                    "_msp_opportunityid_value@OData.Community.Display.V1.FormattedValue",
-                    ""
-                )
-                workload = raw.get(
-                    "_msp_workloadlkid_value@OData.Community.Display.V1.FormattedValue",
-                    ""
-                )
-                monthly_usage = raw.get("msp_monthlyuse")
-                
-                # Tracker fields (actual MSX field names from metadata)
-                due_date_str = raw.get("msp_milestonedate")
-                dollar_value = raw.get("msp_bacvrate")  # BACV
-                
-                commitment = raw.get(
-                    "msp_commitmentrecommendation"
-                    "@OData.Community.Display.V1.FormattedValue",
-                    ""
-                ) or raw.get("msp_commitmentrecommendation", "")
+                milestone = _parse_milestone_record(raw)
+                if milestone is None:
+                    continue
 
                 # Extract expanded opportunity data (from $expand)
                 raw_opp = raw.get("msp_OpportunityId") or {}
-                opp_id = raw.get("_msp_opportunityid_value")
                 opp_statecode = raw_opp.get("statecode")
                 opp_state = raw_opp.get(
                     "statecode@OData.Community.Display.V1.FormattedValue",
@@ -875,26 +854,7 @@ def get_milestones_by_account(
                     "msp_competethreatlevel@OData.Community.Display.V1.FormattedValue", ""
                 )
 
-                milestones.append({
-                    "id": milestone_id,
-                    "name": raw.get("msp_name", ""),
-                    "number": raw.get("msp_milestonenumber", ""),
-                    "status": status,
-                    "status_code": status_code,
-                    "status_sort": MILESTONE_STATUS_ORDER.get(status, 99),
-                    "customer_commitment": commitment if isinstance(commitment, str) else str(commitment),
-                    "msx_opportunity_id": opp_id,
-                    "opportunity_name": opp_name,
-                    "workload": workload,
-                    "monthly_usage": monthly_usage,
-                    "due_date": due_date_str,
-                    "dollar_value": dollar_value,
-                    "url": build_milestone_url(milestone_id),
-                    "committed_on": raw.get("msp_committedon"),
-                    "completed_on": raw.get("msp_completedon"),
-                    "comments_json": raw.get("msp_forecastcommentsjsonfield"),
-                    "created_on": raw.get("createdon"),
-                    "modified_on": raw.get("modifiedon"),
+                milestone.update({
                     # Expanded opportunity fields
                     "opportunity_number": raw_opp.get("msp_opportunitynumber", ""),
                     "opportunity_statecode": opp_statecode,
@@ -909,6 +869,7 @@ def get_milestones_by_account(
                     "opportunity_description": raw_opp.get("description", ""),
                     "opportunity_compete_threat": opp_compete,
                 })
+                milestones.append(milestone)
             
             # Sort by status (active first), then by name
             milestones.sort(key=lambda m: (m["status_sort"], m["name"].lower()))
@@ -1058,14 +1019,19 @@ def get_opportunities_by_account(
             f"statecode,statuscode,estimatedvalue,estimatedclosedate,createdon,actualclosedate,"
             f"_ownerid_value"
             f"&$orderby=name"
-            f"&$top=200"
         )
 
         response = _msx_request('GET', url)
 
         if response.status_code == 200:
             data = response.json()
-            raw_opps = data.get("value", [])
+            pages = _collect_query_pages({
+                "success": True, "records": data.get("value", []),
+                "next_link": data.get("@odata.nextLink"),
+            })
+            if not pages["success"]:
+                return pages
+            raw_opps = pages["records"]
 
             opportunities = []
             for raw in raw_opps:
@@ -1178,7 +1144,7 @@ def batch_get_opportunities(
             )
             filter_query = f"({acct_filter}){fy_clause}"
 
-            result = query_entity(
+            result = _collect_query_pages(query_entity(
                 "opportunities",
                 select=[
                     "opportunityid", "name", "msp_opportunitynumber",
@@ -1190,12 +1156,12 @@ def batch_get_opportunities(
                 ],
                 filter_query=filter_query,
                 order_by="name",
-                top=batch_size * 50,
-            )
+                top=None,
+            ))
 
             if not result.get("success"):
                 logger.warning("Batch opp query failed: %s", result.get("error"))
-                continue
+                return {**result, "by_account": by_account}
 
             for raw in result.get("records", []):
                 opp_id = raw.get("opportunityid")
@@ -1254,6 +1220,7 @@ _MILESTONE_SELECT_FIELDS = [
     "_msp_workloadlkid_value", "msp_milestonedate", "msp_bacvrate",
     "msp_commitmentrecommendation", "msp_committedon", "msp_completedon",
     "msp_forecastcommentsjsonfield", "createdon", "modifiedon",
+    "_ownerid_value", "_msp_parentaccount_value",
 ]
 
 
@@ -1263,7 +1230,7 @@ def _parse_milestone_record(raw: dict) -> Optional[dict]:
     """
     ms_id = raw.get("msp_engagementmilestoneid")
     opp_id = raw.get("_msp_opportunityid_value")
-    if not ms_id or not opp_id:
+    if not ms_id:
         return None
 
     status = raw.get(
@@ -1279,11 +1246,11 @@ def _parse_milestone_record(raw: dict) -> Optional[dict]:
         "msp_commitmentrecommendation"
         "@OData.Community.Display.V1.FormattedValue",
         "",
-    ) or raw.get("msp_commitmentrecommendation", "")
+    ) or raw.get("msp_commitmentrecommendation") or ""
     category = raw.get(
         "msp_milestonecategory@OData.Community.Display.V1.FormattedValue",
         "",
-    ) or raw.get("msp_milestonecategory", "")
+    ) or raw.get("msp_milestonecategory") or ""
 
     return {
         "id": ms_id,
@@ -1299,6 +1266,7 @@ def _parse_milestone_record(raw: dict) -> Optional[dict]:
             category if isinstance(category, str) else str(category)
         ),
         "msx_opportunity_id": opp_id,
+        "msx_account_id": raw.get("_msp_parentaccount_value"),
         "opportunity_name": raw.get(
             "_msp_opportunityid_value@OData.Community.Display.V1.FormattedValue",
             "",
@@ -1313,6 +1281,9 @@ def _parse_milestone_record(raw: dict) -> Optional[dict]:
         "comments_json": raw.get("msp_forecastcommentsjsonfield"),
         "created_on": raw.get("createdon"),
         "modified_on": raw.get("modifiedon"),
+        "owner_name": raw.get(
+            "_ownerid_value@OData.Community.Display.V1.FormattedValue", ""
+        ),
     }
 
 
@@ -1379,36 +1350,24 @@ def batch_get_milestones(
             )
             filter_query = f"({opp_filter}){extra_str}"
 
-            result = query_entity(
+            result = _collect_query_pages(query_entity(
                 "msp_engagementmilestones",
                 select=_MILESTONE_SELECT_FIELDS,
                 filter_query=filter_query,
                 order_by="msp_name",
-                top=batch_size * 50,
-            )
+                top=None,
+            ))
 
             if not result.get("success"):
                 logger.warning(
                     "Batch milestone query failed: %s", result.get("error")
                 )
-                continue
+                return {**result, "by_opportunity": by_opp}
 
             for raw in result.get("records", []):
                 ms_dict = _parse_milestone_record(raw)
                 if ms_dict and ms_dict["msx_opportunity_id"] in by_opp:
                     by_opp[ms_dict["msx_opportunity_id"]].append(ms_dict)
-
-            # Follow pagination if present
-            next_link = result.get("next_link")
-            while next_link:
-                page = query_next_page(next_link)
-                if not page.get("success"):
-                    break
-                for raw in page.get("records", []):
-                    ms_dict = _parse_milestone_record(raw)
-                    if ms_dict and ms_dict["msx_opportunity_id"] in by_opp:
-                        by_opp[ms_dict["msx_opportunity_id"]].append(ms_dict)
-                next_link = page.get("next_link")
 
         return {"success": True, "by_opportunity": by_opp}
 
@@ -1457,36 +1416,25 @@ def batch_get_milestones_by_id(
             )
             filter_query = f"({ms_filter})"
 
-            result = query_entity(
+            result = _collect_query_pages(query_entity(
                 "msp_engagementmilestones",
                 select=_MILESTONE_SELECT_FIELDS,
                 filter_query=filter_query,
                 order_by="msp_name",
-                top=batch_size * 2,  # ~1 result per filter clause expected
-            )
+                top=None,
+            ))
 
             if not result.get("success"):
                 logger.warning(
                     "Batch milestone-by-id query failed: %s",
                     result.get("error"),
                 )
-                continue
+                return {**result, "by_id": by_id}
 
             for raw in result.get("records", []):
                 ms_dict = _parse_milestone_record(raw)
                 if ms_dict:
                     by_id[ms_dict["id"]] = ms_dict
-
-            next_link = result.get("next_link")
-            while next_link:
-                page = query_next_page(next_link)
-                if not page.get("success"):
-                    break
-                for raw in page.get("records", []):
-                    ms_dict = _parse_milestone_record(raw)
-                    if ms_dict:
-                        by_id[ms_dict["id"]] = ms_dict
-                next_link = page.get("next_link")
 
         return {"success": True, "by_id": by_id}
 
@@ -2781,6 +2729,46 @@ def get_current_user_id() -> Optional[str]:
     return None
 
 
+def _ensure_task_milestone_team(milestone_id: str) -> Dict[str, Any]:
+    """Join after task creation unless membership is already cached locally."""
+    from sqlalchemy.exc import SQLAlchemyError
+
+    from app.models import db, Milestone
+
+    warning = (
+        "The task was created, but Sales Buddy could not join the milestone team. "
+        "Use Join on the milestone to retry. Do not create the task again."
+    )
+    try:
+        milestone = Milestone.query.filter(
+            db.func.lower(Milestone.msx_milestone_id) == milestone_id.lower(),
+        ).first()
+        if milestone and milestone.on_my_team:
+            return {"joined_team": True}
+
+        result = add_user_to_milestone_team(milestone_id)
+        if not result.get("success"):
+            error = result.get("error") or "MSX did not confirm team membership."
+            logger.warning("Task created but could not join milestone %s: %s", milestone_id, error)
+            return {"joined_team": False, "team_warning": f"{warning} {error}"}
+
+        if milestone:
+            milestone.on_my_team = True
+            db.session.commit()
+        return {"joined_team": True}
+    except SQLAlchemyError:
+        db.session.rollback()
+        logger.exception("Task created but could not cache team membership for %s", milestone_id)
+        return {
+            "joined_team": False,
+            "team_warning": (
+                "The task was created, but Sales Buddy could not save milestone team "
+                "membership locally. Use Join on the milestone to retry. "
+                "Do not create the task again."
+            ),
+        }
+
+
 def create_task(
     milestone_id: str,
     subject: str,
@@ -2792,6 +2780,9 @@ def create_task(
 ) -> Dict[str, Any]:
     """
     Create a task in MSX linked to a milestone.
+
+    Successful creation also joins the milestone team when the local cache does
+    not show membership. A join failure is reported without failing the task.
     
     Args:
         milestone_id: The milestone GUID to link the task to.
@@ -2807,6 +2798,8 @@ def create_task(
         - success: bool
         - task_id: str (GUID) if successful
         - task_url: str (MSX URL) if successful
+        - joined_team: bool if task creation succeeded
+        - team_warning: str if team membership could not be confirmed or saved
         - error: str if failed
     """
     # Get current user ID for task owner
@@ -2846,19 +2839,15 @@ def create_task(
             if match:
                 task_id = match.group(1)
             
-            if task_id:
-                return {
-                    "success": True,
-                    "task_id": task_id,
-                    "task_url": build_task_url(task_id),
-                }
-            else:
-                return {
-                    "success": True,
-                    "task_id": None,
-                    "task_url": None,
-                    "warning": "Task created but could not extract ID from response.",
-                }
+            result = {
+                "success": True,
+                "task_id": task_id,
+                "task_url": build_task_url(task_id) if task_id else None,
+                **_ensure_task_milestone_team(milestone_id),
+            }
+            if not task_id:
+                result["warning"] = "Task created but could not extract ID from response."
+            return result
                 
         elif response.status_code == 401:
             return {"success": False, "error": "Not authenticated. Run 'az login' first."}
@@ -3345,7 +3334,7 @@ def query_entity(
     select: Optional[List[str]] = None,
     filter_query: Optional[str] = None,
     expand: Optional[str] = None,
-    top: int = 10,
+    top: Optional[int] = 10,
     order_by: Optional[str] = None
 ) -> Dict[str, Any]:
     """
@@ -3359,7 +3348,7 @@ def query_entity(
         select: List of fields to return (None = all fields)
         filter_query: OData $filter expression
         expand: OData $expand for related entities
-        top: Max records to return (default 10)
+        top: Max records to return (default 10), or None to allow all pages.
         order_by: OData $orderby expression
         
     Returns:
@@ -3367,7 +3356,7 @@ def query_entity(
     """
     try:
         # Build query params
-        params = [f"$top={top}"]
+        params = [] if top is None else [f"$top={top}"]
         
         if select:
             params.append(f"$select={','.join(select)}")
@@ -3417,6 +3406,27 @@ def query_entity(
     except Exception as e:
         logger.exception(f"Error querying {entity_name}")
         return {"success": False, "error": str(e)}
+
+
+def _collect_query_pages(result: Dict[str, Any]) -> Dict[str, Any]:
+    """Return a complete record set or fail without exposing incomplete pages."""
+    records = []
+    seen_links = set()
+    while True:
+        if not result.get("success"):
+            error = result.get("error") or "MSX did not return a complete result."
+            logger.warning("Incomplete MSX query: %s", error)
+            return {"success": False, "error": error, "records": [],
+                    "vpn_blocked": result.get("vpn_blocked", False)}
+        records.extend(result.get("records", []))
+        next_link = result.get("next_link")
+        if not next_link:
+            return {"success": True, "records": records}
+        if next_link in seen_links:
+            logger.error("MSX query returned a repeated continuation link")
+            return {"success": False, "error": "MSX returned a repeated page.", "records": []}
+        seen_links.add(next_link)
+        result = query_next_page(next_link)
 
 
 def query_next_page(next_link: str) -> Dict[str, Any]:

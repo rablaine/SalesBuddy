@@ -158,6 +158,125 @@ class TestMilestoneModel:
 
 class TestMilestoneSyncService:
     """Test the milestone sync service."""
+
+    @pytest.mark.parametrize('clear_fields', [False, True])
+    def test_optional_fields_clear_only_when_supplied(self, clear_fields):
+        """An explicit empty source clears optional values; missing keys preserve them."""
+        from app.models import Milestone, Opportunity
+        from app.services.milestone_sync import (
+            _update_milestone_from_msx, _upsert_opportunity,
+        )
+
+        milestone = Milestone(
+            url='https://example.test/cleared-fields', workload='SQL',
+            milestone_category='Production', customer_commitment='Committed',
+        )
+        values = {key: '' for key in (
+            'workload', 'milestone_category', 'customer_commitment',
+        )} if clear_fields else {}
+        _update_milestone_from_msx(
+            milestone, values, 1, None, datetime.now(timezone.utc),
+        )
+        assert milestone.workload == ('' if clear_fields else 'SQL')
+        assert milestone.milestone_category == ('' if clear_fields else 'Production')
+        assert milestone.customer_commitment == ('' if clear_fields else 'Committed')
+
+        opportunity = Opportunity(
+            msx_opportunity_id='cleared-opp', name='Preserved name',
+            owner_name='Old Owner', description='Old description', estimated_value=10,
+        )
+        source = {'msx_opportunity_id': 'cleared-opp'}
+        if clear_fields:
+            source.update({
+                'opportunity_owner': '', 'opportunity_description': '',
+                'opportunity_estimated_value': None,
+            })
+        _upsert_opportunity(source, 1, {'cleared-opp': opportunity})
+        assert opportunity.name == 'Preserved name'
+        assert opportunity.owner_name == ('' if clear_fields else 'Old Owner')
+        assert opportunity.description == ('' if clear_fields else 'Old description')
+        assert opportunity.estimated_value == (None if clear_fields else 10)
+
+    @pytest.mark.parametrize('path', ['stale', 'team'])
+    @pytest.mark.parametrize('known_parent', [False, True])
+    @pytest.mark.parametrize('tracked_customer', [False, True])
+    def test_fallback_refresh_reconciles_moved_milestones(
+        self, app, sample_data, path, known_parent, tracked_customer,
+    ):
+        """Fallback refreshes move the relationship and customer without duplicating records."""
+        from app.models import db, Customer, Milestone, Opportunity
+        from app.services import milestone_sync
+
+        with app.app_context():
+            old_customer = db.session.get(Customer, sample_data['customer1_id'])
+            new_customer = db.session.get(Customer, sample_data['customer2_id'])
+            new_customer.tpid_url = (
+                'https://example.test/?id=aaaabbbb-1111-2222-3333-444455556666'
+            )
+            old_customer.tpid_url = new_customer.tpid_url.replace('aaaabbbb', 'ccccdddd')
+            if not tracked_customer:
+                new_customer.tpid_url = None
+            old_opportunity = Opportunity(
+                msx_opportunity_id='old-parent', name='Old parent', customer=old_customer,
+            )
+            milestone = Milestone(
+                msx_milestone_id='moved-milestone', url='https://example.test/moved',
+                customer=old_customer, opportunity=old_opportunity, title='Moved milestone',
+            )
+            db.session.add(milestone)
+            if known_parent:
+                db.session.add(Opportunity(
+                    msx_opportunity_id='new-parent', name='New parent', customer=new_customer,
+                ))
+            db.session.commit()
+            local_id = milestone.id
+            payload = {
+                'id': 'moved-milestone', 'name': 'Moved milestone',
+                'msx_opportunity_id': 'new-parent', 'opportunity_name': 'New parent',
+                'msx_account_id': 'aaaabbbb-1111-2222-3333-444455556666',
+            }
+            with patch.object(milestone_sync, 'batch_get_milestones_by_id', return_value={
+                'success': True, 'by_id': {'moved-milestone': payload},
+            }), patch.object(milestone_sync, 'get_my_milestone_team_ids', return_value={
+                'success': True, 'milestone_ids': {'moved-milestone'},
+                'pagination_complete': True,
+            }):
+                if path == 'team':
+                    result = milestone_sync._sync_team_milestones()
+                else:
+                    generator = milestone_sync._sync_stale_milestones(set())
+                    try:
+                        while True:
+                            next(generator)
+                    except StopIteration as stop:
+                        result = stop.value
+
+            assert result['success'] is True
+            db.session.expire_all()
+            stored = db.session.get(Milestone, local_id)
+            expected_customer_id = new_customer.id if tracked_customer else None
+            assert stored.customer_id == expected_customer_id
+            assert stored.opportunity.customer_id == expected_customer_id
+            assert stored.opportunity.msx_opportunity_id == 'new-parent'
+            assert Opportunity.query.filter_by(msx_opportunity_id='new-parent').count() == 1
+            assert Milestone.query.filter_by(msx_milestone_id='moved-milestone').count() == 1
+
+    @pytest.mark.parametrize(
+        'msx_data, expected_owner',
+        [({'owner_name': ''}, ''), ({}, 'Previous Seller')],
+    )
+    def test_owner_refresh_handles_empty_and_omitted_values(self, msx_data, expected_owner):
+        """Explicitly empty owners clear the cache; omitted owners leave it unchanged."""
+        from app.models import Milestone
+        from app.services.milestone_sync import _update_milestone_from_msx
+
+        milestone = Milestone(
+            url='https://example.com/owner-refresh', owner_name='Previous Seller',
+        )
+        _update_milestone_from_msx(
+            milestone, msx_data, 1, None, datetime.now(timezone.utc),
+        )
+        assert milestone.owner_name == expected_owner
     
     @pytest.fixture(autouse=True)
     def mock_opp_sync(self):
@@ -190,6 +309,7 @@ class TestMilestoneSyncService:
             "milestones": [
                 {
                     "id": "ms-guid-111",
+                    "owner_name": "Current Seller",
                     "name": "Deploy Azure SQL",
                     "number": "7-100001",
                     "status": "On Track",
@@ -235,6 +355,7 @@ class TestMilestoneSyncService:
             assert ms.due_date is not None
             assert ms.customer_id == customer_id
             assert ms.workload == "Azure SQL"
+            assert ms.owner_name == "Current Seller"
             
             # Cleanup
             db.session.delete(ms)
@@ -322,6 +443,7 @@ class TestMilestoneSyncService:
             # Create an existing milestone
             existing = Milestone(
                 msx_milestone_id="ms-guid-update",
+                owner_name="Previous Seller",
                 url="https://old-url.com",
                 title="Old Title",
                 msx_status="On Track",
@@ -337,6 +459,7 @@ class TestMilestoneSyncService:
             "milestones": [
                 {
                     "id": "ms-guid-update",
+                    "owner_name": "New Seller",
                     "name": "Updated Title",
                     "number": "7-200002",
                     "status": "At Risk",
@@ -371,6 +494,7 @@ class TestMilestoneSyncService:
             assert ms.msx_status == "At Risk"
             assert ms.dollar_value == 200000.0
             assert ms.workload == "Azure AI"
+            assert ms.owner_name == "New Seller"
             assert ms.last_synced_at is not None
             
             # Cleanup
@@ -448,6 +572,7 @@ class TestMilestoneSyncService:
             # Create a milestone on that stale opportunity with old status
             stale_ms = Milestone(
                 msx_milestone_id="stale-ms-guid-001",
+                owner_name="Previous Seller",
                 url="https://stale.com",
                 title="Stale Milestone",
                 msx_status="On Track",
@@ -465,6 +590,7 @@ class TestMilestoneSyncService:
             "by_id": {
                 "stale-ms-guid-001": {
                     "id": "stale-ms-guid-001",
+                    "owner_name": "New Seller",
                     "name": "Stale Milestone (Updated)",
                     "number": "7-999001",
                     "status": "Completed",
@@ -501,6 +627,7 @@ class TestMilestoneSyncService:
             ms = db.session.get(Milestone, stale_ms_id)
             assert ms.msx_status == "Completed"
             assert ms.title == "Stale Milestone (Updated)"
+            assert ms.owner_name == "New Seller"
             assert ms.last_synced_at is not None
 
             # Cleanup
@@ -608,8 +735,19 @@ class TestMilestoneSyncService:
             assert "account ID" in result["error"]
     
     @patch('app.services.milestone_sync.get_milestones_by_account')
-    def test_sync_all_customer_milestones(self, mock_get, app, sample_data):
+    def test_sync_all_customer_milestones(self, mock_get, app, sample_data, monkeypatch):
         """Full sync should process all customers with tpid_url."""
+        from app.services import milestone_sync
+
+        monkeypatch.setattr(milestone_sync, 'get_tasks_for_milestones',
+                            lambda *args: {'success': True, 'tasks': []})
+        monkeypatch.setattr(milestone_sync, '_sync_team_milestones',
+                            lambda: {'success': True})
+        monkeypatch.setattr(milestone_sync, '_sync_caip_activities',
+                            lambda: {'success': True})
+        monkeypatch.setattr(milestone_sync, '_update_deal_team_memberships', lambda: None)
+        monkeypatch.setattr(milestone_sync, 'get_milestone_audits',
+                            lambda *args: {'success': True, 'audits': {}})
         # Only customer1 has tpid_url in sample_data
         self._create_test_customer_with_tpid_url(app, sample_data)
         

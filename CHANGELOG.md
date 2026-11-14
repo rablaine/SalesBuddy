@@ -8,6 +8,12 @@ brought the change into `main`, so the admin Updates card can show
 Format: `## M/D/YYYY - <merge-short-sha>`. See
 `scripts/tag-changelog.ps1` for the helper that fills this in.
 
+## 11/13/2026
+
+- Refresh milestone owners during MSX sync so reassigned milestones show the current owner.
+- Automatically join the milestone team when creating any task, with a warning if joining fails.
+- Sync all MSX result pages, reconcile moved milestones and cleared fields, and report incomplete syncs as failures.
+
 ## 11/11/2026 - d374f232
 
 - Keep updates from rolling back when startup cleanup interrupts the update monitor.

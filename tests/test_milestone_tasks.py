@@ -314,13 +314,17 @@ class TestMilestoneCreateTask:
         assert MsxTask.query.filter_by(msx_task_id='synced-after-upgrade').one().is_hva is True
         assert MsxTask.query.filter_by(milestone_id=task_milestone.id).count() == 3
 
+    @pytest.mark.parametrize('team_warning', [None, 'Task created, but team join failed.'])
     @patch('app.services.msx_api.create_task')
-    def test_create_task_success(self, mock_create, app, client, db_session, sample_user):
+    def test_create_task_success(
+        self, mock_create, app, client, db_session, sample_user, team_warning,
+    ):
         """Successfully create a task from milestone view."""
         mock_create.return_value = {
             'success': True,
             'task_id': 'msx-new-task-guid',
             'task_url': 'https://example.com/task/msx-new-task-guid',
+            'team_warning': team_warning,
         }
 
         milestone = Milestone(
@@ -347,6 +351,7 @@ class TestMilestoneCreateTask:
         data = response.get_json()
         assert data['success'] is True
         assert data['task_id'] == 'msx-new-task-guid'
+        assert data['team_warning'] == team_warning
 
         # Check local record was created
         task = MsxTask.query.filter_by(msx_task_id='msx-new-task-guid').first()

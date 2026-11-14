@@ -377,8 +377,9 @@ document.addEventListener('DOMContentLoaded', function() {
                     headers: { 'Content-Type': 'application/json' },
                 }
             );
-        }).then(function() {
+        }).then(function(activity) {
             if (createAfter) {
+                if (activity.team_warning) alert(activity.team_warning);
                 window.location.reload();
                 return;
             }

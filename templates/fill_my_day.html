@@ -682,6 +682,7 @@ async function createCardTask(idx) {
             const selectedOpt = categorySelect.options[categorySelect.selectedIndex];
             card.dataset.createdTaskCategoryName = category;
             card.dataset.createdTaskIsHva = selectedOpt?.dataset?.isHva || '';
+            if (result.team_warning) alert(result.team_warning);
         } else {
             throw new Error(result.error || 'Failed to create task');
         }

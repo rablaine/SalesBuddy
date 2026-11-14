@@ -271,6 +271,8 @@ def milestone_create_task(id):
         "task_id": result["task_id"],
         "task_url": result.get("task_url", ""),
         "message": f"Task '{subject}' created successfully",
+        "joined_team": result.get("joined_team"),
+        "team_warning": result.get("team_warning"),
     })
 
 

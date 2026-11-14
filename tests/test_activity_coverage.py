@@ -728,7 +728,8 @@ def test_report_status_and_defaults(app, coverage_data):
         assert updated_row['status'] == 'ready'
 
 
-def test_create_activity_is_idempotent(app, coverage_data):
+@pytest.mark.parametrize('team_warning', [None, 'Task created, but team join failed.'])
+def test_create_activity_is_idempotent(app, coverage_data, team_warning):
     """One meeting can create at most one MSX activity."""
     with app.app_context():
         activity_coverage.update_meeting_draft(coverage_data['meeting_id'], {
@@ -743,6 +744,7 @@ def test_create_activity_is_idempotent(app, coverage_data):
             'success': True,
             'task_id': 'coverage-task-guid',
             'task_url': 'https://example.test/task',
+            'team_warning': team_warning,
         }
         with (
             patch('app.services.msx_api.create_task', return_value=result) as create,
@@ -751,14 +753,16 @@ def test_create_activity_is_idempotent(app, coverage_data):
                 return_value={'success': True},
             ) as close,
         ):
+            warnings = []
             first = activity_coverage.create_meeting_activity(
-                coverage_data['meeting_id'],
+                coverage_data['meeting_id'], warnings=warnings,
             )
             second = activity_coverage.create_meeting_activity(
                 coverage_data['meeting_id'],
             )
 
         assert first.id == second.id
+        assert warnings == ([team_warning] if team_warning else [])
         assert first.statecode == 1
         assert first.statuscode == 5
         assert close.call_count == 2
@@ -777,8 +781,9 @@ def test_create_activity_is_idempotent(app, coverage_data):
         ) + timedelta(hours=15)
 
 
+@pytest.mark.parametrize('team_warning', [None, 'Task created, but team join failed.'])
 def test_create_activity_endpoint_returns_inline_render_fields(
-    client, coverage_data,
+    client, coverage_data, team_warning,
 ):
     """Create endpoint returns complete activity data for row-local rendering."""
     task = SimpleNamespace(
@@ -788,9 +793,15 @@ def test_create_activity_endpoint_returns_inline_render_fields(
         task_category_name='Architecture Design Session',
         milestone=SimpleNamespace(display_text='Deploy Fabric'),
     )
+    def create_with_warning(meeting_id, warnings=None):
+        """Return the created task with any non-blocking membership warning."""
+        if team_warning:
+            warnings.append(team_warning)
+        return task
+
     with patch(
         'app.services.activity_coverage.create_meeting_activity',
-        return_value=task,
+        side_effect=create_with_warning,
     ):
         response = client.post(
             f'/api/reports/activity-coverage/meetings/'
@@ -805,6 +816,7 @@ def test_create_activity_endpoint_returns_inline_render_fields(
     assert payload['subject'] == 'Created inline activity'
     assert payload['category'] == 'Architecture Design Session'
     assert payload['milestone'] == 'Deploy Fabric'
+    assert payload['team_warning'] == team_warning
 
 
 def test_link_existing_activity(app, client, coverage_data):

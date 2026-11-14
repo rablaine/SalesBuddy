@@ -5304,6 +5304,7 @@ function createTaskInMSX() {
             }
             
             saveDraft();
+            if (result.team_warning) alert(result.team_warning);
         } else {
             taskOutcome = 'unknown';
             btn.disabled = true;
