@@ -143,6 +143,14 @@ class TestMilestoneOpportunityFK:
 class TestMilestoneSyncUpsertOpportunity:
     """Tests for opportunity upsert during milestone sync."""
 
+    @pytest.fixture(autouse=True)
+    def mock_opportunity_inventory(self):
+        """Keep opportunity upsert tests independent of remote inventory reads."""
+        with patch('app.services.milestone_sync.get_opportunities_by_account', return_value={
+            'success': True, 'opportunities': [],
+        }):
+            yield
+
     def _make_msx_milestone(self, msx_id, opp_guid, opp_name, name='Test MS'):
         """Helper to create a fake MSX milestone dict."""
         return {
@@ -161,9 +169,12 @@ class TestMilestoneSyncUpsertOpportunity:
             'url': f'https://example.com/milestone/{msx_id}',
         }
 
+    @pytest.mark.parametrize('opportunities_failed', [False, True])
     @patch('app.services.milestone_sync.get_milestones_by_account')
     @patch('app.services.milestone_sync.extract_account_id_from_url')
-    def test_sync_creates_opportunity(self, mock_extract, mock_get_ms, app, db_session, sample_user):
+    def test_sync_creates_opportunity(
+        self, mock_extract, mock_get_ms, app, db_session, sample_user, opportunities_failed,
+    ):
         """Test that sync creates an Opportunity when it doesn't exist."""
         mock_extract.return_value = 'account-guid-123'
         mock_get_ms.return_value = {
@@ -183,9 +194,15 @@ class TestMilestoneSyncUpsertOpportunity:
         db_session.commit()
 
         from app.services.milestone_sync import sync_customer_milestones
-        result = sync_customer_milestones(customer)
+        with patch('app.services.milestone_sync.get_opportunities_by_account', return_value={
+            'success': not opportunities_failed, 'opportunities': [],
+            'error': 'Simulated opportunity inventory failure',
+        }):
+            result = sync_customer_milestones(customer)
 
-        assert result['success']
+        assert result['success'] is not opportunities_failed
+        if opportunities_failed:
+            assert result['error'] == 'Simulated opportunity inventory failure'
         assert result['created'] == 1
 
         # Verify opportunity was created

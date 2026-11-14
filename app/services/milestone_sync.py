@@ -149,13 +149,11 @@ def sync_all_customer_milestones() -> Dict[str, Any]:
         results["stale_milestones_updated"] = stale_result.get(
             "milestones_updated", 0
         )
+        if not stale_result.get("success"):
+            results["errors"].append(stale_result.get("error") or "Stale refresh failed.")
 
     # Calculate duration
     results["duration_seconds"] = (datetime.now(timezone.utc) - start_time).total_seconds()
-    
-    # If all customers failed, mark as failure
-    if results["customers_synced"] == 0 and results["customers_failed"] > 0:
-        results["success"] = False
     
     # Hydrate all team milestones before syncing their evidence.
     team_result = _sync_team_milestones()
@@ -169,8 +167,12 @@ def sync_all_customer_milestones() -> Dict[str, Any]:
         task_result = stop.value
         results["tasks_created"] += task_result.get("tasks_created", 0)
         results["tasks_updated"] += task_result.get("tasks_updated", 0)
+        if not task_result.get("success"):
+            results["errors"].append(task_result.get("error") or "Task sync failed.")
     activity_result = _sync_caip_activities()
     results["activities_synced"] = activity_result.get("activities_synced", 0)
+    if not activity_result.get("success"):
+        results["errors"].append(activity_result.get("error") or "Activity sync failed.")
     _update_deal_team_memberships()
     
     # Sync comments for milestones I'm on the team for
@@ -181,6 +183,8 @@ def sync_all_customer_milestones() -> Dict[str, Any]:
     except StopIteration as stop:
         comment_result = stop.value
         results["comments_synced"] = comment_result.get("comments_synced", 0)
+        if not comment_result.get("success") or comment_result.get("comments_failed"):
+            results["errors"].append(comment_result.get("error") or "Comment sync failed.")
 
     # Sync audit trail for recently-modified milestones
     audit_gen = _sync_milestone_audits()
@@ -190,7 +194,12 @@ def sync_all_customer_milestones() -> Dict[str, Any]:
     except StopIteration as stop:
         audit_result = stop.value
         results["audit_fields_saved"] = audit_result.get("fields_saved", 0)
+        if audit_result.get("success") is False:
+            results["errors"].append(audit_result["error"])
 
+    results["success"] = results["customers_failed"] == 0 and not results["errors"]
+    if not results["success"]:
+        results["error"] = "; ".join(results["errors"][:5])
     logger.info(
         f"Milestone sync complete: {results['customers_synced']} synced, "
         f"{results['customers_failed']} failed, "
@@ -343,6 +352,7 @@ def sync_all_customer_milestones_stream(
     total_opps_synced = 0
     total_opps_updated = 0
     opp_fetch_failures = 0
+    fetch_errors = []
     total_opp_chunks = 0
     _OPP_CHUNK = 15  # accounts per OData call
 
@@ -372,12 +382,15 @@ def sync_all_customer_milestones_stream(
                 SyncStatus.update_heartbeat('milestones')
                 try:
                     batch_opp_result = future.result()
-                except Exception:
+                except Exception as exc:
                     logger.exception("Phase 1a opp chunk failed")
-                    batch_opp_result = {"success": False}
+                    batch_opp_result = {"success": False, "error": str(exc)}
 
                 if not batch_opp_result.get("success"):
                     opp_fetch_failures += 1
+                    fetch_errors.append(
+                        batch_opp_result.get("error") or "MSX opportunity fetch failed."
+                    )
 
                 if batch_opp_result.get("success"):
                     for acct_id, opps in batch_opp_result.get(
@@ -402,17 +415,14 @@ def sync_all_customer_milestones_stream(
                     'progress': min(pct, 8),
                 })
 
-    # If we couldn't reach MSX for ANY opportunity chunk, this is almost always
-    # an off-VPN / off-corpnet connectivity failure. Abort BEFORE the write
-    # phase so we never misreport active milestones as "deactivated" just
-    # because the fetch failed - and surface a clear VPN message instead of
-    # scary numbers.
-    if is_vpn_blocked() or (total_opp_chunks > 0 and opp_fetch_failures >= total_opp_chunks):
-        if not is_vpn_blocked():
-            set_vpn_blocked("Couldn't reach MSX - connect to VPN/corpnet and retry.")
-        yield _sse_event('vpn_blocked', {
-            'message': "Couldn't reach MSX. If you're off VPN/corpnet, connect "
-                       "and try again - no milestones were changed.",
+    if is_vpn_blocked() or opp_fetch_failures:
+        message = (
+            "MSX opportunity fetch was incomplete. No milestone changes were saved. "
+            + "; ".join(fetch_errors[:5])
+        )
+        SyncStatus.mark_completed('milestones', success=False, items_synced=0)
+        yield _sse_event('vpn_blocked' if is_vpn_blocked() else 'error', {
+            'error': message,
         })
         return
 
@@ -425,7 +435,6 @@ def sync_all_customer_milestones_stream(
     }
     all_opp_ids = list(opp_map.keys())
     ms_fetch_failures = 0
-    total_ms_chunks = 0
     _MS_CHUNK = 20  # opp IDs per OData call (matches batch_get_milestones default)
 
     if all_opp_ids:
@@ -434,7 +443,6 @@ def sync_all_customer_milestones_stream(
             for i in range(0, len(all_opp_ids), _MS_CHUNK)
         ]
         total_chunks = len(opp_chunks)
-        total_ms_chunks = total_chunks
         ms_total = 0
 
         # Phase 1b: parallelize milestone chunks with 3 workers. Milestones
@@ -454,12 +462,15 @@ def sync_all_customer_milestones_stream(
                 SyncStatus.update_heartbeat('milestones')
                 try:
                     ms_batch_result = future.result()
-                except Exception:
+                except Exception as exc:
                     logger.exception("Phase 1b milestone chunk failed")
-                    ms_batch_result = {"success": False}
+                    ms_batch_result = {"success": False, "error": str(exc)}
 
                 if not ms_batch_result.get("success"):
                     ms_fetch_failures += 1
+                    fetch_errors.append(
+                        ms_batch_result.get("error") or "MSX milestone fetch failed."
+                    )
 
                 if ms_batch_result.get("success"):
                     for opp_id, ms_list in ms_batch_result.get(
@@ -518,15 +529,14 @@ def sync_all_customer_milestones_stream(
                     'progress': min(pct, 76),
                 })
 
-    # Same connectivity guard for the milestone fetch phase: if we had
-    # opportunities but every milestone chunk failed, bail before writing so we
-    # don't misreport deactivations.
-    if is_vpn_blocked() or (total_ms_chunks > 0 and ms_fetch_failures >= total_ms_chunks):
-        if not is_vpn_blocked():
-            set_vpn_blocked("Couldn't reach MSX - connect to VPN/corpnet and retry.")
-        yield _sse_event('vpn_blocked', {
-            'message': "Couldn't reach MSX. If you're off VPN/corpnet, connect "
-                       "and try again - no milestones were changed.",
+    if is_vpn_blocked() or ms_fetch_failures:
+        message = (
+            "MSX milestone fetch was incomplete. No milestone changes were saved. "
+            + "; ".join(fetch_errors[:5])
+        )
+        SyncStatus.mark_completed('milestones', success=False, items_synced=0)
+        yield _sse_event('vpn_blocked' if is_vpn_blocked() else 'error', {
+            'error': message,
         })
         return
 
@@ -598,48 +608,25 @@ def sync_all_customer_milestones_stream(
     # -----------------------------------------------------------------
     # Phase 2 (cont): Upsert opportunities into DB (catches milestone-less opps)
     # -----------------------------------------------------------------
+    existing_opps = {
+        opp.msx_opportunity_id.lower(): opp
+        for opp in Opportunity.query.all() if opp.msx_opportunity_id
+    }
     for acct_id, opp_ids in opp_by_account.items():
         cid = acct_to_cust.get(acct_id)
         if not cid:
             continue
-        existing_map = {
-            opp.msx_opportunity_id: opp
-            for opp in Opportunity.query.filter_by(customer_id=cid).all()
-            if opp.msx_opportunity_id
-        }
+        created_for_customer = 0
+        updated_for_customer = 0
         for opp_id in opp_ids:
             opp_data = opp_map.get(opp_id)
             if not opp_data:
                 continue
-            existing = existing_map.get(opp_id)
+            existing = existing_opps.get(opp_id.lower())
             if existing:
-                existing.name = opp_data.get("name") or existing.name
-                existing.opportunity_number = (
-                    opp_data.get("number") or existing.opportunity_number
-                )
-                existing.statecode = opp_data.get("statecode")
-                existing.state = opp_data.get("state") or existing.state
-                existing.status_reason = (
-                    opp_data.get("status_reason") or existing.status_reason
-                )
-                existing.estimated_value = opp_data.get("estimated_value")
-                existing.estimated_close_date = opp_data.get(
-                    "estimated_close_date"
-                )
-                existing.owner_name = (
-                    opp_data.get("owner") or existing.owner_name
-                )
-                existing.customer_need = (
-                    opp_data.get("customer_need") or existing.customer_need
-                )
-                existing.description = (
-                    opp_data.get("description") or existing.description
-                )
-                existing.compete_threat = (
-                    opp_data.get("compete_threat") or existing.compete_threat
-                )
-                existing.msx_url = opp_data.get("url") or existing.msx_url
-                total_opps_updated += 1
+                existing.customer_id = cid
+                _update_opportunity_from_msx(existing, opp_data)
+                updated_for_customer += 1
             else:
                 opp = Opportunity(
                     msx_opportunity_id=opp_id,
@@ -658,8 +645,8 @@ def sync_all_customer_milestones_stream(
                     msx_url=opp_data.get("url"),
                 )
                 db.session.add(opp)
-                existing_map[opp_id] = opp
-                total_opps_synced += 1
+                existing_opps[opp_id.lower()] = opp
+                created_for_customer += 1
 
             (existing if existing is not None else opp).cache_msx_dates(
                 opp_data.get("created_on"), opp_data.get("closed_on"),
@@ -667,8 +654,15 @@ def sync_all_customer_milestones_stream(
 
         try:
             db.session.commit()
+            total_opps_synced += created_for_customer
+            total_opps_updated += updated_for_customer
         except Exception:
             db.session.rollback()
+            errors.append(f"Could not save opportunities for customer {cid}.")
+            existing_opps = {
+                opp.msx_opportunity_id.lower(): opp
+                for opp in Opportunity.query.all() if opp.msx_opportunity_id
+            }
             logger.exception(
                 "Error committing opportunities for customer %s", cid
             )
@@ -707,6 +701,8 @@ def sync_all_customer_milestones_stream(
     except StopIteration as stop:
         stale_result = stop.value
         total_stale_ms_updated = stale_result.get('milestones_updated', 0)
+        if not stale_result.get('success'):
+            errors.append(stale_result.get('error') or 'Stale milestone refresh failed.')
     yield _sse_event('stale_sync_end', {
         'milestones_updated': total_stale_ms_updated,
     })
@@ -741,6 +737,7 @@ def sync_all_customer_milestones_stream(
     total_tasks_updated = task_result.get('tasks_updated', 0)
     if not task_result.get('success'):
         logger.warning(f"Batched task sync failed: {task_result.get('error')}")
+        errors.append(task_result.get('error') or 'Task sync failed.')
     yield _sse_event('task_sync_end', {
         'tasks_created': total_tasks_created,
         'tasks_updated': total_tasks_updated,
@@ -791,6 +788,10 @@ def sync_all_customer_milestones_stream(
         total_comments_synced = comment_result.get('comments_synced', 0)
         total_comments_failed = comment_result.get('comments_failed', 0)
         total_comments_skipped = comment_result.get('comments_skipped', 0)
+        if not comment_result.get('success') or total_comments_failed:
+            errors.append(
+                comment_result.get('error') or f'{total_comments_failed} comment fetches failed.'
+            )
     yield _sse_event('comment_sync_end', {
         'comments_synced': total_comments_synced,
         'comments_skipped': total_comments_skipped,
@@ -818,12 +819,17 @@ def sync_all_customer_milestones_stream(
     except StopIteration as stop:
         audit_result = stop.value
         audit_fields_saved = audit_result.get('fields_saved', 0)
+        if audit_result.get('success') is False:
+            errors.append(audit_result['error'])
     yield _sse_event('audit_sync_end', {
         'audit_fields_saved': audit_fields_saved,
     })
 
     duration = round(_time.time() - start_time, 1)
-    sync_success = synced > 0 or failed == 0
+    sync_success = failed == 0 and not errors
+    error = None if sync_success else (
+        "; ".join(errors[:5]) or f"Could not sync {failed} customers."
+    )
 
     SyncStatus.mark_completed(
         'milestones',
@@ -860,6 +866,7 @@ def sync_all_customer_milestones_stream(
         'stale_milestones_updated': total_stale_ms_updated,
         'duration': duration,
         'errors': errors[:5],
+        'error': error,
     })
 
 
@@ -920,6 +927,9 @@ def sync_customer_milestones(
         result["opportunities_updated"] = (
             result.get("opportunities_updated", 0) + opp_result.get("updated", 0)
         )
+        if not opp_result.get("success"):
+            result["success"] = False
+            result["error"] = opp_result.get("error") or "Opportunity sync failed."
 
     return result
 
@@ -978,31 +988,33 @@ def _apply_customer_milestones(
     # Pre-load existing milestones globally by msx_milestone_id to catch
     # milestones that were created under a different customer (e.g., via
     # note save before sync existed, or after a customer re-parent in MSX).
-    incoming_msx_ids = [m.get("id") for m in msx_milestones if m.get("id")]
+    incoming_msx_ids = [m["id"].lower() for m in msx_milestones if m.get("id")]
     existing_milestones_map: Dict[str, Milestone] = {}
     if incoming_msx_ids:
         for ms in Milestone.query.filter(
-            Milestone.msx_milestone_id.in_(incoming_msx_ids),
+            db.func.lower(Milestone.msx_milestone_id).in_(incoming_msx_ids),
         ).all():
-            existing_milestones_map[ms.msx_milestone_id] = ms
+            existing_milestones_map[ms.msx_milestone_id.lower()] = ms
     # Also load any remaining milestones for this customer (for deactivation)
     for ms in Milestone.query.filter_by(customer_id=customer.id).filter(
         Milestone.msx_milestone_id.isnot(None),
-        ~Milestone.msx_milestone_id.in_(list(existing_milestones_map.keys()) or ['']),
+        ~db.func.lower(Milestone.msx_milestone_id).in_(
+            list(existing_milestones_map.keys()) or ['']
+        ),
     ).all():
-        existing_milestones_map[ms.msx_milestone_id] = ms
+        existing_milestones_map[ms.msx_milestone_id.lower()] = ms
 
     # Pre-load existing opportunities to avoid per-row queries
     msx_opp_ids = [
-        m.get("msx_opportunity_id") for m in msx_milestones
+        m["msx_opportunity_id"].lower() for m in msx_milestones
         if m.get("msx_opportunity_id")
     ]
     existing_opps_map: Dict[str, Opportunity] = {}
     if msx_opp_ids:
         for opp in Opportunity.query.filter(
-            Opportunity.msx_opportunity_id.in_(msx_opp_ids)
+            db.func.lower(Opportunity.msx_opportunity_id).in_(msx_opp_ids)
         ).all():
-            existing_opps_map[opp.msx_opportunity_id] = opp
+            existing_opps_map[opp.msx_opportunity_id.lower()] = opp
 
     with db.session.no_autoflush:
         for msx_ms in msx_milestones:
@@ -1024,11 +1036,11 @@ def _apply_customer_milestones(
                 result["opportunities_created"] += 1
 
             # Find existing milestone from pre-loaded map
-            milestone = existing_milestones_map.get(msx_id)
+            milestone = existing_milestones_map.get(msx_id.lower())
 
             if milestone:
                 _update_milestone_from_msx(milestone, msx_ms, customer.id, due_date, now)
-                if opportunity:
+                if "msx_opportunity_id" in msx_ms:
                     milestone.opportunity = opportunity
                 result["updated"] += 1
             else:
@@ -1038,7 +1050,7 @@ def _apply_customer_milestones(
                 if opportunity:
                     milestone.opportunity = opportunity
                 db.session.add(milestone)
-                existing_milestones_map[msx_id] = milestone
+                existing_milestones_map[msx_id.lower()] = milestone
                 result["created"] += 1
 
         # Handle milestones for this customer that are no longer in the MSX
@@ -1047,12 +1059,13 @@ def _apply_customer_milestones(
         # for reasons other than completion (opportunity closed, FY filter,
         # account re-parent, etc.).  We must NOT assume "Completed" - just
         # mark them as synced so we know we checked.
+        normalized_seen_ids = {value.lower() for value in seen_msx_ids}
         for msx_id, existing in existing_milestones_map.items():
             if existing.customer_id != customer.id:
                 continue
             if existing.msx_status not in ACTIVE_STATUSES:
                 continue
-            if msx_id not in seen_msx_ids:
+            if msx_id not in normalized_seen_ids:
                 existing.last_synced_at = now
                 result["deactivated"] += 1
 
@@ -1068,6 +1081,45 @@ def _apply_customer_milestones(
         logger.exception(f"Error saving milestones for customer {customer.id}")
     
     return result
+
+
+def _milestone_parent_maps() -> Tuple[Dict[str, int], Dict[str, Opportunity]]:
+    """Load local account and opportunity identities for fallback reconciliation."""
+    customers = {}
+    for customer in Customer.query.filter(
+        Customer.tpid_url.isnot(None), Customer.tpid_url != '',
+    ).all():
+        account_id = extract_account_id_from_url(customer.tpid_url)
+        if account_id:
+            customers[account_id.lower()] = customer.id
+    opportunities = {
+        opportunity.msx_opportunity_id.lower(): opportunity
+        for opportunity in Opportunity.query.all() if opportunity.msx_opportunity_id
+    }
+    return customers, opportunities
+
+
+def _resolve_milestone_parent(
+    source: Dict[str, Any],
+    milestone: Optional[Milestone],
+    customers: Dict[str, int],
+    opportunities: Dict[str, Opportunity],
+) -> Tuple[Optional[Opportunity], Optional[int]]:
+    """Resolve supplied parent identities without retaining a previous customer's link."""
+    customer_id = milestone.customer_id if milestone else None
+    if "msx_opportunity_id" not in source:
+        opportunity = milestone.opportunity if milestone else None
+    else:
+        opportunity = opportunities.get((source["msx_opportunity_id"] or "").lower())
+        if opportunity:
+            customer_id = opportunity.customer_id
+    if "msx_account_id" in source:
+        customer_id = customers.get((source["msx_account_id"] or "").lower())
+    if source.get("msx_opportunity_id") and (
+        opportunity is not None or "msx_account_id" in source
+    ):
+        opportunity, _ = _upsert_opportunity(source, customer_id, opportunities)
+    return opportunity, customer_id
 
 
 def _sync_stale_milestones(
@@ -1147,12 +1199,14 @@ def _sync_stale_milestones(
     ]
     total_batches = len(chunks)
     now = datetime.now(timezone.utc)
+    customers_by_account, opportunities = _milestone_parent_maps()
 
     logger.info(
         f"Syncing stale milestones: {len(stale_ids)} milestones "
         f"in {total_batches} batches"
     )
 
+    errors = []
     completed = 0
     with ThreadPoolExecutor(max_workers=3) as executor:
         future_to_chunk = {
@@ -1164,19 +1218,21 @@ def _sync_stale_milestones(
             yield (completed, total_batches, f"Stale batch {completed}/{total_batches}")
 
             if is_vpn_blocked():
-                result["error"] = "VPN blocked during stale milestone sync"
+                errors.append("VPN blocked during stale milestone sync")
                 break
 
             try:
                 fetch_result = future.result()
-            except Exception:
+            except Exception as exc:
                 logger.exception("Phase 3 stale chunk failed")
+                errors.append(f"Stale milestone fetch failed: {exc}")
                 continue
 
             if not fetch_result.get("success"):
                 logger.warning(
                     "Stale chunk fetch failed: %s", fetch_result.get("error")
                 )
+                errors.append(fetch_result.get("error") or "Stale milestone fetch failed.")
                 continue
 
             updated_this_batch = 0
@@ -1185,10 +1241,14 @@ def _sync_stale_milestones(
                     local_ms = local_by_id.get(msx_id.lower())
                     if not local_ms:
                         continue
+                    opportunity, customer_id = _resolve_milestone_parent(
+                        msx_ms, local_ms, customers_by_account, opportunities,
+                    )
                     due_date = _parse_msx_date(msx_ms.get("due_date"))
                     _update_milestone_from_msx(
-                        local_ms, msx_ms, local_ms.customer_id, due_date, now
+                        local_ms, msx_ms, customer_id, due_date, now
                     )
+                    local_ms.opportunity = opportunity
                     updated_this_batch += 1
 
             if updated_this_batch:
@@ -1197,10 +1257,14 @@ def _sync_stale_milestones(
                     result["milestones_updated"] += updated_this_batch
                 except Exception:
                     db.session.rollback()
+                    errors.append("Could not save a stale milestone batch.")
+                    customers_by_account, opportunities = _milestone_parent_maps()
                     logger.exception(
                         "Error saving stale milestones (batch %d)", completed
                     )
 
+    result["success"] = not errors
+    result["error"] = "; ".join(errors[:5])
     logger.info(
         f"Stale milestone sync complete: "
         f"{result['milestones_updated']} milestones updated"
@@ -1516,10 +1580,10 @@ def sync_customer_opportunities(customer: Customer) -> Dict[str, Any]:
         result["success"] = True
         return result
 
-    # Pre-load existing opportunities for this customer
+    # Look up globally so moved opportunities retain their local identity and links.
     existing_map = {
-        opp.msx_opportunity_id: opp
-        for opp in Opportunity.query.filter_by(customer_id=customer.id).all()
+        opp.msx_opportunity_id.lower(): opp
+        for opp in Opportunity.query.all()
         if opp.msx_opportunity_id
     }
 
@@ -1528,17 +1592,10 @@ def sync_customer_opportunities(customer: Customer) -> Dict[str, Any]:
         if not opp_id:
             continue
 
-        existing = existing_map.get(opp_id)
+        existing = existing_map.get(opp_id.lower())
         if existing:
-            existing.name = msx_opp.get("name") or existing.name
-            existing.opportunity_number = msx_opp.get("number") or existing.opportunity_number
-            existing.statecode = msx_opp.get("statecode")
-            existing.state = msx_opp.get("state") or existing.state
-            existing.status_reason = msx_opp.get("status_reason") or existing.status_reason
-            existing.estimated_value = msx_opp.get("estimated_value")
-            existing.estimated_close_date = msx_opp.get("estimated_close_date")
-            existing.owner_name = msx_opp.get("owner") or existing.owner_name
-            existing.msx_url = msx_opp.get("url") or existing.msx_url
+            existing.customer_id = customer.id
+            _update_opportunity_from_msx(existing, msx_opp)
             result["updated"] += 1
         else:
             opp = Opportunity(
@@ -1555,7 +1612,7 @@ def sync_customer_opportunities(customer: Customer) -> Dict[str, Any]:
                 msx_url=msx_opp.get("url"),
             )
             db.session.add(opp)
-            existing_map[opp_id] = opp
+            existing_map[opp_id.lower()] = opp
             result["created"] += 1
 
         (existing if existing is not None else opp).cache_msx_dates(
@@ -1725,33 +1782,33 @@ def _sync_team_milestone_comments(
 def _update_milestone_from_msx(
     milestone: Milestone,
     msx_data: Dict[str, Any],
-    customer_id: int,
+    customer_id: Optional[int],
     due_date: Optional[datetime],
     now: datetime,
 ) -> None:
     """Update an existing milestone with fresh data from MSX."""
     milestone.title = msx_data.get("name") or milestone.title
-    milestone.milestone_number = msx_data.get("number") or milestone.milestone_number
     milestone.msx_status = msx_data.get("status") or milestone.msx_status
-    milestone.msx_status_code = msx_data.get("status_code")
-    milestone.customer_commitment = msx_data.get("customer_commitment") or milestone.customer_commitment
-    milestone.milestone_category = (
-        msx_data.get("milestone_category") or milestone.milestone_category
-    )
-    milestone.opportunity_name = msx_data.get("opportunity_name") or milestone.opportunity_name
-    milestone.workload = msx_data.get("workload") or milestone.workload
-    milestone.monthly_usage = msx_data.get("monthly_usage")
-    milestone.due_date = due_date
-    milestone.dollar_value = msx_data.get("dollar_value")
+    for source, target in {
+        "number": "milestone_number", "status_code": "msx_status_code",
+        "customer_commitment": "customer_commitment", "milestone_category": "milestone_category",
+        "opportunity_name": "opportunity_name", "workload": "workload",
+        "monthly_usage": "monthly_usage", "dollar_value": "dollar_value",
+        "owner_name": "owner_name",
+    }.items():
+        if source in msx_data:
+            setattr(milestone, target, msx_data[source])
+    if "due_date" in msx_data:
+        milestone.due_date = due_date
     milestone.url = msx_data.get("url") or milestone.url
     milestone.customer_id = customer_id
     milestone.last_synced_at = now
-    milestone.committed_at = _parse_msx_date(msx_data.get("committed_on"))
-    milestone.completed_at = _parse_msx_date(msx_data.get("completed_on"))
-    milestone.msx_created_on = _parse_msx_date(msx_data.get("created_on"))
-    milestone.msx_modified_on = _parse_msx_date(msx_data.get("modified_on"))
-    if "owner_name" in msx_data:
-        milestone.owner_name = msx_data["owner_name"]
+    for source, target in {
+        "committed_on": "committed_at", "completed_on": "completed_at",
+        "created_on": "msx_created_on", "modified_on": "msx_modified_on",
+    }.items():
+        if source in msx_data:
+            setattr(milestone, target, _parse_msx_date(msx_data[source]))
     # Cache comments if included in the bulk fetch (None = field not requested,
     # so we only update when the key is present in the dict)
     if "comments_json" in msx_data:
@@ -1761,7 +1818,7 @@ def _update_milestone_from_msx(
 
 def _create_milestone_from_msx(
     msx_data: Dict[str, Any],
-    customer_id: int,
+    customer_id: Optional[int],
     due_date: Optional[datetime],
     now: datetime,
 ) -> Milestone:
@@ -1795,9 +1852,28 @@ def _create_milestone_from_msx(
     return ms
 
 
+def _update_opportunity_from_msx(opportunity: Opportunity, source: Dict[str, Any]) -> None:
+    """Apply supplied fields, including explicitly cleared optional values."""
+    for key, field in {
+        "number": "opportunity_number", "statecode": "statecode", "state": "state",
+        "status_reason": "status_reason", "estimated_value": "estimated_value",
+        "estimated_close_date": "estimated_close_date", "owner": "owner_name",
+        "customer_need": "customer_need", "description": "description",
+        "compete_threat": "compete_threat", "url": "msx_url",
+    }.items():
+        if key in source:
+            setattr(opportunity, field, source[key])
+    if source.get("name"):
+        opportunity.name = source["name"]
+    for key, field in {"created_on": "msx_created_on", "closed_on": "msx_closed_on"}.items():
+        if key in source and not source[key]:
+            setattr(opportunity, field, None)
+    opportunity.cache_msx_dates(source.get("created_on"), source.get("closed_on"))
+
+
 def _upsert_opportunity(
     msx_data: Dict[str, Any],
-    customer_id: int,
+    customer_id: Optional[int],
     existing_opps_map: Optional[Dict[str, Opportunity]] = None,
 ) -> Tuple[Optional[Opportunity], bool]:
     """
@@ -1826,9 +1902,11 @@ def _upsert_opportunity(
 
     # Use pre-loaded map if available, otherwise fall back to DB query
     if existing_opps_map is not None:
-        opportunity = existing_opps_map.get(msx_opp_id)
+        opportunity = existing_opps_map.get(msx_opp_id.lower())
     else:
-        opportunity = Opportunity.query.filter_by(msx_opportunity_id=msx_opp_id).first()
+        opportunity = Opportunity.query.filter(
+            db.func.lower(Opportunity.msx_opportunity_id) == msx_opp_id.lower(),
+        ).first()
 
     # Expanded opportunity fields from $expand=msp_OpportunityId
     opp_number = msx_data.get("opportunity_number") or None
@@ -1845,27 +1923,11 @@ def _upsert_opportunity(
 
     if opportunity:
         # Update fields from the expanded opportunity data
-        opportunity.name = opp_name or opportunity.name
         opportunity.customer_id = customer_id
-        if opp_number:
-            opportunity.opportunity_number = opp_number
-        if opp_statecode is not None:
-            opportunity.statecode = opp_statecode
-            opportunity.state = opp_state
-        if opp_status_reason:
-            opportunity.status_reason = opp_status_reason
-        if opp_value is not None:
-            opportunity.estimated_value = opp_value
-        if opp_close_date:
-            opportunity.estimated_close_date = opp_close_date
-        if opp_owner:
-            opportunity.owner_name = opp_owner
-        if opp_customer_need:
-            opportunity.customer_need = opp_customer_need
-        if opp_description:
-            opportunity.description = opp_description
-        if opp_compete:
-            opportunity.compete_threat = opp_compete
+        _update_opportunity_from_msx(opportunity, {
+            key.removeprefix("opportunity_"): value
+            for key, value in msx_data.items() if key.startswith("opportunity_")
+        })
         opportunity.msx_url = opp_url
         opportunity.cache_msx_dates(
             msx_data.get("opportunity_created_on"), msx_data.get("opportunity_closed_on"),
@@ -1894,7 +1956,7 @@ def _upsert_opportunity(
         )
         # Track in map so later milestones sharing this opportunity find it
         if existing_opps_map is not None:
-            existing_opps_map[msx_opp_id] = opportunity
+            existing_opps_map[msx_opp_id.lower()] = opportunity
         else:
             # Flush to get the ID assigned so we can FK to it (legacy path)
             db.session.flush()
@@ -1936,7 +1998,8 @@ def _sync_milestone_audits() -> Generator:
         Dict with counts: audits_fetched, fields_saved, skipped.
     """
     two_weeks_ago = datetime.now(timezone.utc) - timedelta(days=14)
-    stats = {"audits_fetched": 0, "fields_saved": 0, "skipped": 0}
+    stats = {"audits_fetched": 0, "fields_saved": 0, "skipped": 0,
+             "success": True, "error": ""}
 
     # Find milestones with MSX IDs that were modified recently.
     # Only fall back to updated_at when msx_modified_on is NULL (avoids
@@ -1990,6 +2053,7 @@ def _sync_milestone_audits() -> Generator:
 
     if not result.get("success"):
         logger.warning(f"Audit fetch failed: {result.get('error')}")
+        stats.update(success=False, error=result.get("error") or "Audit fetch failed.")
         return stats
 
     # Collect existing (audit_id, field_name) pairs so we can skip duplicates
@@ -2056,6 +2120,7 @@ def _sync_milestone_audits() -> Generator:
             db.session.rollback()
             logger.exception("Error saving milestone audits")
             stats["fields_saved"] = 0
+            stats.update(success=False, error="Could not save milestone audit records.")
     else:
         logger.info("No new audit records to save")
 
@@ -2102,22 +2167,14 @@ def _sync_team_milestones() -> Dict[str, Any]:
                 Milestone.msx_milestone_id.isnot(None)
             ).all()
         }
-        opportunities = {
-            opportunity.msx_opportunity_id.lower(): opportunity
-            for opportunity in Opportunity.query.filter(
-                Opportunity.msx_opportunity_id.isnot(None)
-            ).all()
-        }
+        customers_by_account, opportunities = _milestone_parent_maps()
         now = datetime.now(timezone.utc)
         for milestone_msx_id, msx_data in fetch_result["by_id"].items():
             normalized_id = milestone_msx_id.lower()
             milestone = existing.get(normalized_id)
-            opportunity = opportunities.get(
-                (msx_data.get("msx_opportunity_id") or "").lower()
+            opportunity, customer_id = _resolve_milestone_parent(
+                msx_data, milestone, customers_by_account, opportunities,
             )
-            customer_id = milestone.customer_id if milestone else None
-            if customer_id is None and opportunity:
-                customer_id = opportunity.customer_id
             due_date = _parse_msx_date(msx_data.get("due_date"))
             if milestone:
                 _update_milestone_from_msx(

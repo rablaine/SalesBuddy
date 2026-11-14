@@ -8,7 +8,7 @@ from unittest.mock import patch
 import pytest
 from sqlalchemy.exc import IntegrityError
 
-from app.models import db, Milestone, MsxTask, SyncStatus
+from app.models import db, Customer, Job, Milestone, MsxTask, SyncStatus
 from app.services import job_queue
 
 
@@ -67,6 +67,94 @@ def test_legacy_failure_status_write_cannot_hide_job_failure(client, app, sample
     assert 'event: error' in body
     assert SyncStatus.get_status('milestones')['state'] == 'failed'
     assert 'Internal sync error' in caplog.text
+
+
+@pytest.mark.parametrize('failure', ['stale', 'team', 'tasks'])
+def test_stage_failure_marks_the_durable_job_failed(client, app, sample_data, failure):
+    """A later-stage error cannot finish as a green successful sync."""
+    from app.services import milestone_sync
+
+    def stage_result(stage):
+        """Return a generator carrying its terminal stage result."""
+        yield from ()
+        return {
+            'success': failure != stage,
+            'error': f'Simulated {stage} failure' if failure == stage else '',
+        }
+
+    with patch.object(milestone_sync, 'test_connection', return_value={'success': True}), \
+         patch.object(milestone_sync, 'extract_account_id_from_url',
+                      return_value='aaaabbbb-1111-2222-3333-444455556666'), \
+         patch.object(milestone_sync, 'batch_get_opportunities', return_value={
+             'success': True, 'by_account': {},
+         }), \
+         patch.object(milestone_sync, '_sync_stale_milestones',
+                      side_effect=lambda ids: stage_result('stale')), \
+         patch.object(milestone_sync, '_sync_team_milestones', return_value={
+             'success': failure != 'team', 'error': 'Simulated team failure',
+         }), \
+         patch.object(milestone_sync, '_sync_all_tasks',
+                      side_effect=lambda: stage_result('tasks')), \
+         patch.object(milestone_sync, '_sync_caip_activities',
+                      return_value={'success': True}), \
+         patch.object(milestone_sync, '_update_deal_team_memberships'), \
+         patch.object(milestone_sync, '_sync_team_milestone_comments',
+                      side_effect=lambda **kwargs: stage_result('comments')), \
+         patch.object(milestone_sync, '_sync_milestone_audits',
+                      side_effect=lambda: stage_result('audits')):
+        response = client.post('/api/milestone-tracker/sync', headers={
+            'Accept': 'application/json',
+        })
+        assert response.status_code == 202
+        job_id = response.get_json()['job_id']
+        job_queue.process_one('test-worker', app=app, with_heartbeat=True)
+
+    with app.app_context():
+        job = db.session.get(Job, job_id)
+        assert job.status == 'failed'
+        assert f'Simulated {failure} failure' in job.last_error
+
+
+@pytest.mark.parametrize('failure', ['fetch', 'commit'])
+def test_stale_failure_does_not_refresh_timestamps(app, sample_data, failure):
+    """Unfetched or rolled-back records stay stale and report the failure."""
+    from app.services import milestone_sync
+
+    with app.app_context():
+        customer = db.session.get(Customer, sample_data['customer1_id'])
+        milestone = Milestone(
+            url='https://example.test/stale-fetch-failure', msx_milestone_id='stale-failure',
+            customer=customer, title='Unchanged',
+        )
+        db.session.add(milestone)
+        db.session.commit()
+        response = {
+            'success': failure != 'fetch', 'error': 'Simulated stale fetch failure',
+            'by_id': {'stale-failure': {'id': 'stale-failure', 'name': 'New title'}},
+        }
+        original_commit = db.session.commit
+
+        def commit():
+            """Fail the fallback write without interfering with fixture setup."""
+            if failure == 'commit':
+                raise SQLAlchemyError('Simulated stale commit failure')
+            original_commit()
+
+        with patch.object(milestone_sync, 'batch_get_milestones_by_id',
+                          return_value=response), \
+             patch.object(db.session, 'commit', side_effect=commit):
+            generator = milestone_sync._sync_stale_milestones(set())
+            try:
+                while True:
+                    next(generator)
+            except StopIteration as stop:
+                result = stop.value
+        assert result['success'] is False
+        assert 'stale' in result['error'].lower()
+        assert result['milestones_updated'] == 0
+        db.session.refresh(milestone)
+        assert milestone.last_synced_at is None
+        assert milestone.title == 'Unchanged'
 
 
 @pytest.mark.skipif(shutil.which('node') is None, reason='Node.js is required for JS tests')

@@ -101,6 +101,97 @@ class TestMsxApiHelpers:
         assert milestone['owner_name'] == 'New Seller'
 
 
+class TestSyncFetchCompleteness:
+    """Sync reads must consume all pages or explicitly fail."""
+
+    def test_null_milestone_options_are_cleared_not_stringified(self):
+        """Null option values must not become the visible text 'None'."""
+        from app.services.msx_api import _parse_milestone_record
+
+        milestone = _parse_milestone_record({
+            'msp_engagementmilestoneid': 'cleared-options',
+            'msp_commitmentrecommendation': None,
+            'msp_milestonecategory': None,
+        })
+        assert milestone['customer_commitment'] == ''
+        assert milestone['milestone_category'] == ''
+
+    def test_repeated_continuation_link_fails_without_partial_records(self):
+        """A looping nextLink cannot be mistaken for a complete inventory."""
+        from app.services import msx_api
+
+        response = {
+            'success': True, 'records': [{'id': 'partial'}],
+            'next_link': 'https://example.test/repeated',
+        }
+        with patch.object(msx_api, 'query_next_page', return_value=response) as query:
+            result = msx_api._collect_query_pages(response)
+        assert result['success'] is False
+        assert result['records'] == []
+        assert 'repeated' in result['error']
+        query.assert_called_once()
+
+    @pytest.mark.parametrize(
+        'kind', ['batch_opportunities', 'batch_milestones', 'batch_ids',
+                 'account_milestones', 'account_opportunities'],
+    )
+    @pytest.mark.parametrize('failed_page', [None, 0, 1])
+    def test_pagination_and_failures(self, kind, failed_page):
+        """A later page is required, not optional evidence of a complete sync."""
+        from app.services import msx_api
+
+        responses = []
+        for index in range(3):
+            response = MagicMock(status_code=200, text='Service unavailable')
+            response.json.return_value = {
+                'value': [{
+                    'opportunityid': f'opp-{index}',
+                    '_parentaccountid_value': 'account',
+                    'msp_engagementmilestoneid': f'ms-{index}',
+                    '_msp_opportunityid_value': 'opportunity',
+                    '_msp_parentaccount_value': 'account',
+                    'msp_milestonecategory': 861980001,
+                    'msp_milestonecategory@OData.Community.Display.V1.FormattedValue':
+                        'Production',
+                }],
+                **({'@odata.nextLink': f'https://example.test/page-{index + 1}'}
+                   if index < 2 else {}),
+            }
+            if index == failed_page:
+                response.status_code = 503
+            responses.append(response)
+
+        with patch.object(msx_api, '_msx_request', side_effect=responses) as request:
+            if kind == 'batch_opportunities':
+                result = msx_api.batch_get_opportunities(['account'])
+                records = result.get('by_account', {}).get('account', [])
+            elif kind == 'batch_milestones':
+                result = msx_api.batch_get_milestones(['opportunity'])
+                records = result.get('by_opportunity', {}).get('opportunity', [])
+            elif kind == 'batch_ids':
+                result = msx_api.batch_get_milestones_by_id(['ms-0', 'ms-1', 'ms-2'])
+                records = list(result.get('by_id', {}).values())
+            elif kind == 'account_milestones':
+                result = msx_api.get_milestones_by_account('account')
+                records = result.get('milestones', [])
+            else:
+                result = msx_api.get_opportunities_by_account('account')
+                records = result.get('opportunities', [])
+
+        if failed_page is not None:
+            assert result['success'] is False
+            assert '503' in result['error']
+            assert request.call_count == failed_page + 1
+        else:
+            assert result['success'] is True
+            assert len(records) == 3
+            assert request.call_count == 3
+            assert '$top=' not in request.call_args_list[0].args[1]
+            if 'milestones' in kind or kind == 'batch_ids':
+                assert all(record['milestone_category'] == 'Production' for record in records)
+                assert all(record['msx_account_id'] == 'account' for record in records)
+
+
 class TestTaskTeamMembership:
     """Task creation keeps the local and remote milestone team in sync."""
 
