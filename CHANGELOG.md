@@ -12,6 +12,7 @@ Format: `## M/D/YYYY - <merge-short-sha>`. See
 
 - Refresh milestone owners during MSX sync so reassigned milestones show the current owner.
 - Automatically join the milestone team when creating any task, with a warning if joining fails.
+- Sync all MSX result pages, reconcile moved milestones and cleared fields, and report incomplete syncs as failures.
 
 ## 11/11/2026 - d374f232
 
