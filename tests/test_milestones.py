@@ -2,11 +2,317 @@
 Tests for milestone functionality.
 """
 import json
+import sqlite3
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier, local
 import pytest
 from bs4 import BeautifulSoup
 from datetime import datetime
 from unittest.mock import patch
-from app.models import db, Milestone, Note
+from sqlalchemy.exc import OperationalError, SQLAlchemyError
+from app.models import db, Customer, Engagement, Milestone, MsxTask, Note
+
+
+@pytest.fixture
+def cache_payload(sample_customer):
+    """Supply metadata from a partner tool's completed MSX lookup."""
+    return {
+        "customer_id": sample_customer.id,
+        "tpid": sample_customer.tpid,
+        "msx_milestone_id": "11111111-1111-4111-8111-111111111111",
+        "name": "Fabric adoption",
+        "number": "7-123456789",
+        "status": "On Track",
+        "opportunity_name": "Fabric modernization",
+        "workload": "Fabric",
+        "due_date": "2027-01-15T00:00:00Z",
+        "monthly_usage": 0,
+    }
+
+
+class TestLocalMilestoneCache:
+    """Exercise local provisioning, validation, persistence and retry behavior."""
+
+    def test_create_commit_inventory_and_reuse(self, client, app, cache_payload):
+        """Commit all supplied fields without remote calls or engagement side effects."""
+        from app.services.salesiq_tools import get_milestone_status
+
+        with patch('requests.sessions.Session.request', side_effect=AssertionError("Remote call")):
+            response = client.post('/api/milestones/cache', json=cache_payload)
+        assert response.status_code == 201
+        result = response.get_json()
+        assert result == {
+            "success": True,
+            "local_milestone_id": result["local_milestone_id"],
+            "msx_milestone_id": cache_payload["msx_milestone_id"],
+            "customer_id": cache_payload["customer_id"],
+            "tpid": cache_payload["tpid"],
+            "created": True,
+        }
+        with app.app_context():
+            milestone = db.session.get(Milestone, result["local_milestone_id"])
+            assert milestone.title == cache_payload["name"]
+            assert milestone.milestone_number == cache_payload["number"]
+            assert milestone.msx_status == cache_payload["status"]
+            assert milestone.opportunity_name == cache_payload["opportunity_name"]
+            assert milestone.workload == cache_payload["workload"]
+            assert milestone.due_date == datetime(2027, 1, 15)
+            assert milestone.monthly_usage == 0
+            assert milestone.url.endswith(f'&id={cache_payload["msx_milestone_id"]}')
+            assert not milestone.on_my_team
+            assert milestone.last_synced_at is None
+            assert milestone.opportunity_id is None
+            assert Note.query.count() == Engagement.query.count() == MsxTask.query.count() == 0
+            inventory = get_milestone_status(customer_id=cache_payload["customer_id"])
+            assert [row["id"] for row in inventory] == [milestone.id]
+
+        cache_payload["name"] = "Do not overwrite"
+        reused = client.post('/api/milestones/cache', json=cache_payload)
+        assert reused.status_code == 200
+        assert reused.get_json() == {**result, "created": False}
+        with app.app_context():
+            assert Milestone.query.count() == 1
+            assert Milestone.query.first().title == "Fabric adoption"
+
+    @pytest.mark.parametrize("guid", [
+        "ABCDEFAB-1111-4111-8111-111111111111",
+        "{ABCDEFAB-1111-4111-8111-111111111111}",
+        "abcdefab111141118111111111111111",
+        " urn:uuid:ABCDEFAB-1111-4111-8111-111111111111 ",
+    ])
+    def test_reuse_legacy_guid_spelling(self, client, app, cache_payload, guid):
+        """Legacy GUID spellings resolve to the same local identity without rewriting."""
+        with app.app_context():
+            milestone = Milestone(
+                msx_milestone_id=guid, customer_id=cache_payload["customer_id"], url="existing",
+            )
+            db.session.add(milestone)
+            db.session.commit()
+            local_id = milestone.id
+        cache_payload["msx_milestone_id"] = "{ABCDEFAB-1111-4111-8111-111111111111}"
+        response = client.post('/api/milestones/cache', json=cache_payload)
+        assert response.status_code == 200
+        assert response.json["local_milestone_id"] == local_id
+        assert response.json["msx_milestone_id"] == "abcdefab-1111-4111-8111-111111111111"
+        with app.app_context():
+            assert Milestone.query.count() == 1
+            assert Milestone.query.first().msx_milestone_id == guid
+
+    @pytest.mark.parametrize("status", ["Completed", "Cancelled", "Unknown future status", None])
+    def test_old_and_unknown_metadata(self, client, app, cache_payload, status):
+        """Completion, age and unknown labels must not prevent local provisioning."""
+        cache_payload.update(
+            status=status, workload=None, due_date="2001-01-01T02:00:00+02:00",
+            partner_extension={"future": True},
+        )
+        response = client.post('/api/milestones/cache', json=cache_payload)
+        assert response.status_code == 201
+        with app.app_context():
+            milestone = Milestone.query.first()
+            assert milestone.msx_status == status
+            assert milestone.workload is None
+            assert milestone.due_date == datetime(2001, 1, 1)
+
+    def test_identifiers_only(self, client, app, cache_payload):
+        """Unknown optional metadata can be omitted entirely."""
+        payload = {key: cache_payload[key] for key in ("customer_id", "tpid", "msx_milestone_id")}
+        assert client.post('/api/milestones/cache', json=payload).status_code == 201
+        with app.app_context():
+            assert Milestone.query.first().monthly_usage is None
+
+    @pytest.mark.parametrize("usage", [-1, -25.5])
+    def test_negative_usage(self, client, app, cache_payload, usage):
+        """Preserve finite negative usage supplied by MSX."""
+        cache_payload["monthly_usage"] = usage
+        response = client.post('/api/milestones/cache', json=cache_payload)
+        assert response.status_code == 201
+        with app.app_context():
+            assert Milestone.query.first().monthly_usage == usage
+
+    @pytest.mark.parametrize(("owner", "msx_id"), [
+        ("same", None), ("none", None), ("other", None),
+        ("same", "22222222-2222-4222-8222-222222222222"),
+    ])
+    def test_canonical_url_collision(self, client, app, cache_payload, owner, msx_id):
+        """Reject URL collisions without duplicating or adopting the existing record."""
+        from app.services.msx_api import build_milestone_url
+
+        with app.app_context():
+            other = Customer(name="Other", tpid=12345)
+            db.session.add(other)
+            db.session.flush()
+            owner_id = {
+                "same": cache_payload["customer_id"], "none": None, "other": other.id,
+            }[owner]
+            milestone = Milestone(
+                url=build_milestone_url(cache_payload["msx_milestone_id"]),
+                msx_milestone_id=msx_id, customer_id=owner_id, title="Preserve",
+            )
+            db.session.add(milestone)
+            db.session.commit()
+            local_id = milestone.id
+        response = client.post('/api/milestones/cache', json=cache_payload)
+        assert response.status_code == 409
+        assert response.json["success"] is False
+        assert response.json["retryable"] is False
+        with app.app_context():
+            assert Milestone.query.count() == 1
+            milestone = db.session.get(Milestone, local_id)
+            assert milestone.customer_id == owner_id
+            assert milestone.msx_milestone_id == msx_id
+            assert milestone.title == "Preserve"
+
+    @pytest.mark.parametrize(("field", "value"), [
+        ("customer_id", True), ("customer_id", "42"), ("customer_id", 1.5),
+        ("customer_id", 0), ("customer_id", 2**63), ("tpid", None), ("tpid", -1),
+        ("tpid", "9999"), ("tpid", False), ("msx_milestone_id", None),
+        ("msx_milestone_id", "not-a-guid"),
+        ("msx_milestone_id", "00000000-0000-0000-0000-000000000000"),
+        ("name", []), ("name", "x" * 501), ("number", 7), ("status", "x" * 51),
+        ("opportunity_name", {}), ("workload", "x" * 201),
+        ("due_date", 20270115), ("due_date", ""), ("due_date", "2027-02-30"),
+        ("monthly_usage", True), ("monthly_usage", "0"),
+        ("monthly_usage", float("nan")), ("monthly_usage", float("inf")),
+        ("monthly_usage", float("-inf")),
+    ])
+    def test_invalid_payload(self, client, app, cache_payload, field, value):
+        """Reject invalid types and bounds without persisting anything."""
+        cache_payload[field] = value
+        response = client.post('/api/milestones/cache', json=cache_payload)
+        assert response.status_code == 400
+        assert response.json["success"] is False
+        assert response.json["retryable"] is False
+        with app.app_context():
+            assert Milestone.query.count() == 0
+
+    @pytest.mark.parametrize(("body", "content_type", "status"), [
+        ("{}", "text/plain", 415), ("{", "application/json", 400),
+        ("null", "application/json", 400), ("[]", "application/json", 400),
+        ("{}", "application/json", 400),
+    ])
+    def test_invalid_json(self, client, body, content_type, status):
+        """All invalid request bodies return explicit JSON errors."""
+        response = client.post('/api/milestones/cache', data=body, content_type=content_type)
+        assert response.status_code == status
+        assert response.json["success"] is False
+
+    @pytest.mark.parametrize(("remote", "host", "origin", "status"), [
+        ("192.168.1.10", "localhost", None, 403),
+        ("192.168.1.10", "localhost", "http://localhost", 403),
+        ("127.0.0.1", "attacker.example", None, 403),
+        ("127.0.0.1", "localhost", "https://attacker.example", 403),
+        ("127.0.0.1", "localhost", "null", 403),
+        ("127.0.0.1", "localhost", "http://localhost:5000", 403),
+        ("127.0.0.1", "localhost", "http://localhost", 201),
+        ("::1", "[::1]:5000", None, 201),
+        ("::ffff:127.0.0.1", "127.0.0.1:5000", None, 201),
+    ])
+    def test_local_only(self, client, cache_payload, remote, host, origin, status):
+        """Connection, Host and Origin must be local; forwarded headers cannot bypass it."""
+        headers = {"Host": host, "X-Forwarded-For": "127.0.0.1"}
+        if origin:
+            headers["Origin"] = origin
+        response = client.post(
+            '/api/milestones/cache', json=cache_payload, headers=headers,
+            environ_overrides={"REMOTE_ADDR": remote},
+        )
+        assert response.status_code == status
+
+    def test_customer_identity(self, client, app, cache_payload):
+        """Reject missing customers and numeric TPID mismatches."""
+        response = client.post(
+            '/api/milestones/cache', json={**cache_payload, "customer_id": 999999},
+        )
+        assert response.status_code == 404
+        response = client.post('/api/milestones/cache', json={**cache_payload, "tpid": 1})
+        assert response.status_code == 409
+        with app.app_context():
+            assert Milestone.query.count() == 0
+
+    @pytest.mark.parametrize("customerless", [False, True])
+    def test_no_customer_reassignment(self, client, app, cache_payload, customerless):
+        """Never adopt another customer's milestone or an unowned milestone."""
+        with app.app_context():
+            other = Customer(name="Other", tpid=12345)
+            db.session.add(other)
+            db.session.flush()
+            owner_id = None if customerless else other.id
+            milestone = Milestone(
+                msx_milestone_id=cache_payload["msx_milestone_id"].upper(),
+                customer_id=owner_id, url="existing", title="Preserve",
+            )
+            db.session.add(milestone)
+            db.session.commit()
+        assert client.post('/api/milestones/cache', json=cache_payload).status_code == 409
+        with app.app_context():
+            assert Milestone.query.count() == 1
+            assert Milestone.query.first().customer_id == owner_id
+            assert Milestone.query.first().title == "Preserve"
+
+    def test_ambiguous_legacy_duplicates(self, client, app, cache_payload):
+        """Existing noncanonical duplicates must not produce an arbitrary identity."""
+        with app.app_context():
+            guid = cache_payload["msx_milestone_id"]
+            for spelling in (guid, "{" + guid + "}"):
+                db.session.add(Milestone(
+                    msx_milestone_id=spelling, customer_id=cache_payload["customer_id"],
+                    url="existing",
+                ))
+            db.session.commit()
+        assert client.post('/api/milestones/cache', json=cache_payload).status_code == 409
+
+    @pytest.mark.parametrize("busy", [False, True])
+    def test_failed_commit_and_retry(self, client, app, cache_payload, busy):
+        """A failed commit is rolled back, never acknowledged as successful."""
+        error = SQLAlchemyError("save failed")
+        if busy:
+            cause = sqlite3.OperationalError("database is locked")
+            cause.sqlite_errorcode = sqlite3.SQLITE_BUSY
+            error = OperationalError("insert", {}, cause)
+        with patch.object(db.session, 'commit', side_effect=error):
+            response = client.post('/api/milestones/cache', json=cache_payload)
+        assert response.status_code == (503 if busy else 500)
+        assert response.json["success"] is False
+        assert response.json["retryable"] is busy
+        if busy:
+            assert response.headers["Retry-After"] == "1"
+        with app.app_context():
+            assert Milestone.query.count() == 0
+        assert client.post('/api/milestones/cache', json=cache_payload).status_code == 201
+
+    def test_concurrent_create_and_retry(self, app, cache_payload, monkeypatch):
+        """Race two requests after both observe absence, then retry without duplicates."""
+        from app.services import milestone_cache
+
+        original_find = milestone_cache._find_cached_milestones
+        barrier = Barrier(2)
+        thread_state = local()
+
+        def racing_find(guid):
+            """Synchronize only the first lookup in each competing request."""
+            matches = original_find(guid)
+            if not getattr(thread_state, "looked_up", False):
+                thread_state.looked_up = True
+                barrier.wait(timeout=10)
+            return matches
+
+        def post():
+            """Use independent request and database sessions for competing writers."""
+            with app.test_client() as client:
+                response = client.post('/api/milestones/cache', json=cache_payload)
+                return response.status_code, response.json
+
+        monkeypatch.setattr(milestone_cache, '_find_cached_milestones', racing_find)
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            results = list(executor.map(lambda _: post(), range(2)))
+        assert sorted(status for status, _ in results) in ([200, 201], [201, 503])
+        monkeypatch.setattr(milestone_cache, '_find_cached_milestones', original_find)
+        status, result = post()
+        assert status == 200
+        assert result["created"] is False
+        with app.app_context():
+            assert Milestone.query.count() == 1
+            assert Milestone.query.first().id == result["local_milestone_id"]
 
 
 class TestMilestoneModel:

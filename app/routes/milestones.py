@@ -8,11 +8,13 @@ import json
 import logging
 import calendar as cal
 from datetime import date, datetime, timezone
+from ipaddress import ip_address
+from urllib.parse import urlsplit
 from flask import (
     Blueprint, render_template, request, redirect, url_for,
     flash, g, jsonify, Response, stream_with_context, current_app,
 )
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import OperationalError, SQLAlchemyError
 from app.models import db, Milestone, MsxTask, Note, Customer, Seller, SolutionEngineer, Favorite
 from app.services.seller_mode import get_seller_mode_seller_id
 
@@ -480,6 +482,73 @@ def api_milestone_delete_comment(id: int):
         data['userId'],
     )
     return jsonify(result)
+
+
+def _is_loopback_host(host: str) -> bool:
+    """Recognize localhost and loopback IPs, including IPv4-mapped IPv6."""
+    if host.lower() == 'localhost':
+        return True
+    try:
+        address = ip_address(host)
+    except ValueError:
+        return False
+    mapped = getattr(address, 'ipv4_mapped', None)
+    return address.is_loopback or bool(mapped and mapped.is_loopback)
+
+
+@bp.route('/api/milestones/cache', methods=['POST'])
+def api_cache_milestone() -> tuple[Response, int]:
+    """Create or reuse a local milestone without remote calls or engagement side effects."""
+    from app.services.milestone_cache import cache_milestone
+
+    try:
+        host = urlsplit(request.host_url).hostname or ''
+        origin = request.headers.get('Origin')
+        same_origin = not origin or (
+            origin.lower() == request.host_url.rstrip('/').lower()
+        )
+        local_request = (
+            _is_loopback_host(request.remote_addr or '')
+            and _is_loopback_host(host)
+            and same_origin
+        )
+    except ValueError:
+        local_request = False
+    if not local_request:
+        return jsonify({
+            "success": False, "error": "Only local same-origin requests are allowed",
+            "retryable": False,
+        }), 403
+
+    if not request.is_json:
+        return jsonify({
+            "success": False, "error": "Content-Type application/json is required",
+            "retryable": False,
+        }), 415
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({
+            "success": False, "error": "A valid JSON object is required", "retryable": False,
+        }), 400
+    try:
+        payload, status = cache_milestone(data)
+    except ValueError as exc:
+        return jsonify({"success": False, "error": str(exc), "retryable": False}), 400
+    except SQLAlchemyError as exc:
+        db.session.rollback()
+        logger.exception("Could not cache milestone for customer %s", data.get("customer_id"))
+        sqlite_code = getattr(getattr(exc, 'orig', None), 'sqlite_errorcode', 0)
+        retryable = isinstance(exc, OperationalError) and (sqlite_code & 0xff) in (5, 6)
+        response = jsonify({
+            "success": False,
+            "error": "Database is busy; retry the same request" if retryable
+                     else "Could not save the milestone",
+            "retryable": retryable,
+        })
+        if retryable:
+            response.headers['Retry-After'] = '1'
+        return response, 503 if retryable else 500
+    return jsonify(payload), status
 
 
 @bp.route('/api/milestones/find-or-create', methods=['POST'])

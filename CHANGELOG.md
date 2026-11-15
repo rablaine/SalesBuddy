@@ -8,6 +8,10 @@ brought the change into `main`, so the admin Updates card can show
 Format: `## M/D/YYYY - <merge-short-sha>`. See
 `scripts/tag-changelog.ps1` for the helper that fills this in.
 
+## 11/15/2026
+
+- Let local tools provision existing MSX milestones in Sales Buddy before linking engagements, without calling MSX.
+
 ## 11/15/2026 - 55f123fb
 
 - Restore scrolling in the partner directory so all partners are reachable.

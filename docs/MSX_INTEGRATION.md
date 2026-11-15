@@ -224,6 +224,84 @@ classification rules, validation results, and sync architecture.
 
 ## Milestones
 
+### Local milestone provisioning API
+
+Local tools that already looked up a milestone in MSX can call
+`POST /api/milestones/cache` with `Content-Type: application/json`. Use the running
+Sales Buddy instance: normally `http://127.0.0.1:5151` for the installed app, or
+`http://127.0.0.1:5000` for development.
+
+```json
+{
+  "customer_id": 42,
+  "tpid": 12345,
+  "msx_milestone_id": "11111111-1111-4111-8111-111111111111",
+  "name": "Fabric adoption",
+  "number": "7-123456789",
+  "status": "On Track",
+  "opportunity_name": "Fabric modernization",
+  "workload": "Fabric",
+  "due_date": "2027-01-15T00:00:00Z",
+  "monthly_usage": 0
+}
+```
+
+The three identifiers are required. Customer ID and TPID must be positive JSON
+integers matching an existing customer's numeric TPID. The GUID is normalized
+to lowercase hyphenated form; case, braces, compact form and UUID URNs are accepted.
+The nil GUID is rejected.
+
+All other fields are optional or nullable. Text limits are: name and opportunity
+name 500 characters, number and status 50, workload 200. Status and workload
+labels are not restricted to known MSX values. Due dates accept ISO 8601 dates
+or datetimes, normalize offsets to UTC and treat offset-free input as UTC.
+Usage must be finite; negative values and zero are preserved. Unknown extra fields
+are ignored. Old, completed and cancelled milestones are accepted.
+
+The API generates the normal MSX URL locally and commits before returning:
+
+```json
+{
+  "success": true,
+  "local_milestone_id": 99,
+  "msx_milestone_id": "11111111-1111-4111-8111-111111111111",
+  "customer_id": 42,
+  "tpid": 12345,
+  "created": true
+}
+```
+
+Creation returns **201**. Reuse returns **200** and `created: false`, without
+overwriting any existing metadata. Use `local_milestone_id` when attaching the
+milestone to an engagement. The committed row is immediately available through
+the existing `get_milestone_status(customer_id=...)` inventory.
+If no GUID match exists but the generated canonical MSX URL is already cached,
+the endpoint returns **409** rather than duplicating or adopting that record.
+
+This endpoint performs no MSX calls, team joins, milestone tracking, sync job
+launches, or engagement creation. It requires a loopback connection and a
+loopback Host header; forwarded headers are not trusted. Native local tools
+need no Origin header. If supplied, Origin must match the local request origin.
+Cross-origin browser requests are rejected; CORS is not enabled.
+
+Errors return `{"success": false, "error": "...", "retryable": false}`:
+
+| HTTP status | Meaning |
+| --- | --- |
+| 400 | Malformed JSON, invalid identifiers or metadata |
+| 403 | Nonlocal connection, Host, or cross-origin request |
+| 404 | Customer ID does not exist |
+| 409 | TPID mismatch, conflicting ownership, ambiguous GUID duplicates, or canonical URL collision |
+| 415 | Request is not JSON |
+| 500 | Database save failed; no success is reported |
+| 503 | Database busy/locked; `retryable: true`, `Retry-After: 1` |
+
+Retry the identical request after a timeout, lost response, or 503, with bounded
+backoff. The unique canonical GUID prevents concurrent callers from inserting
+the same milestone twice. Ownership conflicts never reassign a milestone,
+including a customerless record. Correct validation/conflict errors before
+retrying. A 500 requires investigation rather than automatic retries.
+
 ### What Are Milestones?
 
 Milestones (`msp_engagementmilestone`) are consumption plays — tracked customer engagements designed to drive Azure usage. They're linked to accounts via opportunities and can have tasks created against them.
