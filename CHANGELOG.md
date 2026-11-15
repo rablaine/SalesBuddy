@@ -8,7 +8,7 @@ brought the change into `main`, so the admin Updates card can show
 Format: `## M/D/YYYY - <merge-short-sha>`. See
 `scripts/tag-changelog.ps1` for the helper that fills this in.
 
-## 11/15/2026
+## 11/15/2026 - b9ef1463
 
 - Propose Copilot fixes for update failures and email review links, with one investigation per user and update version and no automatic merge or deployment.
 
