@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "report_id": "7ab260f599aa4d81b1bb732dce962fab",
+  "report": {
+    "schema_version": 1,
+    "operation": "update",
+    "recovery": "restored",
+    "upgrade": {
+      "phase": "starting",
+      "error": {
+        "type": "RuntimeError",
+        "category": "operation_failed",
+        "frames": [{"file": "upgrade.py", "line": 8}],
+        "parent_tables": []
+      }
+    }
+  },
+  "attachments": [
+    {
+      "name": "server.log",
+      "contentType": "text/plain",
+      "contentInBase64": "U1lOVEhFVElDIEZBSUxVUkUgTEFCIC0gTk8gUkVBTCBDVVNUT01FUiBEQVRBCnJldHJ5X2RlbGF5KDQpIHJldHVybmVkIDgwIHNlY29uZHM7IGV4cGVjdGVkIDYwLXNlY29uZCBtYXhpbXVtLgo="
+    }
+  ]
+}
