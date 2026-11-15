@@ -159,6 +159,105 @@ def test_original_rich_task_api_round_trip(client, app, dossier):
     assert task["engagement_id"] == dossier["engagement"] and task["note_id"] == dossier["recent"]
 
 
+@pytest.mark.parametrize("fragment", [False, True])
+@pytest.mark.parametrize("ai_only", [False, True])
+def test_solution_resource_links_render_without_changing_source(
+    client, app, dossier, fragment, ai_only,
+):
+    """Shared resource rendering supports Markdown and HTML while other fields stay plain."""
+    source = (
+        '[Azure docs](https://learn.microsoft.com "Documentation")\n'
+        '<a href="https://azure.microsoft.com">Azure</a>\n\n'
+        '- **Fabric**\n- SQL'
+    )
+    with app.app_context():
+        engagement = db.session.get(Engagement, dossier["engagement"])
+        engagement.solution_resources = None if ai_only else source
+        engagement.ai_solution_resources = source if ai_only else None
+        engagement.technical_problem = "<b>Keep literal</b>"
+        db.session.commit()
+    path = f"/api/engagement/{dossier['engagement']}/detail" if fragment else (
+        f"/engagement/{dossier['engagement']}"
+    )
+    soup = BeautifulSoup(client.get(path).data, "html.parser")
+    resources = soup.select_one(".sb-eng-resources")
+    assert resources.name == "div"
+    assert [link["href"] for link in resources.select("a")] == [
+        "https://learn.microsoft.com", "https://azure.microsoft.com",
+    ]
+    for link in resources.select("a"):
+        assert link["target"] == "_blank"
+        assert set(link["rel"]) == {"noopener", "noreferrer"}
+    assert resources.select_one("strong").text == "Fabric"
+    assert len(resources.select("li")) == 2
+    assert ("sb-eng-proposed" in resources.get("class", [])) is ai_only
+    assert "<b>Keep literal</b>" in soup.get_text()
+    if not fragment:
+        assert resources["data-story-value"] == source
+    with app.app_context():
+        engagement = db.session.get(Engagement, dossier["engagement"])
+        assert (engagement.ai_solution_resources if ai_only else engagement.solution_resources) == (
+            source
+        )
+
+
+@pytest.mark.parametrize("source", [
+    '<script>alert(1)</script><a href="javascript:alert(1)" onclick="alert(1)">Unsafe</a>',
+    '<a href="java&#x09;script:alert(1)">Unsafe</a><img src=x onerror=alert(1)>',
+    '<a href="data:text/html,unsafe">Unsafe</a><iframe src="https://example.com">frame</iframe>',
+    '<svg><a href="https://example.com">Unsafe</a></svg>'
+    '<style>body{display:none}</style><b id="spoof" style="color:red">Safe</b>',
+    '[Unsafe](javascript:alert%281%29)\n[Unsafe](vbscript:bad)',
+])
+def test_solution_resources_strip_executable_markup(client, app, dossier, source):
+    """Sanitize on server render and inline-save responses, not by trusting stored source."""
+    with app.app_context():
+        engagement = db.session.get(Engagement, dossier["engagement"])
+        engagement.milestones.clear()
+        db.session.commit()
+    response = client.patch(
+        f'/api/engagement/{dossier["engagement"]}/story',
+        json={"field": "solution_resources", "value": source},
+    )
+    assert response.status_code == 200
+    result = response.get_json()
+    assert result["value"] == source
+    for html in (
+        result["display_html"],
+        BeautifulSoup(client.get(f'/engagement/{dossier["engagement"]}').data, "html.parser")
+        .select_one(".sb-eng-resources").decode_contents(),
+    ):
+        soup = BeautifulSoup(html, "html.parser")
+        assert not soup.select("script, style, iframe, svg, math, object, embed, img")
+        for tag in soup.select("*"):
+            assert not any(name.startswith("on") or name == "style" for name in tag.attrs)
+        assert not soup.select('[id="spoof"]')
+        for link in soup.select("a[href]"):
+            assert link["href"].startswith(("https:", "http:", "mailto:", "/"))
+    with app.app_context():
+        assert db.session.get(Engagement, dossier["engagement"]).solution_resources == source
+
+
+def test_solution_resources_inline_save_and_clear(client, app, dossier):
+    """Inline saves return safe rendered links immediately and preserve line breaks."""
+    with app.app_context():
+        engagement = db.session.get(Engagement, dossier["engagement"])
+        engagement.milestones.clear()
+        db.session.commit()
+    path = f'/api/engagement/{dossier["engagement"]}/story'
+    source = 'First line\n[Email](mailto:owner@example.com)'
+    result = client.patch(path, json={"field": "solution_resources", "value": source}).get_json()
+    rendered = BeautifulSoup(result["display_html"], "html.parser")
+    assert result["value"] == source
+    assert rendered.select_one("br")
+    assert rendered.select_one("a")["href"] == "mailto:owner@example.com"
+    result = client.patch(path, json={"field": "solution_resources", "value": ""}).get_json()
+    assert result["is_empty"]
+    assert BeautifulSoup(result["display_html"], "html.parser").text == "Not yet filled in"
+    with app.app_context():
+        assert db.session.get(Engagement, dossier["engagement"]).solution_resources is None
+
+
 def test_full_and_fragment_inline_javascript_parses(client, dossier):
     """Every preserved controller parses as shipped, including native task scripts and AI review."""
     node = shutil.which("node")

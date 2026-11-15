@@ -114,17 +114,22 @@ root._engagement.toggleEngagementFavorite = toggleEngagementFavorite;
             </div>
             <div class="sb-eng-section-body">
                 {% macro story_field(key, label, prompt, value, ai_value='', color='') %}
+                {% set rich = key == 'solution_resources' %}
+                {% set tag = 'div' if rich else 'p' %}
                 <div class="sb-eng-field">
                     <div>
                         <strong>{{ label }}</strong>
                     </div>
                     <small class="sb-eng-prompt">{{ prompt }}</small>
+                    {% if rich and show_header_actions %}
+                    <small class="sb-eng-muted">Links: [label](https://...) or HTML. Click text to edit.</small>
+                    {% endif %}
                     {% if value %}
-                    <p class="story-inline-value" style="white-space: pre-wrap;{% if color %} color: {{ color }};{% endif %}"{% if show_header_actions %} data-story-field="{{ key }}" data-story-value="{{ value|e }}" tabindex="0" title="Click to edit"{% endif %}>{{ value }}</p>
+                    <{{ tag }} class="story-inline-value{% if rich %} sb-eng-resources{% endif %}" style="white-space: {{ 'normal' if rich else 'pre-wrap' }};{% if color %} color: {{ color }};{% endif %}"{% if show_header_actions %} data-story-field="{{ key }}" data-story-value="{{ value|e }}" tabindex="0" title="Click to edit"{% endif %}>{{ value|solution_resources if rich else value }}</{{ tag }}>
                     {% elif ai_value %}
-                    <p class="story-inline-value sb-eng-proposed" style="white-space: pre-wrap;{% if color %} color: {{ color }};{% endif %}"{% if show_header_actions %} data-story-field="{{ key }}" data-story-value="{{ ai_value|e }}" tabindex="0" title="AI-generated value - click to edit and confirm"{% else %} title="AI-generated value (not manually confirmed)"{% endif %}>{{ ai_value }}</p>
+                    <{{ tag }} class="story-inline-value sb-eng-proposed{% if rich %} sb-eng-resources{% endif %}" style="white-space: {{ 'normal' if rich else 'pre-wrap' }};{% if color %} color: {{ color }};{% endif %}"{% if show_header_actions %} data-story-field="{{ key }}" data-story-value="{{ ai_value|e }}" tabindex="0" title="AI-generated value - click to edit and confirm"{% else %} title="AI-generated value (not manually confirmed)"{% endif %}>{{ ai_value|solution_resources if rich else ai_value }}</{{ tag }}>
                     {% else %}
-                    <p class="story-inline-value sb-eng-empty"{% if show_header_actions %} data-story-field="{{ key }}" data-story-value="" tabindex="0" title="Click to edit"{% endif %}>Not yet filled in</p>
+                    <{{ tag }} class="story-inline-value sb-eng-empty{% if rich %} sb-eng-resources{% endif %}"{% if show_header_actions %} data-story-field="{{ key }}" data-story-value="" tabindex="0" title="Click to edit"{% endif %}>Not yet filled in</{{ tag }}>
                     {% endif %}
                 </div>
                 {% endmacro %}
@@ -197,8 +202,15 @@ root._engagement.toggleEngagementFavorite = toggleEngagementFavorite;
             const storyValues = document.querySelectorAll('[data-story-field]');
 
             function finishStoryEdit(valueElement, editorHost, data) {
+                if (valueElement.dataset.storyField === 'solution_resources') {
+                    if (typeof data.display_html !== 'string') {
+                        throw new Error('Resource rendering was not returned. Reload before retrying.');
+                    }
+                    valueElement.innerHTML = data.display_html;
+                } else {
+                    valueElement.textContent = data.display_value;
+                }
                 valueElement.dataset.storyValue = data.value;
-                valueElement.textContent = data.display_value;
                 valueElement.hidden = false;
                 valueElement.style.removeProperty('opacity');
                 valueElement.classList.toggle('sb-eng-empty', data.is_empty);
@@ -298,10 +310,12 @@ root._engagement.toggleEngagementFavorite = toggleEngagementFavorite;
             }
 
             storyValues.forEach(function(valueElement) {
-                valueElement.addEventListener('click', function() {
+                valueElement.addEventListener('click', function(event) {
+                    if (event.target.closest('a')) return;
                     activateStoryEditor(valueElement);
                 });
                 valueElement.addEventListener('keydown', function(event) {
+                    if (event.target !== valueElement) return;
                     if (event.key === 'Enter' || event.key === ' ') {
                         event.preventDefault();
                         activateStoryEditor(valueElement);

@@ -364,6 +364,11 @@ standalone UI iterations using entirely fictional data. See the
   manual positions are saved with the tasks and survive refreshes.
 - **Engagement directory** - a native desktop list retains the complete engagement population, seller/customer grouping, status and favorite filters, story health, dates, ACR and linked-work counts. Commands stay visible while the directory scrolls; Back restores filters, order and reading position. New Engagement uses the existing customer picker; creation, rich editing and full detail retain their existing workflows.
 - **Engagement dossier** - the complete story and relationships sit alongside follow-ups and notes in native reading panes. Full pages and action-queue embeds share guarded rich task editors, original APIs and retained failed-save entries; note and shared task editors preserve rich descriptions too.
+  Solution Resources renders Markdown links (`[Azure docs](https://learn.microsoft.com)`)
+  and safe HTML (`<a href="https://learn.microsoft.com">Azure docs</a>`), including
+  basic formatting and lists. Links open separately; click surrounding text to edit
+  the original source. Plain text and line breaks remain supported. Scripts, unsafe
+  URL schemes, images and embedded content are not rendered.
 - **MSX Workspace** - browse cached opportunities, milestones and open tasks in native
   tabs with independent reading regions, raw-value column sorting and restored scope
   on Back. Applied filters are saved in localStorage for reloads and new report windows;
@@ -609,6 +614,9 @@ standalone UI iterations using entirely fictional data. See the
   their full existing project
   content in the same detail modal. Their current points and discussion history stay
   with the initiative, even if the source project is later deleted.
+  Deleting an engagement removes its items from every initiative, including those
+  items' current points and discussion history. Initiatives and other linked work
+  remain intact. Deleted milestone and project snapshots retain their existing behavior.
   Click a work row to open its existing detail page in a modal, including engagement
   notes or milestone comments. The **(1:1 notes)** link beside a seller opens their
   full existing 1:1 workspace, including standing notes and the next conversation's

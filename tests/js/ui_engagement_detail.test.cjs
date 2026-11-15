@@ -90,6 +90,57 @@ function tasks() {
 }
 async function settle() { for (let i = 0; i < 15; i++) await Promise.resolve(); }
 
+test('resource links bypass inline editing, which retains source and renders saved HTML', async () => {
+    const source = '[Azure docs](https://learn.microsoft.com)';
+    const handlers = {}, writes = [], editors = [];
+    const value = {dataset: {storyField: 'solution_resources', storyValue: source},
+        hidden: false, style: {removeProperty() {}},
+        classList: {toggle() {}, remove() {}},
+        addEventListener(name, handler) { handlers[name] = handler; },
+        insertAdjacentElement(_position, element) { editors.push(element); },
+        closest() { return null; }};
+    const root = {_engagement: {report() {}}};
+    const doc = {
+        currentScript: {closest: () => root},
+        querySelectorAll: () => [value],
+        getElementById: () => ({textContent: ''}),
+        createElement() {
+            return {dataset: {}, handlers: {}, setAttribute() {}, focus() {}, select() {},
+                addEventListener(name, handler) { this.handlers[name] = handler; },
+                remove() { this.removed = true; }};
+        },
+    };
+    const context = {window: {document: doc, SBEngagementDetail: {
+        document: () => doc,
+        fetch: (_root, url, options) => new Promise(resolve => writes.push({url, options, resolve})),
+    }}, console};
+    const script = [...partial.matchAll(/<script>([\s\S]*?)<\/script>/g)]
+        .map(match => match[1]).find(script => script.includes('function finishStoryEdit'));
+    vm.runInNewContext(script.replaceAll('{{ engagement.id }}', '7'), context);
+    const link = {closest: () => ({})};
+    handlers.click({target: link});
+    handlers.keydown({target: link, key: 'Enter', preventDefault() {
+        assert.fail('Link activation must retain its default behavior');
+    }});
+    assert.equal(editors.length, 0);
+    handlers.click({target: value});
+    assert.equal(editors[0].value, source);
+    const editor = editors[0];
+    editor.value = '[Updated](https://learn.microsoft.com/azure)';
+    editor.handlers.keydown({key: 'Enter', shiftKey: false, preventDefault() {}});
+    assert.equal(JSON.parse(writes[0].options.body).value, editor.value);
+    const html = '<p><a href="https://learn.microsoft.com/azure" rel="noopener noreferrer">Updated</a></p>';
+    writes[0].resolve({ok: true, json: async () => ({
+        success: true, value: editor.value, display_value: editor.value,
+        display_html: html, is_empty: false, story_completeness: 42,
+    })});
+    await settle();
+    assert.equal(value.innerHTML, html);
+    assert.equal(value.dataset.storyValue, editor.value);
+    assert.equal(value.hidden, false);
+    assert.equal(editor.removed, true);
+});
+
 test('native rich task create and edit keep all fields and image-only HTML', async () => {
     const h = tasks();
     h.api.openNewTaskModal();

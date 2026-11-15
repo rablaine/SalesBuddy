@@ -35,5 +35,9 @@ waitress
 # HTML Parsing (for tests)
 beautifulsoup4==4.14.3
 
+# Markdown and safe HTML rendering for engagement solution resources
+Markdown==3.11.3
+nh3==0.3.7
+
 # MCP Server (VS Code Copilot integration)
 mcp>=1.27.0

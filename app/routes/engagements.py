@@ -18,11 +18,13 @@ from app.models import (
 from app.services.milestone_tracking import track_engagement_on_milestones
 from app.services.seller_mode import get_seller_mode_seller_id
 from app.services.action_item_ordering import save_action_item_order
+from app.services.solution_resources import render_solution_resources
 
 logger = logging.getLogger(__name__)
 
 # Create blueprint
 engagements_bp = Blueprint('engagements', __name__)
+engagements_bp.add_app_template_filter(render_solution_resources, 'solution_resources')
 def _resolve_customer_milestones(
     customer_id: int,
     milestone_ids: list,
@@ -510,17 +512,22 @@ def engagement_edit(id: int):
 
 @engagements_bp.route('/engagement/<int:id>/delete', methods=['POST'])
 def engagement_delete(id: int):
-    """Delete an engagement (does NOT delete linked notes/milestones/opps)."""
+    """Delete an engagement and its initiative items, preserving linked source work."""
     engagement = Engagement.query.get_or_404(id)
     customer_id = engagement.customer_id
     title = engagement.title
 
-    # Clear associations (but don't delete linked objects)
-    engagement.notes = []
-    engagement.opportunities = []
-    engagement.milestones = []
-    db.session.delete(engagement)
-    db.session.commit()
+    try:
+        engagement.notes = []
+        engagement.opportunities = []
+        engagement.milestones = []
+        db.session.delete(engagement)
+        db.session.commit()
+    except SQLAlchemyError:
+        db.session.rollback()
+        logger.exception("Could not delete engagement %s and its initiative items", id)
+        flash('Could not delete the engagement. Nothing was removed. Please retry.', 'danger')
+        return redirect(url_for('engagements.engagement_view', id=id))
 
     flash(f'Engagement "{title}" deleted.', 'success')
     return redirect(url_for('customers.customer_view', id=customer_id))
@@ -831,6 +838,10 @@ def engagement_update_story_field(id: int):
         display_value=display_value,
         is_empty=not value,
         story_completeness=engagement.story_completeness,
+        **(
+            {'display_html': str(render_solution_resources(display_value))}
+            if field == 'solution_resources' else {}
+        ),
     )
 
 
