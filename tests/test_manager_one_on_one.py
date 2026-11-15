@@ -412,9 +412,9 @@ def test_unavailable_link_does_not_hide_available_candidates(client, app, initia
     assert [item['id'] for item in results] == [initiative_data['engagement']]
 
 
-@pytest.mark.parametrize('item_type', ['engagement', 'milestone'])
-def test_unavailable_entity_uses_snapshot(client, app, initiative_data, item_type):
-    """A deleted source retains enough report context to remove the stale link."""
+def test_unavailable_milestone_uses_snapshot(client, app, initiative_data):
+    """A deleted milestone retains enough report context to remove the stale link."""
+    item_type = 'milestone'
     section = create_section(client)
     add_work(client, section['id'], item_type, [initiative_data[item_type]])
     with app.app_context():
@@ -565,10 +565,11 @@ def test_archiving_failure_preserves_the_current_block(client, app, initiative_d
     assert client.get(url).json['item'] == saved
 
 
-def test_history_is_scoped_to_initiative_link_and_survives_source_deletion(
-    client, app, initiative_data,
+@pytest.mark.parametrize('via_route', [False, True])
+def test_history_is_scoped_to_initiative_link_and_removed_with_engagement(
+    client, app, initiative_data, via_route,
 ):
-    """Shared work has independent agendas and stale source links retain their discussion."""
+    """Deleting an engagement removes all its initiative items and their dependent history."""
     first = create_section(client)
     second = create_section(client, 'Second focus')
     for section in [first, second]:
@@ -577,16 +578,51 @@ def test_history_is_scoped_to_initiative_link_and_survives_source_deletion(
     url = f"{API}/items/{items[0]['id']}"
     client.patch(url, json={'talking_points': 'Discussed here only'})
     client.post(f'{url}/discuss', json={'talking_points': 'Discussed here only'})
-    with app.app_context():
-        db.session.delete(db.session.get(Engagement, initiative_data['engagement']))
-        db.session.commit()
     assert len(client.get(url).json['item']['discussed_points']) == 1
     other = client.get(f"{API}/items/{items[1]['id']}").json['item']
     assert other['discussed_points'] == []
-    assert not other['available']
-    assert client.delete(url).status_code == 200
+    for section in [first, second]:
+        assert add_work(
+            client, section['id'], 'milestone', [initiative_data['milestone']],
+        ).status_code == 200
+    if via_route:
+        response = client.post(f"/engagement/{initiative_data['engagement']}/delete")
+        assert response.status_code == 302
+    else:
+        with app.app_context():
+            db.session.delete(db.session.get(Engagement, initiative_data['engagement']))
+            db.session.commit()
+    for item in items:
+        assert client.get(f"{API}/items/{item['id']}").status_code == 404
+    sections = client.get(API).json['sections']
+    assert len(sections) == 2
+    assert all([item['item_type'] for item in section['items']] == ['milestone']
+               for section in sections)
     with app.app_context():
         assert ManagerDiscussedPoint.query.count() == 0
+        assert ManagerInitiativeItem.query.filter_by(item_type='engagement').count() == 0
+        assert db.session.get(Milestone, initiative_data['milestone']) is not None
+
+
+def test_failed_engagement_deletion_preserves_initiative_items_and_history(
+    client, app, initiative_data,
+):
+    """A failed delete rolls back the source, initiative links and discussion history."""
+    section = create_section(client)
+    add_work(client, section['id'], 'engagement', [initiative_data['engagement']])
+    item = client.get(API).json['sections'][0]['items'][0]
+    url = f"{API}/items/{item['id']}"
+    client.patch(url, json={'talking_points': 'Keep discussion'})
+    client.post(f'{url}/discuss', json={'talking_points': 'Keep discussion'})
+    before = client.get(url).json['item']
+    with patch.object(db.session, 'commit', side_effect=SQLAlchemyError('delete failure')):
+        response = client.post(f"/engagement/{initiative_data['engagement']}/delete")
+    assert response.status_code == 302
+    assert response.headers['Location'].endswith(f"/engagement/{initiative_data['engagement']}")
+    assert client.get(url).json['item'] == before
+    with app.app_context():
+        assert db.session.get(Engagement, initiative_data['engagement']) is not None
+        assert ManagerDiscussedPoint.query.count() == 1
 
 
 def test_legacy_points_do_not_invent_a_creation_timestamp(client, app, initiative_data):

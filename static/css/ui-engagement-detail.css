@@ -41,6 +41,12 @@
 .sb-eng-field strong, .sb-eng-outcomes strong { font-size: 12px; font-weight: 600; }
 .sb-eng-prompt { display: block; color: var(--sb-ui-muted); font-size: 12px; font-style: italic; margin: 2px 0 8px; }
 .story-inline-value { margin: 4px 0 0; overflow-wrap: anywhere; }
+.sb-eng-resources > :first-child { margin-top: 0; }
+.sb-eng-resources > :last-child { margin-bottom: 0; }
+.sb-eng-resources p, .sb-eng-resources ul, .sb-eng-resources ol { margin: 0 0 8px; }
+.sb-eng-resources ul, .sb-eng-resources ol { padding-left: 24px; }
+.sb-eng-resources pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+.sb-eng-resources a { text-decoration: underline; cursor: pointer; }
 .sb-eng-empty { margin: 4px 0; color: var(--sb-ui-muted); font-size: 12px; font-style: italic; }
 .sb-eng-proposed::after { content: " (AI draft)"; font-size: 11px; color: var(--sb-ui-muted); }
 .sb-eng-outcomes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }

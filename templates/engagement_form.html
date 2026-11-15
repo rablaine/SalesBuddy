@@ -80,7 +80,9 @@
             <div class="ef-field">
                 <label for="solution_resources">Solution Resources <small>"We are addressing the Opportunity with..."</small></label>
                 <textarea id="solution_resources" name="solution_resources" rows="3"
+                          aria-describedby="solution_resources_hint"
                           placeholder="What Azure services/solutions are we proposing?">{{ field_value('solution_resources') }}</textarea>
+                <small id="solution_resources_hint">Supports Markdown links like [Azure docs](https://learn.microsoft.com) and safe HTML.</small>
             </div>
             <div class="ef-outcome-row">
                 <div class="ef-field">

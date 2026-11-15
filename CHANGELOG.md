@@ -8,6 +8,11 @@ brought the change into `main`, so the admin Updates card can show
 Format: `## M/D/YYYY - <merge-short-sha>`. See
 `scripts/tag-changelog.ps1` for the helper that fills this in.
 
+## 11/15/2026
+
+- Render clickable Markdown and safe HTML links in engagement Solution Resources while keeping the original text editable.
+- Remove deleted engagements and their discussion history from all initiatives instead of leaving unavailable rows.
+
 ## 11/15/2026 - e1362150
 
 - Let local tools provision existing MSX milestones in Sales Buddy before linking engagements, without calling MSX.

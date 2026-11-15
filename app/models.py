@@ -415,7 +415,7 @@ class ManagerInitiativeItem(db.Model):
     created_at = db.Column(db.DateTime, default=utc_now, nullable=False)
     section = db.relationship('ManagerInitiativeSection', back_populates='items')
     milestone = db.relationship('Milestone')
-    engagement = db.relationship('Engagement')
+    engagement = db.relationship('Engagement', back_populates='initiative_items')
     project = db.relationship('Project')
     discussed_points = db.relationship(
         'ManagerDiscussedPoint',
@@ -1147,6 +1147,11 @@ class Engagement(db.Model):
 
     # Relationships
     customer = db.relationship('Customer', back_populates='engagements')
+    initiative_items = db.relationship(
+        'ManagerInitiativeItem',
+        back_populates='engagement',
+        cascade='all, delete-orphan',
+    )
     notes = db.relationship(
         'Note',
         secondary=notes_engagements,
