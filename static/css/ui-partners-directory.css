@@ -6,7 +6,7 @@
 .partners-commands { display: flex; align-items: center; gap: 8px; }
 .partners-commands .sb-dialog-button { gap: 6px; text-decoration: none; }
 .partners-primary { color: var(--sb-ui-accent); }
-.partners-reading { overflow: auto; scrollbar-gutter: stable; overflow-anchor: none; }
+.sb-partners-directory .partners-reading { overflow: auto; scrollbar-gutter: stable; overflow-anchor: none; }
 .partners-table { width: min(100%, 1180px); border-collapse: collapse; table-layout: fixed; }
 .partners-table :is(th, td) { padding: 8px 16px; border-bottom: 1px solid var(--sb-ui-grid-line); text-align: left; vertical-align: middle; }
 .partners-table :is(th, td):first-child { padding-left: 24px; width: 24%; }

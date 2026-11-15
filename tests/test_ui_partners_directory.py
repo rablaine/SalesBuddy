@@ -1,6 +1,8 @@
 """Native directory and existing sharing APIs, using only the isolated test database."""
 
+import re
 from unittest.mock import patch
+from urllib.parse import urlsplit
 
 import pytest
 from bs4 import BeautifulSoup
@@ -34,8 +36,26 @@ def test_native_empty_commands_and_shared_dialogs(client):
         assert dialog.name == "dialog"
         assert "sb-dialog" in dialog["class"]
         assert not dialog.select(".modal,.btn,[data-bs-dismiss]")
+    scripts = [urlsplit(script["src"]).path for script in soup.select("script[src]")]
     for filename in ("ui-partners-directory.js", "share.js", "ui-table-sort.js", "ui-dialog.js"):
-        assert len(soup.select(f'script[src="/static/js/{filename}"]')) == 1
+        assert scripts.count(f"/static/js/{filename}") == 1
+
+
+def test_directory_reading_pane_overrides_shell_clipping(client):
+    """The keyboard-accessible list must scroll inside the fixed page frame."""
+    root, soup = directory(client)
+    styles = [urlsplit(link["href"]).path for link in soup.select('link[rel="stylesheet"]')]
+    shell = "/static/css/ui-page-frame.css"
+    directory_css = "/static/css/ui-partners-directory.css"
+    assert styles.index(shell) < styles.index(directory_css)
+    reading = root.select_one(".partners-reading")
+    assert reading.has_attr("data-sb-page-body")
+    assert reading["tabindex"] == "0"
+    source = client.get(directory_css).get_data(as_text=True)
+    rule = re.search(r"\.sb-partners-directory \.partners-reading\s*\{([^}]+)\}", source)
+    assert rule is not None
+    assert "overflow: auto;" in rule.group(1)
+    assert "scrollbar-gutter: stable;" in rule.group(1)
 
 
 def test_complete_original_data_axes_and_numeric_keys(app, client):
