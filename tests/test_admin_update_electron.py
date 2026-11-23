@@ -85,6 +85,9 @@ class TestMigrateToElectron:
         assert resp.status_code == 200
         assert resp.get_json()['success'] is True
         mock_popen.assert_called_once()
+        cmd = ' '.join(mock_popen.call_args[0][0])
+        assert 'migrate-to-electron.ps1' in cmd
+        assert '-Rebuild' in cmd
         # Launched in its own visible console window (CREATE_NEW_CONSOLE = 0x10).
         _, kwargs = mock_popen.call_args
         assert kwargs.get('creationflags', 0) & 0x00000010
@@ -108,6 +111,7 @@ class TestMigrateToElectron:
         assert resp.status_code == 200
         cmd = ' '.join(mock_popen.call_args[0][0])
         assert '_migrate_console_test.ps1' in cmd
+        assert '-Rebuild' not in cmd
 
     def test_prod_mode_launches_real_migration_script(self, client):
         """In production, the button launches the real migration script."""
