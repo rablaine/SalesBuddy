@@ -564,11 +564,9 @@ def api_vacuum_database():
 def api_migrate_to_electron():
     """Launch the Flask -> Electron desktop migration in a visible console.
 
-    Mirrors the Update button, but opens a real console window so the user can
-    watch the (longer, one-time) desktop-app build and read any error directly,
-    instead of the web page having to poll through its own Flask stack being
-    torn down. The migration script builds the shell BEFORE stopping the stack,
-    so a build failure leaves the current app running.
+    Opens a real console window so the user can watch the one-time desktop-app
+    build and read any error directly. A fresh shell build prevents a failed
+    installer build from leaving stale or partial Electron files to be reused.
     """
     if sys.platform != 'win32':
         return jsonify({'error': 'The desktop app is only supported on Windows'}), 400
@@ -593,8 +591,9 @@ def api_migrate_to_electron():
     # desktop (the autostart task runs in the interactive session). Wrap the
     # script in a Read-Host so the window stays up after it finishes or fails.
     CREATE_NEW_CONSOLE = 0x00000010
+    rebuild = '' if is_dev else ' -Rebuild'
     inner = (
-        f"& '{script}'; Write-Host ''; "
+        f"& '{script}'{rebuild}; Write-Host ''; "
         "Read-Host 'Setup finished - press Enter to close this window'"
     )
     cmd = ['powershell.exe', '-ExecutionPolicy', 'Bypass', '-NoProfile',
