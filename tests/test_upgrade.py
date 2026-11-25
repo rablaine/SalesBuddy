@@ -96,6 +96,7 @@ def installation(tmp_path, monkeypatch):
     module = SimpleNamespace(resolve_db_path=lambda: database, backup_database=backup_database)
     real_db_module = upgrade._db_module
     real_sender = upgrade.start_report_delivery
+    real_run = upgrade._run
     monkeypatch.setattr(upgrade, '_db_module', lambda _: module)
     control = {'revision': OLD, 'dirty': False, 'requirements': False, 'fail': None, 'calls': []}
 
@@ -150,7 +151,8 @@ def installation(tmp_path, monkeypatch):
     monkeypatch.setattr(upgrade, 'start_report_delivery', lambda *_: None)
     monkeypatch.setattr(upgrade, 'recovery_contact_email', lambda: None)
     return SimpleNamespace(repo=repo, database=database, control=control,
-                           real_db_module=real_db_module, real_sender=real_sender)
+                           real_db_module=real_db_module, real_sender=real_sender,
+                           real_run=real_run)
 
 
 @pytest.mark.parametrize('fails', [False, True])
@@ -579,6 +581,49 @@ def test_update_failure_is_durable_and_recoverable(installation, failure):
     assert 'Private fixture' not in diagnostic
     assert 'private exception' not in diagnostic
     assert str(fixture.database) not in diagnostic
+
+
+def test_rehearsal_timeout_stops_before_live_migration(installation, monkeypatch):
+    """A timed-out rehearsal preserves the source and reports only safe metadata."""
+    fixture = installation
+    original = fixture.database.read_bytes()
+    upgrade.prepare(fixture.repo)
+    simulated_run = upgrade._run
+    calls = []
+
+    def timeout_run(argv, **kwargs):
+        """Simulate the rehearsal child exceeding the command deadline."""
+        calls.append((argv, kwargs))
+        raise subprocess.TimeoutExpired(argv, kwargs['timeout'], output='private output')
+
+    def run(repo, argv, **kwargs):
+        """Use the actual command wrapper only for the rehearsal subprocess."""
+        if 'app.upgrade_rehearsal' in argv:
+            return fixture.real_run(repo, argv, **kwargs)
+        return simulated_run(repo, argv, **kwargs)
+
+    monkeypatch.setattr(upgrade, '_run', run)
+    monkeypatch.setattr(upgrade.subprocess, 'run', timeout_run)
+    with pytest.raises(subprocess.TimeoutExpired):
+        upgrade.apply_update(fixture.repo)
+
+    state = upgrade.load_state(fixture.repo)
+    report = upgrade.failure_report(fixture.repo, state)
+    assert state['phase'] == 'failed' and state['failed_phase'] == 'rehearsing'
+    assert state['recovery_ready'] and state['changes_started']
+    assert report['recovery'] == 'incomplete'
+    assert report['upgrade']['phase'] == 'rehearsing'
+    assert report['upgrade']['error']['category'] == 'timeout'
+    assert report['upgrade']['error']['type'] == 'Error'
+    assert [frame['file'] for frame in report['upgrade']['error']['frames']] == [
+        'upgrade.py', 'upgrade.py', 'upgrade.py',
+    ]
+    assert len(calls) == 1 and calls[0][1]['timeout'] == upgrade.COMMAND_TIMEOUT
+    assert '--live' not in calls[0][0]
+    assert not any('--live' in call for call in fixture.control['calls'])
+    assert fixture.database.read_bytes() == original
+    assert 'private output' not in json.dumps(report)
+    assert str(fixture.database) not in json.dumps(report)
 
 
 def test_apply_waits_for_independent_readiness_before_success(installation):
