@@ -624,6 +624,8 @@ def test_rehearsal_timeout_stops_before_live_migration(installation, monkeypatch
     assert fixture.database.read_bytes() == original
     assert 'private output' not in json.dumps(report)
     assert str(fixture.database) not in json.dumps(report)
+
+
 def test_apply_waits_for_independent_readiness_before_success(installation):
     """Passing migrations means starting, not update complete; unchanged requirements skip pip."""
     fixture = installation
